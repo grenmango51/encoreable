@@ -1,0 +1,19 @@
+{
+  "name": "encoreable",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pokemon Showdown replay branching experiments",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "spike:reproduce": "node spikes/01-reproduce.js",
+    "local:play": "node scripts/local-play.mjs",
+    "local:stop": "node scripts/local-stop.mjs",
+    "local:check": "node scripts/local-check.mjs"
+  },
+  "dependencies": {
+    "pokemon-showdown": "0.11.11"
+  }
+}
