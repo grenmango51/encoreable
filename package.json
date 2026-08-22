@@ -9,7 +9,11 @@
   },
   "scripts": {
     "spike:reproduce": "node spikes/01-reproduce.js",
+    "start": "node scripts/local-battle.mjs",
+    "battle": "node scripts/local-battle.mjs",
     "local:play": "node scripts/local-play.mjs",
+    "local:battle": "node scripts/local-battle.mjs",
+    "local:auto": "node scripts/local-battle.mjs",
     "local:stop": "node scripts/local-stop.mjs",
     "local:check": "node scripts/local-check.mjs"
   },

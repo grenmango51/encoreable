@@ -5,10 +5,13 @@ const SRC = path.join(process.cwd(), 'node_modules', 'pokemon-showdown');
 const DEST = path.join(process.cwd(), 'runtime');
 
 // 1. Create/Refresh runtime by copying node_modules/pokemon-showdown
-if (fs.existsSync(DEST)) {
-  fs.rmSync(DEST, { recursive: true, force: true });
+if (!fs.existsSync(DEST)) {
+  fs.cpSync(SRC, DEST, { recursive: true });
+} else {
+  try {
+    fs.cpSync(SRC, DEST, { recursive: true, force: true });
+  } catch (e) {}
 }
-fs.cpSync(SRC, DEST, { recursive: true });
 
 // 2. Ensure log dirs exist
 fs.mkdirSync(path.join(DEST, 'logs', 'repl'), { recursive: true });
@@ -26,6 +29,9 @@ exports.simulatorworkers = 1;
 exports.nodatabase = true;
 exports.autolock = false;
 exports.disablecrashguard = false;
+exports.noguestsecurity = true;
+exports.nothrottle = true;
+exports.noipchecks = true;
 `;
 
 fs.writeFileSync(path.join(DEST, 'config', 'config.js'), configContent);

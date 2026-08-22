@@ -26,9 +26,23 @@ const mimeTypes = {
   '.json': 'application/json'
 };
 
+const AUTOBATTLE_FILE = path.join(process.cwd(), 'scripts', 'autobattle.js');
+
 const clientServer = http.createServer((req, res) => {
-  let filePath = req.url.split('?')[0];
-  if (filePath === '/' || filePath === '/testclient.html') filePath = '/testclient-old.html';
+  let urlPath = req.url.split('?')[0];
+  if (urlPath === '/autobattle.js') {
+    if (fs.existsSync(AUTOBATTLE_FILE)) {
+      res.writeHead(200, { 'Content-Type': 'text/javascript' });
+      return res.end(fs.readFileSync(AUTOBATTLE_FILE, 'utf-8'));
+    }
+  }
+  if (urlPath === '/config/testclient-key.js' || urlPath === '/testclient-key.js') {
+    res.writeHead(200, { 'Content-Type': 'text/javascript' });
+    return res.end('window.POKEMON_SHOWDOWN_TESTCLIENT_KEY = "local";');
+  }
+
+  let isTestClient = (urlPath === '/' || urlPath === '/testclient.html');
+  let filePath = isTestClient ? '/testclient-old.html' : urlPath;
   filePath = path.join(CLIENT_DIR, filePath);
 
   const ext = path.extname(filePath).toLowerCase();
@@ -44,6 +58,12 @@ const clientServer = http.createServer((req, res) => {
         res.end('Server error: ' + err.code);
       }
     } else {
+      if (isTestClient) {
+        let html = content.toString('utf-8');
+        html = html.replace('</body>', '<script src="/autobattle.js"></script>\n</body>');
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        return res.end(html, 'utf-8');
+      }
       res.writeHead(200, { 'Content-Type': contentType });
       res.end(content, 'utf-8');
     }
