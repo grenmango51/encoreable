@@ -63,13 +63,16 @@ window.POKEMON_SHOWDOWN_TESTCLIENT_KEY = 'local';
   const autoTeam = params.get('autoteam');
   const autoChallenge = params.get('autochallenge');
   const autoAccept = params.get('autoaccept');
+  // Live-branch mode: join an already-running battle room instead of starting a
+  // new challenge. The teams come from the imported input log, so no team is set.
+  const autoJoin = params.get('autojoin');
   const format = params.get('format') || 'gen9championsvgc2026regmb';
 
-  if (!autoName && !autoTeam && !autoChallenge && !autoAccept) {
+  if (!autoName && !autoTeam && !autoChallenge && !autoAccept && !autoJoin) {
     return; // Normal manual mode
   }
 
-  console.log('[Encoreable Autobattle] Started for:', { autoName, autoTeam, autoChallenge, autoAccept });
+  console.log('[Encoreable Autobattle] Started for:', { autoName, autoTeam, autoChallenge, autoAccept, autoJoin });
 
   // Standard legal teams for Champions VGC 2026 Reg M-B
   const P1_PACKED = 'Gardevoir||Gardevoirite|Synchronize|Moonblast,Psychic,Thunderbolt,Protect|Modest|2,,,32,,32||||50|,,,,,Fairy]Klefki||LightClay|Prankster|Sandstorm,ThunderWave,Reflect,Protect|Calm|2,,,32,,32||||50|,,,,,Steel]Tyranitar||LumBerry|SandStream|RockSlide,Crunch,LowKick,Protect|Adamant|2,,,32,,32||||50|,,,,,Rock]Excadrill||FocusSash|SandRush|HighHorsepower,IronHead,RockSlide,Protect|Jolly|2,,,32,,32||||50|,,,,,Ground]Sinistcha||Leftovers|Hospitality|MatchaGotcha,StrengthSap,RagePowder,TrickRoom|Calm|2,,,32,,32||||50|,,,,,Water]Kommo-o||WhiteHerb|Overcoat|ClangingScales,AuraSphere,Flamethrower,Protect|Modest|2,,,32,,32||||50|,,,,,Steel';
@@ -110,7 +113,8 @@ window.POKEMON_SHOWDOWN_TESTCLIENT_KEY = 'local';
             data.message.includes('not found') ||
             data.message.includes('not challenging you') ||
             data.message.includes('security restrictions') ||
-            data.message.includes('already using the name')
+            data.message.includes('already using the name') ||
+            data.message.includes('already in')
           ) {
             console.log('[Encoreable Autobattle] Silenced popup:', data.message);
             return null;
@@ -129,7 +133,8 @@ window.POKEMON_SHOWDOWN_TESTCLIENT_KEY = 'local';
           (message.includes('not found') ||
            message.includes('not challenging you') ||
            message.includes('security restrictions') ||
-           message.includes('already using the name'))
+           message.includes('already using the name') ||
+           message.includes('already in'))
         ) {
           console.log('[Encoreable Autobattle] Silenced popup message:', message);
           return;
@@ -166,7 +171,25 @@ window.POKEMON_SHOWDOWN_TESTCLIENT_KEY = 'local';
           if (window.app.closePopup) window.app.closePopup();
         }
 
-        // 2. Set active team immediately
+        // 2. Join an existing room, or set a team and start a challenge.
+        //
+        // Never send /utm in join mode. Supplying a team to a side that already
+        // has one throws in sim/battle.ts:3245 and kills the battle.
+        if (autoJoin) {
+          let joinAttempts = 0;
+          let joinInterval = setInterval(() => {
+            const joined = !!(window.app.rooms && window.app.rooms[autoJoin]);
+            if (joined || joinAttempts >= 30) {
+              clearInterval(joinInterval);
+              if (joined && typeof app.focusRoom === 'function') app.focusRoom(autoJoin);
+              return;
+            }
+            joinAttempts++;
+            app.send('/join ' + autoJoin);
+          }, 500);
+          return;
+        }
+
         setTimeout(() => {
           app.send('/utm ' + selectedTeamPacked);
         }, 200);

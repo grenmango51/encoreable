@@ -52,7 +52,7 @@ async function main() {
 
   if (!serverRunning) {
     console.log('Starting local Showdown server and client host...');
-    spawn('node', ['scripts/local-play.mjs'], {
+    spawn(process.execPath, ['scripts/local-play.mjs'], {
       cwd: ROOT_DIR,
       stdio: 'inherit',
       detached: true

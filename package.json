@@ -21,7 +21,9 @@
     "rng": "node scripts/local-rng.mjs",
     "local:rng": "node scripts/local-rng.mjs",
     "branch": "node scripts/local-branch.mjs",
-    "local:branch": "node scripts/local-branch.mjs"
+    "local:branch": "node scripts/local-branch.mjs",
+    "live": "node scripts/local-live.mjs",
+    "local:live": "node scripts/local-live.mjs"
   },
   "dependencies": {
     "pokemon-showdown": "0.11.11"

@@ -36,7 +36,20 @@ exports.noipchecks = true;
 // (server/room-battle.ts:850). Without it, logData - and the inputLog with it -
 // is discarded the moment the battle ends.
 exports.logchallenges = true;
+
+// The live-branch launcher drives /importinputlog over a websocket as an
+// ordinary guest. That command needs the "importinputlog" permission, which only
+// the ~ group holds - and ~ is out of reach here: a name listed in
+// usergroups.csv counts as trusted, and a trusted name requires an
+// authentication token from a login server (server/users.ts:640). Granting the
+// permission to the default group keeps the whole thing inside config/ and
+// leaves no other rank in play.
+const defaults = require('./config-example.js');
+exports.grouplist = defaults.grouplist.map(group => (
+  group.symbol === ' ' ? { ...group, importinputlog: true, ignorelimits: true } : group
+));
 `;
 
 fs.writeFileSync(path.join(DEST, 'config', 'config.js'), configContent);
+
 console.log('Local server runtime provisioned.');

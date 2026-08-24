@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename);
 const RUNTIME_DIR = path.join(process.cwd(), 'runtime');
 const CLIENT_DIR = path.join(process.cwd(), 'vendor', 'pokemon-showdown-client', 'play.pokemonshowdown.com');
 
-const serverProcess = spawn('node', ['./pokemon-showdown', '8000'], {
+const serverProcess = spawn(process.execPath, ['./pokemon-showdown', '8000'], {
   cwd: RUNTIME_DIR,
   stdio: 'inherit'
 });

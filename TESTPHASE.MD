@@ -22,8 +22,8 @@ Target ruleset is **Pokémon Champions VGC** (`[Gen 9 Champions] VGC 2026 Reg M-
 | Determinism (Task 1) | **DONE — PASS.** Input logs round-trip byte-identically. |
 | Full information (Task 2) | **DONE — YES on our own server, NO on the public ladder.** |
 | Per-roll RNG control (Task 4) | **DONE.** Tier 1 shipped for all five draw kinds. |
-| Restore to turn N (Task 3) | **OPEN.** |
-| Playable branch (Task 5) | **OPEN.** Its boundary is now precisely known — see §5. |
+| Restore to turn N (Task 3) | **DONE.** `scripts/lib/truncate.mjs`, §5.9. |
+| Playable branch (Task 5) | **DONE.** `npm run live` — the native battle UI, both sides, §5.9. |
 
 Nothing in §§1–6 needs re-deriving. It was established by experiment on a real battle, and
 the scripts that establish it are checked in and re-runnable.
@@ -37,8 +37,10 @@ Do not build any of these. If a task seems to require one, stop and ask.
 - **No original battle mechanics.** Never write damage, accuracy, turn-order, or status
   logic. Showdown's simulator is the sole source of truth. If mechanics look wrong, the fix
   is upstream or in a config, never a reimplementation.
-- **No fork of Showdown.** Consume it as a dependency. Read its source freely.
-- **No UI work** until Task 5 is signed off.
+- **No fork of Showdown.** Consume it as a dependency. Read its source freely. Change only
+  `config/`, and only through `provision-local-server.mjs`.
+- **No custom battle UI.** The native client is the UI (§5.9). If you find yourself writing a
+  move button, stop.
 
 ### Working style
 
@@ -166,9 +168,9 @@ Omniscient logs are officially sanctioned upstream (Zarel) — this is not a hol
 ### 3.1 `Config.logchallenges` — the one-line unlock
 
 `server/room-battle.ts:850` only calls `logBattle()` for **unrated** challenge battles when
-`Config.logchallenges` is set. Without it, `logData` — and the input log with it — is
-discarded the instant the battle ends. Twenty-two battles produced zero log files before this
-was found. It is now set in `scripts/provision-local-server.mjs`.
+`Config.logchallenges` is set. Without it, `logData` — and the input log with it — is discarded
+the instant the battle ends, and the server writes no log file at all. It is set in
+`scripts/provision-local-server.mjs`.
 
 Anything that depends on reading a finished battle's input log depends on this flag.
 
@@ -226,10 +228,9 @@ The 16 damage rolls do not produce 16 distinct damage numbers. On the fixture, a
 had a reachable ladder of **39 / 40 / 42 / 43 / 45 / 46** — deltas of 1, 3 and 4 only.
 **A delta of 2 or 5 is unreachable.**
 
-This is why "just edit the number in the log" is the wrong mechanism, and why the throwaway
-editor that did so was deleted: it would happily write `44`, a damage value **no roll can
-produce**. The log would be internally inconsistent with its own seed and would fail any
-honest re-simulation.
+This is why editing the number in the log directly is the wrong mechanism. It can write `44`,
+a damage value **no roll can produce** — a log internally inconsistent with its own seed, which
+fails any honest re-simulation. Roll selection is the only sound approach.
 
 Consequences for the branch UI:
 - "Deal N more damage" is **not always a legal request.** Enumerate the reachable ladder and
@@ -367,6 +368,35 @@ line 13 of the fixture is `>p2 switch 4, pass`, a **mid-turn faint replacement**
 choice. Replay one line at a time and watch `battle.turn` — that is the only reliable way to
 land on a turn boundary.
 
+### 5.9 The branch is played in the real battle UI, not a terminal
+
+`npm run live` puts a truncated position into a live server room and opens two browser windows
+on it. `LIVE-BRANCH.MD` is the feature doc; the facts worth carrying forward:
+
+- **`/importinputlog` creates a *playable* room and can start mid-game.** `Rooms.createBattle`
+  with `inputLog` writes the whole log to the stream (`server/room-battle.ts:577`), so the
+  battle sits wherever the log ends, and a joiner receives the full history from turn 1.
+- **The `~` group is unreachable on this server, and is not needed.** A name in
+  `config/usergroups.csv` is *trusted*, and a trusted name requires an authentication token
+  from a login server (`server/users.ts:640`) — `noguestsecurity` does not exempt it. So
+  `provision-local-server.mjs` grants `importinputlog` to the **default group** through
+  `Config.grouplist` instead, and the launcher connects as an ordinary guest.
+- **`MAX_MESSAGE_LENGTH` never applies to a command.** The 1000-character cap is enforced
+  inside `checkChat` (`server/chat.ts:1246`), which `importinputlog` does not call. A 1.7KB
+  import goes through untouched; `ignorelimits` is belt-and-braces.
+- **One user cannot hold both slots** (`server/room-battle.ts:665`), so the two windows run
+  under separate Chrome `--user-data-dir` profiles.
+- **Joining does not disturb the battle.** `setPlayer` takes an edit branch for a side that
+  already exists (`sim/battle.ts:3223`) and the joiner is sent the current `|request|`. But
+  `sim/battle.ts:3245` throws if a team is supplied — **never send `/utm` when joining an
+  imported room.**
+- **Exact HP needs no server patch.** As a *player* you see your own side exactly and the
+  opponent as percentages, so the two windows between them show every value. The channel −1
+  patch of §3 is only for a single omniscient window.
+- **`|player|` lines land mid-log.** Taking a slot writes one into the room log wherever the
+  join happened, and one into the input log. Filter them out of both sides of a protocol
+  comparison — their position is a fact about when someone clicked, not about the battle.
+
 ---
 
 ## 6. Traps that cost real time
@@ -378,9 +408,16 @@ land on a turn boundary.
 target. Replaying that line takes the explicit path, which demands a target, and the choice is
 rejected. The input log is unreplayable.
 
-`server/room-battle.ts:452` writes `>pN default` on turn-timer expiry whenever
-`timeoutAutoChoose` is on — **and it is on for VGC.** So any human battle where the clock runs
-out produces a broken input log. This appears to be unreported upstream.
+Two ways a `default` choice reaches the sim:
+
+- Any client that sends `/choose default` directly. Verified: this is what produced an
+  unreplayable log here.
+- `server/room-battle.ts:452` writes `>pN default` on turn-timer expiry, but only while
+  `timeoutAutoChoose` is on. It defaults to `false` (`:202`) and is enabled only by an explicit
+  `timeoutautochoose` ruleset (`sim/dex-formats.ts:328`). No shipped format includes it, and
+  `data/mods/champions/rulesets.ts:26` has it commented out — so this path is dormant for VGC.
+
+The defect appears to be unreported upstream. The rule: never send `default`.
 
 Three consequences:
 - Our scripted players must **never** send `/choose default`. Always send an explicit target.
@@ -402,8 +439,8 @@ does not emit — truncate to five fields.
 ### 6.3 The vendored client is not usable in a browser
 
 `scripts/lib/replay-html.mjs` emits the same shell as a downloaded Showdown replay, with two
-deliberate deviations, both documented in the file. **A fully offline replay was attempted and
-abandoned:**
+deliberate deviations, both documented in the file. **A fully offline replay is not possible
+from the checkout as it stands:**
 
 - `config/config.js` is a placeholder whose contents are literally the text
   `../../config/config.js`
@@ -456,15 +493,21 @@ already drifted once.
 | `npm run replay` | Provision, play the fixture, re-simulate, diff, render, report. The determinism + full-information proof. |
 | `npm run rng` | Paired damage-roll substitution. Proves per-roll control with a net-zero outcome. |
 | `npm run branch` | Four single-decision branches with CLEAN / TRUNCATED / REJECTED verdicts. |
+| `npm run live` | Truncate at a turn, import it as a live room, open two windows on it. §5.9. |
 
 Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
-`replay.bat`, `rng.bat`, `branch.bat` are the double-click entry points.
+`npm run live` takes `--at <turn>`, `--dry-run` and `--verify <log.json>`.
+`replay.bat`, `rng.bat`, `branch.bat`, `live.bat` are the double-click entry points.
 
 | File | Role |
 |---|---|
 | `scripts/lib/protocol.mjs` | the one shared log filter and diff (§6.2) |
 | `scripts/lib/rng-control.mjs` | per-draw RNG control for all five kinds (§4) |
 | `scripts/lib/ws-player.mjs` | scripted WebSocket player, explicit targets only (§6.1) |
+| `scripts/lib/ws-admin.mjs` | scripted connection that issues `/importinputlog` (§5.9) |
+| `scripts/lib/truncate.mjs` | cut an input log back to a turn boundary (§5.8) |
+| `scripts/lib/verify-branch.mjs` | prove a played branch is prefix + new choices (§5.9) |
+| `scripts/lib/browser.mjs` | two isolated browser profiles, side by side (§5.9) |
 | `scripts/lib/replay-html.mjs` | replay shell (§6.3) |
 | `scripts/fixtures/teams.js` | the two fixture teams, as export text, packed at runtime |
 | `scripts/provision-local-server.mjs` | local config, including `logchallenges` (§3.1) |
@@ -477,61 +520,32 @@ test vector and not a symmetric one that would pass by accident.
 
 ## 8. Open tasks
 
-### Task 3 — Restore to turn N
+### A longer fixture
 
-Build `src/restore.js`, exporting `restoreToTurn(inputLog, turnNumber)` → a live `Battle`
-positioned at the start of that turn, ready to accept choices.
+The current one is five turns and ends almost immediately, so there is barely anywhere to
+branch and `npm run live --at 6` has nothing to stand on. Also needed to exercise `REJECTED`
+(§5.2) and to learn whether roll-table caching is actually required (§4.3).
 
-Implementation: replay the input log **one line at a time**, stopping when `battle.turn`
-reaches the target (§5.8 — do not slice by index). Do **not** hand-construct state; the
-simulator maintains its own invariants, which is the entire reason this approach is preferred.
+Record it with `npm run battle`, or play one out from a live branch — either way it lands in
+`runtime/logs` with its input log intact (§3.1).
 
-Most of this is already proven by the §5.6 spike — a truncated replay leaves a live battle with
-`ended=false` and both sides' `requestState` set to `move`. What is left is packaging.
+### RNG control inside a live room
 
-What we already know that helps:
-- The replay path is proven exact (§1), so a truncated prefix is trustworthy.
-- Parse the packed teams out of `>player pN`, never regenerate from a seed (§2.7).
-- Compare positions through `battleLines()` (§6.2), not raw logs.
-- Reject an input log containing a `default` choice up front with a clear message (§6.1).
+`scripts/lib/rng-control.mjs` patches a `Battle` object in-process. A live branch's battle
+lives in the server's simulator worker, so the two do not meet yet. Forcing a crit inside a
+room the browser is playing needs a different hook — probably a `>eval`-style write on the
+battle stream, which `sim/battle-stream.ts` already accepts.
 
-**Acceptance:** for a battle of N turns, restoring to each turn 1..N produces a battle whose
-public state matches the original log at that point. Assert on HP, status, field conditions,
-side conditions, and active Pokémon.
+Keep this separate from getting the room into position; they are independent problems.
 
-### Task 5 — Playable branch (CLI)
+**Acceptance:** the operator can name a draw before a turn resolves in a live branch and see
+the forced outcome in the browser.
 
-Wire Task 3 and the existing RNG control into a terminal loop: load a battle, pick a turn,
-then repeatedly accept choices for **both** sides, applying any requested RNG overrides, and
-print the resulting protocol.
+### A single omniscient window
 
-§5 already fixes the shape of this: the loop is not optional garnish, it is what takes over at
-the truncation point. Design it so that the recorded-choice replay and the human-driven
-continuation are the same code path with different choice sources.
-
-Hard-won constraints, all from §5.6–5.8:
-- Offer choices from `side.activeRequest`, never from scraped chunks (§5.7).
-- After every write, assert the turn advanced. A choice built from a stale request is a
-  **silent no-op** — no error, no progress (§5.7).
-- Append `' +N'` only for the five choosable target types (§6.1). Never send `default` (§6.1).
-- The branched battle grows its own `inputLog`, so "save this branch" and "branch again from
-  the branch" need no new machinery (§5.6).
-- Render the branch with the existing `buildReplayHtml` — `local-branch.mjs` already does.
-- For RNG overrides, expose the reachable ladder (§4.3), not a free-text damage number.
-
-**Acceptance:** the project owner can load one of their own games, branch at a chosen turn,
-play three turns differently, and force at least one crit.
-
-**This is the first thing worth showing anyone. Stop here and demo it.**
-
-### Small, worth doing alongside Task 5 — not blocking it
-
-- **A longer fixture.** The current one is five turns and ends almost immediately, so there is
-  barely anywhere to branch. Also needed to exercise `REJECTED` (§5.2) and to learn whether
-  roll-table caching is actually required (§4.3).
-- **`/importinputlog` into a live room.** Deferred by the owner. Note the blocker:
-  `server/rooms.ts:1964` hands spectators channel 0, so exact HP needs a server-side patch to
-  serve channel −1. The mechanism exists (§3); only the plumbing is missing.
+Optional polish. Two windows show every exact value between them (§5.9), so this is comfort,
+not capability. The mechanism is channel −1 (§3); the missing piece is that
+`server/rooms.ts:1964` hands spectators channel 0, so it needs a server-side patch.
 
 ---
 
