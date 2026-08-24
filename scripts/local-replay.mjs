@@ -349,7 +349,7 @@ async function main() {
   const url = `http://127.0.0.1:8080/replays/${encodeURIComponent(path.basename(outFile))}`;
   console.log(`\nReplay written: ${path.relative(ROOT, outFile)}`);
   console.log(`Served at:      ${url}`);
-  console.log('The control row carries a "Play from here" button on turns 1 to last-1.');
+  console.log('The control row carries a "Play from here" button from turn 1 to the last turn.');
 
   if (!flag('--no-open')) {
     spawn('cmd.exe', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref();

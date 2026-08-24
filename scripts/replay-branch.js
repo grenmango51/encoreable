@@ -14,8 +14,10 @@
  * `Battle.subscribe` is deliberately untouched: it replaces the single
  * subscriber (battle.ts:1247) and `Replays.init` already holds it.
  *
- * The button appears for turns 1 .. last-1. Turn 0 is team preview, and the
- * final turn has nothing to play on from.
+ * The button appears from turn 1 to the last turn inclusive. Branching stops at
+ * the *start* of the chosen turn, before either side has committed, so the final
+ * turn is a real position - the one whose choices ended the battle. Turn 0 is
+ * team preview, which is a different kind of decision.
  */
 
 (function () {
@@ -55,7 +57,7 @@
   }
 
   function inRange(turn) {
-    return turn >= 1 && turn < lastTurn;
+    return turn >= 1 && turn <= lastTurn;
   }
 
   function addButton(replays) {

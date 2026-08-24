@@ -402,6 +402,10 @@ on it. `LIVE-BRANCH.MD` is the feature doc; the facts worth carrying forward:
 The replay page carries a **Play from here** button that branches the turn on screen.
 `REPLAY-BRANCH.MD` is the feature doc; the facts worth carrying forward:
 
+- **The last turn is branchable, and it is the interesting one.** Truncation stops at the
+  *start* of the target turn (§5.8), before either side has committed, so the final turn of a
+  recorded battle is a live position — the decision that ended it. Only a target *past* the
+  last turn is dead, and `truncateAtTurn` already reports that as `ended`.
 - **`>reseed` is the only way to keep the position and change the rolls.** The `>start` seed
   must stay: replaying the prefix under the recorded seed is what reproduces the recorded
   position, and any other seed lands somewhere else. `sim/battle-stream.ts:113` accepts a

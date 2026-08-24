@@ -31,8 +31,10 @@ npm run replay -- --no-open        write and serve the page without opening it
 The page is served from the client host, not opened as a file:
 `http://127.0.0.1:8080/replays/<name>.html`. That is what lets the button reach the server.
 
-The button appears on turns 1 … last−1. Turn 0 is team preview and the final turn has nothing
-to play on from.
+The button appears from turn 1 to the last turn inclusive. Branching stops at the **start** of the
+chosen turn, before either side has committed, so the final turn is a real position — the one
+whose choices ended the battle, and usually the one worth replaying. Turn 0 is team preview, which
+is a different kind of decision and is left out.
 
 ---
 
@@ -104,9 +106,10 @@ pages are not files to hand around.
 | The routes work | `/replay-branch.js` 200, `/replays/<missing>` 404, `GET /branch` 405 |
 | The page carries what it needs | served page has both script tags, a 1.9KB input log, highest turn 5 |
 | The endpoint launches a branch | `POST /branch` turn 4 → room at turn 4, both slots filled, in 6.5s |
+| The last turn branches | turn 5 of a 5-turn log and turn 2 of a 2-turn log both open a room; turn 6 of the 5-turn log still refuses |
 | Bad requests fail cleanly | past-the-end, turn 0, no input log and non-JSON all return 400 with a readable message |
 | Two branches coexist | same turn twice → two rooms, different seeds, second one as `Ghosts9102-2` / `Boom9102-2` |
-| The button wiring holds | 18 assertions against a stub DOM: placement, `data-action`, icon, spacer, POST body, status, survives a row rebuild, never doubles, absent at turn 0 / final turn / with no input log |
+| The button wiring holds | 19 assertions against a stub DOM: placement, `data-action`, icon, spacer, POST body, status, survives a row rebuild, never doubles, present on the final turn, absent at turn 0 / past the end / with no input log |
 | Upstream matches what it was built against | fetched `replay-embed.js`: `var Replays={...}`, `update` rewriting `.replay-controls`, `data('action')` → `_this[action]()` |
 | A played branch verifies | prefix INTACT (9 lines), 7 new choices, re-simulation IDENTICAL (106 battle lines, 6 turns) |
 | Nothing regressed | `npm run live` unchanged; `local-replay --no-open` still passes all five determinism checks |
