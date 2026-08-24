@@ -5,6 +5,7 @@ import http from 'http';
 import { fileURLToPath } from 'url';
 
 import './provision-local-server.mjs';
+import { launchBranch } from './lib/branch-launch.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,6 +28,60 @@ const mimeTypes = {
 };
 
 const AUTOBATTLE_FILE = path.join(process.cwd(), 'scripts', 'autobattle.js');
+const REPLAY_BRANCH_FILE = path.join(process.cwd(), 'scripts', 'replay-branch.js');
+const REPLAY_DIR = path.join(process.cwd(), 'replays');
+
+/**
+ * Turns a recorded position into a live battle. The replay page's branch button
+ * POSTs `{inputLog, turn}` here; the launch itself is the same code `npm run
+ * live` uses (lib/branch-launch.mjs).
+ */
+function handleBranch(req, res) {
+  const reply = (code, body) => {
+    res.writeHead(code, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(body));
+  };
+
+  const chunks = [];
+  let size = 0;
+  req.on('data', (chunk) => {
+    // An input log runs a few KB. Anything past a megabyte is not one.
+    size += chunk.length;
+    if (size > 1000000) return req.destroy();
+    chunks.push(chunk);
+  });
+
+  req.on('end', async () => {
+    try {
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+      const inputLog = String(body.inputLog || '');
+      const turn = Number(body.turn);
+      if (!inputLog.trim()) throw new Error('the request carried no inputLog');
+      if (!Number.isInteger(turn) || turn < 1) {
+        throw new Error(`turn must be a positive integer, got "${body.turn}"`);
+      }
+
+      console.log(`\n/branch: entering turn ${turn}`);
+      const branch = await launchBranch({
+        inputLog,
+        turn,
+        say: msg => console.log(`  ${msg}`),
+      });
+      console.log(`  ready: ${branch.roomid} at turn ${branch.turn}, continuation seed ${branch.seed}`);
+
+      reply(200, {
+        roomid: branch.roomid,
+        turn: branch.turn,
+        seed: branch.seed,
+        players: branch.players,
+        slots: branch.slots,
+      });
+    } catch (err) {
+      console.log(`  /branch failed: ${err.message}`);
+      reply(400, { error: err.message });
+    }
+  });
+}
 
 const clientServer = http.createServer((req, res) => {
   let urlPath = req.url.split('?')[0];
@@ -35,6 +90,31 @@ const clientServer = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/javascript' });
       return res.end(fs.readFileSync(AUTOBATTLE_FILE, 'utf-8'));
     }
+  }
+  if (urlPath === '/replay-branch.js') {
+    if (fs.existsSync(REPLAY_BRANCH_FILE)) {
+      res.writeHead(200, { 'Content-Type': 'text/javascript' });
+      return res.end(fs.readFileSync(REPLAY_BRANCH_FILE, 'utf-8'));
+    }
+  }
+  if (urlPath === '/branch') {
+    if (req.method !== 'POST') {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'POST only' }));
+    }
+    return handleBranch(req, res);
+  }
+  if (urlPath.startsWith('/replays/')) {
+    // Basename only. These pages are served so their branch button can reach
+    // /branch, not to expose the tree above them.
+    const name = path.basename(decodeURIComponent(urlPath.slice('/replays/'.length)));
+    const file = path.join(REPLAY_DIR, name);
+    if (!name.endsWith('.html') || !fs.existsSync(file)) {
+      res.writeHead(404);
+      return res.end('Not found');
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    return res.end(fs.readFileSync(file));
   }
   if (urlPath === '/config/testclient-key.js' || urlPath === '/testclient-key.js') {
     res.writeHead(200, { 'Content-Type': 'text/javascript' });

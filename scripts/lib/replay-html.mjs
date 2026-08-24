@@ -17,11 +17,20 @@
  *  - The container is not given `class="wrapper"`. The embed only builds its
  *    battle DOM when no `.wrapper` exists (replay-embed.js, `Replays.init`), so
  *    claiming that class produces an empty page.
+ *
+ * Passing `inputLog` adds the branch button: the log rides along in a second
+ * plain-text script tag and `/replay-branch.js` turns it into a live battle at
+ * the turn on screen. That log carries both packed teams with their EVs, so a
+ * page written with it is not a file to hand around.
  */
 
 const UPSTREAM = 'https://play.pokemonshowdown.com';
 
-export function buildReplayHtml({ title, formatid, log, embedBase = UPSTREAM }) {
+export function buildReplayHtml({ title, formatid, log, inputLog = null, embedBase = UPSTREAM }) {
+  const branch = inputLog ? `
+<script type="text/plain" class="branch-input-log">${plainText(inputLog)}</script>
+<script src="/replay-branch.js"></script>` : '';
+
   return `<!DOCTYPE html>
 <meta charset="utf-8" />
 <title>${escapeHtml(title)}</title>
@@ -30,9 +39,14 @@ html,body {font-family:Verdana,sans-serif;font-size:10pt;margin:0;padding:0;}
 body {padding:12px 0;}
 </style>
 <input type="hidden" name="replayid" value="${escapeHtml(formatid)}-local" />
-<script type="text/plain" class="battle-log-data">${log.replace(/<\//g, '<\\/')}</script>
+<script type="text/plain" class="battle-log-data">${plainText(log)}</script>${branch}
 <script src="${embedBase}/js/replay-embed.js"></script>
 `;
+}
+
+/** `</` would close the script tag early; nothing else needs escaping here. */
+function plainText(text) {
+  return String(text).replace(/<\//g, '<\\/');
 }
 
 function escapeHtml(text) {

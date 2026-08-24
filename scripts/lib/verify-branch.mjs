@@ -14,6 +14,10 @@
  * up interleaved with choices. They replay cleanly - `setPlayer` takes an edit
  * branch for a side that already exists (`sim/battle.ts:3223`) - and are not
  * corruption.
+ *
+ * `>reseed` is treated the same way. A branch launched from the replay button
+ * carries one so the continuation rolls fresh, and it is reported rather than
+ * read as a rewritten prefix.
  */
 
 import fs from 'fs';
@@ -26,6 +30,9 @@ const require = createRequire(import.meta.url);
 const { BattleStream } = require('pokemon-showdown');
 
 const isPlayerLine = l => /^>player p[1-4] /.test(l);
+const isReseedLine = l => /^>reseed /.test(l);
+/** Lines that are bookkeeping rather than a choice, so not part of the prefix. */
+const isBookkeeping = l => isPlayerLine(l) || isReseedLine(l);
 
 async function resimulate(inputLog) {
   const lines = inputLogLines(inputLog);
@@ -63,9 +70,9 @@ export async function verifyBranch({ original, turn, playedFile }) {
 
   const cut = await truncateAtTurn(original, turn);
 
-  const prefix = inputLogLines(cut.inputLog).filter(l => !isPlayerLine(l));
+  const prefix = inputLogLines(cut.inputLog).filter(l => !isBookkeeping(l));
   const actual = inputLogLines(playedInput);
-  const actualChoices = actual.filter(l => !isPlayerLine(l));
+  const actualChoices = actual.filter(l => !isBookkeeping(l));
 
   const lines = [];
   const say = s => lines.push(s);
@@ -87,6 +94,10 @@ export async function verifyBranch({ original, turn, playedFile }) {
 
   const rejoins = actual.filter(isPlayerLine).length - cut.inputLog.split('\n').filter(isPlayerLine).length;
   if (rejoins > 0) say(`player rejoins    ${rejoins} extra >player line(s) from slot joins - expected, not corruption`);
+
+  for (const line of actual.filter(isReseedLine)) {
+    say(`continuation seed ${line.slice('>reseed '.length)}  (the prefix keeps the recorded seed)`);
+  }
 
   // 3. offline re-simulation matches the room
   const run = await resimulate(playedInput);

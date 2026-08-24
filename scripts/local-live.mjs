@@ -8,7 +8,7 @@
  * Showdown behaviour - the operator simply happens to be both players.
  *
  *   1. truncate the recorded input log at the chosen turn      (lib/truncate.mjs)
- *   2. connect to the local server as `~`                      (lib/ws-admin.mjs)
+ *   2. connect to the local server as an ordinary guest        (lib/ws-admin.mjs)
  *   3. /importinputlog  ->  a live room at that position
  *   4. read the new roomid out of the |init|battle frame
  *   5. open two Chrome profiles, each /join <roomid> under its own name
@@ -32,14 +32,12 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 
-import { launchPair } from './lib/browser.mjs';
-import { truncateAtTurn, positionText } from './lib/truncate.mjs';
-import { WsAdmin } from './lib/ws-admin.mjs';
+import { launchBranch, prepareBranch } from './lib/branch-launch.mjs';
+import { positionText } from './lib/truncate.mjs';
 import { verifyBranch } from './lib/verify-branch.mjs';
 
 const ROOT = process.cwd();
 const RUNTIME_LOGS = path.join(ROOT, 'runtime', 'logs');
-const CLIENT = 'http://127.0.0.1:8080/testclient.html?~~127.0.0.1:8000';
 
 const argv = process.argv.slice(2);
 const flag = name => argv.includes(name);
@@ -64,6 +62,11 @@ function newestLogFile() {
   walk(RUNTIME_LOGS);
   if (!out.length) return null;
   return out.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
+}
+
+/** A repo-relative path with forward slashes, for pasting back as an argument. */
+function posix(file) {
+  return path.relative(ROOT, file).split(path.sep).join('/');
 }
 
 function readInputLog(file) {
@@ -105,68 +108,6 @@ async function ensureServers() {
   return true;
 }
 
-// ------------------------------------------------------------- room plumbing
-
-async function importInputLog(admin, inputLog) {
-  const pending = admin.waitFor((roomid, line, parts) => {
-    if (parts[1] === 'init' && parts[2] === 'battle' && roomid.startsWith('battle-')) return { roomid };
-    if (parts[1] === 'error' || parts[1] === 'popup') {
-      const text = parts.slice(2).join('|');
-      if (/importinputlog|denied|permission|Invalid input log/i.test(text)) return { error: text };
-    }
-    return null;
-  }, { timeoutMs: 20000, what: 'the imported battle room' });
-
-  // One frame, newlines intact: `/importinputlog ` is registered as a multi-line
-  // command and the multi-line path is only taken when the text contains "\n".
-  admin.send('', `/importinputlog ${inputLog}`);
-
-  const hit = await pending;
-  if (hit.error) throw new Error(`the server refused the import: ${hit.error}`);
-  return hit.roomid;
-}
-
-function watchRoom(admin, roomid, names) {
-  const wanted = new Map(names.map(n => [toId(n), n]));
-  const present = new Set();
-  const slots = new Map();
-  const problems = [];
-
-  admin.on((room, line, parts) => {
-    if (room !== roomid) return;
-    const cmd = parts[1];
-
-    if (cmd === 'users') {
-      for (const entry of (parts[2] || '').split(',').slice(1)) {
-        const id = toId(entry);
-        if (wanted.has(id)) present.add(id);
-      }
-    } else if (cmd === 'j' || cmd === 'J' || cmd === 'join') {
-      const id = toId(parts[2] || '');
-      if (wanted.has(id)) present.add(id);
-    } else if (cmd === 'l' || cmd === 'L' || cmd === 'leave') {
-      present.delete(toId(parts[2] || ''));
-    } else if (cmd === 'player' && parts[3]) {
-      slots.set(parts[2], parts[3]);
-    } else if (line.includes('already has a team')) {
-      problems.push(line);
-    }
-  });
-
-  return { present, slots, problems, wanted };
-}
-
-const toId = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '');
-
-async function waitUntil(check, { timeoutMs, what }) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (check()) return true;
-    await new Promise(r => setTimeout(r, 250));
-  }
-  throw new Error(`timed out waiting for ${what}`);
-}
-
 // ----------------------------------------------------------------------- main
 
 async function main() {
@@ -189,21 +130,9 @@ async function main() {
   const original = readInputLog(logFile);
 
   // --- 1. truncate ---------------------------------------------------------
-  const cut = await truncateAtTurn(original, target);
-  if (cut.errors.length) {
-    throw new Error(`re-simulating the log produced choice errors: ${cut.errors.join(' ')}`);
-  }
-  if (cut.ended) {
-    throw new Error(
-      `this battle is over by turn ${cut.turn}, so there is nothing to play on from. ` +
-      `Pick an earlier turn with --at.`
-    );
-  }
+  const cut = await prepareBranch(original, target);
   if (cut.turn < target) {
     console.log(`Note: the log only reaches turn ${cut.turn}, so branching from there instead of ${target}.`);
-  }
-  if (!cut.awaitingChoice) {
-    throw new Error(`the position at turn ${cut.turn} is not waiting for both sides' moves - refusing to import it`);
   }
 
   console.log(`\nPosition at turn ${cut.turn} (${cut.kept}/${cut.total} recorded choices kept):\n`);
@@ -214,61 +143,31 @@ async function main() {
     return;
   }
 
-  // --- 2. server + admin ---------------------------------------------------
+  // --- 2. servers ----------------------------------------------------------
   console.log('');
   const started = await ensureServers();
   if (started) await new Promise(r => setTimeout(r, 1500));
 
-  const admin = new WsAdmin({ verbose: flag('--verbose') });
-  await admin.connect();
-  await admin.waitNamed();
-
-  // --- 3+4. import and learn the roomid ------------------------------------
-  const roomid = await importInputLog(admin, cut.inputLog);
-  console.log(`Imported as ${roomid}`);
-
-  const room = watchRoom(admin, roomid, cut.players);
-
-  // --- 5. two browsers -----------------------------------------------------
-  const [leftName, rightName] = cut.players;
-  const url = (name) => `${CLIENT}&autoname=${encodeURIComponent(name)}&autojoin=${encodeURIComponent(roomid)}`;
-  console.log('Opening two browser windows side by side...');
-  await launchPair({ left: url(leftName), right: url(rightName), tag: roomid.replace(/[^a-z0-9]/gi, '') });
-
-  await waitUntil(() => room.present.size >= 2, {
-    timeoutMs: 60000,
-    what: `${leftName} and ${rightName} to appear in ${roomid} (seen: ${[...room.present].join(', ') || 'nobody'})`,
+  // --- 3-6. import, open two windows, fill both slots ----------------------
+  const branch = await launchBranch({
+    inputLog: original,
+    turn: target,
+    cut,
+    verbose: flag('--verbose'),
+    say: msg => console.log(msg),
   });
-  console.log('Both windows are in the room.');
-
-  // --- 6. hand them their slots -------------------------------------------
-  // `invitebattle` joins a user straight into a slot - no invite handshake - when
-  // they are already in the room and the slot has a team from the imported log
-  // (chat-commands/core.ts:1236). `restoreplayers` issues one per slot, using the
-  // names the input log carried.
-  admin.send(roomid, '/restoreplayers');
-
-  await waitUntil(() => room.slots.size >= 2, {
-    timeoutMs: 20000,
-    what: `both slots to fill (filled: ${[...room.slots.entries()].map(([s, n]) => `${s}=${n}`).join(', ') || 'none'})`,
-  });
-
-  if (room.problems.length) {
-    throw new Error(`the battle rejected a player: ${room.problems.join(' ')}`);
-  }
 
   console.log('');
   console.log('--- LIVE BRANCH READY ---');
-  for (const [slot, name] of [...room.slots.entries()].sort()) {
+  for (const [slot, name] of branch.slots) {
     console.log(`  ${slot}  ${name}${slot === 'p1' ? '   (left window)' : '   (right window)'}`);
   }
-  console.log(`\nRoom: ${roomid}   Turn: ${cut.turn}`);
+  console.log(`\nRoom: ${branch.roomid}   Turn: ${branch.turn}`);
+  console.log(`Continuation seed: ${branch.seed}`);
   console.log('Pick moves in both windows. The turn resolves once both sides are in.');
   console.log('There is no clock - do not turn one on with /timer.');
   console.log('\nWhen the battle ends, its full input log lands in runtime/logs. Check the branch with:');
-  console.log(`  node scripts/local-live.mjs --from ${path.relative(ROOT, logFile).replace(/\\/g, '/')} --at ${cut.turn} --verify <new log.json>`);
-
-  admin.close();
+  console.log(`  node scripts/local-live.mjs --from ${posix(logFile)} --at ${branch.turn} --verify <new log.json>`);
 }
 
 main().catch((err) => {

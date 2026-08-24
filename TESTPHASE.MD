@@ -397,6 +397,42 @@ on it. `LIVE-BRANCH.MD` is the feature doc; the facts worth carrying forward:
   join happened, and one into the input log. Filter them out of both sides of a protocol
   comparison — their position is a fact about when someone clicked, not about the battle.
 
+### 5.10 Branching from the replay view
+
+The replay page carries a **Play from here** button that branches the turn on screen.
+`REPLAY-BRANCH.MD` is the feature doc; the facts worth carrying forward:
+
+- **`>reseed` is the only way to keep the position and change the rolls.** The `>start` seed
+  must stay: replaying the prefix under the recorded seed is what reproduces the recorded
+  position, and any other seed lands somewhere else. `sim/battle-stream.ts:113` accepts a
+  `>reseed <seed>` line after the last kept choice and records it into the battle's own input
+  log. `importinputlog` screens only for `>eval` (`chat-commands/core.ts:899`), so it passes.
+- **`resetRNG` announces itself.** `sim/battle.ts:362` adds
+  `|message|The battle's RNG was reset.`, which lands at the end of the imported scrollback and
+  marks where the branch begins. Any protocol comparison across a reseed has to expect it.
+- **The replay control row is rebuilt on every state change.** `update()` calls `.html(...)` on
+  `.replay-controls` (`replay-embed.ts:180`, `:182`), so every button in it — Play and Pause
+  included — is discarded and redrawn. A button added once lasts until the next click; wrap
+  `Replays.update` and be drawn by the same call.
+- **The player's own click dispatch is reusable.** `replay-embed.ts:75` reads `data-action` off
+  any clicked button and calls `Replays[action]()`. Adding a method to `Replays` and an
+  attribute to the button needs no listener of your own — but a `data-action` naming no method
+  throws.
+- **`Replays` is a top-level `var`, so `window.Replays` resolves.** Upstream's built file was
+  checked against the vendored source and matches on all three points above.
+- **Never call `Battle.subscribe` from a page script.** It replaces the single subscriber
+  (`battle.ts:1247`) and `Replays.init` already holds it; a second call disconnects the player
+  from its own battle.
+- **An unregistered name cannot be reused while its holder is connected**
+  (`server/users.ts:811`). `/restoreplayers` needs the joiner to hold exactly the input log's
+  name, so a second branch opened while the first one's windows are still up must rename the
+  players in the log it imports. Probing is simplest by trying: take the name on a throwaway
+  connection and read the answer.
+- **`BattleStream._write` swallows the rest of a chunk on a throw** (`sim/battle-stream.ts:41`)
+  and reports it as an `error` chunk, not an `|error|` line. A choice silently failing to apply
+  looks identical to one that was never sent — check `battle.inputLog.length` against the lines
+  you wrote.
+
 ---
 
 ## 6. Traps that cost real time
@@ -495,6 +531,9 @@ already drifted once.
 | `npm run branch` | Four single-decision branches with CLEAN / TRUNCATED / REJECTED verdicts. |
 | `npm run live` | Truncate at a turn, import it as a live room, open two windows on it. §5.9. |
 
+`npm run replay` serves its page from the client host and puts a **Play from here** button in the
+replay control row, which does the same thing as `npm run live` for the turn on screen. §5.10.
+
 Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 `npm run live` takes `--at <turn>`, `--dry-run` and `--verify <log.json>`.
 `replay.bat`, `rng.bat`, `branch.bat`, `live.bat` are the double-click entry points.
@@ -505,9 +544,11 @@ Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 | `scripts/lib/rng-control.mjs` | per-draw RNG control for all five kinds (§4) |
 | `scripts/lib/ws-player.mjs` | scripted WebSocket player, explicit targets only (§6.1) |
 | `scripts/lib/ws-admin.mjs` | scripted connection that issues `/importinputlog` (§5.9) |
-| `scripts/lib/truncate.mjs` | cut an input log back to a turn boundary (§5.8) |
+| `scripts/lib/truncate.mjs` | cut an input log back to a turn boundary (§5.8), optionally reseeding the continuation (§5.10) |
 | `scripts/lib/verify-branch.mjs` | prove a played branch is prefix + new choices (§5.9) |
 | `scripts/lib/browser.mjs` | two isolated browser profiles, side by side (§5.9) |
+| `scripts/lib/branch-launch.mjs` | the one launch path: import, two windows, both slots (§5.10) |
+| `scripts/replay-branch.js` | the replay page's "Play from here" button (§5.10) |
 | `scripts/lib/replay-html.mjs` | replay shell (§6.3) |
 | `scripts/fixtures/teams.js` | the two fixture teams, as export text, packed at runtime |
 | `scripts/provision-local-server.mjs` | local config, including `logchallenges` (§3.1) |

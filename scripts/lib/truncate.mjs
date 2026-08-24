@@ -10,12 +10,24 @@
  * `battle.turn`. Choice lines do not map one-per-side-per-turn - a faint
  * replacement adds an extra `>pN switch ...` in the middle of a turn - so index
  * arithmetic silently cuts in the wrong place. See TESTPHASE.MD 5.8.
+ *
+ * The `>start` seed is never touched: replaying the prefix under the recorded
+ * seed is what reproduces the recorded position, and any other seed lands
+ * somewhere else. `reseed` instead appends a `>reseed` line after the last kept
+ * choice, so the position is the recorded one and everything played from it
+ * rolls fresh (`sim/battle-stream.ts:113`).
  */
 
+import crypto from 'crypto';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const { BattleStream } = require('pokemon-showdown');
+
+/** A fresh seed in the shape `sim/prng.ts` writes: `sodium,` + 32 hex. */
+export function freshSeed() {
+  return `sodium,${crypto.randomBytes(16).toString('hex')}`;
+}
 
 /** Normalise a log.json `inputLog` (string or array) to protocol lines. */
 export function inputLogLines(raw) {
@@ -66,11 +78,12 @@ export function positionText(position) {
 }
 
 /**
- * @param raw    an `inputLog` as stored in a `.log.json`
- * @param target the turn to stop at - the battle will be waiting for this turn's choices
- * @returns { inputLog, turn, requested, ended, awaitingChoice, position, players, kept, total, errors }
+ * @param raw     an `inputLog` as stored in a `.log.json`
+ * @param target  the turn to stop at - the battle will be waiting for this turn's choices
+ * @param reseed  true for a fresh continuation seed, or a seed string to use one
+ * @returns { inputLog, seed, turn, requested, ended, awaitingChoice, position, players, kept, total, errors }
  */
-export async function truncateAtTurn(raw, target) {
+export async function truncateAtTurn(raw, target, { reseed = false } = {}) {
   if (!Number.isInteger(target) || target < 1) {
     throw new Error(`turn must be a positive integer, got "${target}"`);
   }
@@ -114,8 +127,12 @@ export async function truncateAtTurn(raw, target) {
     if (battle.ended) break;
   }
 
+  const seed = reseed ? (typeof reseed === 'string' ? reseed : freshSeed()) : null;
+  const tail = seed ? [`>reseed ${seed}`] : [];
+
   const result = {
-    inputLog: header.concat(kept).join('\n') + '\n',
+    inputLog: header.concat(kept, tail).join('\n') + '\n',
+    seed,
     turn: battle.turn,
     requested: target,
     ended: battle.ended,

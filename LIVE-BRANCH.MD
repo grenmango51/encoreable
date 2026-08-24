@@ -1,6 +1,7 @@
 # Live Branch — play on from any turn, both sides, in the real battle UI
 
-**Read first:** `TESTPHASE.MD` — §3 (channels), §5.6–5.9 (branching), §6 (traps).
+**Read first:** `TESTPHASE.MD` — §3 (channels), §5.6–5.10 (branching), §6 (traps).
+**See also:** `REPLAY-BRANCH.MD` — the same thing from a button in the replay view.
 **Verified against:** the checkout in `runtime/`, Node v24.19.0, npm `pokemon-showdown@0.11.11`.
 
 ---
@@ -136,7 +137,8 @@ wherever the join happened, so its position says when someone clicked, not what 
 ## 4. Out of scope
 
 - **No branch tree.** One linear continuation from one chosen turn. No rewind, no re-branch, no
-  variation list. To try a different turn 6, run the command again.
+  variation list. To try a different turn 6, run the command again — or click the button in the
+  replay view (`REPLAY-BRANCH.MD`), which is the same launch path.
 - **No RNG control here.** It exists (`scripts/lib/rng-control.mjs`) and it matters, but it
   patches an in-process `Battle` while a live branch runs in the server's simulator worker.
   Forcing a crit inside a live room is a separate problem — `TESTPHASE.MD` §8.

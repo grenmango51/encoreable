@@ -72,7 +72,7 @@ async function ensureServers() {
     return;
   }
   console.log('Starting local Showdown server and client host...');
-  spawn('node', ['scripts/local-play.mjs'], { cwd: ROOT, stdio: 'ignore', detached: true }).unref();
+  spawn(process.execPath, ['scripts/local-play.mjs'], { cwd: ROOT, stdio: 'ignore', detached: true }).unref();
   if (!await waitForPort(8000) || !await waitForPort(8080)) {
     throw new Error('servers did not come up on 8000/8080');
   }
@@ -266,8 +266,11 @@ async function main() {
 
   let logFile = opt('--from');
 
+  // The page is served from the client host so its branch button can reach
+  // /branch, so the servers have to be up either way.
+  await ensureServers();
+
   if (!logFile) {
-    await ensureServers();
     const before = Date.now();
     const { roomid } = await playFixtureBattle();
     logFile = await waitForNewLog(before);
@@ -305,6 +308,7 @@ async function main() {
     title: `${Dex.formats.get(FORMAT).name} replay: ${names.join(' vs. ')}`,
     formatid: FORMAT,
     log: sim.debugLog,
+    inputLog,
     ...(opt('--embed') ? { embedBase: opt('--embed') } : {}),
   }), 'utf8');
 
@@ -342,10 +346,13 @@ async function main() {
     console.log(`         ${r.ok ? 'ok  ' : 'BAD '} ${r.side} ${r.species.padEnd(14)} expected ${r.expected}  log says ${r.observed}`);
   }
 
+  const url = `http://127.0.0.1:8080/replays/${encodeURIComponent(path.basename(outFile))}`;
   console.log(`\nReplay written: ${path.relative(ROOT, outFile)}`);
+  console.log(`Served at:      ${url}`);
+  console.log('The control row carries a "Play from here" button on turns 1 to last-1.');
 
   if (!flag('--no-open')) {
-    spawn('cmd.exe', ['/c', 'start', '', outFile], { detached: true, stdio: 'ignore' }).unref();
+    spawn('cmd.exe', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref();
     console.log('Opening in your default browser.');
   }
 }
