@@ -12,3 +12,4 @@
 - **Repository:** https://github.com/smogon/pokemon-showdown
 - **Version:** Pinned in `package.json` (0.11.11)
 - **License:** MIT (see upstream repository)
+
