@@ -1,3 +1,24 @@
+/**
+ * The static client host.
+ *
+ * Serves the vendored Showdown client on its own port so the browser loads the
+ * real battle interface while talking to our local server. Three routes are ours
+ * rather than upstream's:
+ *
+ *   /autobattle.js      injected into the test client, drives npm run battle
+ *   /replay-branch.js   draws the "Play from here" button on a replay page
+ *   /branch             that button's endpoint - hands off to lib/branch-launch.mjs
+ *
+ * Also serves /replays/ so a rendered replay page is reachable over http rather
+ * than file://, which the client requires.
+ *
+ * Started automatically by the other commands; run it directly only to keep the
+ * host up on its own.
+ *
+ * Usage:
+ *   npm run serve
+ */
+
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
@@ -27,8 +48,8 @@ const mimeTypes = {
   '.json': 'application/json'
 };
 
-const AUTOBATTLE_FILE = path.join(process.cwd(), 'scripts', 'autobattle.js');
-const REPLAY_BRANCH_FILE = path.join(process.cwd(), 'scripts', 'replay-branch.js');
+const AUTOBATTLE_FILE = path.join(process.cwd(), 'scripts', 'client', 'autobattle.js');
+const REPLAY_BRANCH_FILE = path.join(process.cwd(), 'scripts', 'client', 'replay-branch.js');
 const REPLAY_DIR = path.join(process.cwd(), 'replays');
 
 /**

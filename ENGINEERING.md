@@ -178,10 +178,13 @@ Anything that depends on reading a finished battle's input log depends on this f
 
 ## 4. RNG control — the working mechanism
 
-Shipped in `scripts/lib/rng-control.mjs`. **Tier 1 (scripted RNG injection) works and is the
-only tier needed.** Seed search was never required. `forceRandomChance` is confirmed useless
-for our purpose: it is `readonly`, set once at construction, gated on `debugMode`, and forces
-*every* `randomChance()` call to one boolean.
+**Tier 1 (scripted RNG injection) works and is the only tier needed.** Seed search was never
+required. `forceRandomChance` is confirmed useless for our purpose: it is `readonly`, set once
+at construction, gated on `debugMode`, and forces *every* `randomChance()` call to one boolean.
+
+The implementation that established this was deleted once it had: it patched an in-process
+`Battle`, which is not where a live branch runs (§8). This section is the specification it gets
+rebuilt from — every call site, filter and edge case below was paid for once.
 
 ### 4.1 The five draw sites
 
@@ -197,7 +200,7 @@ Every random decision in a battle is one `prng.rng.next()` call:
 
 `randomChance(n, d)` is just `random(d) < n` (`sim/prng.ts:116`).
 
-### 4.2 Four design points that are not obvious
+### 4.2 Five design points that are not obvious
 
 **Always draw from the real RNG.** The scripted source calls `realRng.next()` on *every* call
 and substitutes its own value only for an armed draw. This keeps the stream aligned, so no
@@ -219,8 +222,15 @@ crit/no-crit and proc/skip. For a *specific* value use
 `rawFor(v, d) = floor((v + 0.5) * 2**32 / d)` — the midpoint of the band, which avoids
 floating-point error at the boundaries.
 
-The simulator computes every consequence itself. Nothing in this module writes damage, sets a
-status, or decides a hit.
+**`>reseed` replaces the generator, it does not reseed it.** `sim/battle.ts:219` assigns
+`this.prng = new PRNG(seed)`, so anything installed on the old `prng` object goes with it.
+Install through an accessor on `battle.prng` that re-runs on every assignment. Without that,
+control dies at the first `>reseed` **silently** — the battle keeps running, no further draw is
+ever matched, and nothing reports it. This is not a corner case: every recording produced by
+branching carries a `>reseed`, and one such recording under-reported its draws by 19 to 1.
+
+The simulator computes every consequence itself. Nothing in this mechanism writes damage, sets
+a status, or decides a hit.
 
 ### 4.3 The damage ladder is sparse — and this killed post-hoc editing
 
@@ -240,16 +250,15 @@ Consequences for the branch UI:
 - Filter for reachability *and* for intent: a roll that turns a non-lethal hit lethal changes
   the battle, which may not be what was asked for.
 
-Demonstrated by `npm run rng`: Moonblast #3 forced from roll 7 to roll 1 (42 → 45) and
-Moonblast #4 from roll 4 to roll 10 (43 → 40). **Exactly one battle line differs** across the
-entire log — `|-damage|p1a: Incineroar|115/202` becomes `112/202`. Everything else is
+Measured on the fixture: Moonblast #3 forced from roll 7 to roll 1 (42 → 45) and Moonblast #4
+from roll 4 to roll 10 (43 → 40). **Exactly one battle line differs** across the entire log — `|-damage|p1a: Incineroar|115/202` becomes `112/202`. Everything else is
 identical, including the winner.
 
 ---
 
 ## 5. Branching past a material divergence — where Layer A ends
 
-`npm run branch` forces one decision and reports what that does to the replay. Four branches
+Forcing one decision and re-simulating tells you what that decision was worth. Four branches
 on the fixture, one per draw kind:
 
 ```
@@ -258,6 +267,8 @@ CLEAN      Meteor Mash does not raise Attack
 TRUNCATED  Matcha Gotcha never burns
 TRUNCATED  The first Moonblast crits
 ```
+
+Three of four outlived the recorded choices. That ratio is the point of this section.
 
 ### 5.1 The rendering never breaks. The input log does.
 
@@ -370,72 +381,19 @@ land on a turn boundary.
 
 ### 5.9 The branch is played in the real battle UI, not a terminal
 
-`npm run live` puts a truncated position into a live server room and opens two browser windows
-on it. `LIVE-BRANCH.MD` is the feature doc; the facts worth carrying forward:
-
-- **`/importinputlog` creates a *playable* room and can start mid-game.** `Rooms.createBattle`
-  with `inputLog` writes the whole log to the stream (`server/room-battle.ts:577`), so the
-  battle sits wherever the log ends, and a joiner receives the full history from turn 1.
-- **The `~` group is unreachable on this server, and is not needed.** A name in
-  `config/usergroups.csv` is *trusted*, and a trusted name requires an authentication token
-  from a login server (`server/users.ts:640`) — `noguestsecurity` does not exempt it. So
-  `provision-local-server.mjs` grants `importinputlog` to the **default group** through
-  `Config.grouplist` instead, and the launcher connects as an ordinary guest.
-- **`MAX_MESSAGE_LENGTH` never applies to a command.** The 1000-character cap is enforced
-  inside `checkChat` (`server/chat.ts:1246`), which `importinputlog` does not call. A 1.7KB
-  import goes through untouched; `ignorelimits` is belt-and-braces.
-- **One user cannot hold both slots** (`server/room-battle.ts:665`), so the two windows run
-  under separate Chrome `--user-data-dir` profiles.
-- **Joining does not disturb the battle.** `setPlayer` takes an edit branch for a side that
-  already exists (`sim/battle.ts:3223`) and the joiner is sent the current `|request|`. But
-  `sim/battle.ts:3245` throws if a team is supplied — **never send `/utm` when joining an
-  imported room.**
-- **Exact HP needs no server patch.** As a *player* you see your own side exactly and the
-  opponent as percentages, so the two windows between them show every value. The channel −1
-  patch of §3 is only for a single omniscient window.
-- **`|player|` lines land mid-log.** Taking a slot writes one into the room log wherever the
-  join happened, and one into the input log. Filter them out of both sides of a protocol
-  comparison — their position is a fact about when someone clicked, not about the battle.
+`npm run live` puts a truncated position into a live server room and opens two browser
+windows on it, one per side. The mechanism and the upstream call sites it leans on —
+`/importinputlog` starting a room mid-game, granting that permission without a rank, the two
+isolated browser profiles one user cannot do without, joining a slot without disturbing the
+battle — are in `BRANCHING.md` §2 and §3, along with the one thing that breaks it.
 
 ### 5.10 Branching from the replay view
 
-The replay page carries a **Play from here** button that branches the turn on screen.
-`REPLAY-BRANCH.MD` is the feature doc; the facts worth carrying forward:
-
-- **The last turn is branchable, and it is the interesting one.** Truncation stops at the
-  *start* of the target turn (§5.8), before either side has committed, so the final turn of a
-  recorded battle is a live position — the decision that ended it. Only a target *past* the
-  last turn is dead, and `truncateAtTurn` already reports that as `ended`.
-- **`>reseed` is the only way to keep the position and change the rolls.** The `>start` seed
-  must stay: replaying the prefix under the recorded seed is what reproduces the recorded
-  position, and any other seed lands somewhere else. `sim/battle-stream.ts:113` accepts a
-  `>reseed <seed>` line after the last kept choice and records it into the battle's own input
-  log. `importinputlog` screens only for `>eval` (`chat-commands/core.ts:899`), so it passes.
-- **`resetRNG` announces itself.** `sim/battle.ts:362` adds
-  `|message|The battle's RNG was reset.`, which lands at the end of the imported scrollback and
-  marks where the branch begins. Any protocol comparison across a reseed has to expect it.
-- **The replay control row is rebuilt on every state change.** `update()` calls `.html(...)` on
-  `.replay-controls` (`replay-embed.ts:180`, `:182`), so every button in it — Play and Pause
-  included — is discarded and redrawn. A button added once lasts until the next click; wrap
-  `Replays.update` and be drawn by the same call.
-- **The player's own click dispatch is reusable.** `replay-embed.ts:75` reads `data-action` off
-  any clicked button and calls `Replays[action]()`. Adding a method to `Replays` and an
-  attribute to the button needs no listener of your own — but a `data-action` naming no method
-  throws.
-- **`Replays` is a top-level `var`, so `window.Replays` resolves.** Upstream's built file was
-  checked against the vendored source and matches on all three points above.
-- **Never call `Battle.subscribe` from a page script.** It replaces the single subscriber
-  (`battle.ts:1247`) and `Replays.init` already holds it; a second call disconnects the player
-  from its own battle.
-- **An unregistered name cannot be reused while its holder is connected**
-  (`server/users.ts:811`). `/restoreplayers` needs the joiner to hold exactly the input log's
-  name, so a second branch opened while the first one's windows are still up must rename the
-  players in the log it imports. Probing is simplest by trying: take the name on a throwaway
-  connection and read the answer.
-- **`BattleStream._write` swallows the rest of a chunk on a throw** (`sim/battle-stream.ts:41`)
-  and reports it as an `error` chunk, not an `|error|` line. A choice silently failing to apply
-  looks identical to one that was never sent — check `battle.inputLog.length` against the lines
-  you wrote.
+The replay page carries a **Play from here** button that branches the turn on screen through
+the same launch path as `npm run live`. How the button is drawn by the player rather than
+beside it, how the input log rides in the page, and the endpoint that receives it are in
+`BRANCHING.md` §4. `>reseed` — the only way to keep a position and change the rolls — is
+`BRANCHING.md` §2.2.
 
 ---
 
@@ -521,8 +479,7 @@ promises no reproducibility at all. The `RNG` interface is not exported, so it m
 duck-typed structurally.
 
 Pin the `pokemon-showdown` version. On any upgrade, the test is a diff of those six call sites
-plus a re-run of `npm run replay` and `npm run branch`. Line numbers in this document have
-already drifted once.
+plus a re-run of `npm run replay`. Line numbers in this document have already drifted once.
 
 ---
 
@@ -531,8 +488,6 @@ already drifted once.
 | Command | What it does |
 |---|---|
 | `npm run replay` | Provision, play the fixture, re-simulate, diff, render, report. The determinism + full-information proof. |
-| `npm run rng` | Paired damage-roll substitution. Proves per-roll control with a net-zero outcome. |
-| `npm run branch` | Four single-decision branches with CLEAN / TRUNCATED / REJECTED verdicts. |
 | `npm run live` | Truncate at a turn, import it as a live room, open two windows on it. §5.9. |
 
 `npm run replay` serves its page from the client host and puts a **Play from here** button in the
@@ -540,19 +495,18 @@ replay control row, which does the same thing as `npm run live` for the turn on 
 
 Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 `npm run live` takes `--at <turn>`, `--dry-run` and `--verify <log.json>`.
-`replay.bat`, `rng.bat`, `branch.bat`, `live.bat` are the double-click entry points.
+`replay.bat`, `live.bat` and `battle.bat` are the double-click entry points.
 
 | File | Role |
 |---|---|
 | `scripts/lib/protocol.mjs` | the one shared log filter and diff (§6.2) |
-| `scripts/lib/rng-control.mjs` | per-draw RNG control for all five kinds (§4) |
 | `scripts/lib/ws-player.mjs` | scripted WebSocket player, explicit targets only (§6.1) |
 | `scripts/lib/ws-admin.mjs` | scripted connection that issues `/importinputlog` (§5.9) |
 | `scripts/lib/truncate.mjs` | cut an input log back to a turn boundary (§5.8), optionally reseeding the continuation (§5.10) |
 | `scripts/lib/verify-branch.mjs` | prove a played branch is prefix + new choices (§5.9) |
 | `scripts/lib/browser.mjs` | two isolated browser profiles, side by side (§5.9) |
 | `scripts/lib/branch-launch.mjs` | the one launch path: import, two windows, both slots (§5.10) |
-| `scripts/replay-branch.js` | the replay page's "Play from here" button (§5.10) |
+| `scripts/client/replay-branch.js` | the replay page's "Play from here" button (§5.10) |
 | `scripts/lib/replay-html.mjs` | replay shell (§6.3) |
 | `scripts/fixtures/teams.js` | the two fixture teams, as export text, packed at runtime |
 | `scripts/provision-local-server.mjs` | local config, including `logchallenges` (§3.1) |
@@ -576,9 +530,10 @@ Record it with `npm run battle`, or play one out from a live branch — either w
 
 ### RNG control inside a live room
 
-`scripts/lib/rng-control.mjs` patches a `Battle` object in-process. A live branch's battle
-lives in the server's simulator worker, so the two do not meet yet. Forcing a crit inside a
-room the browser is playing needs a different hook — probably a `>eval`-style write on the
+The mechanism in §4 patches a `Battle` object in-process. A live branch's battle lives in the
+server's simulator worker, so the two never meet — which is why the in-process implementation
+was deleted rather than carried. Forcing a crit inside a room the browser is playing needs a
+different hook — probably a `>eval`-style write on the
 battle stream, which `sim/battle-stream.ts` already accepts.
 
 Keep this separate from getting the room into position; they are independent problems.

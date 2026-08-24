@@ -27,6 +27,7 @@ import http from 'http';
 import { createRequire } from 'module';
 
 import { WsPlayer, makePolicy } from './lib/ws-player.mjs';
+import { listLogFilesIn, archiveLogFile, posix } from './lib/recordings.mjs';
 import { buildReplayHtml } from './lib/replay-html.mjs';
 import { battleLines, firstDivergence } from './lib/protocol.mjs';
 
@@ -72,7 +73,7 @@ async function ensureServers() {
     return;
   }
   console.log('Starting local Showdown server and client host...');
-  spawn(process.execPath, ['scripts/local-play.mjs'], { cwd: ROOT, stdio: 'ignore', detached: true }).unref();
+  spawn(process.execPath, ['scripts/local-serve.mjs'], { cwd: ROOT, stdio: 'ignore', detached: true }).unref();
   if (!await waitForPort(8000) || !await waitForPort(8080)) {
     throw new Error('servers did not come up on 8000/8080');
   }
@@ -140,20 +141,7 @@ async function playFixtureBattle() {
 
 // ------------------------------------------------------------------ log files
 
-function findLogFiles() {
-  const out = [];
-  const walk = (dir) => {
-    let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-    for (const e of entries) {
-      const full = path.join(dir, e.name);
-      if (e.isDirectory()) walk(full);
-      else if (e.name.endsWith('.log.json')) out.push(full);
-    }
-  };
-  walk(RUNTIME_LOGS);
-  return out.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
-}
+const findLogFiles = () => listLogFilesIn(RUNTIME_LOGS);
 
 async function waitForNewLog(since, timeoutMs = 15000) {
   const start = Date.now();
@@ -277,13 +265,18 @@ async function main() {
     if (!logFile) {
       throw new Error(
         `no battle log appeared under runtime/logs after ${roomid}. Check that ` +
-        `runtime/config/config.js has logchallenges = true, then restart the server with npm run local:stop.`
+        `runtime/config/config.js has logchallenges = true, then restart the server with npm run stop.`
       );
     }
   }
 
   console.log(`\nBattle log: ${path.relative(ROOT, logFile)}`);
   const logData = JSON.parse(fs.readFileSync(logFile, 'utf8'));
+
+  // runtime/ is generated and gets deleted to reset the server, so keep a copy
+  // of the recording outside it.
+  const archived = archiveLogFile(ROOT, logFile);
+  if (archived !== logFile) console.log(`Archived to:  ${posix(ROOT, archived)}`);
 
   const inputLog = Array.isArray(logData.inputLog) ? logData.inputLog.join('\n') : String(logData.inputLog || '');
   if (!inputLog.trim()) throw new Error('battle log contains no inputLog');

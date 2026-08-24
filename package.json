@@ -2,28 +2,19 @@
   "name": "encoreable",
   "version": "0.1.0",
   "private": true,
-  "description": "Pokemon Showdown replay branching experiments",
+  "description": "An analysis board for competitive Pokemon: restore a recorded battle to any turn and play it forward, both sides, in the real Showdown interface.",
   "type": "commonjs",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "spike:reproduce": "node spikes/01-reproduce.js",
     "start": "node scripts/local-battle.mjs",
     "battle": "node scripts/local-battle.mjs",
-    "local:play": "node scripts/local-play.mjs",
-    "local:battle": "node scripts/local-battle.mjs",
-    "local:auto": "node scripts/local-battle.mjs",
-    "local:stop": "node scripts/local-stop.mjs",
-    "local:check": "node scripts/local-check.mjs",
     "replay": "node scripts/local-replay.mjs",
-    "local:replay": "node scripts/local-replay.mjs",
-    "rng": "node scripts/local-rng.mjs",
-    "local:rng": "node scripts/local-rng.mjs",
-    "branch": "node scripts/local-branch.mjs",
-    "local:branch": "node scripts/local-branch.mjs",
     "live": "node scripts/local-live.mjs",
-    "local:live": "node scripts/local-live.mjs"
+    "serve": "node scripts/local-serve.mjs",
+    "stop": "node scripts/local-stop.mjs",
+    "check": "node scripts/local-check.mjs"
   },
   "dependencies": {
     "pokemon-showdown": "0.11.11"

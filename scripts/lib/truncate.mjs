@@ -9,7 +9,7 @@
  * Turn boundaries are found by replaying the log ONE LINE AT A TIME and watching
  * `battle.turn`. Choice lines do not map one-per-side-per-turn - a faint
  * replacement adds an extra `>pN switch ...` in the middle of a turn - so index
- * arithmetic silently cuts in the wrong place. See TESTPHASE.MD 5.8.
+ * arithmetic silently cuts in the wrong place. See ENGINEERING.md 5.8.
  *
  * The `>start` seed is never touched: replaying the prefix under the recorded
  * seed is what reproduces the recorded position, and any other seed lands
@@ -95,7 +95,7 @@ export async function truncateAtTurn(raw, target, { reseed = false } = {}) {
   if (bad) {
     throw new Error(
       `input log contains a "default" choice (${bad}) - an auto-chosen targeted move is ` +
-      `recorded without its target and cannot be replayed (TESTPHASE.MD 6.1)`
+      `recorded without its target and cannot be replayed (ENGINEERING.md 6.1)`
     );
   }
 

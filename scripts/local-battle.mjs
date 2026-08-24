@@ -1,3 +1,20 @@
+/**
+ * Record a fresh battle.
+ *
+ * Brings up the local server and the client host, then opens two browser windows
+ * under separate profiles - one user cannot hold both slots of a battle
+ * (server/room-battle.ts:665). `scripts/client/autobattle.js` rides along in each
+ * page: it names the guest, loads a fixture team, and issues or accepts the
+ * challenge, so a battle is running without anything being clicked.
+ *
+ * The finished battle lands in runtime/logs with its inputLog intact, which
+ * requires Config.logchallenges - see provision-local-server.mjs. `npm run replay`
+ * archives it to recordings/.
+ *
+ * Usage:
+ *   npm run battle
+ */
+
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
@@ -52,7 +69,7 @@ async function main() {
 
   if (!serverRunning) {
     console.log('Starting local Showdown server and client host...');
-    spawn(process.execPath, ['scripts/local-play.mjs'], {
+    spawn(process.execPath, ['scripts/local-serve.mjs'], {
       cwd: ROOT_DIR,
       stdio: 'inherit',
       detached: true
@@ -127,7 +144,7 @@ async function main() {
   console.log(`Left Window:  ${p1Name} (Champions Reg M-B Sand / TrickRoom)`);
   console.log(`Right Window: ${p2Name} (Champions Reg M-B Rain / Sun)`);
   console.log('\nBoth windows will connect, load teams, and join the battle automatically.');
-  console.log('Enjoy your battle! To stop the servers later, run: npm run local:stop\n');
+  console.log('Enjoy your battle! To stop the servers later, run: npm run stop\n');
 }
 
 main().catch(err => {

@@ -1,5 +1,14 @@
 node_modules/
 npm-debug.log*
+
+# Generated. `provision-local-server.mjs` rebuilds runtime/ from
+# node_modules/pokemon-showdown; vendor/ is a clone of the upstream client
+# (see UPSTREAMS in README.md). Deleting either is safe.
 runtime/
 vendor/
+
+# Rendered replay pages, written by npm run replay / rng / branch.
 replays/
+
+# Battle recordings ARE tracked - they are the input to every branch command
+# and cannot be regenerated. See recordings/README.md.

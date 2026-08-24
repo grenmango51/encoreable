@@ -1,2 +1,2 @@
 @echo off
-node scripts\local-battle.mjs
+node scripts\local-battle.mjs %*
