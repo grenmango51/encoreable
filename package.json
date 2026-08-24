@@ -15,7 +15,13 @@
     "local:battle": "node scripts/local-battle.mjs",
     "local:auto": "node scripts/local-battle.mjs",
     "local:stop": "node scripts/local-stop.mjs",
-    "local:check": "node scripts/local-check.mjs"
+    "local:check": "node scripts/local-check.mjs",
+    "replay": "node scripts/local-replay.mjs",
+    "local:replay": "node scripts/local-replay.mjs",
+    "rng": "node scripts/local-rng.mjs",
+    "local:rng": "node scripts/local-rng.mjs",
+    "branch": "node scripts/local-branch.mjs",
+    "local:branch": "node scripts/local-branch.mjs"
   },
   "dependencies": {
     "pokemon-showdown": "0.11.11"

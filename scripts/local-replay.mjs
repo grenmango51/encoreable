@@ -1,0 +1,356 @@
+/**
+ * Omniscient replay harness.
+ *
+ * 1. Brings up the local Showdown server and client host if they are not running.
+ * 2. Plays a scripted Champions Reg M-B doubles battle through the real server
+ *    with two websocket clients.
+ * 3. Reads the battle log the server writes on `end()`, which carries the
+ *    inputLog (seed + both packed teams + every choice).
+ * 4. Re-simulates that inputLog in a fresh headless battle and takes
+ *    `battle.getDebugLog()` - the channel -1 log, exact HP for both sides.
+ * 5. Writes a replay page from the re-simulated log and reports what was
+ *    recovered.
+ *
+ * Usage:
+ *   node scripts/local-replay.mjs                 play a battle, then replay it
+ *   node scripts/local-replay.mjs --from <file>   rebuild from an existing log.json
+ *   node scripts/local-replay.mjs --no-open       do not launch a browser
+ *   node scripts/local-replay.mjs --verbose       print every choice made
+ *   node scripts/local-replay.mjs --fight         p2 attacks instead of exploding
+ *   node scripts/local-replay.mjs --embed <url>   serve the replay player from <url>
+ */
+
+import { spawn } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import http from 'http';
+import { createRequire } from 'module';
+
+import { WsPlayer, makePolicy } from './lib/ws-player.mjs';
+import { buildReplayHtml } from './lib/replay-html.mjs';
+import { battleLines, firstDivergence } from './lib/protocol.mjs';
+
+const require = createRequire(import.meta.url);
+const { Teams, BattleStream, Dex } = require('pokemon-showdown');
+const { P1_EXPORT, P2_EXPORT } = require('./fixtures/teams.js');
+
+const ROOT = process.cwd();
+const RUNTIME_LOGS = path.join(ROOT, 'runtime', 'logs');
+const REPLAY_DIR = path.join(ROOT, 'replays');
+const FORMAT = 'gen9championsvgc2026regmb';
+
+const argv = process.argv.slice(2);
+const flag = name => argv.includes(name);
+const opt = (name) => {
+  const i = argv.indexOf(name);
+  return i >= 0 ? argv[i + 1] : null;
+};
+
+const VERBOSE = flag('--verbose');
+
+// ---------------------------------------------------------------- server setup
+
+function isPortOpen(port, host = '127.0.0.1') {
+  return new Promise((resolve) => {
+    const req = http.get(`http://${host}:${port}`, () => resolve(true)).on('error', () => resolve(false));
+    req.setTimeout(400, () => { req.destroy(); resolve(false); });
+  });
+}
+
+async function waitForPort(port, timeoutMs = 30000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (await isPortOpen(port)) return true;
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return false;
+}
+
+async function ensureServers() {
+  if (await isPortOpen(8000) && await isPortOpen(8080)) {
+    console.log('Local servers already up on 8000 & 8080.');
+    return;
+  }
+  console.log('Starting local Showdown server and client host...');
+  spawn('node', ['scripts/local-play.mjs'], { cwd: ROOT, stdio: 'ignore', detached: true }).unref();
+  if (!await waitForPort(8000) || !await waitForPort(8080)) {
+    throw new Error('servers did not come up on 8000/8080');
+  }
+  console.log('Servers up.');
+}
+
+// ------------------------------------------------------------- fixture battle
+
+async function playFixtureBattle() {
+  const uid = Math.floor(1000 + Math.random() * 9000);
+  const p1 = new WsPlayer({
+    name: `Ghosts${uid}`,
+    team: Teams.pack(Teams.import(P1_EXPORT)),
+    format: FORMAT,
+    // Attack rather than set up, so both sides take damage and the log carries
+    // exact HP numbers for p1 as well as p2.
+    policy: makePolicy([
+      'shadowball', 'matchagotcha', 'throatchop', 'weatherball',
+      'dragonpulse', 'electroshot', 'flashcannon',
+    ]),
+    verbose: VERBOSE,
+  });
+  const p2 = new WsPlayer({
+    name: `Boom${uid}`,
+    team: Teams.pack(Teams.import(P2_EXPORT)),
+    format: FORMAT,
+    // Default is the fast fixture: everything on p2 removes itself turn one.
+    // --fight trades speed for a longer battle that actually deals damage.
+    policy: makePolicy(flag('--fight')
+      ? ['makeitrain', 'meteormash', 'icespinner', 'moonblast', 'shadowball', 'psychicfangs']
+      : ['explosion', 'selfdestruct', 'mistyexplosion', 'memento', 'healingwish', 'lunardance']),
+    verbose: VERBOSE,
+  });
+
+  await Promise.all([p1.connect(), p2.connect()]);
+  await Promise.all([p1.waitNamed(), p2.waitNamed()]);
+
+  p1.useTeam();
+  p2.useTeam();
+  await new Promise(r => setTimeout(r, 300));
+
+  const incoming = p2.waitChallengeFrom();
+  p1.challenge(p2.name);
+  const from = await incoming;
+  p2.accept(from);
+
+  await Promise.all([p1.waitBattle(), p2.waitBattle()]);
+  console.log(`Battle room: ${p1.battleRoom}`);
+
+  const winner = await Promise.race([p1.waitFinished(), p2.waitFinished()]);
+  console.log(`Battle finished. Winner: ${winner ?? 'tie'}`);
+
+  // give the server a moment to run end() -> logBattle() -> disk
+  await new Promise(r => setTimeout(r, 1500));
+  p1.close();
+  p2.close();
+
+  const rejected = [...p1._errors, ...p2._errors];
+  if (rejected.length) {
+    console.log(`\nWARNING: ${rejected.length} choice(s) were rejected and skipped:`);
+    for (const e of new Set(rejected)) console.log(`  ${e}`);
+  }
+  return { winner, roomid: p1.battleRoom, rejected };
+}
+
+// ------------------------------------------------------------------ log files
+
+function findLogFiles() {
+  const out = [];
+  const walk = (dir) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.name.endsWith('.log.json')) out.push(full);
+    }
+  };
+  walk(RUNTIME_LOGS);
+  return out.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+}
+
+async function waitForNewLog(since, timeoutMs = 15000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const newest = findLogFiles()[0];
+    if (newest && fs.statSync(newest).mtimeMs > since) return newest;
+    await new Promise(r => setTimeout(r, 300));
+  }
+  return null;
+}
+
+// -------------------------------------------------------------- re-simulation
+
+async function resimulate(inputLog) {
+  const stream = new BattleStream({ keepAlive: true });
+  const drain = (async () => { for await (const chunk of stream) void chunk; })();
+  await stream.write(inputLog);
+  const battle = stream.battle;
+  if (!battle) throw new Error('re-simulation produced no battle');
+  const result = {
+    debugLog: battle.getDebugLog(),
+    inputLog: battle.inputLog.join('\n'),
+    ended: battle.ended,
+    turns: battle.turn,
+    seed: battle.prngSeed,
+  };
+  await stream.writeEnd();
+  await drain;
+  return result;
+}
+
+// --------------------------------------------------------------------- report
+
+const STATS = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
+
+function unpackFromInputLog(inputLog) {
+  const sides = {};
+  for (const line of inputLog.split('\n')) {
+    const m = /^>player (p\d) (.*)$/.exec(line);
+    if (!m) continue;
+    const options = JSON.parse(m[2]);
+    sides[m[1]] = { name: options.name, sets: Teams.unpack(options.team) };
+  }
+  return sides;
+}
+
+function seedFromInputLog(inputLog) {
+  const m = /^>start (.*)$/m.exec(inputLog);
+  if (!m) return null;
+  return JSON.parse(m[1]).seed ?? null;
+}
+
+function spTotal(set) {
+  return STATS.reduce((a, k) => a + (set.evs?.[k] ?? 0), 0);
+}
+
+function describeSet(set) {
+  const sp = STATS.map(k => `${k} ${set.evs?.[k] ?? 0}`).join(' / ');
+  const ivs = STATS.map(k => (set.ivs?.[k] ?? 31)).join('/');
+  return [
+    `    ${set.species || set.name}  @ ${set.item || '(none)'}`,
+    `      ability ${set.ability}   nature ${set.nature}   level ${set.level || 50}`,
+    `      stat points  ${sp}   (total ${spTotal(set)})`,
+    `      ivs ${ivs}`,
+    `      moves ${set.moves.join(', ')}`,
+  ].join('\n');
+}
+
+function exactHpEvidence(debugLog) {
+  const seen = { p1: new Set(), p2: new Set() };
+  const re = /\|(?:-damage|-heal|-sethp)\|(p[12])[a-c]: [^|]+\|(\d+)\/(\d+)/g;
+  let m;
+  while ((m = re.exec(debugLog))) {
+    if (m[3] !== '100') seen[m[1]].add(`${m[2]}/${m[3]}`);
+  }
+  return seen;
+}
+
+/**
+ * The decisive check. Champions computes HP as `baseStat + StatPoints + 75` at
+ * level 50 (data/mods/champions/scripts.ts, statModify). If the stat points
+ * recovered from the input log reproduce every max-HP integer the log reports -
+ * for both sides - then the recovered spreads are the real ones, not a guess.
+ */
+function hpMatchesRecoveredStatPoints(debugLog, sides) {
+  const dex = Dex.mod('champions');
+  const rows = [];
+  const re = /\|(?:switch|drag|replace)\|(p[12])[a-c]: [^|]+\|([^,|]+)[^|]*\|(\d+)\/(\d+)/g;
+  let m;
+  while ((m = re.exec(debugLog))) {
+    const [, side, speciesName, , maxHp] = m;
+    const species = dex.species.get(speciesName);
+    const set = sides[side]?.sets.find(s => (
+      dex.species.get(s.species || s.name).baseSpecies === species.baseSpecies
+    ));
+    if (!set || !species.exists) continue;
+    const expected = species.baseStats.hp + (set.evs?.hp ?? 0) + 75;
+    const observed = Number(maxHp);
+    if (!rows.some(r => r.side === side && r.species === species.name)) {
+      rows.push({ side, species: species.name, expected, observed, ok: expected === observed });
+    }
+  }
+  return rows;
+}
+
+// ----------------------------------------------------------------------- main
+
+async function main() {
+  fs.mkdirSync(REPLAY_DIR, { recursive: true });
+
+  let logFile = opt('--from');
+
+  if (!logFile) {
+    await ensureServers();
+    const before = Date.now();
+    const { roomid } = await playFixtureBattle();
+    logFile = await waitForNewLog(before);
+    if (!logFile) {
+      throw new Error(
+        `no battle log appeared under runtime/logs after ${roomid}. Check that ` +
+        `runtime/config/config.js has logchallenges = true, then restart the server with npm run local:stop.`
+      );
+    }
+  }
+
+  console.log(`\nBattle log: ${path.relative(ROOT, logFile)}`);
+  const logData = JSON.parse(fs.readFileSync(logFile, 'utf8'));
+
+  const inputLog = Array.isArray(logData.inputLog) ? logData.inputLog.join('\n') : String(logData.inputLog || '');
+  if (!inputLog.trim()) throw new Error('battle log contains no inputLog');
+
+  console.log('Re-simulating the input log in a fresh battle...');
+  const sim = await resimulate(inputLog);
+
+  const inputLogRoundTrips = sim.inputLog.trim() === inputLog.trim();
+  const serverLines = battleLines(logData.log || []);
+  const simLines = battleLines(sim.debugLog);
+  const logDiff = firstDivergence(serverLines, simLines);
+
+  const sides = unpackFromInputLog(inputLog);
+  const seed = seedFromInputLog(inputLog);
+  const hp = exactHpEvidence(sim.debugLog);
+  const hpRows = hpMatchesRecoveredStatPoints(sim.debugLog, sides);
+
+  const names = Object.values(sides).map(s => s.name);
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const outFile = path.join(REPLAY_DIR, `${FORMAT}-${names.join('-vs-')}-${stamp}.html`);
+  fs.writeFileSync(outFile, buildReplayHtml({
+    title: `${Dex.formats.get(FORMAT).name} replay: ${names.join(' vs. ')}`,
+    formatid: FORMAT,
+    log: sim.debugLog,
+    ...(opt('--embed') ? { embedBase: opt('--embed') } : {}),
+  }), 'utf8');
+
+  console.log('\n================ RECOVERED FROM THE LOG ================\n');
+  console.log(`  RNG seed:      ${seed}`);
+  console.log(`  Turns:         ${sim.turns}`);
+  console.log(`  Battle ended:  ${sim.ended}`);
+  for (const [slot, side] of Object.entries(sides)) {
+    console.log(`\n  ${slot} - ${side.name}  (${side.sets.length} Pokemon)`);
+    for (const set of side.sets) console.log(describeSet(set));
+  }
+
+  console.log('\n================ CHECKS ================\n');
+  const spOk = Object.values(sides).every(s => s.sets.every(set => spTotal(set) === 66));
+  console.log(`  [${inputLogRoundTrips ? 'PASS' : 'FAIL'}] input log round-trips byte-identically through a fresh battle`);
+  console.log(`  [${logDiff ? 'FAIL' : 'PASS'}] re-simulated protocol log matches the server's (${simLines.length} battle lines compared)`);
+  if (logDiff) {
+    console.log(`         first divergence at line ${logDiff.index}`);
+    console.log(`         server: ${logDiff.expected}`);
+    console.log(`         resim:  ${logDiff.actual}`);
+  }
+  console.log(`  [${spOk ? 'PASS' : 'FAIL'}] every recovered spread sums to the 66 stat-point budget`);
+
+  const perSide = { p1: 0, p2: 0 };
+  for (const [side, set] of Object.entries(hp)) perSide[side] = set.size;
+  const exactHp = /\|(?:switch|drag|replace)\|p[12][a-c]: [^|]+\|[^|]*\|\d+\/(\d+)/g;
+  let anyPercent = false;
+  for (const m of sim.debugLog.matchAll(exactHp)) if (m[1] === '100') anyPercent = true;
+  console.log(`  [${anyPercent ? 'FAIL' : 'PASS'}] no HP is reported as a percentage anywhere in the log`);
+  console.log(`         (mid-battle HP changes seen: p1 ${perSide.p1}, p2 ${perSide.p2})`);
+
+  const allOk = hpRows.length && hpRows.every(r => r.ok);
+  console.log(`  [${allOk ? 'PASS' : 'FAIL'}] recovered stat points reproduce every max-HP integer in the log`);
+  for (const r of hpRows) {
+    console.log(`         ${r.ok ? 'ok  ' : 'BAD '} ${r.side} ${r.species.padEnd(14)} expected ${r.expected}  log says ${r.observed}`);
+  }
+
+  console.log(`\nReplay written: ${path.relative(ROOT, outFile)}`);
+
+  if (!flag('--no-open')) {
+    spawn('cmd.exe', ['/c', 'start', '', outFile], { detached: true, stdio: 'ignore' }).unref();
+    console.log('Opening in your default browser.');
+  }
+}
+
+main().catch((err) => {
+  console.error(`\nFAILED: ${err.message}`);
+  process.exit(1);
+});

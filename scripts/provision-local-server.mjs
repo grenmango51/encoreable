@@ -32,6 +32,10 @@ exports.disablecrashguard = false;
 exports.noguestsecurity = true;
 exports.nothrottle = true;
 exports.noipchecks = true;
+// Unrated challenge battles only reach logBattle() when this is on
+// (server/room-battle.ts:850). Without it, logData - and the inputLog with it -
+// is discarded the moment the battle ends.
+exports.logchallenges = true;
 `;
 
 fs.writeFileSync(path.join(DEST, 'config', 'config.js'), configContent);
