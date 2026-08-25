@@ -11,6 +11,7 @@
     "start": "node scripts/local-battle.mjs",
     "battle": "node scripts/local-battle.mjs",
     "replay": "node scripts/local-replay.mjs",
+    "reconstruct": "node scripts/local-reconstruct.mjs",
     "live": "node scripts/local-live.mjs",
     "serve": "node scripts/local-serve.mjs",
     "stop": "node scripts/local-stop.mjs",
