@@ -18,6 +18,7 @@ the table does not already place. Ask for that file, by name, on its own, and wa
 | Command a person runs | `scripts/local-<name>.mjs` — plus one `package.json` script and one `<name>.bat` at the root |
 | Piece of Node machinery two or more commands share | `scripts/lib/<name>.mjs` |
 | Script that runs in the browser, served over HTTP | `scripts/client/<name>.js` — never runnable with `node` |
+| Code that runs inside the Showdown server process | `scripts/server/<name>.js` — CommonJS, copied into `runtime/config/` by provisioning, never `.mjs` |
 | Team or format fixture loaded by Node | `scripts/fixtures/<name>.js` — CommonJS, not ESM |
 | Recorded battle worth keeping | `recordings/<battleid>.log.json` — tracked, cannot be regenerated |
 | Public-ladder replay kept as test material | `samples/<name>.html` |
@@ -31,8 +32,8 @@ the table does not already place. Ask for that file, by name, on its own, and wa
 ## Extensions carry meaning
 
 `.mjs` is a Node ES module. `.js` under `scripts/client/` is browser code. `.js` under
-`scripts/fixtures/` is Node CommonJS. Picking the wrong one breaks the file at load time, not
-at review time.
+`scripts/fixtures/` and `scripts/server/` is CommonJS. Picking the wrong one breaks the file at
+load time, not at review time.
 
 ## Before adding anything
 

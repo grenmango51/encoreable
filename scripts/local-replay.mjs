@@ -18,6 +18,22 @@
  *   node scripts/local-replay.mjs --verbose       print every choice made
  *   node scripts/local-replay.mjs --fight         p2 attacks instead of exploding
  *   node scripts/local-replay.mjs --embed <url>   serve the replay player from <url>
+ *
+ * With --force, the same recording is replayed twice from a chosen turn - once
+ * plain and once with the RNG controller armed - and the two are compared. Both
+ * runs carry the same fresh `>reseed`, so every difference between them is a
+ * forced draw and nothing else:
+ *
+ *   node scripts/local-replay.mjs --from <file> --force "crit Glalie" --at 3
+ *   node scripts/local-replay.mjs --from <file> --force "miss any" --force "maxdmg any"
+ *   node scripts/local-replay.mjs --from <file> --force "crit any" --always
+ *
+ * The continuation seed is fresh on every run unless --seed is given, so pass
+ * one when you want the same comparison twice.
+ *
+ * The interceptor is installed *before* the reseed on purpose. `>reseed` replaces
+ * the generator object, so a run that forces nothing is how a broken accessor
+ * announces itself (ENGINEERING.md 4.2).
  */
 
 import { spawn } from 'child_process';
@@ -30,6 +46,7 @@ import { WsPlayer, makePolicy } from './lib/ws-player.mjs';
 import { listLogFilesIn, archiveLogFile, posix } from './lib/recordings.mjs';
 import { buildReplayHtml } from './lib/replay-html.mjs';
 import { battleLines, firstDivergence } from './lib/protocol.mjs';
+import { buildControlled, replayControlled, verdict } from './lib/rng-control.mjs';
 
 const require = createRequire(import.meta.url);
 const { Teams, BattleStream, Dex } = require('pokemon-showdown');
@@ -46,6 +63,8 @@ const opt = (name) => {
   const i = argv.indexOf(name);
   return i >= 0 ? argv[i + 1] : null;
 };
+/** Every value of a repeatable option, in the order they were given. */
+const opts = name => argv.reduce((acc, a, i) => (a === name && argv[i + 1] ? acc.concat(argv[i + 1]) : acc), []);
 
 const VERBOSE = flag('--verbose');
 
@@ -296,14 +315,6 @@ async function main() {
 
   const names = Object.values(sides).map(s => s.name);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const outFile = path.join(REPLAY_DIR, `${FORMAT}-${names.join('-vs-')}-${stamp}.html`);
-  fs.writeFileSync(outFile, buildReplayHtml({
-    title: `${Dex.formats.get(FORMAT).name} replay: ${names.join(' vs. ')}`,
-    formatid: FORMAT,
-    log: sim.debugLog,
-    inputLog,
-    ...(opt('--embed') ? { embedBase: opt('--embed') } : {}),
-  }), 'utf8');
 
   console.log('\n================ RECOVERED FROM THE LOG ================\n');
   console.log(`  RNG seed:      ${seed}`);
@@ -338,6 +349,81 @@ async function main() {
   for (const r of hpRows) {
     console.log(`         ${r.ok ? 'ok  ' : 'BAD '} ${r.side} ${r.species.padEnd(14)} expected ${r.expected}  log says ${r.observed}`);
   }
+
+  // --------------------------------------------------------- RNG control
+
+  const forces = opts('--force');
+  let page = { log: sim.debugLog, inputLog, tag: '' };
+
+  if (forces.length) {
+    const turn = Number(opt('--at') || 1);
+    const built = await buildControlled(inputLog, turn, forces, {
+      standing: flag('--always'),
+      seed: opt('--seed'),
+    });
+    const base = await replayControlled(built.baseline);
+    const ctrl = await replayControlled(built.controlled);
+    const r = ctrl.rng;
+
+    console.log('\n================ RNG CONTROL ================\n');
+    console.log(`  Armed at turn ${built.turn}, both runs reseeded to ${built.seed}`);
+    for (const a of built.arms) console.log(`    ${a.text}${flag('--always') ? '  [always]' : ''}`);
+    console.log(`\n  draws ${r.draws}   forced ${r.forced}   could not force ${r.skipped}`);
+    console.log(`  baseline ${verdict(base)} through turn ${base.turns}   ` +
+      `controlled ${verdict(ctrl)} through turn ${ctrl.turns}`);
+
+    console.log(`\n  [${r.reseeds > 0 && r.drawsSinceReseed > 0 ? 'PASS' : 'FAIL'}] ` +
+      `control survived the reseed (${r.reseeds} reseed(s), ${r.drawsSinceReseed} draws after the last one)`);
+    console.log(`  [${r.forced > 0 ? 'PASS' : 'FAIL'}] at least one draw was actually substituted`);
+
+    const back = await replayControlled(ctrl.inputLog + '\n');
+    const same = back.inputLog === ctrl.inputLog;
+    const rediff = firstDivergence(battleLines(ctrl.debugLog), battleLines(back.debugLog));
+    console.log(`  [${same && !rediff ? 'PASS' : 'FAIL'}] the controlled battle replays byte-identically ` +
+      `(re-forced ${back.rng ? back.rng.forced : 0} draws)`);
+
+    if (r.notes.length) {
+      console.log('\n  What the interceptor did:');
+      for (const n of r.notes) console.log(`    ${n}`);
+    }
+    if (r.armed.length) {
+      console.log('\n  Still armed at the end:');
+      for (const a of r.armed) console.log(`    #${a.id} ${a.text}  matched ${a.tries}, forced ${a.fired}`);
+    }
+
+    // Forcing a crit inserts a line, which shifts every line after it - a
+    // positional diff would call the whole rest of the battle changed. Compare
+    // the two as multisets instead, so only genuinely new or missing lines show.
+    const before = battleLines(base.debugLog);
+    const after = battleLines(ctrl.debugLog).filter(l => !l.startsWith('|-message|#rng'));
+    const missingFrom = (these, those) => {
+      const bag = new Map();
+      for (const l of those) bag.set(l, (bag.get(l) || 0) + 1);
+      return these.filter((l) => {
+        const n = bag.get(l) || 0;
+        if (!n) return true;
+        bag.set(l, n - 1);
+        return false;
+      });
+    };
+    const gone = missingFrom(before, after);
+    const fresh = missingFrom(after, before);
+    console.log(`\n  Battle lines only in the plain run: ${gone.length}`);
+    for (const l of gone.slice(0, 8)) console.log(`    - ${l}`);
+    console.log(`  Battle lines only in the controlled run: ${fresh.length}`);
+    for (const l of fresh.slice(0, 8)) console.log(`    + ${l}`);
+
+    page = { log: ctrl.debugLog, inputLog: ctrl.inputLog, tag: '-forced' };
+  }
+
+  const outFile = path.join(REPLAY_DIR, `${FORMAT}-${names.join('-vs-')}-${stamp}${page.tag}.html`);
+  fs.writeFileSync(outFile, buildReplayHtml({
+    title: `${Dex.formats.get(FORMAT).name} replay: ${names.join(' vs. ')}`,
+    formatid: FORMAT,
+    log: page.log,
+    inputLog: page.inputLog,
+    ...(opt('--embed') ? { embedBase: opt('--embed') } : {}),
+  }), 'utf8');
 
   const url = `http://127.0.0.1:8080/replays/${encodeURIComponent(path.basename(outFile))}`;
   console.log(`\nReplay written: ${path.relative(ROOT, outFile)}`);

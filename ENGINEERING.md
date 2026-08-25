@@ -21,7 +21,7 @@ Target ruleset is **Pokémon Champions VGC** (`[Gen 9 Champions] VGC 2026 Reg M-
 |---|---|
 | Determinism (Task 1) | **DONE — PASS.** Input logs round-trip byte-identically. |
 | Full information (Task 2) | **DONE — YES on our own server, NO on the public ladder.** |
-| Per-roll RNG control (Task 4) | **DONE.** Tier 1 shipped for all five draw kinds. |
+| Per-roll RNG control (Task 4) | **DONE.** `/rng` inside a live battle room, every draw in the simulator, §4. No panel yet. |
 | Restore to turn N (Task 3) | **DONE.** `scripts/lib/truncate.mjs`, §5.9. |
 | Playable branch (Task 5) | **DONE.** `npm run live` — the native battle UI, both sides, §5.9. |
 
@@ -182,52 +182,92 @@ Anything that depends on reading a finished battle's input log depends on this f
 required. `forceRandomChance` is confirmed useless for our purpose: it is `readonly`, set once
 at construction, gated on `debugMode`, and forces *every* `randomChance()` call to one boolean.
 
-The implementation that established this was deleted once it had: it patched an in-process
-`Battle`, which is not where a live branch runs (§8). This section is the specification it gets
-rebuilt from — every call site, filter and edge case below was paid for once.
+The operator names an outcome with `/rng` in the battle room. The command writes a `>eval` to
+that room's battle stream (`sim/battle-stream.ts:128`), which is where a live branch's `Battle`
+actually is; the interceptor inside the simulator substitutes that one draw and reports what it
+did. Both halves live in `scripts/server/rng-command.js`.
 
-### 4.1 The five draw sites
+### 4.1 One interception point covers every draw
 
-Every random decision in a battle is one `prng.rng.next()` call:
+Every random decision in a battle is one `prng.rng.next()` call, and every caller reaches it
+through `PRNG.random`: `randomChance(n, d)` is `random(d) < n` (`sim/prng.ts:116`),
+`sample(items)` is `random(items.length)`, `shuffle` is repeated `random(a, b)`. Nothing in
+`sim/` or `data/` calls `rng.next()` directly. Wrapping three methods on the live `PRNG` —
+`random`, `randomChance` and `sample` — therefore covers the whole simulator, mods included,
+with nothing pinned to a line number that moves on upgrade.
 
-| Kind | Call | Site |
+Wrap `random`, not `next`. At `random` the denominator, the offset and (through the wrappers
+above it) the numerator and the sampled array are all in hand, so a forced draw is an integer
+returned directly. `next` sees a bare 32-bit number: forcing a value there means converting
+through `floor((v + 0.5) * 2**32 / d)`, and it never sees the array a `sample()` was handed.
+
+`randomChance` and `sample` are wrapped only to record what was asked for. That is what lets a
+rule say "make this proc" or "make this three hits" with no probability and no hit-count table
+written down anywhere — which matters, because Champions changes the odds: paralysis is
+**1/8**, sleep duration is **`sample([2, 3, 3])`** (`data/mods/champions/conditions.ts`).
+Nothing in the interceptor notices, because nothing in it knows the numbers.
+
+**Every draw identifies itself.** A stack frame names the function that asked, and the
+simulator's own context says what it was for — `battle.effect`, `battle.activeMove`,
+`battle.activePokemon`, `battle.activeTarget`, saved and restored around every handler dispatch
+(`battle.ts:631/647/900/906`). Frames defined by `eval` are the interceptor's own and are
+dropped; so are `PRNG.*` and the `Battle.random` / `randomChance` / `sample` pass-throughs. The
+first frame left is the site. `dist/` is esbuild output with function names unmangled, so this
+survives compilation.
+
+| Draw | Site | What it asks for |
 |---|---|---|
-| accuracy | `randomChance(accuracy, 100)` | `sim/battle-actions.ts:738` (`hitStepAccuracy`) |
-| crit | `randomChance(1, critMult[ratio])` | `sim/battle-actions.ts:1641` (`getDamage`) |
-| damage | `random(16)` | `sim/battle.ts:2388` (`randomizer`), called from `:1755` |
-| secondary | `random(100)` | `sim/battle-actions.ts:1336` (`secondaries`) |
-| selfboost | `random(100)` | `sim/battle-actions.ts:1317` (`selfDrops`) |
+| accuracy | `hitStepAccuracy` | `randomChance(accuracy, 100)` |
+| crit | `getDamage` | `randomChance(1, critMult[ratio])` |
+| damage roll | `randomizer` | `random(16)` |
+| secondary | `secondaries` | `random(100)` |
+| self-boost | `selfDrops` | `random(100)` |
+| multi-hit count | `hitStepMoveHitLoop` | `sample`, 20 entries or 8 with Loaded Dice |
+| ability / item proc | the handler, `battle.effect` set | whatever it asked for |
+| status and volatile ticks | the handler, `battle.effect` set | whatever it asked for |
+| random target | `randomFoe`, `getRandomTarget` | live targets |
+| speed tie | `speedSort` | `shuffle` |
 
-`randomChance(n, d)` is just `random(d) < n` (`sim/prng.ts:116`).
+Secondary and self-boost are both `random(100)` inside the same move and are still told apart,
+because different functions ask for them.
 
-### 4.2 Five design points that are not obvious
+### 4.2 Design points that are not obvious
 
-**Always draw from the real RNG.** The scripted source calls `realRng.next()` on *every* call
-and substitutes its own value only for an armed draw. This keeps the stream aligned, so no
-unrelated decision shifts. A source that skipped the real draw would silently perturb the rest
-of the turn.
+**Always draw from the real RNG.** The wrapper calls the real `random()` on *every* call and
+substitutes its own value only for an armed draw. This keeps the stream aligned, so no
+unrelated decision shifts. Skipping the real draw would silently perturb the rest of the turn.
 
-**Capture the denominator on the way in.** `random(from, to)` calls `rng.next()` *before* it
-knows anything about the range, so `next()` cannot see the denominator. Wrap `prng.random`
-itself to record it, then use it as a filter (`d === 16` for a damage roll, `d === 100` for
-accuracy, `1..24` for crit) so an unrelated draw inside the same function cannot be hijacked.
+**An effect is never enough on its own.** Confusion draws a duration, then a coin flip every
+turn, then a damage roll if it connects — three unrelated numbers, all carrying
+`battle.effect.id === 'confusion'`. Matching on the effect alone hijacks all three, and the two
+it was not aimed at fail quietly in the operator's favour. Every outcome pins the handler as
+well: `confusion` + `onBeforeMove`, `stall` + `onStallMove`, `par` + `onBeforeMove`.
 
-**Zones are a stack, not a flag.** `randomizer` runs *inside* `getDamage`, after the crit
-draw, so it must push a **more specific** zone on top of `crit` rather than replace it. Arming
-at `getDamage` entry catches the crit draw instead of the damage roll.
+**Force a value, not a bit pattern.** At the `random` level the extremes are just `0` and
+`d − 1`, a specific band is its own index, and a `random(from, to)` draw needs `from` added back
+on the way out. `sample()` is the same mechanism one level up: "three hits" is
+`items.indexOf(3)`, and "shortest sleep" is the index of the smallest entry.
 
-**The extreme draws force a known outcome without knowing the denominator.** Raw `0` makes
-`random(d)` return `0`; raw `2**32 − 1` makes it return `d − 1`. That is enough for hit/miss,
-crit/no-crit and proc/skip. For a *specific* value use
-`rawFor(v, d) = floor((v + 0.5) * 2**32 / d)` — the midpoint of the band, which avoids
-floating-point error at the boundaries.
+**Forcing is not always possible, and it has to say so.** A 100%-accuracy move draws
+`randomChance(100, 100)`, which cannot be made false; Icicle Spear cannot hit nine times; the
+first Protect in a chain never draws at all. The interceptor reports `always-true`,
+`always-false` and `unreachable` per draw rather than substituting something close.
 
 **`>reseed` replaces the generator, it does not reseed it.** `sim/battle.ts:219` assigns
 `this.prng = new PRNG(seed)`, so anything installed on the old `prng` object goes with it.
 Install through an accessor on `battle.prng` that re-runs on every assignment. Without that,
 control dies at the first `>reseed` **silently** — the battle keeps running, no further draw is
 ever matched, and nothing reports it. This is not a corner case: every recording produced by
-branching carries a `>reseed`, and one such recording under-reported its draws by 19 to 1.
+branching carries a `>reseed`. The interceptor counts reseeds and counts draws since the last
+one, and `npm run replay -- --force` installs *before* the reseed on purpose, so a broken
+accessor shows up as a failed check rather than as a battle that quietly does nothing.
+
+**A controlled battle is manipulated by definition.** `>eval` lines are pushed to
+`battle.inputLog` before they run (`battle-stream.ts:132`), so the recipe carries the install
+and every arm in plain text, each arm and each substitution writes a `#rng` line into the
+battle log, and replaying the recording reinstalls the interceptor and re-forces the same
+draws. Arm commands return a constant so the `<<<` echo is stable. None of this is suppressed —
+the audit trail is the point.
 
 The simulator computes every consequence itself. Nothing in this mechanism writes damage, sets
 a status, or decides a hit.
@@ -240,13 +280,14 @@ had a reachable ladder of **39 / 40 / 42 / 43 / 45 / 46** — deltas of 1, 3 and
 
 This is why editing the number in the log directly is the wrong mechanism. It can write `44`,
 a damage value **no roll can produce** — a log internally inconsistent with its own seed, which
-fails any honest re-simulation. Roll selection is the only sound approach.
+fails any honest re-simulation. Roll selection is the only sound approach, and it is what
+shipped: `/rng force roll0`..`roll15`, `mindmg`, `maxdmg`. "Deal exactly N damage" did not.
 
 Consequences for the branch UI:
 - "Deal N more damage" is **not always a legal request.** Enumerate the reachable ladder and
   present that set, not a free-text number.
-- `rollTable()` costs 16 full replays per hit. Cheap on a 5-turn fixture, quadratic on a long
-  battle — cache it per (attacker, defender, move, turn).
+- Enumerating the ladder costs 16 full replays per hit. Cheap on a 5-turn fixture, quadratic on
+  a long battle — it would need caching per (attacker, defender, move, turn).
 - Filter for reachability *and* for intent: a roll that turns a non-lethal hit lethal changes
   the battle, which may not be what was asked for.
 
@@ -495,6 +536,10 @@ replay control row, which does the same thing as `npm run live` for the turn on 
 
 Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 `npm run live` takes `--at <turn>`, `--dry-run` and `--verify <log.json>`.
+`npm run replay` takes `--force "<outcome> <subject> [move]"` (repeatable), with `--at <turn>`,
+`--always` and `--seed <seed>`: it replays the recording twice from that turn under one shared
+reseed, once plain and once controlled, and reports what was substituted and which battle lines
+moved. That is the headless proof for §4; `/rng` is the same engine driven from a live room.
 `replay.bat`, `live.bat` and `battle.bat` are the double-click entry points.
 
 | File | Role |
@@ -508,6 +553,8 @@ Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 | `scripts/lib/branch-launch.mjs` | the one launch path: import, two windows, both slots (§5.10) |
 | `scripts/client/replay-branch.js` | the replay page's "Play from here" button (§5.10) |
 | `scripts/lib/replay-html.mjs` | replay shell (§6.3) |
+| `scripts/server/rng-command.js` | the `/rng` command and the interceptor it sends (§4) — CommonJS, copied into `runtime/config/` |
+| `scripts/lib/rng-control.mjs` | the same engine driven headlessly: build a controlled input log, replay it, read the accounting (§4.2) |
 | `scripts/fixtures/teams.js` | the two fixture teams, as export text, packed at runtime |
 | `scripts/provision-local-server.mjs` | local config, including `logchallenges` (§3.1) |
 
@@ -528,18 +575,22 @@ branch and `npm run live --at 6` has nothing to stand on. Also needed to exercis
 Record it with `npm run battle`, or play one out from a live branch — either way it lands in
 `runtime/logs` with its input log intact (§3.1).
 
-### RNG control inside a live room
+### A control surface for `/rng`
 
-The mechanism in §4 patches a `Battle` object in-process. A live branch's battle lives in the
-server's simulator worker, so the two never meet — which is why the in-process implementation
-was deleted rather than carried. Forcing a crit inside a room the browser is playing needs a
-different hook — probably a `>eval`-style write on the
-battle stream, which `sim/battle-stream.ts` already accepts.
+The engine is done and the commands work, but the only way to reach them is typing. A battle
+turn asks for roughly 28 draws, so the surface cannot be a list of dice — it has to be a
+catalogue of outcomes per active Pokémon, offered before the turn resolves.
 
-Keep this separate from getting the room into position; they are independent problems.
+The mechanism needs no client code: the server already pushes interactive HTML into battle
+rooms (`|uhtml|`, `chat-commands/core.ts:1052`, client `panels.js:1473`), and a
+`<button name="send" value="/rng force crit Glalie">` is an ordinary chat command. `|uhtmlchange|`
+replaces the block in place, so the panel can follow the battle.
 
-**Acceptance:** the operator can name a draw before a turn resolves in a live branch and see
-the forced outcome in the browser.
+Open questions are what the catalogue shows per Pokémon, how an armed rule and an
+expired-unfired one are surfaced, where the expiry toggle lives, and whether the `<kind>=<value>`
+tail gets a surface at all.
+
+**Acceptance:** the operator arms a draw from the battle room without typing a command.
 
 ### A single omniscient window
 
@@ -581,7 +632,7 @@ not capability. The mechanism is channel −1 (§3); the missing piece is that
 | `runtime/sim/SIM-PROTOCOL.md` | Protocol messages, including the secret/public split |
 | `runtime/sim/battle-stream.ts` | `BattleStream`, `getPlayerStreams` |
 | `runtime/sim/battle.ts` | `extractChannelMessages` :35, `resetRNG` :360, `randomizer` :2388, `getDebugLog` :3151 |
-| `runtime/sim/battle-actions.ts` | the five draw sites — :738, :1317, :1336, :1641, :1755 |
+| `runtime/sim/battle-actions.ts` | `hitStepAccuracy`, `selfDrops`, `secondaries`, `getDamage`, `hitStepMoveHitLoop` (§4.1) |
 | `runtime/sim/side.ts` | `autoChoose` target skip :660 (§6.1) |
 | `runtime/sim/prng.ts` | `PRNG`, the `RNG` interface, `randomChance` :116, seed formats |
 | `runtime/server/room-battle.ts` | `logchallenges` :850, `>pN default` :452 |

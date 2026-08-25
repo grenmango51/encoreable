@@ -3,6 +3,7 @@ import path from 'path';
 
 const SRC = path.join(process.cwd(), 'node_modules', 'pokemon-showdown');
 const DEST = path.join(process.cwd(), 'runtime');
+const SERVER_SRC = path.join(process.cwd(), 'scripts', 'server');
 
 // 1. Create/Refresh runtime by copying node_modules/pokemon-showdown
 if (!fs.existsSync(DEST)) {
@@ -18,7 +19,15 @@ fs.mkdirSync(path.join(DEST, 'logs', 'repl'), { recursive: true });
 fs.mkdirSync(path.join(DEST, 'databases'), { recursive: true });
 fs.mkdirSync(path.join(DEST, 'config', 'chat-plugins'), { recursive: true });
 
-// 3. Write local-only config
+// 3. Copy the in-process server code into config/, the only directory the
+// scope guard allows changing. config.js hands its command tables to
+// Chat.loadPlugin(Config, 'config') (server/chat.ts:2089).
+for (const file of fs.readdirSync(SERVER_SRC)) {
+  if (!file.endsWith('.js')) continue;
+  fs.copyFileSync(path.join(SERVER_SRC, file), path.join(DEST, 'config', file));
+}
+
+// 4. Write local-only config
 const configContent = `
 exports.bindaddress = '127.0.0.1';
 exports.port = 8000;
@@ -44,10 +53,21 @@ exports.logchallenges = true;
 // authentication token from a login server (server/users.ts:640). Granting the
 // permission to the default group keeps the whole thing inside config/ and
 // leaves no other rank in play.
+//
+// "console" is here for the same reason: /importinputlog refuses any log
+// containing a >eval line without it (chat-commands/core.ts:847), and every
+// recording of a controlled battle contains one. hasConsoleAccess() also checks
+// the connection IP against Config.consoleips, which defaults to 127.0.0.1
+// (server/users.ts:385) - the address this server binds to and no other.
 const defaults = require('./config-example.js');
 exports.grouplist = defaults.grouplist.map(group => (
-  group.symbol === ' ' ? { ...group, importinputlog: true, ignorelimits: true } : group
+  group.symbol === ' '
+    ? { ...group, importinputlog: true, ignorelimits: true, console: true }
+    : group
 ));
+
+// /rng - per-draw RNG control. See config/rng-command.js.
+exports.commands = require('./rng-command.js').commands;
 `;
 
 fs.writeFileSync(path.join(DEST, 'config', 'config.js'), configContent);
