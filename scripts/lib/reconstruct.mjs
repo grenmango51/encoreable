@@ -11,19 +11,20 @@
  *      offered options did the player pick", and the observed log says.
  *   2. the turn is written, and the protocol lines it emitted are compared - in
  *      the same channel the observation came from - against the observed ones.
- *   3. on a mismatch the turn is replayed under a different `>reseed`, until its
- *      lines match. Uniform sampling over seeds is uniform sampling over the
- *      roll tuples consistent with the observation, so the search IS the
- *      sampler for the opponent's exact HP behind each percentage.
+ *   3. on a mismatch the turn's random draws are settled one at a time, in the
+ *      order the simulator consumed them, each against the observed lines. A
+ *      draw is only ever moved to another value it could have produced anyway.
  *   4. on exhaustion, back up a turn and redraw: a sampled HP can make the next
  *      turn's observation unreachable.
  *
  * Nothing here computes damage, accuracy, turn order or HP. The only thing this
- * file decides is which choice to write and which seed to keep.
+ * file decides is which choice to write and which face of a die to keep.
  *
- * `>reseed` is the only state-forcing mechanism used. `>editbattle hp` would
- * write an HP no roll can produce - a log inconsistent with its own seed
- * (ENGINEERING.md 4.3) - and `>eval` echoes its own code into the battle log.
+ * Searching for a seed that reproduces a whole turn at once costs the *product*
+ * of every random event in it, which is why ENGINEERING.md 4 opens by saying
+ * seed search was never required. Settling draws one at a time costs their sum.
+ * `>editbattle hp` stays rejected: it writes an HP no roll can produce, a log
+ * inconsistent with its own seed (ENGINEERING.md 4.3).
  */
 
 import { createRequire } from 'module';
@@ -208,10 +209,10 @@ function avatars(lines) {
   return found;
 }
 
-// ------------------------------------------------------------- seed generation
+// ----------------------------------------------------------------- sampling
 
-/** A deterministic stream of seeds, so a reconstruction is reproducible. */
-function seedStream(sampleSeed) {
+/** A deterministic stream of seeds and picks, so a reconstruction is reproducible. */
+function sampler(sampleSeed) {
   let state = (sampleSeed >>> 0) || 1;
   const next32 = () => {
     state = (state + 0x6d2b79f5) >>> 0;
@@ -220,10 +221,15 @@ function seedStream(sampleSeed) {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0);
   };
-  return () => {
-    let hex = '';
-    for (let i = 0; i < 4; i++) hex += next32().toString(16).padStart(8, '0');
-    return `sodium,${hex}`;
+  return {
+    seed() {
+      let hex = '';
+      for (let i = 0; i < 4; i++) hex += next32().toString(16).padStart(8, '0');
+      return `sodium,${hex}`;
+    },
+    pick(n) {
+      return n <= 1 ? 0 : next32() % n;
+    },
   };
 }
 
@@ -410,6 +416,69 @@ function onChannel(raw, channel) {
   return extractChannelMessages(raw.join('\n'), [channel])[channel];
 }
 
+// ------------------------------------------------------------ per-draw control
+
+/**
+ * One `>eval` line that puts every random draw in the battle under our control.
+ *
+ * `PRNG.random` is the only funnel there is: `randomChance`, `sample` and
+ * `shuffle` all route through it, and `sim/prng.ts:92` is the single `next()`
+ * call in the whole simulator. Wrapping it on the instance is therefore total
+ * coverage, and the range arrives as arguments, so the wrapper knows how many
+ * faces the die had (ENGINEERING.md 4.2 needed `rawFor` only because it wrapped
+ * one level lower).
+ *
+ * The real draw is always taken and only its result is replaced, so forcing one
+ * decision never shifts the ones after it. Installation goes through an accessor
+ * because `>reseed` assigns a whole new generator (`sim/battle.ts:361`) - without
+ * that, control dies at the first reseed and nothing reports it.
+ *
+ * `>eval` is a stock input-log command: `sim/battle-stream.ts:133` records it, so
+ * the log this produces re-simulates on its own with no help from this file. Its
+ * echo is a `''`-type line, which `ROOM_ONLY` strips from every comparison here.
+ */
+function interceptorLine(subs) {
+  return `>eval (()=>{const S=${JSON.stringify(subs)},T=[];let n=-1,p=battle.prng;` +
+    `const w=g=>{if(!g||g.__recon)return g;const r=g.random.bind(g);` +
+    `g.random=(f,t)=>{const raw=r(f,t);n++;const s=S[n];const v=s===undefined?raw:s;` +
+    `T.push([n,f===undefined?-1:f,t===undefined?-1:t,v,battle.log.length,battle.__seg|0]);` +
+    `return v;};g.__recon=1;return g;};p=w(p);` +
+    `Object.defineProperty(battle,'prng',{get:()=>p,set:g=>{p=w(g);},configurable:true});` +
+    `battle.__trace=T;})()`;
+}
+
+/**
+ * The draws one segment consumed, as `{ i, lo, hi, value }`.
+ *
+ * Float draws and one-faced ranges are dropped: there is nothing to choose.
+ */
+function drawsOf(trace, seg) {
+  const rows = [];
+  for (const [i, f, t, value, , at] of trace || []) {
+    if (at !== seg || f < 0) continue;
+    const lo = t < 0 ? 0 : f;
+    const hi = (t < 0 ? f : t) - 1;
+    if (hi <= lo) continue;
+    rows.push({ i, lo, hi, value });
+  }
+  return rows;
+}
+
+/**
+ * The values worth trying for one draw.
+ *
+ * Both extremes settle every binary decision, because accuracy, crit and every
+ * proc are `random(d) < n` (`sim/prng.ts:116`) - which side of the line the draw
+ * falls on is the whole question. A small range is enumerated outright: that is
+ * the damage roll's 16 bands, a multi-hit `sample`, a sleep duration, a speed
+ * tie's shuffle.
+ */
+function candidates({ lo, hi, value }) {
+  const span = hi - lo + 1;
+  const all = span <= 16 ? Array.from({ length: span }, (_, k) => lo + k) : [lo, hi];
+  return all.filter(v => v !== value);
+}
+
 /**
  * Replay the whole battle under a given set of per-turn seeds.
  *
@@ -417,14 +486,22 @@ function onChannel(raw, channel) {
  * unless `tolerant` is set - which is how a best-effort log is produced after
  * the search gives up.
  */
-async function playThrough({ header, segments, plans, reseeds, variants, channel, state0, dex, stopAt, tolerant }) {
+async function playThrough({ header, segments, plans, reseeds, variants, subs, channel, state0, dex, stopAt, tolerant }) {
   const stream = new BattleStream({ keepAlive: true });
   const sink = [];
   const drain = (async () => { for await (const chunk of stream) sink.push(chunk); })();
 
-  await stream.write(header.join('\n'));
+  // The header is written in two halves. `>start` builds the battle and nothing
+  // else; `>player` builds the teams, and a set that does not state a gender
+  // rolls for one right there (`sim/pokemon.ts:340`). Installing between the two
+  // is what puts that roll under control - and it is why nothing here has to pin
+  // a gender by hand, which would remove a draw the real battle made and shift
+  // every draw after it.
+  await stream.write(header[0]);
   const battle = stream.battle;
   if (!battle) throw new Error('no battle after >start - the header is malformed');
+  await stream.write(interceptorLine(subs || {}));
+  await stream.write(header.slice(1).join('\n'));
 
   const notes = [];
   const diffs = [];
@@ -433,6 +510,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, channel
   let logAt = 0;
 
   for (let k = 0; k < segments.length; k++) {
+    battle.__seg = k;
     if (k >= 1 && reseeds[k]) await stream.write(`>reseed ${reseeds[k]}`);
 
     // `variant` is a mixed-radix counter over every undetermined target in the
@@ -511,6 +589,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, channel
     diffs,
     widths,
     notes,
+    trace: battle.__trace || [],
     inputLog: [...battle.inputLog],
     rawLog: [...battle.log],
     turn: battle.turn,
@@ -521,6 +600,187 @@ async function playThrough({ header, segments, plans, reseeds, variants, channel
   stream.destroy?.();
   await Promise.race([drain, Promise.resolve()]);
   return result;
+}
+
+/**
+ * How well a run agreed with turn `t`, as `[lines, fields]`.
+ *
+ * `lines` is how far the turn got before disagreeing - `Infinity` for a turn
+ * that matched outright, `-1` for a choice the simulator refused, which no die
+ * can repair. `fields` counts how much of the disagreeing line is nevertheless
+ * right, and it is what keeps the search off a local minimum: one line can need
+ * two draws to change together, and a move line that has found its target but
+ * not yet its damage is genuinely closer than one that has neither.
+ */
+function scoreOf(run, t) {
+  if (run.badTurn === null || run.badTurn > t) return [Infinity, 0];
+  if (run.badTurn < t) return [-Infinity, 0];
+  const diff = run.diffs[0];
+  if (!diff || diff.index < 0) return [-1, 0];
+  const want = String(diff.expected ?? '').split('|');
+  const got = String(diff.actual ?? '').split('|');
+  let fields = 0;
+  while (fields < want.length && fields < got.length && want[fields] === got[fields]) fields++;
+  return [diff.index, fields];
+}
+
+const outranks = (a, b) => (a[0] !== b[0] ? a[0] > b[0] : a[1] > b[1]);
+const ties = (a, b) => a[0] === b[0] && a[1] === b[1];
+
+/**
+ * Settle one turn's random draws against the observed lines.
+ *
+ * Draws are taken in the order the simulator consumed them, because a die
+ * cannot change a line that was written before it was thrown - so the earliest
+ * disagreeing draw is always the one to fix, and fixing it can never undo
+ * anything already agreed. Each commit moves the draws after it, so the trace is
+ * re-read from a fresh run rather than reused.
+ *
+ * `subs` is mutated: it is the accumulated answer, keyed by the draw's position
+ * in the battle, and it is what the emitted `>eval` line carries.
+ */
+async function resolveTurn(t, common, subs, subTurn, sample, budget) {
+  let run = await playThrough({ ...common, subs, stopAt: t });
+  let score = scoreOf(run, t);
+  let forced = 0;
+  let probes = 0;
+
+  while (score[0] !== Infinity && score[0] !== -1 && probes < budget) {
+    let committed = false;
+    // A draw that only improves the *fields* tie-break is a guess: it is the way
+    // out of a line that needs two draws changed together, but it is never
+    // preferred over a draw that carries the turn further outright. So it is
+    // held back until the whole scan has failed to find a real advance.
+    let fallback = null;
+
+    // Every unsettled draw in the turn is in scope, not just those after the
+    // last commit. A move with no named target picks one when the action is
+    // queued, at the top of the turn, so the draw that decides it sits below
+    // draws that were settled long before the line it spoils shows up.
+    for (const draw of drawsOf(run.trace, t)) {
+      if (subs[draw.i] !== undefined) continue;
+
+      let best = score;
+      const winners = [];
+      for (const v of candidates(draw)) {
+        if (probes >= budget) break;
+        const probe = await playThrough({ ...common, subs: { ...subs, [draw.i]: v }, stopAt: t });
+        probes++;
+        const reach = scoreOf(probe, t);
+        if (outranks(reach, best)) { best = reach; winners.length = 0; winners.push(v); }
+        else if (ties(reach, best) && outranks(reach, score)) winners.push(v);
+      }
+      if (!winners.length) continue;
+
+      // Several rolls can leave a Pokemon on the same displayed percentage. They
+      // are equally consistent with what was observed, so the one kept is drawn
+      // uniformly among them - this is where the opponent's exact HP is sampled.
+      // A draw that matched on its own needs no such treatment: the generator
+      // had already picked it uniformly, and it survived the comparison.
+      const pick = { i: draw.i, value: winners[sample.pick(winners.length)], best };
+      if (best[0] === score[0]) {
+        if (!fallback || outranks(best, fallback.best)) fallback = pick;
+        continue;
+      }
+      subs[pick.i] = pick.value;
+      subTurn[pick.i] = t;
+      forced++;
+      committed = true;
+      break;
+    }
+
+    if (!committed && fallback) {
+      subs[fallback.i] = fallback.value;
+      subTurn[fallback.i] = t;
+      forced++;
+      committed = true;
+    }
+
+    if (!committed) break;
+    run = await playThrough({ ...common, subs, stopAt: t });
+    score = scoreOf(run, t);
+  }
+
+  return { solved: score[0] === Infinity, rejected: score[0] === -1, forced, probes, score };
+}
+
+/**
+ * The turn that last moved the HP of the Pokemon a failing line names.
+ *
+ * A percentage that will not come out right is rarely the fault of the turn it
+ * appears in: the HP behind it was decided the last time the Pokemon actually
+ * took damage, which can be many turns earlier - a Pokemon can sit at `35/100`
+ * through a Protect, a switch and two turns off the field. Redrawing the turn
+ * just before the failure would leave that number exactly where it was.
+ *
+ * `switch` is deliberately not counted. It shows the HP again; it never sets it.
+ */
+function blameTurn(segments, t, line) {
+  const who = identName(String(line || '').split('|')[2]);
+  if (!who) return t - 1;
+  for (let k = t - 1; k >= 1; k--) {
+    for (const observed of segments[k]) {
+      const parts = observed.split('|');
+      if (parts[1] !== '-damage' && parts[1] !== '-heal' && parts[1] !== '-sethp') continue;
+      if (identName(parts[2]) === who) return k;
+    }
+  }
+  return t - 1;
+}
+
+/** A Pokemon's exact HP at the end of a raw log, or null if it never appears. */
+function exactHp(rawLog, who) {
+  let hp = null;
+  for (const line of rawLog) {
+    const parts = line.split('|');
+    const shown = { '-damage': 3, '-heal': 3, '-sethp': 3, switch: 4, drag: 4, replace: 4, detailschange: 4 }[parts[1]];
+    if (shown === undefined || identName(parts[2]) !== who) continue;
+    const match = /^(\d+)\/(\d+)/.exec(String(parts[shown] || ''));
+    if (match) hp = Number(match[1]);
+  }
+  return hp;
+}
+
+/**
+ * Draw one of turn `t`'s dice again, without disturbing what it showed.
+ *
+ * A percentage hides a range of HP, so a turn that already agrees with the
+ * observation usually agrees under several different rolls. Clearing that turn
+ * and resolving it again finds nothing - the roll it kept was one the generator
+ * offered on its own, so there is nothing to re-derive. Moving it deliberately
+ * to another equally consistent value is the only thing that changes the HP a
+ * later turn inherits, and it is the same uniform draw over the same consistent
+ * set that the forward pass makes.
+ */
+async function redrawTurn(t, common, subs, subTurn, sample, budget, who) {
+  const run = await playThrough({ ...common, subs, stopAt: t });
+  if (scoreOf(run, t)[0] !== Infinity) return false;
+  const was = who ? exactHp(run.rawLog, who) : null;
+
+  const options = [];
+  const moving = [];
+  let probes = 0;
+  for (const draw of drawsOf(run.trace, t)) {
+    for (const v of candidates(draw)) {
+      if (probes >= budget) break;
+      const probe = await playThrough({ ...common, subs: { ...subs, [draw.i]: v }, stopAt: t });
+      probes++;
+      if (scoreOf(probe, t)[0] !== Infinity) continue;
+      const option = { i: draw.i, value: v };
+      options.push(option);
+      // Most of a turn's dice have nothing to do with the Pokemon that is stuck.
+      // Only the ones that actually move its HP are worth spending a backtrack
+      // on; the rest would redraw the turn and change nothing that matters.
+      if (who && exactHp(probe.rawLog, who) !== was) moving.push(option);
+    }
+  }
+  const pool = moving.length ? moving : options;
+  if (!pool.length) return false;
+
+  const chosen = pool[sample.pick(pool.length)];
+  subs[chosen.i] = chosen.value;
+  subTurn[chosen.i] = t;
+  return true;
 }
 
 // -------------------------------------------------------------------- the API
@@ -545,7 +805,7 @@ export async function reconstruct({
   seed = null,
   seedPlan = null,
   sampleSeed = 1,
-  maxTries = 2000,
+  maxProbes = 4000,
   maxVariants = 256,
   maxBacktracks = 6,
   onProgress = () => {},
@@ -558,8 +818,9 @@ export async function reconstruct({
   const plans = segments.map(s => planSegment(s, dex));
   recoverChargeTargets(plans);
 
+  const sample = sampler(sampleSeed);
   const avatar = avatars(lines);
-  const startSeed = seed || seedStream(sampleSeed ^ 0x5eed)();
+  const startSeed = seed || sampler(sampleSeed ^ 0x5eed).seed();
   const header = [
     `>start ${JSON.stringify({ formatid, seed: startSeed })}`,
     `>player p1 ${JSON.stringify({ name: playerNames[0], avatar: avatar.p1, team: packedTeams[0] })}`,
@@ -569,7 +830,16 @@ export async function reconstruct({
   const state0 = { reveal: revealOrder(lines), sizes: teamSizes(lines) };
   const reseeds = new Array(segments.length).fill(null);
   const variants = new Array(segments.length).fill(0);
-  const tried = new Array(segments.length).fill(0);
+  const spent = new Array(segments.length).fill(0);
+  const subs = {};
+  const subTurn = {};
+
+  /** Forget every draw settled from `turn` on, so they can be drawn again. */
+  const forget = (turn) => {
+    for (const key of Object.keys(subs)) {
+      if (subTurn[key] >= turn) { delete subs[key]; delete subTurn[key]; }
+    }
+  };
 
   // A source produced by branching had its own RNG reset mid-battle. Where that
   // is known - the rung that supplies the real seed supplies these too - start
@@ -577,68 +847,133 @@ export async function reconstruct({
   for (const { turn, seed: at } of seedPlan || []) {
     if (turn >= 1 && turn < reseeds.length) reseeds[turn] = at;
   }
-  const nextSeed = seedStream(sampleSeed);
-
-  const common = { header, segments, plans, channel, state0, dex };
+  const common = { header, segments, plans, reseeds, variants, channel, state0, dex };
   let attempts = 0;
   let backtracks = 0;
+  let forcedDraws = 0;
 
-  let run = await playThrough({ ...common, reseeds, variants });
+  let run = await playThrough({ ...common, subs });
   attempts++;
+
+  // Backtracking throws away turns that were already right, on the chance that a
+  // different draw makes a later one reachable. That gamble does not always pay,
+  // so the furthest the search ever got is kept and handed back if it never gets
+  // that far again - otherwise a run that solved nine turns can report five.
+  let best = null;
+  const ahead = (a, b) => {
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i];
+    return false;
+  };
+  const remember = () => {
+    // Ranked by turn first, then by how far into that turn it got. Ranking on
+    // the turn alone would call every attempt a draw - they all stop on the same
+    // turn - and keep the first, which is the one that had done no work yet.
+    const at = run.badTurn === null
+      ? [Infinity, Infinity, 0]
+      : [run.badTurn, ...scoreOf(run, run.badTurn)];
+    if (!best || ahead(at, best.at)) best = { at, subs: { ...subs }, variants: [...variants] };
+  };
+  remember();
 
   while (run.badTurn !== null) {
     const t = run.badTurn;
-    if (t === 0) break; // the pre-turn segment is not something a seed can fix
 
-    onProgress(`turn ${t}: searching - observed ${run.diffs[0]?.expected ?? '(nothing)'}`);
+    onProgress(`turn ${t}: settling draws - observed ${run.diffs[0]?.expected ?? '(nothing)'}`);
 
     let solved = false;
 
-    // First walk the substitutions. A variant that reproduces the turn is
-    // strictly better than a reseed: it leaves the seed alone, adds no
-    // "RNG was reset" line, and may well be the choice that was really made.
+    // A turn that cannot be finished is still worth what it got through, and
+    // trying the next variant means clearing it. So the furthest attempt is held
+    // aside and put back if nothing better turns up.
+    let partial = null;
+    const consider = (score, variant) => {
+      const at = [t, ...score];
+      if (!partial || ahead(at, partial.at)) {
+        partial = { at, variant, subs: { ...subs }, subTurn: { ...subTurn } };
+      }
+    };
+
+    // A rejected choice is a legality problem, not an RNG one - no die can make
+    // the simulator accept a choice it refused - so that case goes straight to
+    // the substitutions.
+    if (run.diffs[0]?.index !== -1) {
+      const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
+      attempts += got.probes;
+      spent[t] += got.probes;
+      forcedDraws += got.forced;
+      solved = got.solved;
+      if (!solved) consider(got.score, 0);
+    }
+
+    // Then the choices this turn left invisible. A mon that fainted before
+    // acting emits no line either way, so its move is a free variable; walking
+    // those is cheaper than anything and may well recover the real choice.
     const width = Math.min(run.widths?.[t] || 1, maxVariants);
     for (let v = 1; v < width && !solved; v++) {
       variants[t] = v;
-      const probe = await playThrough({ ...common, reseeds, variants, stopAt: t });
+      forget(t);
+      const probe = await playThrough({ ...common, subs, stopAt: t });
       attempts++;
       if (probe.badTurn === null) { solved = true; break; }
+      const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
+      attempts += got.probes;
+      spent[t] += got.probes;
+      forcedDraws += got.forced;
+      if (got.solved) solved = true;
+      else consider(got.score, v);
     }
-    if (!solved) variants[t] = 0;
 
-    // Then the seeds. Uniform over seeds is uniform over the roll tuples the
-    // observation permits, which is what makes this the HP sampler.
-    while (!solved && tried[t] < maxTries) {
-      reseeds[t] = nextSeed();
-      tried[t]++;
-      const probe = await playThrough({ ...common, reseeds, variants, stopAt: t });
+    if (!solved) {
+      variants[t] = partial ? partial.variant : 0;
+      forget(t);
+      if (partial) {
+        Object.assign(subs, partial.subs);
+        Object.assign(subTurn, partial.subTurn);
+      }
+      run = await playThrough({ ...common, subs });
       attempts++;
-      if (probe.badTurn === null) { solved = true; break; }
-      if (tried[t] % 250 === 0) onProgress(`turn ${t}: ${tried[t]} seeds tried`);
+      remember();
     }
 
     if (solved) {
-      run = await playThrough({ ...common, reseeds, variants });
+      run = await playThrough({ ...common, subs });
       attempts++;
+      remember();
       continue;
     }
 
-    // Exhausted. A sampled HP earlier in the game may have made this turn
-    // unreachable, so back up and redraw.
-    let back = t - 1;
-    while (back >= 1 && tried[back] >= maxTries) back--;
-    if (back < 1 || ++backtracks > maxBacktracks) break;
-    onProgress(`turn ${t}: exhausted, backtracking to turn ${back}`);
-    for (let i = back + 1; i < reseeds.length; i++) { reseeds[i] = null; variants[i] = 0; tried[i] = 0; }
-    run = await playThrough({ ...common, reseeds, variants });
+    // A refused choice is not something an earlier turn can be blamed for, and
+    // backtracking would only re-draw turns that were already right. Stop and
+    // let the report name the turn.
+    if (run.diffs[0]?.index === -1) break;
+
+    // Exhausted. An HP sampled earlier can make this turn unreachable - the
+    // Pokemon that had to faint here survives on the point that was given away -
+    // so go back and draw an earlier turn's ambiguity again.
+    const stuck = identName(String(run.diffs[0]?.expected || '').split('|')[2]);
+    let back = blameTurn(segments, t, run.diffs[0]?.expected);
+    let moved = false;
+    while (back >= 0 && !moved) {
+      forget(back + 1);
+      moved = await redrawTurn(back, common, subs, subTurn, sample, maxProbes, stuck);
+      if (!moved) back--;
+    }
+    if (!moved || ++backtracks > maxBacktracks) break;
+    onProgress(`turn ${t}: unreachable, redrawing turn ${back}`);
+    for (let i = back + 1; i < variants.length; i++) { variants[i] = 0; spent[i] = 0; }
+    run = await playThrough({ ...common, subs });
     attempts++;
+    remember();
   }
 
   const complete = run.badTurn === null;
   if (!complete) {
     // Best effort: drive every turn regardless, so the artifact exists and the
     // divergence is visible rather than the whole run being lost.
-    run = await playThrough({ ...common, reseeds, variants, tolerant: true });
+    Object.keys(subs).forEach(key => delete subs[key]);
+    Object.assign(subs, best.subs);
+    best.variants.forEach((v, i) => { variants[i] = v; });
+    run = await playThrough({ ...common, subs, tolerant: true });
     attempts++;
   }
 
@@ -656,7 +991,8 @@ export async function reconstruct({
       turns: segments.length - 1,
       attempts,
       backtracks,
-      seedsTried: tried.reduce((a, b) => a + b, 0),
+      forcedDraws,
+      drawsSeen: run.trace.length,
       variantsUsed: variants.filter(Boolean).length,
       reseedCount: reseeds.filter(Boolean).length,
       diffs: run.diffs,

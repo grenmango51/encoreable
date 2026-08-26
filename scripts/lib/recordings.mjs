@@ -83,6 +83,27 @@ export function archiveLogFile(root, file) {
   return dest;
 }
 
+/**
+ * One line naming a recording that was reconstructed rather than played, or null.
+ *
+ * A reconstructed log reproduces its replay line for line, but its dice were
+ * chosen and the opponent's HP was sampled from inside the band a percentage
+ * allows (ENGINEERING.md 7). It is a faithful reading of someone else's battle,
+ * not a record of one this server ran, and every command that loads one says so -
+ * `npm run live` reaches for the newest recording by default, and the newest is
+ * exactly what a fresh reconstruction will be.
+ */
+export function reconstructedBanner(file) {
+  let data;
+  try { data = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+  if (!data.reconstructed) return null;
+  const through = data.complete
+    ? 'every turn matches the replay'
+    : `matches the replay through turn ${data.verifiedThroughTurn}`;
+  return `RECONSTRUCTED from ${data.reconstructedFrom || 'a replay'} - ${through}, ` +
+    `opponent HP sampled within the percentage shown (sample ${data.sampleSeed}).`;
+}
+
 /** A repo-relative path with forward slashes, for pasting back as an argument. */
 export function posix(root, file) {
   return path.relative(root, file).split(path.sep).join('/');

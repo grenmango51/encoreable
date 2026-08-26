@@ -209,33 +209,6 @@ export function alignSpeciesToSheet(packedTeam, sheet) {
 }
 
 /**
- * Pin each Pokemon's gender from the `|poke|` lines the log already shows.
- *
- * A set with no gender gets one at random when the battle is built, drawn from
- * the battle's own PRNG - so under any seed but the original, `Sableye, L50, M`
- * comes back as `F` and the very first segment disagrees. The log states every
- * gender outright, so this is not inference: it removes a draw that never
- * needed to happen, and keeps the RNG stream aligned from `>player` onwards.
- */
-export function pinGenders(packedTeam, lines, sideId) {
-  const genders = [];
-  for (const line of lines) {
-    const parts = line.split('|');
-    if (parts[1] !== 'poke' || parts[2] !== sideId) continue;
-    const fields = String(parts[3] || '').split(', ');
-    genders.push(fields.find(f => f === 'M' || f === 'F') || '');
-  }
-  if (!genders.length) return packedTeam;
-
-  const sets = Teams.unpack(packedTeam);
-  if (!sets || sets.length !== genders.length) return packedTeam;
-  for (const [i, set] of sets.entries()) {
-    if (genders[i]) set.gender = genders[i];
-  }
-  return Teams.pack(sets);
-}
-
-/**
  * Choices in an input log that the simulator will refuse to replay.
  *
  * `getChoice()` (`sim/side.ts:331`) records a target only when `targetLoc` is

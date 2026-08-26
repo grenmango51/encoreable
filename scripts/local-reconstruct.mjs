@@ -33,7 +33,7 @@ import { battleLines } from './lib/protocol.mjs';
 import { listLogFiles, newestLogFile, posix as toPosix } from './lib/recordings.mjs';
 import { reconstruct, unpackTeams } from './lib/reconstruct.mjs';
 import {
-  alignSpeciesToSheet, crossCheckSheet, loadSource, maxHpFromLog, pinGenders, unreplayableChoices,
+  alignSpeciesToSheet, crossCheckSheet, loadSource, maxHpFromLog, unreplayableChoices,
 } from './lib/replay-source.mjs';
 
 const require = createRequire(import.meta.url);
@@ -145,7 +145,7 @@ function hpAccuracy(truthLines, builtLines, side) {
 
 // -------------------------------------------------------------- one run
 
-async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxTries, write, outDir }) {
+async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProbes, write, outDir }) {
   let rung = requestedRung;
   const source = loadSource(file);
   const label = path.basename(file);
@@ -181,10 +181,6 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxTrie
       .map((packed, i) => alignSpeciesToSheet(packed, source.sheets?.[i]));
     rung = 's4';
   }
-
-  // Gender is stated in the log and drawn at random when a set omits it, so pin
-  // it before anything is simulated (see pinGenders).
-  packedTeams = packedTeams.map((packed, i) => pinGenders(packed, observed, `p${i + 1}`));
 
   // Cross-check the supplied teams against what the replay published, before
   // anything else runs. A team from the wrong game is caught here.
@@ -230,7 +226,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxTrie
     seed,
     seedPlan,
     sampleSeed,
-    maxTries,
+    maxProbes,
     onProgress: chatty,
   });
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
@@ -246,7 +242,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxTrie
   const verdict = r.complete ? 'MATCH' : `PARTIAL (verified through turn ${r.verifiedThroughTurn})`;
   say(`  ${rung.toUpperCase()} ${label}`);
   say(`     ${verdict}  ${r.turns} turns  ${seconds}s  ` +
-      `reseeds ${r.reseedCount}  variants ${r.variantsUsed}  seeds tried ${r.seedsTried}  backtracks ${r.backtracks}`);
+      `forced ${r.forcedDraws}/${r.drawsSeen} draws  variants ${r.variantsUsed}  backtracks ${r.backtracks}`);
   say(`     input log replays to the same battle: ${selfConsistent ? 'yes' : 'NO'}`);
   if (accuracy && accuracy.readings) {
     say(`     opponent HP: ${accuracy.readings} readings, exact ${accuracy.exact} (${accuracy.exactPct}%), ` +
@@ -255,7 +251,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxTrie
   if (inexpressible.length) {
     say(`     warning: the source's own input log is unreplayable - ${inexpressible.join(', ')} ` +
         `recorded with no target (ENGINEERING.md 6.1). The real choice cannot be expressed, so ` +
-        `this battle is reproduced by reseeding rather than by matching choices.`);
+        `this battle is reproduced by forcing its draws rather than by matching choices.`);
   }
   for (const note of r.notes) say(`     note: ${note}`);
   for (const d of r.diffs.slice(0, 3)) {
@@ -302,7 +298,7 @@ async function main() {
   const rung = (opt('--rung', 's1') || 's1').toLowerCase();
   const teamsKey = opt('--teams', 'alt');
   const sampleSeed = Number(opt('--sample', '1'));
-  const maxTries = Number(opt('--max-tries', '2000'));
+  const maxProbes = Number(opt('--max-probes', '4000'));
   const write = !flag('--dry-run');
   const outDir = path.join(ROOT, 'recordings');
 
@@ -315,13 +311,17 @@ async function main() {
   }
   if (!files.length || !files[0]) throw new Error('no source found - pass --from <file>');
 
-  say(`reconstruct: rung ${rung}, ${files.length} source${files.length === 1 ? '' : 's'}, sample seed ${sampleSeed}`);
+  // A saved replay is always S4 whatever `--rung` said - the rung only chooses
+  // how much of a recording to withhold, and a replay withholds everything by
+  // being what it is. Naming it here keeps the header from claiming otherwise.
+  const heading = files.every(f => f.toLowerCase().endsWith('.html')) ? 's4' : rung;
+  say(`reconstruct: rung ${heading}, ${files.length} source${files.length === 1 ? '' : 's'}, sample seed ${sampleSeed}`);
 
   const results = [];
   for (const file of files) {
     try {
       results.push(await runOne({
-        file, rung, teamsKey, sampleSeed, maxTries,
+        file, rung, teamsKey, sampleSeed, maxProbes,
         write: write && !flag('--all'),
         outDir,
       }));

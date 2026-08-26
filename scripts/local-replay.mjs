@@ -27,7 +27,7 @@ import http from 'http';
 import { createRequire } from 'module';
 
 import { WsPlayer, makePolicy } from './lib/ws-player.mjs';
-import { listLogFilesIn, archiveLogFile, posix } from './lib/recordings.mjs';
+import { listLogFilesIn, archiveLogFile, posix, reconstructedBanner } from './lib/recordings.mjs';
 import { buildReplayHtml } from './lib/replay-html.mjs';
 import { battleLines, firstDivergence } from './lib/protocol.mjs';
 

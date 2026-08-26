@@ -20,10 +20,11 @@ Target ruleset is **Pokémon Champions VGC** (`[Gen 9 Champions] VGC 2026 Reg M-
 | | |
 |---|---|
 | Determinism (Task 1) | **DONE — PASS.** Input logs round-trip byte-identically. |
-| Full information (Task 2) | **DONE — YES on our own server, NO on the public ladder.** |
+| Full information (Task 2) | **DONE — YES on our own server. On the public ladder, reconstructed (§7).** |
 | Per-roll RNG control (Task 4) | **DONE.** Tier 1 shipped for all five draw kinds. |
 | Restore to turn N (Task 3) | **DONE.** `scripts/lib/truncate.mjs`, §5.9. |
 | Playable branch (Task 5) | **DONE.** `npm run live` — the native battle UI, both sides, §5.9. |
+| Reconstruction (Task 6) | **DONE.** `npm run reconstruct` — a replay plus both sheets becomes an input log, §7. |
 
 Nothing in §§1–6 needs re-deriving. It was established by experiment on a real battle, and
 the scripts that establish it are checked in and re-runnable.
@@ -478,23 +479,124 @@ with it, the page renders nothing at all and gives no error.
 promises no reproducibility at all. The `RNG` interface is not exported, so it must be
 duck-typed structurally.
 
-Pin the `pokemon-showdown` version. On any upgrade, the test is a diff of those six call sites
-plus a re-run of `npm run replay`. Line numbers in this document have already drifted once.
+Reconstruction (§7) leans on five more that are just as undocumented:
+
+| Surface | Why it matters | Site |
+|---|---|---|
+| `PRNG.random` is the only caller of `rng.next()` | makes one wrapper total coverage | `sim/prng.ts:92` |
+| `getHealth`'s Champions branch uses `floor`, not `ceil` | sets the width of every HP band | `sim/pokemon.ts:2065` |
+| a set with no gender rolls one from the battle PRNG | forces the install point, §7.2 | `sim/pokemon.ts:340` |
+| `>eval` is pushed to `inputLog` unconditionally | is what makes a reconstructed log self-contained | `sim/battle-stream.ts:133` |
+| a locked Pokemon still gets a request, with one move and **no target field** | naming a target for it is refused outright | `sim/pokemon.ts:971`, `:1090` |
+| `extractChannelMessages` is not re-exported by `sim/index.ts` | reached via `dist/sim/battle.js` | `sim/battle.ts` |
+
+Pin the `pokemon-showdown` version. On any upgrade, the test is a diff of those call sites plus
+a re-run of `npm run replay` **and** `npm run reconstruct -- --all --rung s2`, which exercises
+every one of them. Line numbers in this document have already drifted once.
 
 ---
 
-## 7. Scripts
+## 7. Reconstruction — a battle from a replay and two team sheets
+
+`npm run reconstruct` takes a source with **no input log** and writes one. Everything
+downstream — `npm run replay`, `npm run live`, **Play from here** — then works on a public
+ladder game with no changes at all, which is the whole point of the exercise.
+
+| | |
+|---|---|
+| **Known** | both teams in full, Stat Points included, so every stat and every max HP |
+| **Unknown** | the seed; every choice (a replay records *executions*, never decisions); the opponent's exact HP behind each percentage |
+
+Champions shows opponent HP as `floor(100·hp/maxhp)` (`sim/pokemon.ts:2065` — `floor`, not the
+usual `ceil`), so a reading pins the real value to a band about two integers wide. On a 186 HP
+Blastoise a 1% band can hold exactly **one** integer, which is why the approximation is far
+tighter than "a percent of error" suggests.
+
+### 7.1 Settle the dice one at a time, never search for a seed
+
+`>reseed` asks one seed to reproduce a whole turn at once, so its cost is the **product** of
+every random event in that turn. Measured: recording 25's first turn needs four exact damage
+rolls and two 20% procs jointly; **200,000 seeds over 497 seconds did not find it.** The same
+turn settles in about five seconds when each draw is chosen separately, because that cost is
+their **sum**. §4 said this in its first line — *seed search was never required* — and it is
+worth restating: a failure here is never fixed by a bigger seed budget.
+
+### 7.2 One funnel, one interceptor
+
+`PRNG.random` is the only place a random number enters a battle: `randomChance`, `sample` and
+`shuffle` all call it, and `sim/prng.ts:92` is the sole `rng.next()` in the simulator. Wrapping
+`random` **on the instance** is therefore total coverage, and because the range arrives as
+arguments the wrapper knows how many faces the die had — §4.2 needed `rawFor` only because it
+wrapped one level lower.
+
+Four things make it work, and each was paid for:
+
+- **Always take the real draw, replace only its result.** Forcing one decision then never
+  shifts the ones after it.
+- **Install through an accessor on `battle.prng`.** `>reseed` assigns a whole new generator
+  (`sim/battle.ts:361`); without the accessor, control dies at the first reseed in silence.
+- **`>eval` is the transport, and it is not a compromise.** `sim/battle-stream.ts:133` records
+  the line in `battle.inputLog`, so a reconstructed log re-simulates itself with no help from
+  this project. Its echo is a `''`-type line, which `ROOM_ONLY` already strips, so it is
+  invisible to every comparison here. The payload is one line of a few hundred characters.
+- **Install between `>start` and `>player`.** `>start` builds the battle; `>player` builds the
+  teams, and a set that states no gender rolls for one right there (`sim/pokemon.ts:340`).
+  Pinning genders from the log instead *removes* a draw the real battle made and shifts every
+  draw after it — that mistake cost three otherwise perfect reconstructions.
+
+### 7.3 The search, and why it is also the sampler
+
+Per failing turn, draws are settled in the order the simulator consumed them, since a die
+cannot change a line already written. A turn is scored `[lines, fields]`: how far it got before
+disagreeing, then how much of the disagreeing line is nevertheless right. The second component
+is not cosmetic — a spread move needs its **target** draw and its **accuracy** draw changed
+together, and neither alone moves the first component. A commit that only improves `fields` is
+a guess, so it is held back until nothing improves `lines`.
+
+When several values reproduce the observation equally well, the one kept is drawn **uniformly
+among them**. That is the whole of the HP sampler. A draw that matched on its own needs no such
+treatment: the generator already picked it uniformly and it survived the comparison, which is
+exactly a uniform draw from the consistent set.
+
+Backtracking blames the turn that last **moved** the stuck Pokemon's HP — not the turn before
+the failure. A Pokemon can sit at `35/100` through a Protect, a switch and two turns off the
+field, so redrawing the previous turn changes nothing that matters. Within that turn only dice
+that actually move its HP are candidates.
+
+### 7.4 Results
+
+| Rung | Withheld | Result |
+|---|---|---|
+| S1 | the choices | **14/14** line-for-line |
+| S2 | + the seed | **14/14** |
+| S3 | + the opponent's exact HP | **13/14**; the miss is recording 23, whose own input log the simulator refuses (§6.1), so its truth is a two-turn stub |
+| S4 | everything — a saved ladder replay | **MATCH**, all ten turns, 7s, 22 of 119 draws forced |
+
+Opponent HP across S3: exact on most readings, worst error **one point**. The S4 replay then
+renders, every max HP checks out, and `npm run live --at 4` opens both sides in the real
+client — which also confirms `P2_ALT`'s Stat Points as a side effect, since a wrong spread
+could not have reproduced ten turns of percentages.
+
+A source that fails is never silently patched: the full log is still written, and the report
+names the turn, the observed line and the rebuilt one.
+
+---
+
+## 8. Scripts
 
 | Command | What it does |
 |---|---|
 | `npm run replay` | Provision, play the fixture, re-simulate, diff, render, report. The determinism + full-information proof. |
 | `npm run live` | Truncate at a turn, import it as a live room, open two windows on it. §5.9. |
+| `npm run reconstruct` | Rebuild an input log from a replay plus both teams, then check it turn by turn. §7. |
 
 `npm run replay` serves its page from the client host and puts a **Play from here** button in the
 replay control row, which does the same thing as `npm run live` for the turn on screen. §5.10.
 
 Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 `npm run live` takes `--at <turn>`, `--dry-run` and `--verify <log.json>`.
+`npm run reconstruct` takes `--all`, `--rung s1|s2|s3`, `--teams <key>`, `--sample <n>`,
+`--max-probes <n>` and `--dry-run`; a `.html` source is always S4.
 `replay.bat`, `live.bat` and `battle.bat` are the double-click entry points.
 
 | File | Role |
@@ -505,6 +607,8 @@ Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 | `scripts/lib/truncate.mjs` | cut an input log back to a turn boundary (§5.8), optionally reseeding the continuation (§5.10) |
 | `scripts/lib/verify-branch.mjs` | prove a played branch is prefix + new choices (§5.9) |
 | `scripts/lib/browser.mjs` | two isolated browser profiles, side by side (§5.9) |
+| `scripts/lib/replay-source.mjs` | any source — recording or saved replay — as lines, teams and sheets (§7) |
+| `scripts/lib/reconstruct.mjs` | transcribe the choices, settle the dice, check every turn (§7) |
 | `scripts/lib/branch-launch.mjs` | the one launch path: import, two windows, both slots (§5.10) |
 | `scripts/client/replay-branch.js` | the replay page's "Play from here" button (§5.10) |
 | `scripts/lib/replay-html.mjs` | replay shell (§6.3) |
@@ -517,7 +621,7 @@ test vector and not a symmetric one that would pass by accident.
 
 ---
 
-## 8. Open tasks
+## 9. Open tasks
 
 ### A longer fixture
 
@@ -549,12 +653,13 @@ not capability. The mechanism is channel −1 (§3); the missing piece is that
 
 ---
 
-## 9. Deferred — do not start without sign-off
+## 10. Deferred — do not start without sign-off
 
-- **Public-ladder ingestion.** Blocked on consent, not on tooling (§1). If it is ever
-  revisited, the fallback is reconstructing state from the plain protocol log; `@pkmn/client`
-  is purpose-built for that. It means Layer A cannot use the sim's own replay and must rebuild
-  state instead — different work, still viable.
+- **Public-ladder *input log* ingestion.** Still blocked on consent (§1) — but only the input
+  log is. The replay is not, and §7 rebuilds an input log from one, so this is no longer a
+  blocker on anything. `@pkmn/client` was the presumed fallback for tracking state from a plain
+  protocol log; it is **not needed**. The simulator tracks its own state and `side.activeRequest`
+  says what is legal (§5.7), so the only question ever asked is which offered option was taken.
 - **Layer B, direct state authoring.** For positions that never occurred. The vehicle is
   `gen9championsdoublescustomgame` — validation off, no 66-point cap, `debug: true` already
   set. The difficulty is not HP and weather; it is the volatile layer: consecutive-Protect
@@ -566,14 +671,16 @@ not capability. The mechanism is channel −1 (§3); the missing piece is that
 - **Constraint inference.** Bounding opponent Stat Points from observed damage and turn order.
   Two properties matter: bounds constrain a *product* (HP × Def), not a single stat, so one
   observation yields a curve; and on someone else's replay HP arrives as percentages (§3).
-  Note this is now **unnecessary for our own battles** — channel −1 gives exact values, so
-  inference is only ever needed for the deferred ladder path.
+  Unnecessary for our own battles — channel −1 gives exact values — and still deferred for the
+  ladder, where §7 takes both spreads as input. §7 does not infer them; it *falsifies* them,
+  since a wrong spread cannot reproduce the observed percentages and the run says which turn
+  broke.
 - **Any UI.**
 - **Champions video ingestion.**
 
 ---
 
-## 10. Reference — files worth reading
+## 11. Reference — files worth reading
 
 | Path | Why |
 |---|---|

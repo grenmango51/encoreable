@@ -35,7 +35,7 @@ import path from 'path';
 import { launchBranch, prepareBranch } from './lib/branch-launch.mjs';
 import { positionText } from './lib/truncate.mjs';
 import { verifyBranch } from './lib/verify-branch.mjs';
-import { newestLogFileWithTurns, posix as toPosix, readInputLog } from './lib/recordings.mjs';
+import { newestLogFileWithTurns, posix as toPosix, readInputLog, reconstructedBanner } from './lib/recordings.mjs';
 
 const ROOT = process.cwd();
 
@@ -103,6 +103,8 @@ async function main() {
   if (!logFile) throw new Error('no battle log found - run `npm run battle` to record one first');
 
   console.log(`Battle log: ${path.relative(ROOT, logFile)}`);
+  const banner = reconstructedBanner(logFile);
+  if (banner) console.log(banner);
   const original = readInputLog(logFile);
 
   // --- 1. truncate ---------------------------------------------------------

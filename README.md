@@ -34,6 +34,7 @@ The `.bat` files are double-click equivalents that need no terminal.
 | `npm run live` | `live.bat` | **The product.** A recorded battle, restored to a turn, playable from both sides in the real UI. |
 | `npm run battle` | `battle.bat` | Record a new battle. Two browser windows, teams pre-loaded, challenge auto-issued. |
 | `npm run replay` | `replay.bat` | The determinism proof: play, re-simulate, diff, render a replay page. |
+| `npm run reconstruct` | `reconstruct.bat` | Turn a saved ladder replay plus both team sheets into a battle the other commands can use. |
 | `npm run stop` | — | Kill the servers. |
 | `npm run check` | — | Verify the server binds to loopback and the format loads. |
 | `npm run serve` | — | The static client host on its own (rarely needed directly). |
@@ -51,6 +52,8 @@ same thing as `npm run live` for whichever turn is on screen.
 
 Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 `npm run live` also takes `--at <turn>`, `--dry-run`, `--verify <log.json>`.
+`npm run reconstruct` takes `--all`, `--rung s1|s2|s3`, `--teams <key>`, `--sample <n>`,
+`--max-probes <n>`, `--dry-run`.
 
 > Note the bare `--` in `npm run live -- --at 4`. It tells npm the flags are for the
 > script, not for npm. `live.bat --at 4` needs no such thing.
@@ -66,7 +69,7 @@ Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 | `scripts/client/` | Scripts that run **in the browser**, served over HTTP — not runnable with `node`. |
 | `scripts/fixtures/` | The two fixture teams, as export text. |
 | `recordings/` | Finished battles with their input logs. Tracked — these cannot be regenerated. |
-| `samples/` | Public-ladder replays kept as test material for the deferred no-full-information path. |
+| `samples/` | Public-ladder replays. The input to `npm run reconstruct`, and its test material. |
 | `replays/` | Rendered replay pages. Generated output, gitignored. |
 | `runtime/` | The local Showdown server. **Generated** from `node_modules` — safe to delete. |
 | `vendor/` | A clone of the upstream Showdown *client*. Only `play.pokemonshowdown.com/` is used, to serve the real battle UI. |
