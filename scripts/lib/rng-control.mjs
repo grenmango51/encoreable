@@ -7,6 +7,11 @@
  * `<outcome> <subject> [move] [target]` into the input-log line that arms it,
  * and replays a controlled log headlessly to read the accounting back.
  *
+ * `install`, `traceOn`, `markDraws` and `atLine` are re-exported for
+ * `reconstruct.mjs`, which addresses the same interceptor by draw ordinal
+ * instead of by rule. Importing this module anywhere in a Node process is what
+ * teaches `>rng` to every `BattleStream` in it.
+ *
  * Interceptor state lives on `battle.__rng` in whichever process owns the
  * `Battle`. In a live room that is the main server process and `/rng` reads it
  * directly; here the battle is in this process, so `snapshot()` does.
@@ -14,7 +19,7 @@
 
 import { createRequire } from 'module';
 
-import { inputLogLines, truncateAtTurn, freshSeed } from './truncate.mjs';
+import { inputLogLines, truncateAtTurn, trimPins, freshSeed } from './truncate.mjs';
 
 const require = createRequire(import.meta.url);
 const { BattleStream } = require('pokemon-showdown');
@@ -22,7 +27,7 @@ const engine = require('../server/rng-command.js');
 
 engine.teachStream(BattleStream);
 
-export const { OUTCOME_WORDS, snapshot } = engine;
+export const { OUTCOME_WORDS, snapshot, install, traceOn, markDraws, atLine } = engine;
 
 export { freshSeed };
 
@@ -57,6 +62,11 @@ export function armLine(spec) {
  * The split point comes from `truncateAtTurn`, which replays the log one line at
  * a time rather than counting - a faint replacement adds an extra `>pN switch`
  * mid-turn, so index arithmetic cuts in the wrong place (ENGINEERING.md 5.8).
+ *
+ * The header is trimmed the same way the cut was: a reconstructed recording
+ * carries its dice as `>rng at` pins, and the ones belonging to turns after the
+ * branch point would otherwise fire on the reseeded run and be read as the
+ * substitution under test.
  */
 async function splitAtTurn(raw, turn) {
   const cut = await truncateAtTurn(raw, turn, { reseed: false });
@@ -65,8 +75,8 @@ async function splitAtTurn(raw, turn) {
   const headerEnd = firstChoice < 0 ? lines.length : firstChoice;
   const choices = lines.slice(headerEnd);
   return {
-    header: lines.slice(0, headerEnd),
-    before: choices.slice(0, cut.kept),
+    header: trimPins(lines.slice(0, headerEnd), cut.drawsKept),
+    before: trimPins(choices.slice(0, cut.kept), cut.drawsKept),
     after: choices.slice(cut.kept),
     cut,
   };

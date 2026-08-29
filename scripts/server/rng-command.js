@@ -31,14 +31,26 @@
  *      the recipe, so a manipulated battle truncates, imports and re-simulates
  *      like any other.
  *
- * Every draw identifies itself from a stack frame plus the context the
- * simulator already maintains - `battle.effect`, `battle.activeMove`,
+ * A draw is addressed one of two ways, and both end in the same interceptor:
+ *
+ *   - by **rule** (`>rng force`), which describes an outcome - "crit Glalie
+ *     icespinner" - and lets the interceptor find the draw that fits. This is
+ *     what a live room needs, because an operator naming a die by number knows
+ *     something nobody has.
+ *   - by **ordinal** (`>rng at 3=5 17=0`), which names the nth draw since
+ *     installation and the value it takes. This is what reconstruction needs
+ *     (ENGINEERING.md 7): rebuilding someone else's battle means choosing dice
+ *     that have no names yet, one at a time, against the log they produced.
+ *
+ * Every rule-matched draw identifies itself from a stack frame plus the context
+ * the simulator already maintains - `battle.effect`, `battle.activeMove`,
  * `battle.activePokemon`, `battle.activeTarget`, saved and restored around
  * every handler dispatch. `dist/` is esbuild output with function names
- * unmangled, so this survives compilation.
+ * unmangled, so this survives compilation. Pins skip all of that: an ordinal is
+ * already an answer.
  *
  * Also required by `scripts/lib/rng-control.mjs`, which drives the same engine
- * headlessly.
+ * headlessly, and by `scripts/lib/reconstruct.mjs` through it.
  */
 
 const RNG_FILE = 'rng-command.js';
@@ -141,6 +153,16 @@ function newState(battle) {
 		sinceReseed: 0,
 		ready: false,
 		prng: null,
+		// Draw ordinal -> the value it takes, counted from installation. A rule
+		// says *what* to force and lets the interceptor find the draw; a pin says
+		// *which* draw and lets the caller decide the value. Reconstruction has
+		// no names to match on, only positions.
+		pins: null,
+		// Non-null while a caller wants every draw recorded. Search-time only: it
+		// never reaches the input log, so a recording carries pins without it.
+		trace: null,
+		// Whatever the tracing caller last labelled its draws with.
+		mark: 0,
 		// Per-draw scratch, saved and restored around every nested call.
 		d: 0,
 		off: 0,
@@ -321,6 +343,55 @@ function note(st, rule, ctx, real, forced, why) {
 
 // ------------------------------------------------------------- the interceptor
 
+/**
+ * The value one draw ends up with: its pin, else its rule, else the real roll.
+ *
+ * Pins win, and they are checked first because they are cheap - a map lookup on
+ * an integer, against `contextOf`, which captures and parses a stack trace. A
+ * battle under pins alone therefore pays nothing per draw for the machinery the
+ * live room needs.
+ *
+ * A pin is an absolute value, offset included, because that is what the caller
+ * observed the draw produce. One outside `[off, off + d)` cannot be what this
+ * draw returns, so it is refused and counted rather than clamped to something
+ * adjacent - a silently adjusted pin is a recording that no longer reproduces.
+ */
+function substitute(st, ord, d, off, real) {
+	if (st.pins && d > 0) {
+		const pinned = st.pins.get(ord);
+		if (pinned !== undefined) {
+			if (pinned < off || pinned >= off + d) {
+				st.skipped++;
+				st.notes.push(`skip pin d=${ord} ${real} (${pinned} outside [${off}, ${off + d}))`);
+				tail(st.notes, 200);
+				return real;
+			}
+			st.subs++;
+			return pinned;
+		}
+	}
+	if (!st.rules.length || d <= 0) return real;
+	const ctx = contextOf(st, d);
+	let rule = null;
+	for (const candidate of st.rules) {
+		if (matches(candidate, ctx)) { rule = candidate; break; }
+	}
+	if (!rule) return real;
+	rule.tries++;
+	const got = resolveBand(rule, ctx);
+	if (got.band === null) {
+		st.skipped++;
+		rule.skipped++;
+		note(st, rule, ctx, real, null, got.why);
+		return real;
+	}
+	const forced = got.band + off;
+	rule.fired++;
+	st.subs++;
+	note(st, rule, ctx, real, forced, '');
+	return forced;
+}
+
 function hook(st, p) {
 	if (!p || p.__rngHooked) return;
 	p.__rngHooked = true;
@@ -350,28 +421,19 @@ function hook(st, p) {
 		st.off = off;
 		try {
 			const real = origRandom.call(this, from, to);
-			st.draws++;
+			const ord = st.draws++;
 			st.sinceReseed++;
-			if (!st.rules.length || d <= 0) return real;
-			const ctx = contextOf(st, d);
-			let rule = null;
-			for (const candidate of st.rules) {
-				if (matches(candidate, ctx)) { rule = candidate; break; }
+			const out = substitute(st, ord, d, off, real);
+			if (st.trace) {
+				st.trace.push({
+					i: ord,
+					from: from === undefined ? -1 : from,
+					to: to === undefined ? -1 : to,
+					value: out,
+					mark: st.mark,
+				});
 			}
-			if (!rule) return real;
-			rule.tries++;
-			const got = resolveBand(rule, ctx);
-			if (got.band === null) {
-				st.skipped++;
-				rule.skipped++;
-				note(st, rule, ctx, real, null, got.why);
-				return real;
-			}
-			const forced = got.band + off;
-			rule.fired++;
-			st.subs++;
-			note(st, rule, ctx, real, forced, '');
-			return forced;
+			return out;
 		} finally {
 			st.d = prevD;
 			st.off = prevOff;
@@ -523,6 +585,50 @@ function arm(battle, parts, record) {
 	return { rule };
 }
 
+/**
+ * Pins draws by ordinal, and records the line that did it.
+ *
+ * Ordinals count from installation, so the pinning line has to sit at the same
+ * point in the recipe that it sat at when the values were found - for
+ * reconstruction that is between `>start` and `>player`, which is what puts the
+ * gender roll of a genderless set under control too (ENGINEERING.md 7.2).
+ */
+function pin(battle, pairs, record) {
+	const st = install(battle);
+	if (!st.pins) st.pins = new Map();
+	for (const [ord, value] of pairs) st.pins.set(ord, value);
+	battle.inputLog.push(record);
+	return { pinned: pairs.length };
+}
+
+/** `>rng at 3=5 17=0` - the whole pin set as one line. */
+function atLine(subs) {
+	const pairs = Object.keys(subs)
+		.map(Number)
+		.sort((a, b) => a - b)
+		.map(i => `${i}=${subs[i]}`);
+	return `>rng at ${pairs.join(' ')}`;
+}
+
+/**
+ * Records every draw from here on, for a caller that has to see them all.
+ *
+ * The live room never needs this - a rule finds its own draw - but a rebuild
+ * has to know which dice a turn threw before it can decide which to move.
+ * Returns the live array, so the caller reads it after the battle has run.
+ */
+function traceOn(battle) {
+	const st = install(battle);
+	st.trace = [];
+	return st.trace;
+}
+
+/** Labels every subsequent trace row, so a caller can group draws by turn. */
+function markDraws(battle, mark) {
+	const st = battle && battle.__rng;
+	if (st) st.mark = mark;
+}
+
 function clear(battle, which, record) {
 	const st = battle.__rng;
 	if (!st) {
@@ -552,6 +658,7 @@ function snapshot(battle) {
 		reseeds: 0,
 		drawsSinceReseed: 0,
 		recorded: recordedLines(battle),
+		pinned: 0,
 		rules: [],
 	};
 	if (!st) return base;
@@ -560,6 +667,7 @@ function snapshot(battle) {
 		recorded: recordedLines(battle),
 		draws: st.draws,
 		forced: st.subs,
+		pinned: st.pins ? st.pins.size : 0,
 		skipped: st.skipped,
 		reseeds: st.reseeds,
 		drawsSinceReseed: st.sinceReseed,
@@ -583,12 +691,23 @@ function snapshot(battle) {
 
 /**
  * `>rng force <outcome> <subject> <move|-> <target|->`
+ * `>rng at <ordinal>=<value> …`
  * `>rng clear <id|all>`
  */
 function parseLine(message) {
 	const parts = String(message || '').trim().split(/\s+/).filter(Boolean);
 	const verb = (parts.shift() || '').toLowerCase();
 	if (verb === 'clear') return { verb, which: (parts[0] || 'all').toLowerCase() };
+	if (verb === 'at') {
+		const pairs = [];
+		for (const part of parts) {
+			const m = /^(\d+)=(\d+)$/.exec(part);
+			if (!m) return { error: `"${part}" is not <ordinal>=<value>` };
+			pairs.push([Number(m[1]), Number(m[2])]);
+		}
+		if (!pairs.length) return { error: 'name at least one draw' };
+		return { verb, pairs };
+	}
 	if (verb !== 'force') return { error: `unknown >rng verb "${verb}"` };
 	if (!parts.length) return { error: 'name an outcome' };
 	return {
@@ -605,6 +724,7 @@ function applyLine(battle, message) {
 	if (parsed.error) throw new Error(`">rng ${message}": ${parsed.error}`);
 	const record = `>rng ${message}`;
 	if (parsed.verb === 'clear') return clear(battle, parsed.which, record);
+	if (parsed.verb === 'at') return pin(battle, parsed.pairs, record);
 	const result = arm(battle, parsed, record);
 	if (result.error) throw new Error(`">rng ${message}": ${result.error}`);
 	return result;
@@ -834,6 +954,10 @@ exports.outcomeSpec = outcomeSpec;
 exports.install = install;
 exports.arm = arm;
 exports.clear = clear;
+exports.pin = pin;
+exports.atLine = atLine;
+exports.traceOn = traceOn;
+exports.markDraws = markDraws;
 exports.snapshot = snapshot;
 exports.applyLine = applyLine;
 exports.forceLine = forceLine;

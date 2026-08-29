@@ -146,7 +146,8 @@ entirely in `config/`.
 one frame — `/importinputlog ` is registered as a multi-line command
 (`chat-commands/core.ts:1849`), and that path is only taken when the text contains a newline.
 The import itself screens only for `>eval` (`chat-commands/core.ts:899`), so a `>reseed` line
-passes.
+passes — and so does `>rng`, which is why nothing in this project needs console access:
+RNG control and reconstruction both travel as `>rng`, never as `>eval` (ENGINEERING.md 4).
 
 ### 2.4 Getting the players into their slots
 

@@ -54,6 +54,9 @@ Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 `npm run live` also takes `--at <turn>`, `--dry-run`, `--verify <log.json>`.
 `npm run reconstruct` takes `--all`, `--rung s1|s2|s3`, `--teams <key>`, `--sample <n>`,
 `--max-probes <n>`, `--dry-run`.
+`npm run replay` takes `--force "<outcome> <subject> [move]"` (repeatable) with `--at <turn>`
+and `--seed <seed>`: it replays a recording twice from that turn under one shared reseed, once
+plain and once with the named draws forced, and reports what moved.
 
 > Note the bare `--` in `npm run live -- --at 4`. It tells npm the flags are for the
 > script, not for npm. `live.bat --at 4` needs no such thing.
@@ -67,6 +70,7 @@ Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 | `scripts/local-*.mjs` | The entry points — one file per command in the table above. |
 | `scripts/lib/` | Shared machinery: truncation, RNG control, protocol diffing, the WebSocket clients, the browser launcher. |
 | `scripts/client/` | Scripts that run **in the browser**, served over HTTP — not runnable with `node`. |
+| `scripts/server/` | Code that runs **inside the Showdown server process**, copied into `runtime/config/` by provisioning. |
 | `scripts/fixtures/` | The two fixture teams, as export text. |
 | `recordings/` | Finished battles with their input logs. Tracked — these cannot be regenerated. |
 | `samples/` | Public-ladder replays. The input to `npm run reconstruct`, and its test material. |
@@ -75,7 +79,8 @@ Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 | `vendor/` | A clone of the upstream Showdown *client*. Only `play.pokemonshowdown.com/` is used, to serve the real battle UI. |
 
 `.js` versus `.mjs` is not decoration: `.mjs` is a Node ES module, `.js` under
-`scripts/client/` is browser code, and `.js` under `scripts/fixtures/` is Node CommonJS.
+`scripts/client/` is browser code, and `.js` under `scripts/fixtures/` and `scripts/server/` is
+CommonJS.
 
 ---
 

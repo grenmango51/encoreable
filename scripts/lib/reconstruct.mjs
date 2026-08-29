@@ -30,6 +30,7 @@
 import { createRequire } from 'module';
 
 import { battleLines, firstDivergence } from './protocol.mjs';
+import { install, traceOn, markDraws, atLine } from './rng-control.mjs';
 
 const require = createRequire(import.meta.url);
 const { BattleStream, Dex, Teams, toID } = require('pokemon-showdown');
@@ -419,45 +420,18 @@ function onChannel(raw, channel) {
 // ------------------------------------------------------------ per-draw control
 
 /**
- * One `>eval` line that puts every random draw in the battle under our control.
- *
- * `PRNG.random` is the only funnel there is: `randomChance`, `sample` and
- * `shuffle` all route through it, and `sim/prng.ts:92` is the single `next()`
- * call in the whole simulator. Wrapping it on the instance is therefore total
- * coverage, and the range arrives as arguments, so the wrapper knows how many
- * faces the die had (ENGINEERING.md 4.2 needed `rawFor` only because it wrapped
- * one level lower).
- *
- * The real draw is always taken and only its result is replaced, so forcing one
- * decision never shifts the ones after it. Installation goes through an accessor
- * because `>reseed` assigns a whole new generator (`sim/battle.ts:361`) - without
- * that, control dies at the first reseed and nothing reports it.
- *
- * `>eval` is a stock input-log command: `sim/battle-stream.ts:133` records it, so
- * the log this produces re-simulates on its own with no help from this file. Its
- * echo is a `''`-type line, which `ROOM_ONLY` strips from every comparison here.
- */
-function interceptorLine(subs) {
-  return `>eval (()=>{const S=${JSON.stringify(subs)},T=[];let n=-1,p=battle.prng;` +
-    `const w=g=>{if(!g||g.__recon)return g;const r=g.random.bind(g);` +
-    `g.random=(f,t)=>{const raw=r(f,t);n++;const s=S[n];const v=s===undefined?raw:s;` +
-    `T.push([n,f===undefined?-1:f,t===undefined?-1:t,v,battle.log.length,battle.__seg|0]);` +
-    `return v;};g.__recon=1;return g;};p=w(p);` +
-    `Object.defineProperty(battle,'prng',{get:()=>p,set:g=>{p=w(g);},configurable:true});` +
-    `battle.__trace=T;})()`;
-}
-
-/**
  * The draws one segment consumed, as `{ i, lo, hi, value }`.
  *
- * Float draws and one-faced ranges are dropped: there is nothing to choose.
+ * `from`/`to` are the arguments the simulator handed `random()`: one of them is
+ * a bare face count, both of them are a half-open range. Float draws and
+ * one-faced ranges are dropped - there is nothing to choose.
  */
 function drawsOf(trace, seg) {
   const rows = [];
-  for (const [i, f, t, value, , at] of trace || []) {
-    if (at !== seg || f < 0) continue;
-    const lo = t < 0 ? 0 : f;
-    const hi = (t < 0 ? f : t) - 1;
+  for (const { i, from, to, value, mark } of trace || []) {
+    if (mark !== seg || from < 0) continue;
+    const lo = to < 0 ? 0 : from;
+    const hi = (to < 0 ? from : to) - 1;
     if (hi <= lo) continue;
     rows.push({ i, lo, hi, value });
   }
@@ -497,10 +471,20 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
   // is what puts that roll under control - and it is why nothing here has to pin
   // a gender by hand, which would remove a draw the real battle made and shift
   // every draw after it.
+  //
+  // Two installations, deliberately different. The trace is a direct call: the
+  // search needs every draw, and none of that belongs in a recipe. The pins go
+  // in as a `>rng at` line, because they are the answer and the emitted log has
+  // to carry it - `applyLine` appends the line to `battle.inputLog`, so the
+  // reconstruction re-simulates itself with no help from this file. Installing
+  // the interceptor never perturbs the stream, so the empty case writes nothing
+  // and the log of a battle that needed no forcing carries no `>rng` at all.
   await stream.write(header[0]);
   const battle = stream.battle;
   if (!battle) throw new Error('no battle after >start - the header is malformed');
-  await stream.write(interceptorLine(subs || {}));
+  install(battle);
+  const trace = traceOn(battle);
+  if (subs && Object.keys(subs).length) await stream.write(atLine(subs));
   await stream.write(header.slice(1).join('\n'));
 
   const notes = [];
@@ -510,7 +494,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
   let logAt = 0;
 
   for (let k = 0; k < segments.length; k++) {
-    battle.__seg = k;
+    markDraws(battle, k);
     if (k >= 1 && reseeds[k]) await stream.write(`>reseed ${reseeds[k]}`);
 
     // `variant` is a mixed-radix counter over every undetermined target in the
@@ -589,7 +573,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
     diffs,
     widths,
     notes,
-    trace: battle.__trace || [],
+    trace,
     inputLog: [...battle.inputLog],
     rawLog: [...battle.log],
     turn: battle.turn,
@@ -637,7 +621,7 @@ const ties = (a, b) => a[0] === b[0] && a[1] === b[1];
  * re-read from a fresh run rather than reused.
  *
  * `subs` is mutated: it is the accumulated answer, keyed by the draw's position
- * in the battle, and it is what the emitted `>eval` line carries.
+ * in the battle, and it is what the emitted `>rng at` line carries.
  */
 async function resolveTurn(t, common, subs, subTurn, sample, budget) {
   let run = await playThrough({ ...common, subs, stopAt: t });

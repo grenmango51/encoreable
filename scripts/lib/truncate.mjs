@@ -29,7 +29,8 @@ const { BattleStream } = require('pokemon-showdown');
 // the verb or it throws `Unrecognized command` (`sim/battle-stream.ts:216`) and
 // the branch never opens. The engine is required directly rather than through
 // `rng-control.mjs`, which imports this file.
-require('../server/rng-command.js').teachStream(BattleStream);
+const rng = require('../server/rng-command.js');
+rng.teachStream(BattleStream);
 
 /** A fresh seed in the shape `sim/prng.ts` writes: `sodium,` + 32 hex. */
 export function freshSeed() {
@@ -85,10 +86,39 @@ export function positionText(position) {
 }
 
 /**
+ * Drops `>rng at` pins for draws past `spent`, the number the prefix threw.
+ *
+ * A pin names the nth draw and the value it took, so it is a record of a die
+ * already cast. Ordinals keep counting across a `>reseed`, so a pin written for
+ * turn 9 of the recording would otherwise land on whatever the *branch* draws
+ * ninth-turn-ish and force it - silently, in a position the operator is playing
+ * by hand. Everything up to the cut is kept: those draws are the recorded
+ * position, and re-running them is the whole point of the prefix.
+ *
+ * This runs whether or not the continuation is reseeded, so that one truncation
+ * of one recording is one set of lines. `verify-branch.mjs` compares the prefix
+ * it computes against the log the room actually played, and the two only agree
+ * if both trimmed the same way.
+ *
+ * `>rng force` rules are deliberately left alone. A rule is an instruction about
+ * an outcome, not a record of a draw, so surviving the branch is what it is for
+ * (ENGINEERING.md 4.2).
+ */
+export function trimPins(lines, spent) {
+  const out = [];
+  for (const line of lines) {
+    if (!line.startsWith('>rng at ')) { out.push(line); continue; }
+    const keep = line.split(/\s+/).slice(2).filter(p => Number(p.split('=')[0]) < spent);
+    if (keep.length) out.push(`>rng at ${keep.join(' ')}`);
+  }
+  return out;
+}
+
+/**
  * @param raw     an `inputLog` as stored in a `.log.json`
  * @param target  the turn to stop at - the battle will be waiting for this turn's choices
  * @param reseed  true for a fresh continuation seed, or a seed string to use one
- * @returns { inputLog, seed, turn, requested, ended, awaitingChoice, position, players, kept, total, errors }
+ * @returns { inputLog, drawsKept, seed, turn, requested, ended, awaitingChoice, position, players, kept, total, errors }
  */
 export async function truncateAtTurn(raw, target, { reseed = false } = {}) {
   if (!Number.isInteger(target) || target < 1) {
@@ -136,9 +166,11 @@ export async function truncateAtTurn(raw, target, { reseed = false } = {}) {
 
   const seed = reseed ? (typeof reseed === 'string' ? reseed : freshSeed()) : null;
   const tail = seed ? [`>reseed ${seed}`] : [];
+  const drawsKept = rng.snapshot(battle).draws;
 
   const result = {
-    inputLog: header.concat(kept, tail).join('\n') + '\n',
+    inputLog: trimPins(header.concat(kept), drawsKept).concat(tail).join('\n') + '\n',
+    drawsKept,
     seed,
     turn: battle.turn,
     requested: target,

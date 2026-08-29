@@ -183,10 +183,17 @@ Anything that depends on reading a finished battle's input log depends on this f
 required. `forceRandomChance` is confirmed useless for our purpose: it is `readonly`, set once
 at construction, gated on `debugMode`, and forces *every* `randomChance()` call to one boolean.
 
-The operator names an outcome — from a move's own tooltip, or by typing `/rng` in the battle
-room. The interceptor inside the simulator substitutes that one draw and reports what it did.
-The engine lives in `scripts/server/rng-command.js`; the tooltips live in
-`scripts/client/rng-panel.js`.
+The engine lives in `scripts/server/rng-command.js`, the tooltips in
+`scripts/client/rng-panel.js`, and `scripts/lib/rng-control.mjs` is the same engine's ESM face
+for Node. There is **one** interceptor, and a draw is addressed one of two ways:
+
+| | Says | Written as | Used by |
+|---|---|---|---|
+| **rule** | *what* should happen, and lets the interceptor find the draw that fits | `>rng force crit p1:glalie icespinner -` | a live room, where an operator names an outcome from a tooltip or by typing `/rng` |
+| **pin** | *which* draw, by ordinal since installation, and the value it takes | `>rng at 3=5 17=0` | reconstruction (§7), rebuilding a battle whose dice have no names yet |
+
+A rule is an **intention**; a pin is an **observation**. That distinction is not decorative —
+it decides what happens to each at a branch point (§4.2, last item).
 
 **The battle runs in the server's own process.** `Config.subprocesses = 0` makes
 `server/config-loader.ts:94` write `0` for every process type, so `room-battle.ts:1368` spawns
@@ -200,37 +207,51 @@ importing such a recording needs console access. Direct access has neither probl
 
 What `>eval` did give away for free was the recipe: it pushes each line into `battle.inputLog`
 before running it. Direct mutation records nothing, so **`>rng` is taught to the input-log
-grammar instead** (`teachStream`), and every arm and clear is appended by hand. An armed rule is
-then an ordinary recipe line — `>rng force crit any - -` — that `truncateAtTurn`,
-`/importinputlog` and a plain re-simulation all carry. `RoomBattleStream` overrides `_write` but
-not `_writeLine`, so patching the prototype reaches the server too.
+grammar instead** (`teachStream`), and every arm, pin and clear is appended by hand. A
+controlled draw is then an ordinary recipe line — `>rng force crit any - -`, `>rng at 3=5` —
+that `truncateAtTurn`, `/importinputlog` and a plain re-simulation all carry. `RoomBattleStream`
+overrides `_write` but not `_writeLine`, so patching the prototype reaches the server too.
+
+**This is the argument reconstruction lost.** A headless rebuild has none of the objections to
+`>eval`: nobody is watching the room, and one short line written before turn 1 is not 200 lines
+of source. It shipped with `>eval` on those grounds and they were true. What they missed is that
+the *output* is not headless — a reconstructed recording is fed straight to `npm run live` and
+**Play from here**, where its `>eval` echo does land in a room a person is watching, and where
+`/importinputlog` demands console access to accept it. Granting console to the default group was
+the price, and it is no longer paid: with `>rng at`, nothing this project writes contains a
+`>eval`, and `provision-local-server.mjs` grants `importinputlog` and nothing else.
 
 ### 4.1 One interception point covers every draw
 
 Every random decision in a battle is one `prng.rng.next()` call, and every caller reaches it
 through `PRNG.random`: `randomChance(n, d)` is `random(d) < n` (`sim/prng.ts:116`),
 `sample(items)` is `random(items.length)`, `shuffle` is repeated `random(a, b)`. Nothing in
-`sim/` or `data/` calls `rng.next()` directly. Wrapping three methods on the live `PRNG` —
-`random`, `randomChance` and `sample` — therefore covers the whole simulator, mods included,
-with nothing pinned to a line number that moves on upgrade.
+`sim/` or `data/` calls `rng.next()` directly. **`random` is the only funnel**, so wrapping that
+one method on the live `PRNG` covers the whole simulator, mods included, with nothing pinned to
+a line number that moves on upgrade. `randomChance`, `sample` and `shuffle` are wrapped too, but
+only to record what was asked for — a pin needs none of them and pays for none of them.
 
 Wrap `random`, not `next`. At `random` the denominator, the offset and (through the wrappers
 above it) the numerator and the sampled array are all in hand, so a forced draw is an integer
 returned directly. `next` sees a bare 32-bit number: forcing a value there means converting
 through `floor((v + 0.5) * 2**32 / d)`, and it never sees the array a `sample()` was handed.
 
-`randomChance` and `sample` are wrapped only to record what was asked for. That is what lets a
-rule say "make this proc" or "make this three hits" with no probability and no hit-count table
-written down anywhere — which matters, because Champions changes the odds: paralysis is
-**1/8**, sleep duration is **`sample([2, 3, 3])`** (`data/mods/champions/conditions.ts`).
-Nothing in the interceptor notices, because nothing in it knows the numbers.
+Recording what `randomChance` and `sample` were asked for is what lets a rule say "make this
+proc" or "make this three hits" with no probability and no hit-count table written down
+anywhere — which matters, because Champions changes the odds: paralysis is **1/8**, sleep
+duration is **`sample([2, 3, 3])`** (`data/mods/champions/conditions.ts`). Nothing in the
+interceptor notices, because nothing in it knows the numbers.
 
-**Every draw identifies itself.** A stack frame names the function that asked, and the
-simulator's own context says what it was for — `battle.effect`, `battle.activeMove`,
+**Every rule-matched draw identifies itself.** A stack frame names the function that asked, and
+the simulator's own context says what it was for — `battle.effect`, `battle.activeMove`,
 `battle.activePokemon`, `battle.activeTarget`, saved and restored around every handler dispatch
 (`battle.ts:631/647/900/906`). The interceptor's own frames are dropped, and so are `PRNG.*` and
 the `Battle.random` / `randomChance` / `sample` pass-throughs. The first frame left is the site.
 `dist/` is esbuild output with function names unmangled, so this survives compilation.
+
+None of that runs for a pin. Capturing and parsing a stack trace is the expensive part of this
+mechanism, and an ordinal is already an answer, so pins are checked first and a battle driven
+entirely by pins — every reconstruction — never builds a context at all.
 
 | Draw | Site | What it asks for |
 |---|---|---|
@@ -286,11 +307,25 @@ message and a substitution produces no message, because the tooltips already sho
 and marking it twice is noise. `/rng log` reports the accounting on demand.
 
 **Round-trip is no longer free.** With `>eval` gone, nothing writes the recipe automatically —
-`arm()` and `clear()` push to `battle.inputLog` themselves. Miss that and a controlled recording
-still *renders* correctly, because a `.log.json` stores the played `log` alongside the
+`arm()`, `pin()` and `clear()` push to `battle.inputLog` themselves. Miss that and a controlled
+recording still *renders* correctly, because a `.log.json` stores the played `log` alongside the
 `inputLog`; what breaks is everything that re-simulates the recipe. `npm run replay` reports the
 recording as divergent, and "Play from here" lands on a position with different HP from the page
 the button was clicked on, silently. `/rng log` prints `recorded=N` so the count is visible.
+
+**A rule survives a branch; a pin must not.** Ordinals keep counting across a `>reseed` — the
+interceptor is installed on `battle.prng`, not on the generator — so a pin written for turn 9 of
+a recording will happily fire on whatever the *branch* draws ninth-turn-ish, in a position an
+operator is playing by hand, with nothing on screen to say so. Measured on the ten-turn Bo3
+reconstruction cut at turn 6: **10 of its 22 pins landed on re-rolled dice.** `truncateAtTurn`
+therefore drops every pin past the draw the prefix stopped at (`trimPins`), which is a thing it
+can only do because it already replays the prefix a line at a time (§5.8) and so knows the
+count. Rules are left alone deliberately: a rule describes an outcome the operator wants next,
+which is exactly what should carry into a branch.
+
+The trimming is unconditional, not just on reseed, so that one truncation of one recording is
+one set of lines — `verify-branch.mjs` recomputes the prefix and compares it against the log the
+room actually played, and the two agree only if both trimmed the same way.
 
 The simulator computes every consequence itself. Nothing in this mechanism writes damage, sets
 a status, or decides a hit.
@@ -570,7 +605,7 @@ Reconstruction (§7) leans on five more that are just as undocumented:
 | `PRNG.random` is the only caller of `rng.next()` | makes one wrapper total coverage | `sim/prng.ts:92` |
 | `getHealth`'s Champions branch uses `floor`, not `ceil` | sets the width of every HP band | `sim/pokemon.ts:2065` |
 | a set with no gender rolls one from the battle PRNG | forces the install point, §7.2 | `sim/pokemon.ts:340` |
-| `>eval` is pushed to `inputLog` unconditionally | is what makes a reconstructed log self-contained | `sim/battle-stream.ts:133` |
+| `BattleStream._writeLine` dispatches on the verb, and `RoomBattleStream` does not override it | is what lets `>rng` become a recipe line in both venues, §4 | `sim/battle-stream.ts`, `server/room-battle.ts` |
 | a locked Pokemon still gets a request, with one move and **no target field** | naming a target for it is refused outright | `sim/pokemon.ts:971`, `:1090` |
 | `extractChannelMessages` is not re-exported by `sim/index.ts` | reached via `dist/sim/battle.js` | `sim/battle.ts` |
 
@@ -605,36 +640,30 @@ turn settles in about five seconds when each draw is chosen separately, because 
 their **sum**. §4 said this in its first line — *seed search was never required* — and it is
 worth restating: a failure here is never fixed by a bigger seed budget.
 
-### 7.2 One funnel, one interceptor
+### 7.2 The dice are §4's, addressed by ordinal
 
-`PRNG.random` is the only place a random number enters a battle: `randomChance`, `sample` and
-`shuffle` all call it, and `sim/prng.ts:92` is the sole `rng.next()` in the simulator. Wrapping
-`random` **on the instance** is therefore total coverage, and because the range arrives as
-arguments the wrapper knows how many faces the die had — §4.2 needed `rawFor` only because it
-wrapped one level lower.
+Reconstruction owns no interceptor. It installs the one in §4 and addresses it by **pin** —
+draw *n* takes value *v* — because a battle being rebuilt from someone else's replay has no
+outcomes to name yet, only positions in a stream. Everything §4 establishes applies unchanged:
+the real draw is always taken and only its result replaced, so settling one die never shifts the
+ones after it; installation goes through an accessor on `battle.prng`, so control survives a
+`>reseed`; and the answer travels as one `>rng at 3=5 17=0 …` line that `battle-stream` records
+in `battle.inputLog`. That last property is the whole reason `npm run replay`, `npm run live`
+and **Play from here** take a ladder game with no changes at all — the reconstructed log carries
+its own recipe and re-simulates itself with no help from this project.
 
-Four things make it work, and each was paid for:
+Two things belong to this path and not to §4:
 
-- **Always take the real draw, replace only its result.** Forcing one decision then never
-  shifts the ones after it.
-- **Install through an accessor on `battle.prng`.** `>reseed` assigns a whole new generator
-  (`sim/battle.ts:361`); without the accessor, control dies at the first reseed in silence.
-- **`>eval` is the transport here — and the wrong answer in a live room.** The objection to
-  `>eval` is that it echoes its own source into the battle log (`sim/battle-stream.ts:136`): an
-  interactive controller is hundreds of lines, and a person is watching the room. Neither
-  applies to reconstruction. This payload is one line of a few hundred characters, written
-  before a single turn resolves, with nothing watching, and its echo is a `''`-type line that
-  `ROOM_ONLY` strips from every comparison. Against that it buys the one property this path
-  cannot do without: `sim/battle-stream.ts:133` pushes the line into `battle.inputLog`, so a
-  reconstructed log carries its own recipe and re-simulates itself with no help from this
-  project — which is what lets `npm run replay`, `npm run live` and **Play from here** take a
-  ladder game with no changes at all. Arming draws in a room a browser is playing is the
-  opposite trade — nothing there needs the input log to travel — and should be decided
-  differently.
+- **The trace is a direct call, not a recipe line.** The search has to see *every* draw a turn
+  threw before it can decide which to move, and none of that belongs in a log. `traceOn()`
+  switches it on in-process; only the pins go through the stream, because only they are the
+  answer. A reconstruction that needed to force nothing writes no `>rng` line at all.
 - **Install between `>start` and `>player`.** `>start` builds the battle; `>player` builds the
   teams, and a set that states no gender rolls for one right there (`sim/pokemon.ts:340`).
   Pinning genders from the log instead *removes* a draw the real battle made and shifts every
-  draw after it — that mistake cost three otherwise perfect reconstructions.
+  draw after it — that mistake cost three otherwise perfect reconstructions. It is also why the
+  `>rng at` line sits between those two lines in every reconstructed log: ordinals count from
+  installation, so moving that line renumbers every draw it names.
 
 ### 7.3 The search, and why it is also the sampler
 
@@ -708,8 +737,9 @@ moved. That is the headless proof for §4; `/rng` is the same engine driven from
 | `scripts/lib/branch-launch.mjs` | the one launch path: import, two windows, both slots (§5.10) |
 | `scripts/client/replay-branch.js` | the replay page's "Play from here" button (§5.10) |
 | `scripts/lib/replay-html.mjs` | replay shell (§6.3) |
-| `scripts/server/rng-command.js` | the `/rng` command and the interceptor it sends (§4) — CommonJS, copied into `runtime/config/` |
-| `scripts/lib/rng-control.mjs` | the same engine driven headlessly: build a controlled input log, replay it, read the accounting (§4.2) |
+| `scripts/server/rng-command.js` | the one interceptor, the `/rng` command, and the `>rng` verb that carries both (§4) — CommonJS, copied into `runtime/config/` |
+| `scripts/lib/rng-control.mjs` | that engine driven headlessly: build a controlled input log, replay it, read the accounting (§4.2). Importing it teaches `>rng` to every `BattleStream` in the process |
+| `scripts/client/rng-panel.js` | the move and Pokemon tooltips that arm a draw without typing (§4) |
 | `scripts/fixtures/teams.js` | the two fixture teams, as export text, packed at runtime |
 | `scripts/provision-local-server.mjs` | local config, including `logchallenges` (§3.1) |
 
@@ -734,22 +764,22 @@ like any recording, and `npm run live --at 6` stands on it.
 Still open, and neither needs a *longer* battle: exercising `REJECTED` (§5.2), and learning
 whether roll-table caching is actually required (§4.3).
 
-### A control surface for `/rng`
+### A control surface for `/rng` — **satisfied, by the tooltips**
 
-The engine is done and the commands work, but the only way to reach them is typing. A battle
-turn asks for roughly 28 draws, so the surface cannot be a list of dice — it has to be a
-catalogue of outcomes per active Pokémon, offered before the turn resolves.
+The acceptance was that the operator arms a draw without typing a command, and
+`scripts/client/rng-panel.js` meets it: hovering a move offers its accuracy, crit, damage-roll,
+secondary and multi-hit draws, and hovering a Pokémon offers its chance ability, chance item,
+status durations and speed tie.
 
-The mechanism needs no client code: the server already pushes interactive HTML into battle
-rooms (`|uhtml|`, `chat-commands/core.ts:1052`, client `panels.js:1473`), and a
-`<button name="send" value="/rng force crit Glalie">` is an ordinary chat command. `|uhtmlchange|`
-replaces the block in place, so the panel can follow the battle.
+It took the *other* of the two routes sketched here. Server-pushed `|uhtml|` needs no client
+code but cannot follow a pointer, and the control has to appear where the operator is already
+looking — on the move they are about to click. So the surface is the vanilla tooltip, extended
+in the client, and the cost is the part `|uhtml|` would have avoided: boxes carrying controls
+have to take the mouse and stay up while the pointer crosses the gap upstream leaves between
+button and box.
 
-Open questions are what the catalogue shows per Pokémon, how an armed rule and an
-expired-unfired one are surfaced, where the expiry toggle lives, and whether the `<kind>=<value>`
-tail gets a surface at all.
-
-**Acceptance:** the operator arms a draw from the battle room without typing a command.
+Still open: the `<kind>=<value>` tail has no surface, and speed ties, target qualifiers and
+multi-hit counts are built but not yet exercised against a real room.
 
 ### A single omniscient window
 

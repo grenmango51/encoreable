@@ -57,16 +57,14 @@ exports.logchallenges = true;
 // permission to the default group keeps the whole thing inside config/ and
 // leaves no other rank in play.
 //
-// "console" covers the one remaining case: /importinputlog refuses any log
-// containing a >eval line without it (chat-commands/core.ts:847), which a log
-// recorded before /rng moved off >eval still can. hasConsoleAccess() also checks
-// the connection IP against Config.consoleips, which defaults to 127.0.0.1
-// (server/users.ts:385) - the address this server binds to and no other.
+// "console" is deliberately NOT granted. The only thing it bought was the >eval
+// gate on /importinputlog (chat-commands/core.ts:847), and nothing this project
+// writes contains a >eval any more: RNG control travels as >rng and
+// reconstruction pins its dice the same way. A log from elsewhere that carries
+// one will be refused, which is the correct answer to untrusted code.
 const defaults = require('./config-example.js');
 exports.grouplist = defaults.grouplist.map(group => (
-  group.symbol === ' '
-    ? { ...group, importinputlog: true, ignorelimits: true, console: true }
-    : group
+  group.symbol === ' ' ? { ...group, importinputlog: true, ignorelimits: true } : group
 ));
 
 // /rng - per-draw RNG control. See config/rng-command.js.
