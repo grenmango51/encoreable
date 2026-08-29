@@ -158,9 +158,9 @@ a script that builds and edits the state for you, correctly, for free. Every rea
 we can reach this way is a position we never have to hand-author.
 
 **B′ is not an implementation detail.** RNG control is the core loop (§5). It works by scripted
-injection at the sim's five draw sites — accuracy, crit, damage roll, secondary, self-boost —
-so a named draw is forced without perturbing any other decision in the turn. It also covers
-most hypotheticals — "what if it had crit" is a coin we flip, not a state we author.
+injection at the one place every random decision passes through, so a named draw is forced
+without perturbing any other decision in the turn. It also covers most hypotheticals — "what if
+it had crit" is a coin we flip, not a state we author.
 
 **B is the eventual necessity, and the hardest.** Needed for positions that never happened,
 for manual setup, and for Champions input where there is no log at all. **Use
