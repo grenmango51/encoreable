@@ -21,7 +21,7 @@ Target ruleset is **Pokémon Champions VGC** (`[Gen 9 Champions] VGC 2026 Reg M-
 |---|---|
 | Determinism (Task 1) | **DONE — PASS.** Input logs round-trip byte-identically. |
 | Full information (Task 2) | **DONE — YES on our own server, NO on the public ladder.** |
-| Per-roll RNG control (Task 4) | **DONE.** `/rng` inside a live battle room, every draw in the simulator, §4. No panel yet. |
+| Per-roll RNG control (Task 4) | **DONE.** Every draw in the simulator, armed by `/rng` or from the move and Pokemon tooltips — proven in a live room and byte-identical on replay. Speed ties, target qualifiers and multi-hit counts are built but not yet exercised. §4. |
 | Restore to turn N (Task 3) | **DONE.** `scripts/lib/truncate.mjs`, §5.9. |
 | Playable branch (Task 5) | **DONE.** `npm run live` — the native battle UI, both sides, §5.9. |
 
@@ -182,10 +182,27 @@ Anything that depends on reading a finished battle's input log depends on this f
 required. `forceRandomChance` is confirmed useless for our purpose: it is `readonly`, set once
 at construction, gated on `debugMode`, and forces *every* `randomChance()` call to one boolean.
 
-The operator names an outcome with `/rng` in the battle room. The command writes a `>eval` to
-that room's battle stream (`sim/battle-stream.ts:128`), which is where a live branch's `Battle`
-actually is; the interceptor inside the simulator substitutes that one draw and reports what it
-did. Both halves live in `scripts/server/rng-command.js`.
+The operator names an outcome — from a move's own tooltip, or by typing `/rng` in the battle
+room. The interceptor inside the simulator substitutes that one draw and reports what it did.
+The engine lives in `scripts/server/rng-command.js`; the tooltips live in
+`scripts/client/rng-panel.js`.
+
+**The battle runs in the server's own process.** `Config.subprocesses = 0` makes
+`server/config-loader.ts:94` write `0` for every process type, so `room-battle.ts:1368` spawns
+no simulator worker and `lib/process-manager.ts:633` falls through to `_createStream()`. The
+`Battle` is then reachable as `room.battle.stream.battle`, and the command mutates it directly.
+
+This is why there is no `>eval`. Going through the stream would work, but
+`sim/battle-stream.ts:136` writes every eval'd string into the battle log as `>>> …` — the
+interceptor alone would dump ~200 lines of its own source into the room on first arm, and
+importing such a recording needs console access. Direct access has neither problem.
+
+What `>eval` did give away for free was the recipe: it pushes each line into `battle.inputLog`
+before running it. Direct mutation records nothing, so **`>rng` is taught to the input-log
+grammar instead** (`teachStream`), and every arm and clear is appended by hand. An armed rule is
+then an ordinary recipe line — `>rng force crit any - -` — that `truncateAtTurn`,
+`/importinputlog` and a plain re-simulation all carry. `RoomBattleStream` overrides `_write` but
+not `_writeLine`, so patching the prototype reaches the server too.
 
 ### 4.1 One interception point covers every draw
 
@@ -210,10 +227,9 @@ Nothing in the interceptor notices, because nothing in it knows the numbers.
 **Every draw identifies itself.** A stack frame names the function that asked, and the
 simulator's own context says what it was for — `battle.effect`, `battle.activeMove`,
 `battle.activePokemon`, `battle.activeTarget`, saved and restored around every handler dispatch
-(`battle.ts:631/647/900/906`). Frames defined by `eval` are the interceptor's own and are
-dropped; so are `PRNG.*` and the `Battle.random` / `randomChance` / `sample` pass-throughs. The
-first frame left is the site. `dist/` is esbuild output with function names unmangled, so this
-survives compilation.
+(`battle.ts:631/647/900/906`). The interceptor's own frames are dropped, and so are `PRNG.*` and
+the `Battle.random` / `randomChance` / `sample` pass-throughs. The first frame left is the site.
+`dist/` is esbuild output with function names unmangled, so this survives compilation.
 
 | Draw | Site | What it asks for |
 |---|---|---|
@@ -262,12 +278,18 @@ branching carries a `>reseed`. The interceptor counts reseeds and counts draws s
 one, and `npm run replay -- --force` installs *before* the reseed on purpose, so a broken
 accessor shows up as a failed check rather than as a battle that quietly does nothing.
 
-**A controlled battle is manipulated by definition.** `>eval` lines are pushed to
-`battle.inputLog` before they run (`battle-stream.ts:132`), so the recipe carries the install
-and every arm in plain text, each arm and each substitution writes a `#rng` line into the
-battle log, and replaying the recording reinstalls the interceptor and re-forces the same
-draws. Arm commands return a constant so the `<<<` echo is stable. None of this is suppressed —
-the audit trail is the point.
+**A controlled battle is manipulated by definition, and the recipe is the only place it shows.**
+The input log carries every arm as a plain `>rng` line, so replaying the recording re-arms the
+same rules and re-forces the same draws. The battle log itself says nothing: arming produces no
+message and a substitution produces no message, because the tooltips already show what is armed
+and marking it twice is noise. `/rng log` reports the accounting on demand.
+
+**Round-trip is no longer free.** With `>eval` gone, nothing writes the recipe automatically —
+`arm()` and `clear()` push to `battle.inputLog` themselves. Miss that and a controlled recording
+still *renders* correctly, because a `.log.json` stores the played `log` alongside the
+`inputLog`; what breaks is everything that re-simulates the recipe. `npm run replay` reports the
+recording as divergent, and "Play from here" lands on a position with different HP from the page
+the button was clicked on, silently. `/rng log` prints `recorded=N` so the count is visible.
 
 The simulator computes every consequence itself. Nothing in this mechanism writes damage, sets
 a status, or decides a hit.
@@ -278,6 +300,23 @@ The 16 damage rolls do not produce 16 distinct damage numbers. On the fixture, a
 had a reachable ladder of **39 / 40 / 42 / 43 / 45 / 46** — deltas of 1, 3 and 4 only.
 **A delta of 2 or 5 is unreachable.**
 
+Bigger hits are sparser, not denser, because the gaps scale with the number. Measured live,
+Incineroar's Flare Blitz into Metagross:
+
+```
+plain   146 144 144 140 140 138 138 134 134 132 132 128 128 126 126 122     9 distinct
+crit    218 216 212 210 210 206 204 200 200 198 194 192 192 188 186 186    12 distinct
+```
+
+Sixteen of the numbers between 122 and 146 cannot be rolled at all. This is why a damage
+control is a slider over the sixteen *rolls* labelled with their damage, never a number field:
+every position is reachable by construction, and the gaps show up as jumps.
+
+The crit row above is the same sixteen calls with `willCrit: true`. The crit multiplier is
+applied *before* the random factor (`battle-actions.ts:1750` then `:1755`), so arming a crit
+relabels the whole ladder — and crit is the only rule that does, since multi-hit does not change
+per-hit damage and accuracy does not change damage at all.
+
 This is why editing the number in the log directly is the wrong mechanism. It can write `44`,
 a damage value **no roll can produce** — a log internally inconsistent with its own seed, which
 fails any honest re-simulation. Roll selection is the only sound approach, and it is what
@@ -286,8 +325,12 @@ shipped: `/rng force roll0`..`roll15`, `mindmg`, `maxdmg`. "Deal exactly N damag
 Consequences for the branch UI:
 - "Deal N more damage" is **not always a legal request.** Enumerate the reachable ladder and
   present that set, not a free-text number.
-- Enumerating the ladder costs 16 full replays per hit. Cheap on a 5-turn fixture, quadratic on
-  a long battle — it would need caching per (attacker, defender, move, turn).
+- Enumerating the ladder costs **16 dry-run `getDamage` calls**, not 16 replays. `damageLadder`
+  runs them in-process against the live battle with four guards: a cloned move, `willCrit` set
+  explicitly, `suppressMessages` on so `modifyDamage` writes no `-supereffective` line
+  (`battle-actions.ts:1799`), and the interceptor in dry mode so the generator is never touched.
+  `stellarBoostedTypes` is snapshotted and restored, because `:1779` mutates it mid-calc.
+  Measured live: 48 dry runs left `draws=0`.
 - Filter for reachability *and* for intent: a roll that turns a non-lethal hit lethal changes
   the battle, which may not be what was asked for.
 

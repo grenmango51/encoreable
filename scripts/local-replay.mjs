@@ -26,13 +26,13 @@
  *
  *   node scripts/local-replay.mjs --from <file> --force "crit Glalie" --at 3
  *   node scripts/local-replay.mjs --from <file> --force "miss any" --force "maxdmg any"
- *   node scripts/local-replay.mjs --from <file> --force "crit any" --always
+ *   node scripts/local-replay.mjs --from <file> --force "crit Glalie icespinner p2:Gholdengo"
  *
  * The continuation seed is fresh on every run unless --seed is given, so pass
  * one when you want the same comparison twice.
  *
- * The interceptor is installed *before* the reseed on purpose. `>reseed` replaces
- * the generator object, so a run that forces nothing is how a broken accessor
+ * The rules are armed *before* the reseed on purpose. `>reseed` replaces the
+ * generator object, so a run that forces nothing is how a broken accessor
  * announces itself (ENGINEERING.md 4.2).
  */
 
@@ -358,7 +358,6 @@ async function main() {
   if (forces.length) {
     const turn = Number(opt('--at') || 1);
     const built = await buildControlled(inputLog, turn, forces, {
-      standing: flag('--always'),
       seed: opt('--seed'),
     });
     const base = await replayControlled(built.baseline);
@@ -367,7 +366,7 @@ async function main() {
 
     console.log('\n================ RNG CONTROL ================\n');
     console.log(`  Armed at turn ${built.turn}, both runs reseeded to ${built.seed}`);
-    for (const a of built.arms) console.log(`    ${a.text}${flag('--always') ? '  [always]' : ''}`);
+    for (const a of built.arms) console.log(`    ${a.line}`);
     console.log(`\n  draws ${r.draws}   forced ${r.forced}   could not force ${r.skipped}`);
     console.log(`  baseline ${verdict(base)} through turn ${base.turns}   ` +
       `controlled ${verdict(ctrl)} through turn ${ctrl.turns}`);
@@ -386,16 +385,16 @@ async function main() {
       console.log('\n  What the interceptor did:');
       for (const n of r.notes) console.log(`    ${n}`);
     }
-    if (r.armed.length) {
+    if (r.rules.length) {
       console.log('\n  Still armed at the end:');
-      for (const a of r.armed) console.log(`    #${a.id} ${a.text}  matched ${a.tries}, forced ${a.fired}`);
+      for (const a of r.rules) console.log(`    #${a.id} ${a.text}  matched ${a.matched}, forced ${a.forced}`);
     }
 
     // Forcing a crit inserts a line, which shifts every line after it - a
     // positional diff would call the whole rest of the battle changed. Compare
     // the two as multisets instead, so only genuinely new or missing lines show.
     const before = battleLines(base.debugLog);
-    const after = battleLines(ctrl.debugLog).filter(l => !l.startsWith('|-message|#rng'));
+    const after = battleLines(ctrl.debugLog);
     const missingFrom = (these, those) => {
       const bag = new Map();
       for (const l of those) bag.set(l, (bag.get(l) || 0) + 1);

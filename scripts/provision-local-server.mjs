@@ -32,8 +32,11 @@ const configContent = `
 exports.bindaddress = '127.0.0.1';
 exports.port = 8000;
 exports.ssl = null;
-exports.subprocesses = 1;
-exports.simulatorworkers = 1;
+// 0 puts every process type - the simulator included - in the main process
+// (server/config-loader.ts:91, room-battle.ts:1368, lib/process-manager.ts:633).
+// That is what makes room.battle.stream.battle a live Battle object the /rng
+// command can reach directly, with no >eval and no worker in between.
+exports.subprocesses = 0;
 // Disable DBs, ladders, remote logins, etc
 exports.nodatabase = true;
 exports.autolock = false;
@@ -54,9 +57,9 @@ exports.logchallenges = true;
 // permission to the default group keeps the whole thing inside config/ and
 // leaves no other rank in play.
 //
-// "console" is here for the same reason: /importinputlog refuses any log
-// containing a >eval line without it (chat-commands/core.ts:847), and every
-// recording of a controlled battle contains one. hasConsoleAccess() also checks
+// "console" covers the one remaining case: /importinputlog refuses any log
+// containing a >eval line without it (chat-commands/core.ts:847), which a log
+// recorded before /rng moved off >eval still can. hasConsoleAccess() also checks
 // the connection IP against Config.consoleips, which defaults to 127.0.0.1
 // (server/users.ts:385) - the address this server binds to and no other.
 const defaults = require('./config-example.js');
@@ -67,7 +70,14 @@ exports.grouplist = defaults.grouplist.map(group => (
 ));
 
 // /rng - per-draw RNG control. See config/rng-command.js.
-exports.commands = require('./rng-command.js').commands;
+//
+// teachStream() adds ">rng" to the input-log grammar, so an armed rule survives
+// truncation, /importinputlog and re-simulation as an ordinary recipe line. It
+// has to be in place before any room is created, because /importinputlog writes
+// the whole log into a fresh stream the moment the room exists.
+const rng = require('./rng-command.js');
+rng.teachStream(require('../dist/sim/battle-stream.js').BattleStream);
+exports.commands = rng.commands;
 `;
 
 fs.writeFileSync(path.join(DEST, 'config', 'config.js'), configContent);

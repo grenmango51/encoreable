@@ -3,14 +3,13 @@
  *
  * The engine itself lives in `scripts/server/rng-command.js`, because that is
  * the copy the server loads. This module is the ESM face of the same file: it
- * re-exports the `>eval` line builders and adds the two things that only make
- * sense outside the server - building a controlled input log, and replaying one
- * headlessly to read the accounting back.
+ * teaches this process's `BattleStream` the `>rng` verb, turns a typed
+ * `<outcome> <subject> [move] [target]` into the input-log line that arms it,
+ * and replays a controlled log headlessly to read the accounting back.
  *
  * Interceptor state lives on `battle.__rng` in whichever process owns the
- * `Battle`. In a live room that is a simulator worker and the only way to read
- * it is `/rng log`; here the battle is in this process, so `readState()` reaches
- * it directly.
+ * `Battle`. In a live room that is the main server process and `/rng` reads it
+ * directly; here the battle is in this process, so `snapshot()` does.
  */
 
 import { createRequire } from 'module';
@@ -21,12 +20,35 @@ const require = createRequire(import.meta.url);
 const { BattleStream } = require('pokemon-showdown');
 const engine = require('../server/rng-command.js');
 
-export const {
-  INTERCEPTOR, OUTCOME_WORDS, parseSpec,
-  installLine, armLine, clearLine, expireLine, reportLine, listLine,
-} = engine;
+engine.teachStream(BattleStream);
+
+export const { OUTCOME_WORDS, snapshot } = engine;
 
 export { freshSeed };
+
+/**
+ * Splits `<outcome> <subject> [move] [target]` and validates the outcome word.
+ * The Pokemon are resolved inside the battle, where the teams are.
+ */
+export function parseSpec(text) {
+  const parts = String(text || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return { error: 'name an outcome, e.g. crit' };
+  const outcome = parts[0].toLowerCase();
+  if (!engine.outcomeSpec(outcome)) {
+    return { error: `"${parts[0]}" is not an outcome. Try: ${OUTCOME_WORDS.join(' ')}` };
+  }
+  return {
+    outcome,
+    subject: parts.length > 1 ? parts[1] : 'any',
+    move: parts.length > 2 && parts[2] !== '-' ? parts[2].toLowerCase().replace(/[^a-z0-9]/g, '') : '',
+    target: parts.length > 3 && parts[3] !== '-' ? parts[3] : '',
+  };
+}
+
+/** The input-log line that arms one rule. */
+export function armLine(spec) {
+  return `>rng ${engine.forceLine(spec)}`;
+}
 
 /**
  * Splits a recorded input log into the header, the choices made before `turn`,
@@ -55,17 +77,17 @@ async function splitAtTurn(raw, turn) {
  *
  * Both carry the same `>reseed`, so both roll the same fresh stream from the
  * branch point and any divergence between them is the substitution and nothing
- * else. The interceptor is installed *before* the reseed on purpose: `>reseed`
- * replaces the generator object (`sim/battle.ts:219`), so if the accessor on
- * `battle.prng` is not doing its job, the controlled log forces nothing and says
- * so instead of quietly matching the baseline.
+ * else. The arms sit *before* the reseed on purpose: `>reseed` replaces the
+ * generator object (`sim/battle.ts:361`), so if the accessor on `battle.prng` is
+ * not doing its job, the controlled log forces nothing and says so instead of
+ * quietly matching the baseline.
  *
  * @param raw    a recorded `inputLog`
  * @param turn   the turn to arm at - the rules are in place before it resolves
- * @param specs  `<outcome> <subject> [move]` strings
+ * @param specs  `<outcome> <subject> [move] [target]` strings
  * @returns { baseline, controlled, seed, turn, arms }
  */
-export async function buildControlled(raw, turn, specs, { seed = null, standing = false } = {}) {
+export async function buildControlled(raw, turn, specs, { seed = null } = {}) {
   const use = seed || freshSeed();
   const { header, before, after, cut } = await splitAtTurn(raw, turn);
 
@@ -73,7 +95,7 @@ export async function buildControlled(raw, turn, specs, { seed = null, standing 
   for (const text of specs) {
     const spec = parseSpec(text);
     if (spec.error) throw new Error(`--force "${text}": ${spec.error}`);
-    arms.push({ text, spec, line: armLine(spec, standing) });
+    arms.push({ text, spec, line: armLine(spec) });
   }
 
   const reseed = `>reseed ${use}`;
@@ -81,40 +103,16 @@ export async function buildControlled(raw, turn, specs, { seed = null, standing 
 
   return {
     baseline: join([...header, ...before, reseed, ...after]),
-    controlled: join([
-      ...header, ...before,
-      installLine(),
-      reseed,
-      ...arms.map(a => a.line),
-      ...after,
-    ]),
+    controlled: join([...header, ...before, ...arms.map(a => a.line), reseed, ...after]),
     seed: use,
     turn: cut.turn,
     arms,
   };
 }
 
-/** The interceptor's own accounting, as plain data. */
-function readState(battle) {
-  const st = battle.__rng;
-  if (!st) return null;
-  return {
-    draws: st.draws,
-    forced: st.subs,
-    skipped: st.skipped,
-    reseeds: st.reseeds,
-    drawsSinceReseed: st.sinceReseed,
-    expire: st.expire,
-    notes: st.notes.slice(),
-    armed: st.rules.map(r => ({
-      id: r.id, text: r.text, turn: r.turn, tries: r.tries, fired: r.fired,
-    })),
-  };
-}
-
 /**
  * Replays an input log in this process and reports what came out.
- * `rng` is null when the log carries no interceptor.
+ * `rng` is null when the log arms nothing.
  */
 export async function replayControlled(inputLog) {
   const stream = new BattleStream({ keepAlive: true });
@@ -130,7 +128,7 @@ export async function replayControlled(inputLog) {
     inputLog: battle.inputLog.join('\n'),
     ended: battle.ended,
     turns: battle.turn,
-    rng: readState(battle),
+    rng: battle.__rng ? snapshot(battle) : null,
     errors: [],
   };
 

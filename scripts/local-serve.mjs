@@ -6,6 +6,7 @@
  * rather than upstream's:
  *
  *   /autobattle.js      injected into the test client, drives npm run battle
+ *   /rng-panel.js       injected into the test client, the RNG control surface
  *   /replay-branch.js   draws the "Play from here" button on a replay page
  *   /branch             that button's endpoint - hands off to lib/branch-launch.mjs
  *
@@ -48,8 +49,11 @@ const mimeTypes = {
   '.json': 'application/json'
 };
 
-const AUTOBATTLE_FILE = path.join(process.cwd(), 'scripts', 'client', 'autobattle.js');
-const REPLAY_BRANCH_FILE = path.join(process.cwd(), 'scripts', 'client', 'replay-branch.js');
+const CLIENT_SCRIPTS = {
+  '/autobattle.js': path.join(process.cwd(), 'scripts', 'client', 'autobattle.js'),
+  '/rng-panel.js': path.join(process.cwd(), 'scripts', 'client', 'rng-panel.js'),
+  '/replay-branch.js': path.join(process.cwd(), 'scripts', 'client', 'replay-branch.js'),
+};
 const REPLAY_DIR = path.join(process.cwd(), 'replays');
 
 /**
@@ -106,17 +110,9 @@ function handleBranch(req, res) {
 
 const clientServer = http.createServer((req, res) => {
   let urlPath = req.url.split('?')[0];
-  if (urlPath === '/autobattle.js') {
-    if (fs.existsSync(AUTOBATTLE_FILE)) {
-      res.writeHead(200, { 'Content-Type': 'text/javascript' });
-      return res.end(fs.readFileSync(AUTOBATTLE_FILE, 'utf-8'));
-    }
-  }
-  if (urlPath === '/replay-branch.js') {
-    if (fs.existsSync(REPLAY_BRANCH_FILE)) {
-      res.writeHead(200, { 'Content-Type': 'text/javascript' });
-      return res.end(fs.readFileSync(REPLAY_BRANCH_FILE, 'utf-8'));
-    }
+  if (CLIENT_SCRIPTS[urlPath] && fs.existsSync(CLIENT_SCRIPTS[urlPath])) {
+    res.writeHead(200, { 'Content-Type': 'text/javascript' });
+    return res.end(fs.readFileSync(CLIENT_SCRIPTS[urlPath], 'utf-8'));
   }
   if (urlPath === '/branch') {
     if (req.method !== 'POST') {
@@ -161,7 +157,8 @@ const clientServer = http.createServer((req, res) => {
     } else {
       if (isTestClient) {
         let html = content.toString('utf-8');
-        html = html.replace('</body>', '<script src="/autobattle.js"></script>\n</body>');
+        html = html.replace('</body>',
+          '<script src="/autobattle.js"></script>\n<script src="/rng-panel.js"></script>\n</body>');
         res.writeHead(200, { 'Content-Type': 'text/html' });
         return res.end(html, 'utf-8');
       }

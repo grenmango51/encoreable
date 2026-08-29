@@ -5,587 +5,823 @@
  *
  * This file runs inside the Showdown server process. Provisioning copies it to
  * `runtime/config/rng-command.js`, and `config/config.js` hands its `commands`
- * table to `Chat.loadPlugin(Config, 'config')` (`server/chat.ts:2089`), which
- * installs it as a real chat command. Nothing outside `config/` is touched.
+ * table to `Chat.loadPlugin(Config, 'config')` (`server/chat.ts:2089`). Nothing
+ * outside `config/` is touched.
  *
- * The command itself holds no simulator state. A battle's `Battle` object lives
- * in a simulator worker, so every arm is a `>eval` written to the room's battle
- * stream (`sim/battle-stream.ts:128`), exactly the route `/evalbattle` takes.
- * `>eval` lines are pushed to `battle.inputLog` before they run
- * (`battle-stream.ts:132`), so a controlled battle replays byte-identically:
- * the recipe reinstalls the interceptor and re-arms the same rules.
+ * `Config.subprocesses = 0` puts the simulator in the main process
+ * (`server/config-loader.ts:91` -> `room-battle.ts:1368` ->
+ * `lib/process-manager.ts:633`), so `room.battle.stream.battle` is a live
+ * `Battle` object this command can read and mutate synchronously. There is no
+ * `>eval`, no payload string and no worker in between.
  *
- * INTERCEPTOR below is the whole engine, sent once per room. It wraps
- * `PRNG.random`, `PRNG.randomChance` and `PRNG.sample` on the live generator and
- * substitutes a value only for a draw an armed rule matches. Every call still
- * consumes one real `rng.next()`, so an unmatched decision is bit-identical to
- * the uncontrolled battle.
+ * Three things are grafted onto a battle:
  *
- * Also exported for Node-side use by `scripts/lib/rng-control.mjs`, which builds
- * the same `>eval` lines to verify the engine headlessly.
+ *   1. An accessor on `battle.prng`. `>reseed` *replaces* the generator rather
+ *      than reseeding it (`sim/battle.ts:361`), and every branched recording
+ *      carries a `>reseed`, so an interceptor installed on the generator object
+ *      itself dies silently at the first one.
+ *   2. Wrappers on `random`, `randomChance`, `sample` and `shuffle` of whatever
+ *      generator is current. `random` is the only primitive - `randomChance` is
+ *      `random(d) < n`, `sample` is `random(len)`, `shuffle` is repeated
+ *      `random(a, b)` - so the other three exist only to record what was asked
+ *      for. That is what lets a rule say "make this proc" or "three hits"
+ *      without a probability written down anywhere, which matters because the
+ *      champions mod changes real odds.
+ *   3. `>rng` as an input-log verb (`teachStream`). An armed rule is a line in
+ *      the recipe, so a manipulated battle truncates, imports and re-simulates
+ *      like any other.
+ *
+ * Every draw identifies itself from a stack frame plus the context the
+ * simulator already maintains - `battle.effect`, `battle.activeMove`,
+ * `battle.activePokemon`, `battle.activeTarget`, saved and restored around
+ * every handler dispatch. `dist/` is esbuild output with function names
+ * unmangled, so this survives compilation.
+ *
+ * Also required by `scripts/lib/rng-control.mjs`, which drives the same engine
+ * headlessly.
  */
+
+const RNG_FILE = 'rng-command.js';
+
+/** Frames that only pass a draw along. The first survivor asked for it. */
+const PASS_THROUGH = new Set([
+	'PRNG.random', 'PRNG.randomChance', 'PRNG.sample', 'PRNG.shuffle',
+	'Battle.random', 'Battle.randomChance', 'Battle.sample', 'Battle.shuffle',
+	'rngRandom', 'rngRandomChance', 'rngSample', 'rngShuffle',
+]);
+
+const ALIAS = {
+	sleep: 'slp', slp: 'slp', para: 'par', paralysis: 'par', par: 'par',
+	freeze: 'frz', frozen: 'frz', frz: 'frz', burn: 'brn', brn: 'brn',
+	poison: 'psn', psn: 'psn', confusion: 'confusion', confuse: 'confusion',
+	protect: 'stall', stall: 'stall',
+};
 
 /**
- * The payload. Sent as one `>eval` line with `\f` standing in for newlines,
- * because `BattleStream` splits its input on `\n` and the eval handler undoes
- * the `\f` substitution itself.
+ * `want` names the outcome, not the die face:
  *
- * No backticks and no `${` anywhere inside: the payload is carried in a
- * template literal.
+ *   true / false   a coin flip that succeeds or fails
+ *   low / high     the smallest or largest *value* - the index of the smallest
+ *                  entry of a sampled array, or band 0 / d-1 without one
+ *   band0 / bandN  a literal band. `randomizer` is `100 - random(16)`, so band 0
+ *                  is maximum damage and band 15 is minimum - inverted against
+ *                  the value, which is why max/min damage are bands and not
+ *                  high/low.
+ *   =n             the draw whose result is n
+ *   shuffle        the index, inside the shuffle window, of the flagged Pokemon
+ *
+ * One condition asks for several unrelated numbers - confusion draws a
+ * duration, then a coin flip every turn, then a damage roll if it connects - so
+ * an effect is never enough on its own. Every entry pins the handler too.
  */
-const INTERCEPTOR = `
-(function () {
-  if (battle.__rng) return '#manipulated';
-
-  if (Error.stackTraceLimit < 25) Error.stackTraceLimit = 25;
-
-  // Frames that only pass a draw along. The first surviving frame is the site
-  // that actually asked for the number.
-  var SKIP = {
-    'PRNG.random': 1, 'PRNG.randomChance': 1, 'PRNG.sample': 1, 'PRNG.shuffle': 1,
-    'Battle.random': 1, 'Battle.randomChance': 1, 'Battle.sample': 1
-  };
-
-  var ALIAS = {
-    sleep: 'slp', slp: 'slp', para: 'par', paralysis: 'par', par: 'par',
-    freeze: 'frz', frozen: 'frz', frz: 'frz', burn: 'brn', brn: 'brn',
-    poison: 'psn', psn: 'psn', confusion: 'confusion', confuse: 'confusion',
-    protect: 'stall', stall: 'stall'
-  };
-
-  // want: 'true' / 'false' for a coin flip, 'min' / 'max' for an extreme,
-  // a number for a literal band index, '=n' for "the draw whose result is n".
-  //
-  // One condition asks for several unrelated numbers - confusion draws a
-  // duration, then a coin flip every turn, then a damage roll if it connects -
-  // so an effect is never enough on its own. Every entry pins the handler too.
-  var OUTCOMES = {
-    crit:         { site: 'getDamage',       want: 'true',  who: 'user' },
-    nocrit:       { site: 'getDamage',       want: 'false', who: 'user' },
-    hit:          { site: 'hitStepAccuracy', want: 'true',  who: 'user' },
-    miss:         { site: 'hitStepAccuracy', want: 'false', who: 'user' },
-    maxdmg:       { site: 'randomizer',      want: 'max',   who: 'user' },
-    mindmg:       { site: 'randomizer',      want: 'min',   who: 'user' },
-    proc:         { proc: 1,                 want: 'true',  who: 'any' },
-    noproc:       { proc: 1,                 want: 'false', who: 'any' },
-    fullpara:     { effect: 'par',        site: 'onBeforeMove', want: 'true',  who: 'holder' },
-    nopara:       { effect: 'par',        site: 'onBeforeMove', want: 'false', who: 'holder' },
-    confused:     { effect: 'confusion',  site: 'onBeforeMove', want: 'true',  who: 'holder' },
-    clear:        { effect: 'confusion',  site: 'onBeforeMove', want: 'false', who: 'holder' },
-    protect:      { effect: 'stall',      site: 'onStallMove',  want: 'true',  who: 'holder' },
-    breakprotect: { effect: 'stall',      site: 'onStallMove',  want: 'false', who: 'holder' },
-    wake:         { effect: 'slp|frz', site: 'onStart|onBeforeMove', want: 'min', who: 'holder' },
-    stay:         { effect: 'slp|frz', site: 'onStart|onBeforeMove', want: 'max', who: 'holder' }
-  };
-
-  var st = {
-    version: 1,
-    rules: [],
-    nextId: 1,
-    notes: [],
-    pending: [],
-    expire: true,
-    draws: 0,
-    subs: 0,
-    skipped: 0,
-    reseeds: 0,
-    sinceReseed: 0,
-    d: 0,
-    off: 0,
-    n: null,
-    items: null
-  };
-
-  st.tail = function (arr, cap) {
-    while (arr.length > cap) arr.shift();
-  };
-
-  st.frames = function () {
-    var raw = (new Error()).stack || '';
-    var lines = raw.split('\\n');
-    var out = [];
-    for (var i = 1; i < lines.length && out.length < 6; i++) {
-      // Every frame this interceptor contributes was defined by eval, and
-      // nothing in the simulator was. That is the whole filter.
-      if (lines[i].indexOf('(eval at ') >= 0) continue;
-      var m = /at (?:new )?([A-Za-z0-9_$.<>]+)/.exec(lines[i]);
-      if (!m) continue;
-      if (SKIP[m[1]]) continue;
-      out.push(m[1]);
-    }
-    return out;
-  };
-
-  st.leaf = function (name) {
-    var dot = name.lastIndexOf('.');
-    return dot < 0 ? name : name.slice(dot + 1);
-  };
-
-  st.context = function (d) {
-    var frames = st.frames();
-    var eff = battle.effect || null;
-    var ev = battle.event || null;
-    var holder = (ev && ev.target) || (battle.effectState && battle.effectState.target) || null;
-    return {
-      d: d,
-      off: st.off,
-      n: st.n,
-      items: st.items,
-      site: frames.length ? st.leaf(frames[0]) : '',
-      frames: frames,
-      effectId: eff ? eff.id : '',
-      effectType: eff ? eff.effectType : '',
-      moveId: battle.activeMove ? battle.activeMove.id : '',
-      user: battle.activePokemon || null,
-      target: battle.activeTarget || null,
-      holder: holder
-    };
-  };
-
-  st.isProc = function (ctx) {
-    if (ctx.site === 'secondaries' || ctx.site === 'selfDrops') return true;
-    return ctx.n !== null && (ctx.effectType === 'Ability' || ctx.effectType === 'Item');
-  };
-
-  st.oneOf = function (list, value) {
-    var parts = list.split('|');
-    for (var i = 0; i < parts.length; i++) {
-      if (parts[i] === value) return true;
-    }
-    return false;
-  };
-
-  st.spec = function (word) {
-    if (OUTCOMES[word]) return OUTCOMES[word];
-    var m = /^roll(\\d+)$/.exec(word);
-    if (m) return { site: 'randomizer', want: Number(m[1]), who: 'user' };
-    m = /^hits(\\d+)$/.exec(word);
-    if (m) return { site: 'hitStepMoveHitLoop', want: '=' + m[1], who: 'user' };
-    m = /^([a-z]+)=([a-z0-9]+)$/.exec(word);
-    if (!m) return null;
-    var kind = m[1];
-    var val = m[2];
-    var want = null;
-    if (val === 'full' || val === 'true' || val === 'yes' || val === 'on') want = 'true';
-    else if (val === 'none' || val === 'false' || val === 'no' || val === 'off') want = 'false';
-    else if (val === 'min' || val === 'max') want = val;
-    else if (/^\\d+$/.test(val)) want = '=' + val;
-    if (want === null) return null;
-    return { effect: ALIAS[kind] || kind, site: kind, loose: 1, want: want, who: 'any' };
-  };
-
-  st.matches = function (rule, ctx) {
-    var s = rule.spec;
-    var ok;
-    if (s.proc) {
-      ok = st.isProc(ctx);
-    } else if (s.loose) {
-      ok = st.oneOf(s.effect, ctx.effectId) || ctx.site.toLowerCase() === s.site;
-    } else {
-      ok = true;
-      if (s.effect) ok = st.oneOf(s.effect, ctx.effectId);
-      if (ok && s.site) ok = st.oneOf(s.site, ctx.site);
-    }
-    if (!ok) return false;
-    if (rule.move && ctx.moveId !== rule.move) return false;
-    if (rule.subject) {
-      var pool = s.who === 'user' ? [ctx.user]
-        : s.who === 'holder' ? [ctx.holder, ctx.target]
-        : [ctx.user, ctx.holder, ctx.target];
-      if (pool.indexOf(rule.subject) < 0) return false;
-    }
-    return true;
-  };
-
-  st.extreme = function (items, dir) {
-    var best = 0;
-    for (var i = 1; i < items.length; i++) {
-      if (dir > 0 ? items[i] > items[best] : items[i] < items[best]) best = i;
-    }
-    return best;
-  };
-
-  // Returns the band index in [0, d) to substitute, or a reason it cannot be.
-  st.resolve = function (rule, ctx) {
-    var want = rule.spec.want;
-    var d = ctx.d;
-    var items = ctx.items;
-    var band = null;
-    if (want === 'true') {
-      if (ctx.n !== null && ctx.n <= 0) return { band: null, why: 'always-false' };
-      band = 0;
-    } else if (want === 'false') {
-      if (ctx.n !== null && ctx.n >= d) return { band: null, why: 'always-true' };
-      band = d - 1;
-    } else if (want === 'min') {
-      band = items ? st.extreme(items, -1) : 0;
-    } else if (want === 'max') {
-      band = items ? st.extreme(items, 1) : d - 1;
-    } else if (typeof want === 'number') {
-      band = want;
-    } else {
-      // '=n' names the value the caller wanted back. A sample() draw finds it
-      // in the array it was handed; random(from, to) subtracts the offset.
-      var v = Number(want.slice(1));
-      band = items ? items.indexOf(v) : v - ctx.off;
-    }
-    if (band === null || band < 0 || band >= d) return { band: null, why: 'unreachable' };
-    return { band: band, why: '' };
-  };
-
-  st.note = function (rule, ctx, real, forced, why) {
-    var text = '#rng ' + (forced === null ? 'skip' : 'force') + ' #' + rule.id + ' ' +
-      rule.word + ' d=' + ctx.d + ' site=' + (ctx.site || '?') +
-      (ctx.effectId ? ' eff=' + ctx.effectId : '') +
-      (ctx.moveId ? ' mv=' + ctx.moveId : '') +
-      ' ' + real + (forced === null ? '' : '->' + forced) +
-      (why ? ' (' + why + ')' : '');
-    st.notes.push(text);
-    st.tail(st.notes, 200);
-    st.pending.push(text);
-  };
-
-  st.flush = function () {
-    for (var i = 0; i < st.pending.length; i++) battle.add('-message', st.pending[i]);
-    st.pending = [];
-  };
-
-  st.sweep = function () {
-    var kept = [];
-    for (var i = 0; i < st.rules.length; i++) {
-      var r = st.rules[i];
-      if (r.spent) continue;
-      if (r.standing) { kept.push(r); continue; }
-      if (!st.expire) { kept.push(r); continue; }
-      // A rule that never matched anything is the one failure the battle log
-      // cannot show on its own, so it goes to both the room and the report.
-      var text = '#rng expired unfired #' + r.id + ' ' + r.text +
-        ' (matched ' + r.tries + ' draw(s) on turn ' + r.turn + ')';
-      st.pending.push(text);
-      st.notes.push(text);
-      st.tail(st.notes, 200);
-    }
-    st.rules = kept;
-    st.flush();
-  };
-
-  st.hook = function (p) {
-    if (!p || p.__rngHooked) return;
-    p.__rngHooked = true;
-
-    var origRandom = p.random;
-    var origChance = p.randomChance;
-    var origSample = p.sample;
-
-    p.random = function rngWrapRandom(from, to) {
-      var d, off;
-      if (from === undefined) { d = 0; off = 0; }
-      else if (!to) { d = Math.floor(from); off = 0; }
-      else { off = Math.floor(from); d = Math.floor(to) - off; }
-      var prevD = st.d;
-      var prevOff = st.off;
-      st.d = d;
-      st.off = off;
-      try {
-        var real = origRandom.call(this, from, to);
-        st.draws++;
-        st.sinceReseed++;
-        if (!st.rules.length || d <= 0) return real;
-        var ctx = st.context(d);
-        var rule = null;
-        for (var i = 0; i < st.rules.length; i++) {
-          if (!st.rules[i].spent && st.matches(st.rules[i], ctx)) { rule = st.rules[i]; break; }
-        }
-        if (!rule) return real;
-        rule.tries++;
-        var got = st.resolve(rule, ctx);
-        if (got.band === null) {
-          st.skipped++;
-          st.note(rule, ctx, real, null, got.why);
-          return real;
-        }
-        var forced = got.band + off;
-        rule.fired++;
-        if (!rule.standing) rule.spent = true;
-        st.subs++;
-        st.note(rule, ctx, real, forced, '');
-        return forced;
-      } finally {
-        st.d = prevD;
-        st.off = prevOff;
-      }
-    };
-
-    p.randomChance = function rngWrapChance(numerator, denominator) {
-      var prev = st.n;
-      st.n = numerator;
-      try {
-        return origChance.call(this, numerator, denominator);
-      } finally {
-        st.n = prev;
-      }
-    };
-
-    p.sample = function rngWrapSample(items) {
-      var prev = st.items;
-      st.items = items;
-      try {
-        return origSample.call(this, items);
-      } finally {
-        st.items = prev;
-      }
-    };
-  };
-
-  // >reseed replaces the generator object rather than reseeding it
-  // (sim/battle.ts:219), and every branched recording carries one. Installing
-  // through an accessor is what keeps control alive across it.
-  var current = battle.prng;
-  Object.defineProperty(battle, 'prng', {
-    configurable: true,
-    enumerable: true,
-    get: function () { return this.__rngPrng; },
-    set: function (p) {
-      this.__rngPrng = p;
-      if (st.installed) { st.reseeds++; st.sinceReseed = 0; }
-      st.hook(p);
-    }
-  });
-  battle.prng = current;
-  st.installed = true;
-
-  var origEndTurn = battle.endTurn;
-  battle.endTurn = function rngEndTurn() {
-    var out = origEndTurn.apply(this, arguments);
-    st.sweep();
-    return out;
-  };
-
-  st.find = function (text) {
-    if (!text || text === 'any') return { pokemon: null, why: '' };
-    var wantSide = -1;
-    var name = text;
-    var m = /^p([1-4]):(.*)$/.exec(text);
-    if (m) { wantSide = Number(m[1]) - 1; name = m[2]; }
-    var id = battle.toID(name);
-    var hits = [];
-    for (var i = 0; i < battle.sides.length; i++) {
-      if (wantSide >= 0 && i !== wantSide) continue;
-      var pool = battle.sides[i].pokemon;
-      for (var j = 0; j < pool.length; j++) {
-        var p = pool[j];
-        if (battle.toID(p.name) === id || p.species.id === id || p.baseSpecies.id === id) hits.push(p);
-      }
-    }
-    if (!hits.length) return { pokemon: null, why: 'no Pokemon named ' + text };
-    if (hits.length > 1) return { pokemon: null, why: text + ' is on both teams - use p1: or p2:' };
-    return { pokemon: hits[0], why: '' };
-  };
-
-  st.arm = function (word, subject, move, standing) {
-    var spec = st.spec(word);
-    if (!spec) {
-      battle.add('-message', '#rng rejected: ' + word + ' is not an outcome');
-      return '#manipulated';
-    }
-    var found = st.find(subject);
-    if (found.why) {
-      battle.add('-message', '#rng rejected: ' + found.why);
-      return '#manipulated';
-    }
-    var rule = {
-      id: st.nextId++,
-      word: word,
-      spec: spec,
-      subject: found.pokemon,
-      move: move || '',
-      standing: !!standing,
-      turn: battle.turn,
-      tries: 0,
-      fired: 0,
-      spent: false,
-      text: word + ' ' + (subject || 'any') + (move ? ' ' + move : '') + (standing ? ' [always]' : '')
-    };
-    st.rules.push(rule);
-    battle.add('-message', '#rng armed #' + rule.id + ' ' + rule.text);
-    return '#manipulated';
-  };
-
-  st.clear = function (which) {
-    var kept = [];
-    var gone = 0;
-    for (var i = 0; i < st.rules.length; i++) {
-      var r = st.rules[i];
-      if (which === 'all' || String(r.id) === String(which)) { gone++; continue; }
-      kept.push(r);
-    }
-    st.rules = kept;
-    battle.add('-message', '#rng cleared ' + gone + ' rule(s)');
-    return '#manipulated';
-  };
-
-  st.setExpire = function (on) {
-    st.expire = !!on;
-    battle.add('-message', '#rng one-shot expiry ' + (st.expire ? 'on' : 'off'));
-    return '#manipulated';
-  };
-
-  st.list = function () {
-    if (!st.rules.length) return 'nothing armed';
-    var out = [];
-    for (var i = 0; i < st.rules.length; i++) {
-      var r = st.rules[i];
-      out.push('#' + r.id + ' ' + r.text + ' armed-on-turn=' + r.turn +
-        ' matched=' + r.tries + ' forced=' + r.fired);
-    }
-    return out.join('\\n');
-  };
-
-  st.report = function () {
-    var out = [];
-    out.push('draws=' + st.draws + ' forced=' + st.subs + ' skipped=' + st.skipped +
-      ' reseeds=' + st.reseeds + ' drawsSinceReseed=' + st.sinceReseed +
-      ' expiry=' + (st.expire ? 'on' : 'off'));
-    out.push(st.list());
-    for (var j = 0; j < st.notes.length; j++) out.push(st.notes[j]);
-    return out.join('\\n');
-  };
-
-  battle.__rng = st;
-  return '#manipulated';
-})()
-`.trim();
-
-/** `BattleStream` splits its input on newlines; the eval handler undoes `\f`. */
-function encode(code) {
-	return `>eval ${code.replace(/\n/g, '\f')}`;
-}
+const OUTCOMES = {
+	crit: { site: 'getDamage', want: 'true', who: 'user', targeted: 1 },
+	nocrit: { site: 'getDamage', want: 'false', who: 'user', targeted: 1 },
+	hit: { site: 'hitStepAccuracy', want: 'true', who: 'user', targeted: 1 },
+	miss: { site: 'hitStepAccuracy', want: 'false', who: 'user', targeted: 1 },
+	maxdmg: { site: 'randomizer', want: 'band0', who: 'user', targeted: 1 },
+	mindmg: { site: 'randomizer', want: 'bandlast', who: 'user', targeted: 1 },
+	proc: { proc: 1, want: 'true', who: 'any' },
+	noproc: { proc: 1, want: 'false', who: 'any' },
+	fullpara: { effect: 'par', site: 'onBeforeMove', want: 'true', who: 'holder' },
+	nopara: { effect: 'par', site: 'onBeforeMove', want: 'false', who: 'holder' },
+	confused: { effect: 'confusion', site: 'onBeforeMove', want: 'true', who: 'holder' },
+	clear: { effect: 'confusion', site: 'onBeforeMove', want: 'false', who: 'holder' },
+	protect: { effect: 'stall', site: 'onStallMove', want: 'true', who: 'holder' },
+	breakprotect: { effect: 'stall', site: 'onStallMove', want: 'false', who: 'holder' },
+	wake: { effect: 'slp|frz', site: 'onStart|onBeforeMove', want: 'low', who: 'holder' },
+	stay: { effect: 'slp|frz', site: 'onStart|onBeforeMove', want: 'high', who: 'holder' },
+	wins: { site: 'speedSort', want: 'shuffle', who: 'shuffle' },
+};
 
 const OUTCOME_WORDS = [
 	'crit', 'nocrit', 'hit', 'miss', 'proc', 'noproc', 'maxdmg', 'mindmg',
 	'wake', 'stay', 'confused', 'clear', 'protect', 'breakprotect',
-	'fullpara', 'nopara', 'roll<0-15>', 'hits<2-5>', '<kind>=<value>',
+	'fullpara', 'nopara', 'wins', 'roll<0-15>', 'hits<2-5>', '<kind>=<value>',
 ];
 
-/**
- * Splits `<outcome> <subject> [move]` and validates the outcome word only.
- * The subject is resolved inside the battle, where the teams are.
- */
-function parseSpec(text) {
-	const parts = String(text || '').trim().split(/\s+/).filter(Boolean);
-	if (!parts.length) return { error: 'name an outcome, e.g. crit' };
-	const word = parts[0].toLowerCase();
-	const known = /^(crit|nocrit|hit|miss|proc|noproc|maxdmg|mindmg|fullpara|nopara|confused|clear|protect|breakprotect|wake|stay)$/.test(word) ||
-		/^roll\d+$/.test(word) || /^hits\d+$/.test(word) || /^[a-z]+=[a-z0-9]+$/.test(word);
-	if (!known) return { error: `"${parts[0]}" is not an outcome. Try: ${OUTCOME_WORDS.join(' ')}` };
+function toId(text) {
+	return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+/** The outcome word, resolved to a matcher, or null. */
+function outcomeSpec(word) {
+	if (OUTCOMES[word]) return OUTCOMES[word];
+	let m = /^roll(\d+)$/.exec(word);
+	if (m) return { site: 'randomizer', want: Number(m[1]), who: 'user', targeted: 1 };
+	m = /^hits(\d+)$/.exec(word);
+	if (m) return { site: 'hitStepMoveHitLoop', want: `=${m[1]}`, who: 'user' };
+	m = /^([a-z]+)=([a-z0-9]+)$/.exec(word);
+	if (!m) return null;
+	const kind = m[1];
+	const val = m[2];
+	let want = null;
+	if (val === 'full' || val === 'true' || val === 'yes' || val === 'on') want = 'true';
+	else if (val === 'none' || val === 'false' || val === 'no' || val === 'off') want = 'false';
+	else if (val === 'min') want = 'low';
+	else if (val === 'max') want = 'high';
+	else if (/^\d+$/.test(val)) want = `=${val}`;
+	if (want === null) return null;
+	return { effect: ALIAS[kind] || kind, site: kind, loose: 1, want, who: 'any' };
+}
+
+// ------------------------------------------------------------------ the state
+
+function newState(battle) {
 	return {
-		outcome: word,
-		subject: parts.length > 1 ? parts[1] : 'any',
-		move: parts.length > 2 ? parts.slice(2).join('').toLowerCase().replace(/[^a-z0-9]/g, '') : '',
+		version: 2,
+		battle,
+		rules: [],
+		nextId: 1,
+		notes: [],
+		draws: 0,
+		subs: 0,
+		skipped: 0,
+		reseeds: 0,
+		sinceReseed: 0,
+		ready: false,
+		prng: null,
+		// Per-draw scratch, saved and restored around every nested call.
+		d: 0,
+		off: 0,
+		n: null,
+		items: null,
+		shuffle: null,
+		// Non-null while a dry run is in flight: no draw is consumed and no
+		// rule is matched. `roll` is the band handed to `randomizer`.
+		dry: null,
 	};
 }
 
-function installLine() {
-	return encode(INTERCEPTOR);
+function tail(list, cap) {
+	while (list.length > cap) list.shift();
 }
 
-function armLine(spec, standing) {
-	const call = `battle.__rng.arm(${JSON.stringify(spec.outcome)},${JSON.stringify(spec.subject)},` +
-		`${JSON.stringify(spec.move)},${standing ? 'true' : 'false'})`;
-	return encode(call);
+function leaf(name) {
+	const dot = name.lastIndexOf('.');
+	return dot < 0 ? name : name.slice(dot + 1);
 }
 
-function clearLine(which) {
-	return encode(`battle.__rng.clear(${JSON.stringify(String(which))})`);
+/** The call sites above this draw, nearest first, pass-throughs removed. */
+function framesOf() {
+	const raw = (new Error()).stack || '';
+	const lines = raw.split('\n');
+	const out = [];
+	for (let i = 1; i < lines.length && out.length < 6; i++) {
+		if (lines[i].indexOf(RNG_FILE) >= 0) continue;
+		const m = /at (?:new |async )?([A-Za-z0-9_$.<>[\]]+)/.exec(lines[i]);
+		if (!m) continue;
+		if (PASS_THROUGH.has(m[1])) continue;
+		out.push(m[1]);
+	}
+	return out;
 }
 
-function expireLine(on) {
-	return encode(`battle.__rng.setExpire(${on ? 'true' : 'false'})`);
+function contextOf(st, d) {
+	const battle = st.battle;
+	const frames = framesOf();
+	const eff = battle.effect || null;
+	const ev = battle.event || null;
+	const holder = (ev && ev.target) || (battle.effectState && battle.effectState.target) || null;
+	return {
+		d,
+		off: st.off,
+		n: st.n,
+		items: st.items,
+		shuffle: st.shuffle,
+		site: frames.length ? leaf(frames[0]) : '',
+		frames,
+		effectId: eff ? eff.id : '',
+		effectType: eff ? eff.effectType : '',
+		moveId: battle.activeMove ? battle.activeMove.id : '',
+		user: battle.activePokemon || null,
+		target: battle.activeTarget || null,
+		holder,
+	};
 }
 
-function reportLine() {
-	return encode('battle.__rng.report()');
+/**
+ * A proc is a chance an ability or an item took, or a move's own secondary.
+ * Secondary and self-boost are both `random(100)` inside the same move and are
+ * still told apart, because different functions ask for them.
+ */
+function isProc(ctx) {
+	if (ctx.site === 'secondaries' || ctx.site === 'selfDrops') return true;
+	return ctx.n !== null && (ctx.effectType === 'Ability' || ctx.effectType === 'Item');
 }
 
-function listLine() {
-	return encode('battle.__rng.list()');
+function oneOf(list, value) {
+	return list.split('|').indexOf(value) >= 0;
+}
+
+/** The Pokemon a shuffled entry belongs to: a Pokemon, or an action carrying one. */
+function entryPokemon(entry) {
+	if (!entry || typeof entry !== 'object') return null;
+	if (entry.side && entry.baseSpecies) return entry;
+	if (entry.pokemon) return entry.pokemon;
+	return null;
+}
+
+/** The index of `pokemon` inside a shuffle window, or -1. */
+function shuffleIndex(shuffle, pokemon) {
+	if (!shuffle || !pokemon) return -1;
+	for (let i = shuffle.start; i < shuffle.end; i++) {
+		if (entryPokemon(shuffle.items[i]) === pokemon) return i;
+	}
+	return -1;
+}
+
+function matches(rule, ctx) {
+	const s = rule.spec;
+	let ok;
+	if (s.proc) {
+		ok = isProc(ctx);
+	} else if (s.loose) {
+		ok = oneOf(s.effect, ctx.effectId) || ctx.site.toLowerCase() === s.site;
+	} else {
+		ok = true;
+		if (s.effect) ok = oneOf(s.effect, ctx.effectId);
+		if (ok && s.site) ok = oneOf(s.site, ctx.site);
+	}
+	if (!ok) return false;
+	if (rule.move && ctx.moveId !== rule.move) return false;
+	if (rule.target && ctx.target !== rule.target) return false;
+	if (s.who === 'shuffle') return shuffleIndex(ctx.shuffle, rule.subject) >= 0;
+	if (rule.subject) {
+		const pool = s.who === 'user' ? [ctx.user] :
+			s.who === 'holder' ? [ctx.holder, ctx.target] :
+			[ctx.user, ctx.holder, ctx.target];
+		if (pool.indexOf(rule.subject) < 0) return false;
+	}
+	return true;
+}
+
+function extreme(items, dir) {
+	let best = 0;
+	for (let i = 1; i < items.length; i++) {
+		if (dir > 0 ? items[i] > items[best] : items[i] < items[best]) best = i;
+	}
+	return best;
+}
+
+/**
+ * The band in [0, d) to substitute, or the reason there is not one.
+ *
+ * A 100%-accuracy move draws `randomChance(100, 100)`, which cannot be made
+ * false; Icicle Spear cannot hit nine times. Saying so beats substituting
+ * something close.
+ */
+function resolveBand(rule, ctx) {
+	const want = rule.spec.want;
+	const d = ctx.d;
+	const items = ctx.items;
+	let band = null;
+	if (want === 'true') {
+		if (ctx.n !== null && ctx.n <= 0) return { band: null, why: 'always-false' };
+		band = 0;
+	} else if (want === 'false') {
+		if (ctx.n !== null && ctx.n >= d) return { band: null, why: 'always-true' };
+		band = d - 1;
+	} else if (want === 'low') {
+		band = items ? extreme(items, -1) : 0;
+	} else if (want === 'high') {
+		band = items ? extreme(items, 1) : d - 1;
+	} else if (want === 'band0') {
+		band = 0;
+	} else if (want === 'bandlast') {
+		band = d - 1;
+	} else if (want === 'shuffle') {
+		const index = shuffleIndex(ctx.shuffle, rule.subject);
+		if (index < 0) return { band: null, why: 'not-in-tie' };
+		band = index - ctx.off;
+	} else if (typeof want === 'number') {
+		band = want;
+	} else {
+		// '=n' names the value the caller wanted back. A sample() draw finds it
+		// in the array it was handed; random(from, to) subtracts the offset. An
+		// array of strings - Tri Attack's three statuses - holds no such value,
+		// so there n falls back to naming the entry.
+		const v = Number(want.slice(1));
+		if (!items) band = v - ctx.off;
+		else band = items.indexOf(v) >= 0 ? items.indexOf(v) : v;
+	}
+	if (band === null || band < 0 || band >= d) return { band: null, why: 'unreachable' };
+	return { band, why: '' };
+}
+
+function note(st, rule, ctx, real, forced, why) {
+	st.notes.push(
+		`${forced === null ? 'skip' : 'force'} #${rule.id} ${rule.word} d=${ctx.d}` +
+		` site=${ctx.site || '?'}${ctx.effectId ? ` eff=${ctx.effectId}` : ''}` +
+		`${ctx.moveId ? ` mv=${ctx.moveId}` : ''} ${real}${forced === null ? '' : `->${forced}`}` +
+		`${why ? ` (${why})` : ''}`
+	);
+	tail(st.notes, 200);
+}
+
+// ------------------------------------------------------------- the interceptor
+
+function hook(st, p) {
+	if (!p || p.__rngHooked) return;
+	p.__rngHooked = true;
+
+	const origRandom = p.random;
+	const origChance = p.randomChance;
+	const origSample = p.sample;
+	const origShuffle = p.shuffle;
+
+	p.random = function rngRandom(from, to) {
+		let d, off;
+		if (from === undefined) { d = 0; off = 0; } else if (!to) {
+			d = Math.floor(from); off = 0;
+		} else { off = Math.floor(from); d = Math.floor(to) - off; }
+
+		// A dry run must not touch the generator (§4.4). Only `randomizer` gets
+		// the requested band; anything else takes the bottom of its range.
+		if (st.dry) {
+			if (!d) return 0;
+			const site = leaf(framesOf()[0] || '');
+			return off + (site === 'randomizer' ? Math.min(st.dry.roll, d - 1) : 0);
+		}
+
+		const prevD = st.d;
+		const prevOff = st.off;
+		st.d = d;
+		st.off = off;
+		try {
+			const real = origRandom.call(this, from, to);
+			st.draws++;
+			st.sinceReseed++;
+			if (!st.rules.length || d <= 0) return real;
+			const ctx = contextOf(st, d);
+			let rule = null;
+			for (const candidate of st.rules) {
+				if (matches(candidate, ctx)) { rule = candidate; break; }
+			}
+			if (!rule) return real;
+			rule.tries++;
+			const got = resolveBand(rule, ctx);
+			if (got.band === null) {
+				st.skipped++;
+				rule.skipped++;
+				note(st, rule, ctx, real, null, got.why);
+				return real;
+			}
+			const forced = got.band + off;
+			rule.fired++;
+			st.subs++;
+			note(st, rule, ctx, real, forced, '');
+			return forced;
+		} finally {
+			st.d = prevD;
+			st.off = prevOff;
+		}
+	};
+
+	p.randomChance = function rngRandomChance(numerator, denominator) {
+		const prev = st.n;
+		st.n = numerator;
+		try {
+			return origChance.call(this, numerator, denominator);
+		} finally {
+			st.n = prev;
+		}
+	};
+
+	p.sample = function rngSample(items) {
+		const prev = st.items;
+		st.items = items;
+		try {
+			return origSample.call(this, items);
+		} finally {
+			st.items = prev;
+		}
+	};
+
+	p.shuffle = function rngShuffle(items, start, end) {
+		const prev = st.shuffle;
+		st.shuffle = {
+			items,
+			start: start === undefined ? 0 : start,
+			end: end === undefined ? items.length : end,
+		};
+		try {
+			return origShuffle.call(this, items, start, end);
+		} finally {
+			st.shuffle = prev;
+		}
+	};
+}
+
+/**
+ * Installs the interceptor, idempotently.
+ *
+ * The accessor is the whole point: `resetRNG` assigns `this.prng = new PRNG()`,
+ * so control installed on the generator object dies at the first `>reseed` -
+ * silently, because the battle carries on and simply never matches again.
+ */
+function install(battle) {
+	if (battle.__rng) return battle.__rng;
+	if (Error.stackTraceLimit < 25) Error.stackTraceLimit = 25;
+
+	const st = newState(battle);
+	battle.__rng = st;
+
+	const current = battle.prng;
+	Object.defineProperty(battle, 'prng', {
+		configurable: true,
+		enumerable: true,
+		get() { return st.prng; },
+		set(p) {
+			st.prng = p;
+			if (st.ready) { st.reseeds++; st.sinceReseed = 0; }
+			hook(st, p);
+		},
+	});
+	battle.prng = current;
+	st.ready = true;
+	return st;
+}
+
+// ------------------------------------------------------------------- the rules
+
+/** `p1:glalie`, the form a rule records and replays. */
+function refOf(pokemon) {
+	return `${pokemon.side.id}:${toId(pokemon.name)}`;
+}
+
+/**
+ * A species or nickname, optionally side-qualified, resolved against the teams.
+ * Matching is by team identity rather than by slot: `p1a` silently becomes
+ * someone else after a switch.
+ */
+function findPokemon(battle, text) {
+	if (!text || text === 'any' || text === '-') return { pokemon: null, why: '' };
+	let wantSide = -1;
+	let name = text;
+	const m = /^p([1-4]):(.*)$/.exec(text);
+	if (m) { wantSide = Number(m[1]) - 1; name = m[2]; }
+	const id = toId(name);
+	const hits = [];
+	for (let i = 0; i < battle.sides.length; i++) {
+		if (wantSide >= 0 && i !== wantSide) continue;
+		for (const p of battle.sides[i].pokemon) {
+			if (toId(p.name) === id || p.species.id === id || p.baseSpecies.id === id) hits.push(p);
+		}
+	}
+	if (!hits.length) return { pokemon: null, why: `no Pokemon named "${text}"` };
+	if (wantSide < 0 && hits.length > 1) {
+		return { pokemon: null, why: `"${text}" is on both teams - use p1: or p2:` };
+	}
+	return { pokemon: hits[0], why: '' };
+}
+
+function ruleText(rule) {
+	return `${rule.word} ${rule.subjectRef}` +
+		`${rule.move ? ` ${rule.move}` : ''}` +
+		`${rule.targetRef !== 'any' ? ` vs ${rule.targetRef}` : ''}`;
+}
+
+/**
+ * Arms one rule and records it.
+ *
+ * `record` is the input-log line to append, and it is the line that was
+ * *applied* rather than a canonical rewriting of it - a replay of a recording
+ * has to push back exactly what it read, or the round-trip stops being
+ * byte-identical.
+ */
+function arm(battle, parts, record) {
+	const st = install(battle);
+	const word = String(parts.outcome || '').toLowerCase();
+	const spec = outcomeSpec(word);
+	if (!spec) return { error: `"${parts.outcome}" is not an outcome. Try: ${OUTCOME_WORDS.join(' ')}` };
+
+	const subject = findPokemon(battle, parts.subject);
+	if (subject.why) return { error: subject.why };
+	const target = findPokemon(battle, parts.target);
+	if (target.why) return { error: target.why };
+	if (target.pokemon && !spec.targeted) {
+		return { error: `${word} is not rolled per target - drop the target qualifier` };
+	}
+
+	const rule = {
+		id: st.nextId++,
+		word,
+		spec,
+		subject: subject.pokemon,
+		subjectRef: subject.pokemon ? refOf(subject.pokemon) : 'any',
+		move: parts.move ? toId(parts.move) : '',
+		target: target.pokemon,
+		targetRef: target.pokemon ? refOf(target.pokemon) : 'any',
+		turn: battle.turn,
+		tries: 0,
+		fired: 0,
+		skipped: 0,
+	};
+	st.rules.push(rule);
+	battle.inputLog.push(record);
+	return { rule };
+}
+
+function clear(battle, which, record) {
+	const st = battle.__rng;
+	if (!st) {
+		battle.inputLog.push(record);
+		return { gone: 0 };
+	}
+	const before = st.rules.length;
+	st.rules = st.rules.filter(r => which !== 'all' && String(r.id) !== String(which));
+	battle.inputLog.push(record);
+	return { gone: before - st.rules.length };
+}
+
+/** How many arm and clear lines the input log carries - the D7 trap, made visible. */
+function recordedLines(battle) {
+	if (!battle || !battle.inputLog) return 0;
+	return battle.inputLog.filter(l => l.startsWith('>rng ')).length;
+}
+
+/** The armed rules and the accounting, as plain data. Live state, never memory. */
+function snapshot(battle) {
+	const st = battle && battle.__rng;
+	const base = {
+		turn: battle ? battle.turn : 0,
+		draws: 0,
+		forced: 0,
+		skipped: 0,
+		reseeds: 0,
+		drawsSinceReseed: 0,
+		recorded: recordedLines(battle),
+		rules: [],
+	};
+	if (!st) return base;
+	return {
+		turn: battle.turn,
+		recorded: recordedLines(battle),
+		draws: st.draws,
+		forced: st.subs,
+		skipped: st.skipped,
+		reseeds: st.reseeds,
+		drawsSinceReseed: st.sinceReseed,
+		notes: st.notes.slice(),
+		rules: st.rules.map(r => ({
+			id: r.id,
+			outcome: r.word,
+			subject: r.subjectRef,
+			move: r.move,
+			target: r.targetRef,
+			turn: r.turn,
+			matched: r.tries,
+			forced: r.fired,
+			skipped: r.skipped,
+			text: ruleText(r),
+		})),
+	};
+}
+
+// ------------------------------------------------------------- the input log
+
+/**
+ * `>rng force <outcome> <subject> <move|-> <target|->`
+ * `>rng clear <id|all>`
+ */
+function parseLine(message) {
+	const parts = String(message || '').trim().split(/\s+/).filter(Boolean);
+	const verb = (parts.shift() || '').toLowerCase();
+	if (verb === 'clear') return { verb, which: (parts[0] || 'all').toLowerCase() };
+	if (verb !== 'force') return { error: `unknown >rng verb "${verb}"` };
+	if (!parts.length) return { error: 'name an outcome' };
+	return {
+		verb,
+		outcome: parts[0],
+		subject: parts.length > 1 ? parts[1] : 'any',
+		move: parts.length > 2 && parts[2] !== '-' ? parts[2] : '',
+		target: parts.length > 3 && parts[3] !== '-' ? parts[3] : 'any',
+	};
+}
+
+function applyLine(battle, message) {
+	const parsed = parseLine(message);
+	if (parsed.error) throw new Error(`">rng ${message}": ${parsed.error}`);
+	const record = `>rng ${message}`;
+	if (parsed.verb === 'clear') return clear(battle, parsed.which, record);
+	const result = arm(battle, parsed, record);
+	if (result.error) throw new Error(`">rng ${message}": ${result.error}`);
+	return result;
+}
+
+/** The line a chat-armed rule records. */
+function forceLine(parts) {
+	return `force ${parts.outcome} ${parts.subject || 'any'} ${parts.move || '-'} ${parts.target || '-'}`;
+}
+
+/**
+ * Adds `>rng` to the input-log grammar of a `BattleStream` class, idempotently.
+ *
+ * Without this an armed rule would have to be an `>eval`, which dumps its own
+ * source into the battle log and needs console access to import. With it a rule
+ * is an ordinary recipe line: `truncateAtTurn`, `/importinputlog` and a plain
+ * re-simulation all carry it. Must be in place before any room is created.
+ */
+function teachStream(BattleStream) {
+	const proto = BattleStream && BattleStream.prototype;
+	if (!proto || proto.__rngTaught) return BattleStream;
+	proto.__rngTaught = true;
+	const original = proto._writeLine;
+	proto._writeLine = function (type, message) {
+		if (type !== 'rng') return original.call(this, type, message);
+		if (!this.battle) throw new Error('">rng" before ">start"');
+		applyLine(this.battle, message);
+	};
+	return BattleStream;
+}
+
+// -------------------------------------------------------------- the dry runs
+
+/** How many targets this move would hit right now - 2+ means the spread modifier. */
+function targetCount(battle, source, move) {
+	const kind = move.target;
+	if (kind === 'allAdjacentFoes') return source.side.foe.active.filter(p => p && !p.fainted).length;
+	if (kind === 'allAdjacent') {
+		const foes = source.side.foe.active.filter(p => p && !p.fainted).length;
+		const allies = source.side.active.filter(p => p && !p.fainted && p !== source).length;
+		return foes + allies;
+	}
+	return 1;
+}
+
+/**
+ * The sixteen damage values one hit can produce, band 0 first.
+ *
+ * STAB, type effectiveness and burn are applied *after* the random factor, each
+ * with its own truncation, so the sixteen cannot be derived arithmetically from
+ * one. They are sixteen real `getDamage` calls under four guards: a cloned move,
+ * an explicit `willCrit` so no crit die is drawn, no-consume mode so the
+ * generator is untouched, and `suppressMessages` so `modifyDamage` writes no
+ * `-supereffective` line. Stellar state and the log are snapshotted and
+ * restored, because `modifyDamage` mutates both.
+ */
+function damageLadder(battle, source, target, moveName, crit) {
+	const st = install(battle);
+	const dex = battle.dex;
+	const base = dex.moves.get(moveName);
+	if (!base.exists) return { error: `no move named "${moveName}"` };
+
+	const spread = targetCount(battle, source, base) > 1;
+	const savedStellar = source.stellarBoostedTypes ? source.stellarBoostedTypes.slice() : null;
+	const savedLog = battle.log.length;
+	const savedMove = battle.activeMove;
+	const savedTarget = battle.activeTarget;
+	const savedUser = battle.activePokemon;
+
+	const values = [];
+	try {
+		for (let roll = 0; roll < 16; roll++) {
+			const move = dex.getActiveMove(base);
+			move.willCrit = !!crit;
+			if (spread) move.spreadHit = true;
+			st.dry = { roll };
+			let damage = null;
+			try {
+				damage = battle.actions.getDamage(source, target, move, true);
+			} catch (err) {
+				damage = null;
+			} finally {
+				st.dry = null;
+			}
+			values.push(typeof damage === 'number' ? damage : null);
+		}
+	} finally {
+		st.dry = null;
+		battle.activeMove = savedMove;
+		battle.activeTarget = savedTarget;
+		battle.activePokemon = savedUser;
+		if (savedStellar) {
+			source.stellarBoostedTypes.length = 0;
+			for (const type of savedStellar) source.stellarBoostedTypes.push(type);
+		}
+		if (battle.log.length > savedLog) battle.log.length = savedLog;
+	}
+	return { move: base.id, crit: !!crit, spread, values };
 }
 
 // ------------------------------------------------------------- chat command
 
-/** Sends the interceptor the first time this room asks for anything. */
-function ensureInstalled(battle) {
-	if (battle.rngInstalled) return;
-	void battle.stream.write(installLine());
-	battle.rngInstalled = true;
-}
-
 const HELP = [
-	`/rng force &lt;outcome&gt; [pokemon] [move] - arm a one-shot rule.`,
-	`/rng always &lt;outcome&gt; [pokemon] [move] - arm a standing rule.`,
-	`/rng list - what is armed in this room.`,
+	`/rng force &lt;outcome&gt; [pokemon] [move] [target] - arm a standing rule.`,
+	`/rng list - what is armed in this room, read from the battle.`,
 	`/rng clear [id|all] - cancel armed rules.`,
-	`/rng expire on|off - whether one-shots expire at the end of the turn.`,
-	`/rng log - what fired and what did not, from the simulator.`,
+	`/rng log - draw counts and what was substituted.`,
 	`Outcomes: ${OUTCOME_WORDS.join(' ')}`,
 	`<code>wake</code> and <code>stay</code> set the shortest or longest sleep, not an instant wake-up: gen 9 draws a duration once and never rolls again.`,
 	`<code>&lt;kind&gt;=&lt;value&gt;</code> reaches the long tail - <code>sleep=3</code>, <code>para=full</code>, <code>stall=min</code>.`,
+	`Accuracy, crit and damage roll once per target, so those take a fourth argument naming one.`,
 	`A rule matches by team identity, not by slot. Use <code>p1:Glalie</code> when both sides have one.`,
-	`Everything <code>/rng</code> does is written into the battle log and the input log. A controlled battle is manipulated by definition and says so.`,
+	`Rules stand until cleared. The battle log says nothing; <code>/rng list</code> and the panel are the record.`,
 ];
 
+/** The live `Battle`, or the reason there is not one. */
+function battleOf(room) {
+	if (!room.battle) throw new Chat.ErrorMessage(`/rng - This is not a battle room.`);
+	const battle = room.battle.stream && room.battle.stream.battle;
+	if (!battle) {
+		throw new Chat.ErrorMessage(
+			`/rng - The simulator is not in this process. Config.subprocesses must be 0.`
+		);
+	}
+	return battle;
+}
+
+function pushState(room, connection) {
+	const battle = room.battle && room.battle.stream && room.battle.stream.battle;
+	const payload = JSON.stringify({ roomid: room.roomid, ...snapshot(battle) });
+	const seen = new Set();
+	const send = (c) => {
+		if (!c || seen.has(c)) return;
+		seen.add(c);
+		c.send(`|queryresponse|rng|${payload}`);
+	};
+	send(connection);
+	try {
+		for (const id in room.users) {
+			for (const c of room.users[id].connections) {
+				if (c.inRooms && c.inRooms.has(room.roomid)) send(c);
+			}
+		}
+	} catch (err) {}
+}
+
 const commands = {
-	rng(target, room, user) {
+	rng(target, room, user, connection) {
 		room = this.requireRoom();
-		const battle = room.battle;
-		if (!battle) throw new Chat.ErrorMessage(`/rng - This is not a battle room.`);
-		if (!this.runBroadcast()) return;
 
 		const parts = String(target || '').trim().split(/\s+/).filter(Boolean);
 		const sub = (parts.shift() || '').toLowerCase();
-		const rest = parts.join(' ');
 
 		if (!sub || sub === 'help') return this.sendReplyBox(HELP.join('<br />'));
 
-		if (sub === 'force' || sub === 'always') {
-			const spec = parseSpec(rest);
-			if (spec.error) throw new Chat.ErrorMessage(`/rng - ${spec.error}`);
-			ensureInstalled(battle);
-			void battle.stream.write(armLine(spec, sub === 'always'));
-			const text = `${spec.outcome} ${spec.subject}${spec.move ? ` ${spec.move}` : ''}` +
-				`${sub === 'always' ? ' [always]' : ''}`;
-			return this.sendReply(`Sent: ${text}. The battle log says whether it took.`);
-		}
+		const battle = battleOf(room);
 
-		if (sub === 'list') {
-			if (!battle.rngInstalled) return this.sendReply(`Nothing armed in this room yet.`);
-			void battle.stream.write(listLine());
-			return this.sendReply(`Armed rules written to the battle log.`);
+		if (sub === 'force') {
+			if (!parts.length) throw new Chat.ErrorMessage(`/rng force - name an outcome, e.g. crit.`);
+			const spec = {
+				outcome: parts[0].toLowerCase(),
+				subject: parts.length > 1 ? parts[1] : 'any',
+				move: parts.length > 2 && parts[2] !== '-' ? toId(parts[2]) : '',
+				target: parts.length > 3 && parts[3] !== '-' ? parts[3] : '',
+			};
+			const result = arm(battle, spec, `>rng ${forceLine(spec)}`);
+			if (result.error) throw new Chat.ErrorMessage(`/rng - ${result.error}`);
+			pushState(room, connection);
+			return this.sendReply(`Armed #${result.rule.id} ${ruleText(result.rule)}`);
 		}
 
 		if (sub === 'clear') {
-			if (!battle.rngInstalled) return this.sendReply(`Nothing armed in this room yet.`);
-			const which = (rest || 'all').toLowerCase();
+			const which = (parts[0] || 'all').toLowerCase();
 			if (which !== 'all' && !/^\d+$/.test(which)) {
 				throw new Chat.ErrorMessage(`/rng clear - give a rule number or "all".`);
 			}
-			void battle.stream.write(clearLine(which));
-			return this.sendReply(`Cleared ${which}.`);
+			const result = clear(battle, which, `>rng clear ${which}`);
+			pushState(room, connection);
+			return this.sendReply(`Cleared ${result.gone} rule(s).`);
 		}
 
-		if (sub === 'expire') {
-			const on = /^(on|true|yes)$/i.test(rest);
-			const off = /^(off|false|no)$/i.test(rest);
-			if (!on && !off) throw new Chat.ErrorMessage(`/rng expire - say "on" or "off".`);
-			ensureInstalled(battle);
-			void battle.stream.write(expireLine(on));
-			return this.sendReply(`One-shot expiry ${on ? 'on' : 'off'}.`);
+		if (sub === 'list' || sub === 'state') {
+			const state = snapshot(battle);
+			pushState(room, connection);
+			if (sub === 'state') return;
+			if (!state.rules.length) return this.sendReply(`Nothing armed.`);
+			return this.sendReplyBox(state.rules.map(r => (
+				Chat.escapeHTML(`#${r.id} ${r.text}  armed-on-turn=${r.turn} matched=${r.matched} forced=${r.forced}`)
+			)).join('<br />'));
 		}
 
 		if (sub === 'log') {
-			if (!battle.rngInstalled) return this.sendReply(`Nothing armed in this room yet.`);
-			void battle.stream.write(reportLine());
-			return this.sendReply(`Report written to the battle log.`);
+			const state = snapshot(battle);
+			const head = `draws=${state.draws} forced=${state.forced} skipped=${state.skipped} ` +
+				`reseeds=${state.reseeds} drawsSinceReseed=${state.drawsSinceReseed} ` +
+				`recorded=${state.recorded}`;
+			const unfired = state.rules.filter(r => !r.forced)
+				.map(r => `never substituted: #${r.id} ${r.text} (matched ${r.matched} draw(s))`);
+			const lines = [head].concat(unfired, (state.notes || []).slice(-30));
+			return this.sendReplyBox(lines.map(Chat.escapeHTML).join('<br />'));
+		}
+
+		if (sub === 'ladder') {
+			const source = findPokemon(battle, parts[0]);
+			const against = findPokemon(battle, parts[1]);
+			if (source.why || !source.pokemon) throw new Chat.ErrorMessage(`/rng ladder - ${source.why || 'name an attacker'}`);
+			if (against.why || !against.pokemon) throw new Chat.ErrorMessage(`/rng ladder - ${against.why || 'name a target'}`);
+			const crit = /^(1|yes|true|crit)$/i.test(parts[3] || '');
+			const result = damageLadder(battle, source.pokemon, against.pokemon, parts[2] || '', crit);
+			if (result.error) throw new Chat.ErrorMessage(`/rng ladder - ${result.error}`);
+			connection.send(`|queryresponse|rngladder|${JSON.stringify({
+				roomid: room.roomid,
+				source: refOf(source.pokemon),
+				target: refOf(against.pokemon),
+				...result,
+			})}`);
+			return;
 		}
 
 		throw new Chat.ErrorMessage(`/rng - unknown subcommand "${sub}". Try /rng help.`);
@@ -593,13 +829,16 @@ const commands = {
 	rnghelp: HELP,
 };
 
-exports.INTERCEPTOR = INTERCEPTOR;
 exports.OUTCOME_WORDS = OUTCOME_WORDS;
-exports.parseSpec = parseSpec;
-exports.installLine = installLine;
-exports.armLine = armLine;
-exports.clearLine = clearLine;
-exports.expireLine = expireLine;
-exports.reportLine = reportLine;
-exports.listLine = listLine;
+exports.outcomeSpec = outcomeSpec;
+exports.install = install;
+exports.arm = arm;
+exports.clear = clear;
+exports.snapshot = snapshot;
+exports.applyLine = applyLine;
+exports.forceLine = forceLine;
+exports.teachStream = teachStream;
+exports.damageLadder = damageLadder;
+exports.findPokemon = findPokemon;
+exports.refOf = refOf;
 exports.commands = commands;

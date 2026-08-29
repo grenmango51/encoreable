@@ -29,6 +29,11 @@ import { inputLogLines, truncateAtTurn } from './truncate.mjs';
 const require = createRequire(import.meta.url);
 const { BattleStream } = require('pokemon-showdown');
 
+// A branch played with RNG control carries `>rng` lines, and re-simulating it is
+// the whole point of this file. Without the verb the re-simulation throws
+// instead of reproducing the room (`sim/battle-stream.ts:216`).
+require('../server/rng-command.js').teachStream(BattleStream);
+
 const isPlayerLine = l => /^>player p[1-4] /.test(l);
 const isReseedLine = l => /^>reseed /.test(l);
 /** Lines that are bookkeeping rather than a choice, so not part of the prefix. */

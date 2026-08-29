@@ -24,6 +24,13 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const { BattleStream } = require('pokemon-showdown');
 
+// A controlled recording carries `>rng` lines in its input log. Replaying the
+// prefix is how the recorded position is reproduced, so the stream must know
+// the verb or it throws `Unrecognized command` (`sim/battle-stream.ts:216`) and
+// the branch never opens. The engine is required directly rather than through
+// `rng-control.mjs`, which imports this file.
+require('../server/rng-command.js').teachStream(BattleStream);
+
 /** A fresh seed in the shape `sim/prng.ts` writes: `sodium,` + 32 hex. */
 export function freshSeed() {
   return `sodium,${crypto.randomBytes(16).toString('hex')}`;
