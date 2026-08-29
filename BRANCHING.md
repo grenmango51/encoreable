@@ -1,6 +1,7 @@
 # Branching — play a recorded battle forward from any turn, both sides, in the real battle UI
 
-**Read first:** `ENGINEERING.md` — §3 (channels), §5.6–5.10 (branching), §6 (traps).
+**Read first:** `ENGINEERING.md` — §3 (channels), §5.6–5.10 (branching), §6 (traps),
+§7 (where a battle comes from when we did not record it).
 **Verified against:** the checkout in `runtime/`, the upstream `replay-embed.js` the vendored
 client is built from, Node v24.19.0, npm `pokemon-showdown@0.11.11`.
 
@@ -10,8 +11,12 @@ client is built from, Node v24.19.0, npm `pokemon-showdown@0.11.11`.
 
 An analysis board for Pokémon, the way chess.com lets you play on from any position.
 
-Take a recorded battle. Pick a turn. Get the **real Showdown battle interface**, in the browser,
+Take a battle. Pick a turn. Get the **real Showdown battle interface**, in the browser,
 sitting at that exact position — and play forward, choosing moves for **both** teams.
+
+The battle does not have to be one we recorded. A saved public-ladder replay plus both team
+sheets is enough: `npm run reconstruct` rebuilds the input log those replays never carried
+(`ENGINEERING.md` §7), and everything below then works on it unchanged.
 
 - **Simultaneous, not alternating.** Both sides commit blind and the turn resolves once both
   are in. Native Showdown behaviour; no work was needed for it.
@@ -288,14 +293,18 @@ look-at-it check.
   button again.
 - **No RNG control here.** It matters, and the mechanism is specified in `ENGINEERING.md` §4,
   but that mechanism patches an in-process `Battle` while a live branch runs in the server's
-  simulator worker. Forcing a crit inside a live room is a separate problem — §8 there.
+  simulator worker. Forcing a crit inside a live room is a separate problem — §9 there.
 - **No CLI move-picker.** The deliverable is the native browser battle UI.
 - **No custom battle UI.** If you find yourself writing a move button, stop.
 - **The replay view does not become the battle.** It stays a replay.
 - **No channel −1 server patch.** Two windows already show every exact value (§1).
 - **No AI, no engine, no evaluation, no opponent bot.**
-- **Official replay downloads.** They carry no input log and no seed, so there is nothing to
-  branch from. Reconstructing one is its own problem.
+- **Fetching a replay over the network.** A replay page has to be saved to `samples/` by hand.
+  Once it is there it is no longer out of scope: it carries no input log and no seed, but
+  `npm run reconstruct` builds one from it and both team sheets (`ENGINEERING.md` §7), and the
+  result branches like any recording. What a reconstruction cannot recover is the opponent's
+  *exact* HP — the replay only ever showed a percentage — so it samples uniformly from inside
+  the band the percentage allows, and every command that loads one says so.
 - **No auto-verify.** `verify-branch` needs a battle that *ended*, and analysis branches are
   abandoned; the launcher prints the command instead.
 - **The button does not start the servers.** Reading the page over 8080 means they are up.

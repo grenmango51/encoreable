@@ -107,9 +107,9 @@ Showdown's is the only source of truth. See the scope guards in `PLAN.MD` §3.
 
 **Pokémon Showdown server** — https://github.com/smogon/pokemon-showdown
 Version pinned in `package.json` (`0.11.11`). MIT.
-Pin it deliberately: `ENGINEERING.md` §6.5 lists six internal call sites this project depends
-on that upstream does not promise to keep. On any upgrade, diff those and re-run
-`npm run replay`.
+Pin it deliberately: `ENGINEERING.md` §6.5 is the register of internal call sites this project
+depends on that upstream does not promise to keep. On any upgrade, diff those and re-run
+`npm run replay` **and** `npm run reconstruct -- --all --rung s2`, which exercises the rest.
 
 **Pokémon Showdown client** — https://github.com/smogon/pokemon-showdown-client
 Commit `218cc779512d67961e8aea0ae666d319e8ccf398`, built with `node build`.

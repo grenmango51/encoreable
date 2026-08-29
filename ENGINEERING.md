@@ -184,7 +184,7 @@ required. `forceRandomChance` is confirmed useless for our purpose: it is `reado
 at construction, gated on `debugMode`, and forces *every* `randomChance()` call to one boolean.
 
 The implementation that established this was deleted once it had: it patched an in-process
-`Battle`, which is not where a live branch runs (§8). This section is the specification it gets
+`Battle`, which is not where a live branch runs (§9). This section is the specification it gets
 rebuilt from — every call site, filter and edge case below was paid for once.
 
 ### 4.1 The five draw sites
@@ -535,10 +535,18 @@ Four things make it work, and each was paid for:
   shifts the ones after it.
 - **Install through an accessor on `battle.prng`.** `>reseed` assigns a whole new generator
   (`sim/battle.ts:361`); without the accessor, control dies at the first reseed in silence.
-- **`>eval` is the transport, and it is not a compromise.** `sim/battle-stream.ts:133` records
-  the line in `battle.inputLog`, so a reconstructed log re-simulates itself with no help from
-  this project. Its echo is a `''`-type line, which `ROOM_ONLY` already strips, so it is
-  invisible to every comparison here. The payload is one line of a few hundred characters.
+- **`>eval` is the transport here — and the wrong answer in a live room.** The objection to
+  `>eval` is that it echoes its own source into the battle log (`sim/battle-stream.ts:136`): an
+  interactive controller is hundreds of lines, and a person is watching the room. Neither
+  applies to reconstruction. This payload is one line of a few hundred characters, written
+  before a single turn resolves, with nothing watching, and its echo is a `''`-type line that
+  `ROOM_ONLY` strips from every comparison. Against that it buys the one property this path
+  cannot do without: `sim/battle-stream.ts:133` pushes the line into `battle.inputLog`, so a
+  reconstructed log carries its own recipe and re-simulates itself with no help from this
+  project — which is what lets `npm run replay`, `npm run live` and **Play from here** take a
+  ladder game with no changes at all. Arming draws in a room a browser is playing is the
+  opposite trade — nothing there needs the input log to travel — and should be decided
+  differently.
 - **Install between `>start` and `>player`.** `>start` builds the battle; `>player` builds the
   teams, and a set that states no gender rolls for one right there (`sim/pokemon.ts:340`).
   Pinning genders from the log instead *removes* a draw the real battle made and shifts every
@@ -623,14 +631,18 @@ test vector and not a symmetric one that would pass by accident.
 
 ## 9. Open tasks
 
-### A longer fixture
+### A longer fixture — **satisfied, by reconstruction**
 
-The current one is five turns and ends almost immediately, so there is barely anywhere to
-branch and `npm run live --at 6` has nothing to stand on. Also needed to exercise `REJECTED`
-(§5.2) and to learn whether roll-table caching is actually required (§4.3).
+The recorded fixtures top out at eight turns and most end almost immediately, so there was
+barely anywhere to branch and `npm run live --at 6` had nothing to stand on.
 
-Record it with `npm run battle`, or play one out from a live branch — either way it lands in
-`runtime/logs` with its input log intact (§3.1).
+The Bo3 sample now supplies it: ten turns to `|win|`, two megas and a charge-turn Solar Beam,
+reconstructed line for line (§7) into
+`recordings/reconstructed-Gen9ChampionsVGC2026RegMBBo3-…-hoaianhgianlan.log.json`. It branches
+like any recording, and `npm run live --at 6` stands on it.
+
+Still open, and neither needs a *longer* battle: exercising `REJECTED` (§5.2), and learning
+whether roll-table caching is actually required (§4.3).
 
 ### RNG control inside a live room
 
