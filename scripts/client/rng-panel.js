@@ -118,8 +118,8 @@
 
 	/**
 	 * `normal` and `any` reach one adjacent Pokemon, and in doubles your partner
-	 * is adjacent - hitting it on purpose is a real line, so it gets its own row.
-	 * Only `adjacentFoe` and `allAdjacentFoes` are foes-only.
+	 * is adjacent - hitting it on purpose is a real line, so it counts as a
+	 * target. Only `adjacentFoe` and `allAdjacentFoes` are foes-only.
 	 */
 	function targetsOf(battle, move, pokemon) {
 		var out = [];
@@ -144,6 +144,32 @@
 			addAllies();
 		}
 		return out;
+	}
+
+	/**
+	 * Which rows accuracy, crit and damage get.
+	 *
+	 * A spread move rolls all three once for every Pokemon it hits, so each target
+	 * gets its own set. A single-target move rolls them once, so it gets one set
+	 * armed against no target in particular: it fires on whichever Pokemon the
+	 * move ends up aimed at. The damage readout needs a defender, so when there is
+	 * a choice of targets the slider reads as the roll's percentage instead.
+	 */
+	function aimsOf(battle, move, pokemon) {
+		var targets = targetsOf(battle, move, pokemon);
+		if (move.target !== 'allAdjacentFoes' && move.target !== 'allAdjacent') {
+			if (!targets.length) return [];
+			return [{ sub: '', target: '', defender: targets.length === 1 ? refOf(targets[0]) : '' }];
+		}
+		var aims = [];
+		for (var i = 0; i < targets.length; i++) {
+			aims.push({
+				sub: targets.length < 2 ? '' : slotLetter(battle, pokemon, targets[i]),
+				target: refOf(targets[i]),
+				defender: refOf(targets[i]),
+			});
+		}
+		return aims;
 	}
 
 	/**
@@ -192,29 +218,29 @@
 			rows.push(row('Hits', '', me, move.id, '', hits));
 		}
 
-		var targets = targetsOf(battle, move, pokemon);
-		var single = targets.length < 2;
+		var aims = aimsOf(battle, move, pokemon);
 
-		for (i = 0; i < targets.length; i++) {
-			rows.push(row('Acc', single ? '' : slotLetter(battle, pokemon, targets[i]), me, move.id, refOf(targets[i]), [
+		for (i = 0; i < aims.length; i++) {
+			rows.push(row('Acc', aims[i].sub, me, move.id, aims[i].target, [
 				{ word: 'miss', text: 'Miss' },
 				{ word: 'hit', text: 'Hit' },
 			]));
 		}
 		if (move.category !== 'Status') {
-			for (i = 0; i < targets.length; i++) {
-				rows.push(row('Crit', single ? '' : slotLetter(battle, pokemon, targets[i]), me, move.id, refOf(targets[i]), [
+			for (i = 0; i < aims.length; i++) {
+				rows.push(row('Crit', aims[i].sub, me, move.id, aims[i].target, [
 					{ word: 'nocrit', text: 'No' },
 					{ word: 'crit', text: 'Yes' },
 				]));
 			}
-			for (i = 0; i < targets.length; i++) {
+			for (i = 0; i < aims.length; i++) {
 				// Band 0 is maximum damage, so the stops are reversed and the
-				// slider reads left-to-right as low damage to high.
+				// slider reads left-to-right as low damage to high. Band n
+				// multiplies by (100 - n)%.
 				var bands = [];
-				for (var band = 15; band >= 0; band--) bands.push({ word: 'roll' + band, text: '' });
-				rows.push(row('Roll', single ? '' : slotLetter(battle, pokemon, targets[i]), me, move.id, refOf(targets[i]), bands, {
-					ladder: { source: me, target: refOf(targets[i]), move: move.id },
+				for (var band = 15; band >= 0; band--) bands.push({ word: 'roll' + band, text: (100 - band) + '%' });
+				rows.push(row('Roll', aims[i].sub, me, move.id, aims[i].target, bands, {
+					ladder: aims[i].defender ? { source: me, target: aims[i].defender, move: move.id } : null,
 				}));
 			}
 		}
@@ -280,6 +306,11 @@
 
 	// --------------------------------------------------------------- state
 
+	/** A rule armed against no target in particular reports its target as `any`. */
+	function ruleTarget(rule) {
+		return rule.target === 'any' ? '' : (rule.target || '');
+	}
+
 	/** The armed rule this row's controls stand for, or null. */
 	function armedRule(roomid, item) {
 		var rules = rulesFor(roomid);
@@ -290,7 +321,7 @@
 			if (!(rule.outcome in words)) continue;
 			if (rule.subject !== item.subject) continue;
 			if ((rule.move || '') !== (item.move || '')) continue;
-			if ((rule.target === 'any' ? '' : rule.target) !== (item.target || '')) continue;
+			if (ruleTarget(rule) !== (item.target || '')) continue;
 			return { rule: rule, index: words[rule.outcome] };
 		}
 		return null;
@@ -309,7 +340,7 @@
 		var rules = rulesFor(roomid);
 		for (var i = 0; i < rules.length; i++) {
 			if (rules[i].outcome === 'crit' && rules[i].subject === item.subject &&
-				rules[i].move === item.move && rules[i].target === item.target) return true;
+				rules[i].move === item.move && ruleTarget(rules[i]) === (item.target || '')) return true;
 		}
 		return false;
 	}
@@ -343,16 +374,17 @@
 			value = escapeHtml(item.values[picked].text);
 		}
 
+		// An unarmed row's controls stay live and only look faded: picking a value
+		// arms the row with it, so the checkbox is never a required first click.
 		var control;
 		if (slider) {
 			control = '<input type="range" class="rng-slider" min="0" max="' + (item.values.length - 1) +
-				'" value="' + picked + '"' + (armed ? '' : ' disabled') + ' />';
+				'" value="' + picked + '" />';
 		} else {
 			control = '';
 			for (var i = 0; i < item.values.length; i++) {
 				control += '<button class="button rng-pick' + (armed && armed.index === i ? ' rng-on' : '') +
-					'" data-rng-index="' + i + '"' + (armed ? '' : ' disabled') + '>' +
-					escapeHtml(item.values[i].text) + '</button>';
+					'" data-rng-index="' + i + '">' + escapeHtml(item.values[i].text) + '</button>';
 			}
 		}
 
@@ -360,7 +392,7 @@
 			'<input type="checkbox" class="rng-arm"' + (armed ? ' checked' : '') + ' />' +
 			'<span class="rng-label" title="' + escapeHtml(item.label + (item.sub ? ' ' + item.sub : '')) + '">' +
 			escapeHtml(item.label) + (item.sub ? ' <small>' + escapeHtml(item.sub) + '</small>' : '') + '</span>' +
-			'<span class="rng-control">' + control + '</span>' +
+			'<span class="rng-control' + (armed ? '' : ' rng-idle') + '">' + control + '</span>' +
 			'<span class="rng-value">' + value + '</span>' +
 			'</span>';
 	}
@@ -396,28 +428,52 @@
 		return showing ? showing.rows : [];
 	}
 
+	/**
+	 * The server keeps every rule it is sent, and a row only learns which rule is
+	 * its own from the next state push. A second click before that push lands
+	 * would arm a second rule beside the first, so the row ignores clicks until
+	 * the push arrives - or until a rejected command has clearly produced none.
+	 */
+	var PENDING_MS = 1500;
+	var pending = {};
+
+	function rowKey(item) {
+		return item.subject + '|' + item.move + '|' + item.target + '|' + item.values[0].word;
+	}
+
+	function busy(item) {
+		var at = pending[rowKey(item)];
+		return !!at && Date.now() - at < PENDING_MS;
+	}
+
+	function sendFor(item, commands) {
+		pending[rowKey(item)] = Date.now();
+		for (var i = 0; i < commands.length; i++) send(showing.roomid, commands[i]);
+	}
+
 	function onArmChange(rowElem, checked) {
 		if (!showing) return;
 		var item = currentRows()[Number(rowElem.dataset.rngIndex)];
-		if (!item) return;
+		if (!item || busy(item)) return;
 		var armed = armedRule(showing.roomid, item);
 		if (!checked) {
-			if (armed) send(showing.roomid, '/rng clear ' + armed.rule.id);
+			if (armed) sendFor(item, ['/rng clear ' + armed.rule.id]);
 			return;
 		}
 		var slider = item.values.length > 2;
 		var pick = slider ? item.values.length - 1 : 0;
-		send(showing.roomid, commandFor(item, item.values[pick].word));
+		sendFor(item, [commandFor(item, item.values[pick].word)]);
 	}
 
 	function onPick(rowElem, index) {
 		if (!showing) return;
 		var item = currentRows()[Number(rowElem.dataset.rngIndex)];
-		if (!item || !item.values[index]) return;
+		if (!item || !item.values[index] || busy(item)) return;
 		var armed = armedRule(showing.roomid, item);
 		if (armed && armed.index === index) return;
-		if (armed) send(showing.roomid, '/rng clear ' + armed.rule.id);
-		send(showing.roomid, commandFor(item, item.values[index].word));
+		var commands = armed ? ['/rng clear ' + armed.rule.id] : [];
+		commands.push(commandFor(item, item.values[index].word));
+		sendFor(item, commands);
 	}
 
 	// ----------------------------------------------------------- the marks
@@ -502,7 +558,8 @@
 			'#tooltipwrapper .tooltip .rng-slider { width: 158px; height: 14px; vertical-align: middle;',
 			'  -webkit-appearance: none; appearance: none; background: #DEDEDE; border: 1px solid #888888;',
 			'  border-radius: 3px; }',
-			'#tooltipwrapper .tooltip .rng-slider:disabled { opacity: 0.45; }',
+			'#tooltipwrapper .tooltip .rng-control.rng-idle { opacity: 0.5; }',
+			'#tooltipwrapper .tooltip .rng-control.rng-idle:hover { opacity: 1; }',
 			'#tooltipwrapper .tooltip .rng-slider::-webkit-slider-thumb { -webkit-appearance: none;',
 			'  width: 9px; height: 12px; background: #888888; border-radius: 2px; }',
 			'#tooltipwrapper .tooltip .rng-slider::-moz-range-thumb { width: 9px; height: 12px;',
@@ -749,6 +806,7 @@
 		app.on('response:rng', function (data) {
 			if (!data || !data.roomid) return;
 			state[data.roomid] = data;
+			pending = {};
 			// A rule may have moved, so any cached ladder for a crit that is no
 			// longer armed has to be asked for again.
 			asked = {};
@@ -782,6 +840,11 @@
 	 * caught in the capture phase and stopped before it can reach the wrapper.
 	 * Stopping propagation leaves the default action alone, so a checkbox still
 	 * toggles itself.
+	 *
+	 * A click on a slider arms it at the value it shows. Without that, an unarmed
+	 * slider clicked at its starting stop would never fire `change` and so never
+	 * arm; after a drag the click arrives on the heels of `change` and the row is
+	 * still busy with it.
 	 */
 	function onCapturedClick(e) {
 		var rowElem = rowOf(e.target);
@@ -790,7 +853,11 @@
 		var pick = e.target.closest('.rng-pick');
 		if (pick) {
 			e.preventDefault();
-			if (!pick.disabled) onPick(rowElem, Number(pick.dataset.rngIndex));
+			onPick(rowElem, Number(pick.dataset.rngIndex));
+			return;
+		}
+		if (e.target.classList.contains('rng-slider')) {
+			onPick(rowElem, Number(e.target.value));
 			return;
 		}
 		if (e.target.classList.contains('rng-arm')) onArmChange(rowElem, e.target.checked);
