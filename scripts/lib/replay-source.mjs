@@ -209,6 +209,24 @@ export function alignSpeciesToSheet(packedTeam, sheet) {
 }
 
 /**
+ * A published team sheet as set objects with no Stat Points - everything Open
+ * Team Sheets reveal, and the starting point for inferring the rest.
+ */
+export function setsFromSheet(sheet) {
+  return sheet.map(row => ({
+    name: row.species || row.name,
+    species: row.species || row.name,
+    item: row.item,
+    ability: row.ability,
+    moves: row.moves,
+    nature: row.nature,
+    gender: row.gender,
+    level: Number(row.level) || 50,
+    evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+  }));
+}
+
+/**
  * Choices in an input log that the simulator will refuse to replay.
  *
  * `getChoice()` (`sim/side.ts:331`) records a target only when `targetLoc` is

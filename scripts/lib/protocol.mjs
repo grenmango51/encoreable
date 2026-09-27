@@ -13,9 +13,9 @@ const ROOM_ONLY = new Set([
   'inactiveoff', 'n', 'N', 'name', 'unlink', 'notify', 'seed', 'message', 'error',
   'debug', 'bigerror', 'chatmsg', 'chatmsg-raw', 'controlshtml', 'fieldhtml',
   // `request` rides the channel-1 stream, which the omniscient log never carried.
-  // `tempnotify` is how a Bo3 room asks for the next game - room furniture that
-  // arrives after `|win|` and that no simulator emits.
-  'request', 'tempnotify',
+  // `tempnotify` and `tempnotifyoff` are how a Bo3 room asks for the next game -
+  // room furniture that arrives after `|win|` and that no simulator emits.
+  'request', 'tempnotify', 'tempnotifyoff',
 ]);
 
 /** The battle-mechanics lines of a log, with room-level noise removed. */

@@ -90,6 +90,7 @@ export function archiveLogFile(root, file) {
  * chosen and the opponent's HP was sampled from inside the band a percentage
  * allows (ENGINEERING.md 7). It is a faithful reading of someone else's battle,
  * not a record of one this server ran, and every command that loads one says so -
+ * including when a side's Stat Points were inferred rather than supplied -
  * `npm run live` reaches for the newest recording by default, and the newest is
  * exactly what a fresh reconstruction will be.
  */
@@ -100,8 +101,11 @@ export function reconstructedBanner(file) {
   const through = data.complete
     ? 'every turn matches the replay'
     : `matches the replay through turn ${data.verifiedThroughTurn}`;
+  const guessed = data.inference?.inferred?.length
+    ? ` Stat Points of ${data.inference.inferred.join(' and ')} are one spread the replay allows, not the real ones.`
+    : '';
   return `RECONSTRUCTED from ${data.reconstructedFrom || 'a replay'} - ${through}, ` +
-    `opponent HP sampled within the percentage shown (sample ${data.sampleSeed}).`;
+    `opponent HP sampled within the percentage shown (sample ${data.sampleSeed}).${guessed}`;
 }
 
 /** A repo-relative path with forward slashes, for pasting back as an argument. */

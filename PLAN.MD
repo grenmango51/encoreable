@@ -248,10 +248,13 @@ that started this project.
 
 **Status: shipped for battles we host.** `npm run live` cuts a recording at any turn, imports
 the position as a live room, and opens the real battle UI on both sides; the replay page's
-**Play from here** button does the same for the turn on screen. Three pieces are outstanding:
-RNG control drives the sim directly and does not yet reach inside a live room; ingesting
-someone else's ladder replay is blocked on consent (§7); and the inference layer is deferred,
-because on a battle we host the omniscient log already carries exact values for both sides.
+**Play from here** button does the same for the turn on screen. RNG control reaches inside the
+live room (`ENGINEERING.md` §4), and a saved ladder replay becomes a branchable battle through
+`npm run reconstruct` (`ENGINEERING.md` §7) without the consent-gated input log. Deterministic
+inference ships for replays that publish team sheets: `--infer p2` narrows the opponent's Stat
+Points to every spread the replay allows and names the move that removed the rest
+(`ENGINEERING.md` §7.5). Still outstanding: showing those ranges inline, and the probabilistic
+layer (§10) that ranks what survives.
 
 **Deliverable:** paste a replay, land in the position, play it differently.
 

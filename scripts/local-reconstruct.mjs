@@ -15,14 +15,22 @@
  *   s3  the same, observed as p1's view (opponent as %)     -> + exact HP
  *   s4  a saved .html replay                               -> everything
  *
+ * `--infer p1|p2|both` withholds one more thing: that side's Stat Points. They
+ * are inferred from the replay (ENGINEERING.md 7.5) instead of read from a
+ * fixture - `p2` is "I know my team, not theirs", `both` knows neither. On a
+ * recording the real spreads stay available as the check; on a replay, the
+ * fixture named by `--teams` is the check when it has that side.
+ *
  * Usage:
  *   node scripts/local-reconstruct.mjs --rung s1
  *   node scripts/local-reconstruct.mjs --rung s3 --from recordings/<x>.log.json
  *   node scripts/local-reconstruct.mjs --rung s1 --all
  *   node scripts/local-reconstruct.mjs --from "samples/<replay>.html" --teams alt
+ *   node scripts/local-reconstruct.mjs --from "samples/<replay>.html" --infer p2
+ *   node scripts/local-reconstruct.mjs --rung s3 --all --infer p2
  *
- * Flags: --from <file> --rung s1|s2|s3 --all --teams <fixture> --sample <n>
- *        --out <file> --dry-run --verbose --max-tries <n>
+ * Flags: --from <file> --rung s1|s2|s3 --all --teams <fixture> --infer p1|p2|both
+ *        --sample <n> --out <file> --dry-run --verbose --max-tries <n>
  */
 
 import fs from 'fs';
@@ -31,13 +39,13 @@ import { createRequire } from 'module';
 
 import { battleLines } from './lib/protocol.mjs';
 import { listLogFiles, newestLogFile, posix as toPosix } from './lib/recordings.mjs';
-import { reconstruct, unpackTeams } from './lib/reconstruct.mjs';
+import { inferSpreads, reconstruct, unpackTeams } from './lib/reconstruct.mjs';
 import {
-  alignSpeciesToSheet, crossCheckSheet, loadSource, maxHpFromLog, unreplayableChoices,
+  alignSpeciesToSheet, crossCheckSheet, loadSource, maxHpFromLog, setsFromSheet, unreplayableChoices,
 } from './lib/replay-source.mjs';
 
 const require = createRequire(import.meta.url);
-const { BattleStream, Dex, Teams } = require('pokemon-showdown');
+const { BattleStream, Dex, Teams, toID } = require('pokemon-showdown');
 const { extractChannelMessages } = require('pokemon-showdown/dist/sim/battle.js');
 const { TEAM_SETS } = require('./fixtures/teams.js');
 
@@ -145,10 +153,11 @@ function hpAccuracy(truthLines, builtLines, side) {
 
 // -------------------------------------------------------------- one run
 
-async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProbes, write, outDir }) {
+async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProbes, write, outDir, infer }) {
   let rung = requestedRung;
   const source = loadSource(file);
   const label = path.basename(file);
+  const inferred = infer === 'both' ? ['p1', 'p2'] : infer ? [infer] : [];
 
   let packedTeams = source.packedTeams;
   let observed = source.lines;
@@ -172,26 +181,36 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
     else throw new Error(`rung ${rung} does not apply to a recording`);
   } else {
     // A saved replay: HP is exact for whoever uploaded it and a percentage for
-    // the other, which is p1's view. Stat points must come from a fixture.
+    // the other, which is p1's view. Stat points come from a fixture, or for an
+    // inferred side from nowhere at all.
     channel = 1;
     const set = TEAM_SETS[teamsKey];
-    if (!set) throw new Error(`no fixture team set "${teamsKey}" - have ${Object.keys(TEAM_SETS).join(', ')}`);
-    packedTeams = [set.p1, set.p2]
-      .map(text => Teams.pack(Teams.import(text)))
-      .map((packed, i) => alignSpeciesToSheet(packed, source.sheets?.[i]));
+    if (inferred.length && !(source.sheets?.[0] && source.sheets?.[1])) {
+      throw new Error('this replay publishes no team sheets - inference needs every field but the Stat Points');
+    }
+    if (!set && inferred.length < 2) {
+      throw new Error(`no fixture team set "${teamsKey}" - have ${Object.keys(TEAM_SETS).join(', ')}`);
+    }
+    packedTeams = [set?.p1, set?.p2]
+      .map(text => (text ? Teams.pack(Teams.import(text)) : null))
+      .map((packed, i) => (packed ? alignSpeciesToSheet(packed, source.sheets?.[i]) : null));
     rung = 's4';
   }
 
   // Cross-check the supplied teams against what the replay published, before
-  // anything else runs. A team from the wrong game is caught here.
+  // anything else runs. A team from the wrong game is caught here. An inferred
+  // side supplied nothing, so there is nothing of it to check.
+  const supplied = i => !inferred.includes(`p${i + 1}`);
   const problems = [];
   for (const [i, sheet] of (source.sheets || []).entries()) {
+    if (!supplied(i)) continue;
     for (const p of crossCheckSheet(sheet, packedTeams[i])) problems.push(`p${i + 1} ${p}`);
   }
   const statedMax = maxHpFromLog(observed);
   if (statedMax.size) {
     const dex = Dex.forFormat(source.formatid);
     for (const [i, packed] of packedTeams.entries()) {
+      if (!supplied(i)) continue;
       for (const set of Teams.unpack(packed)) {
         const key = `p${i + 1} ${set.name || set.species}`;
         if (!statedMax.has(key)) continue;
@@ -217,18 +236,45 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
     : [];
 
   const started = Date.now();
-  const built = await reconstruct({
-    formatid: source.formatid,
-    packedTeams,
-    playerNames: source.players,
-    observed,
-    channel,
-    seed,
-    seedPlan,
-    sampleSeed,
-    maxProbes,
-    onProgress: chatty,
-  });
+  let built;
+  let inference = null;
+  let truthSets = [null, null];
+  if (inferred.length) {
+    // What the inferred side's sheet publishes, and nothing else. Its real
+    // spreads - a recording's own, or the fixture's - are kept only as the check.
+    const sets = [0, 1].map((i) => {
+      if (supplied(i)) return Teams.unpack(packedTeams[i]);
+      if (source.kind === 'replay') return setsFromSheet(source.sheets[i]);
+      return Teams.unpack(packedTeams[i]).map(s => ({ ...s, evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 } }));
+    });
+    truthSets = [0, 1].map(i => (!supplied(i) && packedTeams[i] ? Teams.unpack(packedTeams[i]) : null));
+    inference = await inferSpreads({
+      formatid: source.formatid,
+      sets,
+      known: [supplied(0), supplied(1)],
+      playerNames: source.players,
+      observed,
+      channel,
+      sampleSeed,
+      maxProbes,
+      onProgress: chatty,
+    });
+    built = inference.built;
+    packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: inference.picks[s][i] }))));
+  } else {
+    built = await reconstruct({
+      formatid: source.formatid,
+      packedTeams,
+      playerNames: source.players,
+      observed,
+      channel,
+      seed,
+      seedPlan,
+      sampleSeed,
+      maxProbes,
+      onProgress: chatty,
+    });
+  }
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
 
   // Independent proof: replaying the reconstructed input log from scratch must
@@ -260,6 +306,26 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
     say(`        rebuilt : ${d.actual ?? '(nothing)'}`);
   }
 
+  // Did every real spread survive? A spread the replay could have come from
+  // must never be eliminated, so a miss here is a defect, not a hard replay.
+  let truthKept = true;
+  if (inference) {
+    say(`     Stat Points of ${inferred.join(' and ')} inferred in ${inference.rounds} round(s), ` +
+        `${inference.events.length} events narrowed them`);
+    for (const p of inference.pokemon) {
+      if (p.known || !p.seen) continue;
+      const side = Number(p.side[1]) - 1;
+      const real = truthSets[side]?.find(s => toID(s.species || s.name).startsWith(toID(p.species))
+        || toID(p.species).startsWith(toID(s.species || s.name)));
+      const kept = real ? p.contains(real.evs) : null;
+      if (kept === false) truthKept = false;
+      const ranges = ['hp', 'atk', 'def', 'spa', 'spd', 'spe']
+        .map(s => (p.stats[s] ? `${s} ${p.stats[s].min}-${p.stats[s].max}` : `${s} -`)).join('  ');
+      say(`       ${p.side} ${p.species.padEnd(14)} ${p.spreads.toLocaleString('en')} of ${p.from.toLocaleString('en')} left  ${ranges}` +
+          `${kept === null ? '' : kept ? '  (real spread survives)' : '  REAL SPREAD ELIMINATED'}`);
+    }
+  }
+
   let outFile = null;
   if (write) {
     const base = path.basename(file).replace(/\.log\.json$|\.html$/i, '');
@@ -279,6 +345,13 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
       p2: source.players[1],
       p1team: unpackTeams(packedTeams)[0],
       p2team: unpackTeams(packedTeams)[1],
+      inference: inference ? {
+        inferred,
+        complete: inference.complete,
+        rounds: inference.rounds,
+        pokemon: inference.pokemon.filter(p => !p.known).map(({ contains, known, ...rest }) => rest),
+        events: inference.events,
+      } : undefined,
       inputLog: built.inputLog,
       log: built.log,
       format: source.formatid,
@@ -288,7 +361,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
   }
 
   return {
-    file, label, rung, ok: r.complete && selfConsistent, report: r, accuracy, selfConsistent, outFile, seconds,
+    file, label, rung, ok: r.complete && selfConsistent && truthKept, report: r, accuracy, selfConsistent, outFile, seconds,
   };
 }
 
@@ -301,6 +374,8 @@ async function main() {
   const maxProbes = Number(opt('--max-probes', '4000'));
   const write = !flag('--dry-run');
   const outDir = path.join(ROOT, 'recordings');
+  const infer = opt('--infer') ? opt('--infer').toLowerCase() : null;
+  if (infer && !['p1', 'p2', 'both'].includes(infer)) throw new Error('--infer takes p1, p2 or both');
 
   let files;
   if (flag('--all')) {
@@ -315,7 +390,8 @@ async function main() {
   // how much of a recording to withhold, and a replay withholds everything by
   // being what it is. Naming it here keeps the header from claiming otherwise.
   const heading = files.every(f => f.toLowerCase().endsWith('.html')) ? 's4' : rung;
-  say(`reconstruct: rung ${heading}, ${files.length} source${files.length === 1 ? '' : 's'}, sample seed ${sampleSeed}`);
+  say(`reconstruct: rung ${heading}${infer ? `, Stat Points of ${infer === 'both' ? 'both sides' : infer} inferred` : ''}, ` +
+    `${files.length} source${files.length === 1 ? '' : 's'}, sample seed ${sampleSeed}`);
 
   const results = [];
   for (const file of files) {
@@ -324,6 +400,7 @@ async function main() {
         file, rung, teamsKey, sampleSeed, maxProbes,
         write: write && !flag('--all'),
         outDir,
+        infer,
       }));
     } catch (err) {
       say(`  ${path.basename(file)}: ERROR ${err.message}`);

@@ -305,7 +305,9 @@ look-at-it check.
   `npm run reconstruct` builds one from it and both team sheets (`ENGINEERING.md` §7), and the
   result branches like any recording. What a reconstruction cannot recover is the opponent's
   *exact* HP — the replay only ever showed a percentage — so it samples uniformly from inside
-  the band the percentage allows, and every command that loads one says so.
+  the band the percentage allows, and every command that loads one says so. With `--infer`, the
+  Stat Points are not recovered either: the log carries one spread the replay allows
+  (`ENGINEERING.md` §7.5), and the banner says that too.
 - **No auto-verify.** `verify-branch` needs a battle that *ended*, and analysis branches are
   abandoned; the launcher prints the command instead.
 - **The button does not start the servers.** Reading the page over 8080 means they are up.

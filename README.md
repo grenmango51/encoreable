@@ -34,7 +34,7 @@ The `.bat` files are double-click equivalents that need no terminal.
 | `npm run live` | `live.bat` | **The product.** A recorded battle, restored to a turn, playable from both sides in the real UI. |
 | `npm run battle` | `battle.bat` | Record a new battle. Two browser windows, teams pre-loaded, challenge auto-issued. |
 | `npm run replay` | `replay.bat` | The determinism proof: play, re-simulate, diff, render a replay page. |
-| `npm run reconstruct` | `reconstruct.bat` | Turn a saved ladder replay plus both team sheets into a battle the other commands can use. |
+| `npm run reconstruct` | `reconstruct.bat` | Turn a saved ladder replay plus both team sheets into a battle the other commands can use. With `--infer p2`, the opponent's Stat Points are worked out from the replay instead of supplied. |
 | `npm run stop` | — | Kill the servers. |
 | `npm run check` | — | Verify the server binds to loopback and the format loads. |
 | `npm run serve` | — | The static client host on its own (rarely needed directly). |
@@ -52,8 +52,8 @@ same thing as `npm run live` for whichever turn is on screen.
 
 Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 `npm run live` also takes `--at <turn>`, `--dry-run`, `--verify <log.json>`.
-`npm run reconstruct` takes `--all`, `--rung s1|s2|s3`, `--teams <key>`, `--sample <n>`,
-`--max-probes <n>`, `--dry-run`.
+`npm run reconstruct` takes `--all`, `--rung s1|s2|s3`, `--teams <key>`, `--infer p1|p2|both`,
+`--sample <n>`, `--max-probes <n>`, `--dry-run`.
 `npm run replay` takes `--force "<outcome> <subject> [move]"` (repeatable) with `--at <turn>`
 and `--seed <seed>`: it replays a recording twice from that turn under one shared reseed, once
 plain and once with the named draws forced, and reports what moved.
@@ -114,7 +114,8 @@ Showdown's is the only source of truth. See the scope guards in `PLAN.MD` §3.
 Version pinned in `package.json` (`0.11.11`). MIT.
 Pin it deliberately: `ENGINEERING.md` §6.5 is the register of internal call sites this project
 depends on that upstream does not promise to keep. On any upgrade, diff those and re-run
-`npm run replay` **and** `npm run reconstruct -- --all --rung s2`, which exercises the rest.
+`npm run replay`, `npm run reconstruct -- --all --rung s2` **and**
+`npm run reconstruct -- --all --rung s3 --infer p2`, which exercise the rest.
 
 **Pokémon Showdown client** — https://github.com/smogon/pokemon-showdown-client
 Commit `218cc779512d67961e8aea0ae666d319e8ccf398`, built with `node build`.
