@@ -430,12 +430,12 @@ function onChannel(raw, channel) {
  */
 function drawsOf(trace, seg) {
   const rows = [];
-  for (const { i, from, to, value, mark } of trace || []) {
+  for (const { i, from, to, value, mark, at } of trace || []) {
     if (mark !== seg || from < 0) continue;
     const lo = to < 0 ? 0 : from;
     const hi = (to < 0 ? from : to) - 1;
     if (hi <= lo) continue;
-    rows.push({ i, lo, hi, value });
+    rows.push({ i, lo, hi, value, at });
   }
   return rows;
 }
@@ -448,11 +448,308 @@ function drawsOf(trace, seg) {
  * falls on is the whole question. A small range is enumerated outright: that is
  * the damage roll's 16 bands, a multi-hit `sample`, a sleep duration, a speed
  * tie's shuffle.
+ *
+ * A draw `steer` has already read off the observed turn is not enumerated: a
+ * damage roll offers one roll per HP it could leave that prints the line its
+ * hit is about to print, a crit only the face that makes it agree.
  */
-function candidates({ lo, hi, value }) {
+function candidates({ i, lo, hi, value }, steer = null) {
+  const fits = steer?.get(i);
+  if (fits) return fits.reps;
   const span = hi - lo + 1;
   const all = span <= 16 ? Array.from({ length: span }, (_, k) => lo + k) : [lo, hi];
   return all.filter(v => v !== value);
+}
+
+/**
+ * One rebuilt turn against the observed one, as the lines each side of the
+ * comparison sees.
+ *
+ * `|player|` is room noise wherever it appears: a branch recording gets one more
+ * every time a browser window takes a slot, mid-battle included. The rest of
+ * the allowlist only makes sense before turn 1. A turn the evidence has proved
+ * is compared exact, as far as it was proved: the omniscient view line for line
+ * up to there, the observed one after.
+ */
+function compareTurn({ segments, exact, channel }, k, slice) {
+  const soft = (line) => {
+    const kind = String(line).split('|')[1];
+    return kind === 'player' || (k === 0 && SOFT_PRETURN.has(kind));
+  };
+  const hard = lines => battleLines(lines).filter(l => !soft(l));
+  let wantHard = hard(segments[k]);
+  let gotHard = hard(onChannel(slice, channel));
+  let exactUpTo = 0;
+  const known = exact?.get(k);
+  if (known) {
+    const proved = hard(known.lines);
+    const gotExact = hard(onChannel(slice, -1));
+    wantHard = known.partial ? [...proved, ...wantHard.slice(proved.length)] : proved;
+    gotHard = known.partial ? [...gotExact.slice(0, proved.length), ...gotHard.slice(proved.length)] : gotExact;
+    exactUpTo = known.partial ? proved.length : Infinity;
+  }
+  return { wantHard, gotHard, exactUpTo };
+}
+
+/** Lines that start another action: a hit's own HP line always comes before them. */
+const ACTION_START = new Set(['move', 'cant', 'switch', 'drag', 'replace', 'upkeep', 'turn']);
+
+/**
+ * Read the dice of every real hit on turn `turn` off the observed turn, as they
+ * are thrown.
+ *
+ * At the moment a hit is calculated the rebuilt turn has printed exactly what
+ * the observed turn printed so far, so the observed turn says which HP line
+ * this hit is about to print. The simulator's own `getDamage` is run again for
+ * a roll, dry - a cloned move with the crit it really rolled, no dice consumed,
+ * no messages, items and the log handed back - and the target's `getHealth`
+ * says what that roll would print. HP after the hit only grows with the roll
+ * (roll 0 is full damage), so the rolls that print the observed line are one
+ * run of the sixteen, and a bisection finds its two ends.
+ *
+ * The crit die and each target's accuracy die are read the same way: the
+ * observed turn shows a `|-crit|` or a `|-miss|` for the target or it does not.
+ *
+ * `out` maps a draw's ordinal to `{ reps, groups, wrong }`: the faces worth
+ * probing, each standing for the faces that play out the same as it (`groups`),
+ * and whether the face the run threw prints the wrong line. A hit whose line
+ * cannot be placed - the turn already disagrees, a Substitute took it, a roll
+ * the dry run cannot answer - gets no entry and is searched in full.
+ */
+function steerDice(battle, { at, turn, compare, channel, out }) {
+  const st = battle.__rng;
+  const actions = battle.actions;
+  let draws = null;
+  const origRandomizer = battle.randomizer;
+  battle.randomizer = function (base) {
+    if (draws && !st.dry) draws.push(st.draws);
+    return origRandomizer.call(this, base);
+  };
+
+  const dry = (fn, roll) => {
+    const undo = override(battle, 'random', (m, n) => (m === 16 && n === undefined ? roll : (n === undefined ? 0 : m)));
+    const prevDry = st.dry;
+    st.dry = { roll };
+    const saved = {
+      log: battle.log.length, faints: battle.faintQueue.length, move: battle.activeMove,
+      target: battle.activeTarget, user: battle.activePokemon, lastDamage: battle.lastDamage,
+    };
+    try {
+      return fn();
+    } finally {
+      battle.log.length = saved.log;
+      battle.faintQueue.length = saved.faints;
+      battle.activeMove = saved.move;
+      battle.activeTarget = saved.target;
+      battle.activePokemon = saved.user;
+      battle.lastDamage = saved.lastDamage;
+      st.dry = prevDry;
+      undo();
+    }
+  };
+
+  /**
+   * The observed lines still to come in this action, or null if the rebuilt
+   * turn already disagrees with the observed one.
+   */
+  function standing() {
+    const { wantHard, gotHard, exactUpTo } = compare(at.k, battle.log.slice(at.logAt));
+    // The move in flight has not had its `[spread]`, `[miss]` or `[still]`
+    // appended yet (`attrLastMove`), so its line is only a prefix of the one
+    // it will become.
+    let moving = -1;
+    for (let i = gotHard.length - 1; i >= 0 && moving < 0; i--) if (gotHard[i].startsWith('|move|')) moving = i;
+    for (let i = 0; i < gotHard.length; i++) {
+      if (gotHard[i] === wantHard[i]) continue;
+      if (i === moving && String(wantHard[i]).startsWith(`${gotHard[i]}|`)) continue;
+      return null;
+    }
+    let end = gotHard.length;
+    while (end < wantHard.length && !ACTION_START.has(wantHard[end].split('|')[1])) end++;
+    return { wantHard, exactUpTo, from: gotHard.length, end };
+  }
+
+  /**
+   * Where the observed turn stands when a hit starts: whether the hit's target
+   * is shown a crit and which line is its HP line, before the next action.
+   */
+  function expect(target) {
+    const now = standing();
+    if (!now) return null;
+    const ident = String(target);
+    let crit = false;
+    let line = -1;
+    for (let i = now.from; i < now.end && line < 0; i++) {
+      const parts = now.wantHard[i].split('|');
+      if (parts[1] === '-crit' && parts[2] === ident) crit = true;
+      if (parts[1] === '-damage' && parts[2] === ident && parts.length === 4) line = i;
+    }
+    return { ...now, crit, line };
+  }
+
+  const faceOf = i => st.trace?.findLast(row => row.i === i)?.value;
+
+  /**
+   * A chance die, `random(d) < n`, against the outcome the observed turn shows:
+   * either end of the die decides it, and one that already agrees has nothing
+   * to fix.
+   */
+  const chanceEntry = ({ i, n, d }, want) => {
+    const face = faceOf(i);
+    if (face === undefined || d <= 1) return null;
+    if ((face < n) === want) return none(false);
+    const fix = want ? 0 : d - 1;
+    return (fix < n) === want ? { reps: [fix], groups: new Map(), wrong: true } : none(true);
+  };
+
+  const none = wrong => ({ reps: [], groups: new Map(), wrong });
+
+  function bracket(source, target, move, clone, items, seen, current) {
+    // No HP line for this target before the next action: the hit landed on
+    // nothing the log shows, and its roll has nothing to fix - unless a
+    // Substitute took it, whose breaking the roll does decide.
+    if (seen.line < 0) return target.volatiles.substitute ? null : none(false);
+    const { wantHard, exactUpTo, line } = seen;
+    const want = wantHard[line].split('|')[3];
+    const secret = channel === -1 || target.side.id === `p${channel}` || line < exactUpTo;
+    const wantRank = hpRank(want.split(' ')[0], secret)?.rank;
+    if (wantRank === undefined) return null;
+
+    const h = target.hp;
+    const shown = new Map();
+    const printed = (r) => {
+      if (shown.has(r)) return shown.get(r);
+      let token = null;
+      let left = null;
+      const post = snapItems([source, target]);
+      try {
+        let x = dry(() => {
+          restoreItems(items);
+          clone.moveHitData = undefined;
+          return origGetDamage.call(actions, source, target, clone, true);
+        }, r);
+        if (typeof x === 'number') {
+          if (x !== 0) x = Math.max(1, x);
+          if (x >= h) {
+            x = dry(() => { restoreItems(post); return battle.runEvent('Damage', target, source, move, x, true); }, r);
+            if (typeof x === 'number' && x !== 0) x = Math.max(1, x);
+          }
+          if (typeof x === 'number') {
+            left = Math.max(0, h - Math.trunc(x));
+            target.hp = left;
+            const health = target.getHealth();
+            token = String(secret ? health.secret : health.shared);
+          }
+        }
+      } finally {
+        target.hp = h;
+        restoreItems(post);
+      }
+      shown.set(r, token);
+      hpAfter.set(r, left);
+      return token;
+    };
+    const hpAfter = new Map();
+    const rankAt = (r) => {
+      const token = printed(r);
+      const rank = token === null ? undefined : hpRank(token.split(' ')[0], secret)?.rank;
+      if (rank === undefined) throw new Error('unranked');
+      return rank;
+    };
+    try {
+      let lo = 0;
+      let hi = ROLLS;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (rankAt(mid) < wantRank) lo = mid + 1; else hi = mid; }
+      if (lo === ROLLS || rankAt(lo) !== wantRank) return none(true);
+      const first = lo;
+      hi = ROLLS - 1;
+      while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (rankAt(mid) > wantRank) hi = mid - 1; else lo = mid; }
+      const fits = [];
+      for (let r = first; r <= lo; r++) if (printed(r) === want) fits.push(r);
+      // Two rolls that leave the target on the same exact HP dealt the same
+      // damage, so everything after plays out the same: one of them is probed
+      // for all, and none for the one the run already threw.
+      printed(current);
+      const groups = new Map();
+      for (const r of fits) {
+        if (hpAfter.get(r) === hpAfter.get(current)) continue;
+        const rep = [...groups.keys()].find(k => hpAfter.get(k) === hpAfter.get(r));
+        if (rep === undefined) groups.set(r, [r]); else groups.get(rep).push(r);
+      }
+      return { reps: [...groups.keys()], groups, wrong: !fits.includes(current) };
+    } catch {
+      return null;
+    }
+  }
+
+  // The crit is the one chance `getDamage` takes before it rolls damage; the
+  // accuracy step takes one per target, with that target active.
+  let chances = null;
+  let aiming = null;
+  const origChance = battle.randomChance;
+  battle.randomChance = function (n, d) {
+    if (!st.dry) {
+      if (chances && !draws.length) chances.push({ i: st.draws, n, d });
+      else if (aiming) aiming.push({ i: st.draws, n, d, target: battle.activeTarget });
+    }
+    return origChance.call(this, n, d);
+  };
+
+  // A target the observed turn shows `|-miss|` for was missed; every other
+  // target that reached the accuracy step was hit.
+  const origAccuracy = actions.hitStepAccuracy;
+  actions.hitStepAccuracy = function (targets, pokemon, move) {
+    if (at.k !== turn || st.dry || aiming || draws || move.smartTarget) return origAccuracy.call(this, targets, pokemon, move);
+    const now = standing();
+    const rolls = [];
+    aiming = rolls;
+    try {
+      return origAccuracy.call(this, targets, pokemon, move);
+    } finally {
+      aiming = null;
+      if (now) {
+        for (const roll of rolls) {
+          const missed = `|-miss|${pokemon}|${roll.target}`;
+          let shown = false;
+          for (let i = now.from; i < now.end && !shown; i++) shown = now.wantHard[i] === missed;
+          const entry = chanceEntry(roll, !shown);
+          if (entry) out.set(roll.i, entry);
+        }
+      }
+    }
+  };
+
+  const origGetDamage = actions.getDamage;
+  actions.getDamage = function (source, target, move, suppress) {
+    if (at.k !== turn || st.dry || draws || typeof move !== 'object' || !move || move.category === 'Status') {
+      return origGetDamage.call(this, source, target, move, suppress);
+    }
+    const seen = expect(target);
+    const clone = Utils.deepClone(move);
+    const items = snapItems([source, target]);
+    const got = [];
+    const rolled = [];
+    draws = got;
+    chances = rolled;
+    let real;
+    try {
+      real = origGetDamage.call(this, source, target, move, suppress);
+    } finally {
+      draws = null;
+      chances = null;
+    }
+    if (!seen || typeof real !== 'number') return real;
+    const crit = !!target.getMoveHitData(move).crit;
+    const chance = rolled.length === 1 && move.willCrit === undefined ? chanceEntry(rolled[0], seen.crit) : null;
+    if (chance) out.set(rolled[0].i, chance);
+    if (got.length !== 1 || crit !== seen.crit) return real;
+    clone.willCrit = crit;
+    const current = faceOf(got[0]);
+    if (current === undefined) return real;
+    const fits = bracket(source, target, move, clone, items, seen, current);
+    if (fits) out.set(got[0], fits);
+    return real;
+  };
 }
 
 /**
@@ -460,9 +757,10 @@ function candidates({ lo, hi, value }) {
  *
  * Stops at the first turn whose emitted lines disagree with the observed ones,
  * unless `tolerant` is set - which is how a best-effort log is produced after
- * the search gives up.
+ * the search gives up. With `steer`, that turn's damage, crit and accuracy dice
+ * are read off the observed turn as they are thrown (`steerDice`).
  */
-async function playThrough({ header, segments, plans, reseeds, variants, subs, channel, exact, state0, dex, stopAt, tolerant }) {
+async function playThrough({ header, segments, plans, reseeds, variants, subs, channel, exact, state0, dex, stopAt, tolerant, steer = null }) {
   const stream = new BattleStream({ keepAlive: true });
   const sink = [];
   const drain = (async () => { for await (const chunk of stream) sink.push(chunk); })();
@@ -486,17 +784,30 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
   if (!battle) throw new Error('no battle after >start - the header is malformed');
   install(battle);
   const trace = traceOn(battle);
+  // Each draw also records how long the log was when it was thrown: a die
+  // cannot change a line written before it.
+  const push = trace.push;
+  trace.push = row => push.call(trace, { ...row, at: battle.log.length });
   if (subs && Object.keys(subs).length) await stream.write(atLine(subs));
+
+  const compare = (k, slice) => compareTurn({ segments, exact, channel }, k, slice);
+  const at = { k: 0, logAt: 0 };
+  const steered = steer === null ? null : new Map();
+  if (steered) steerDice(battle, { at, turn: steer, compare, channel, out: steered });
   await stream.write(header.slice(1).join('\n'));
 
   const notes = [];
   const diffs = [];
   const widths = [];
+  const starts = [];
   let badTurn = null;
   let logAt = 0;
 
   for (let k = 0; k < segments.length; k++) {
     markDraws(battle, k);
+    at.k = k;
+    at.logAt = logAt;
+    starts[k] = logAt;
     if (k >= 1 && reseeds[k]) await stream.write(`>reseed ${reseeds[k]}`);
 
     // `variant` is a mixed-radix counter over every undetermined target in the
@@ -549,27 +860,18 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
     const slice = battle.log.slice(logAt);
     logAt = battle.log.length;
 
-    // `|player|` is room noise wherever it appears: a branch recording gets one
-    // more every time a browser window takes a slot, mid-battle included. The
-    // rest of the allowlist only makes sense before turn 1.
-    const soft = (line) => {
-      const kind = String(line).split('|')[1];
-      return kind === 'player' || (k === 0 && SOFT_PRETURN.has(kind));
-    };
-    const hard = lines => battleLines(lines).filter(l => !soft(l));
-    let wantHard = hard(segments[k]);
-    let gotHard = hard(onChannel(slice, channel));
-    // A turn the evidence has proved is compared exact, as far as it was proved:
-    // the omniscient view line for line up to there, the observed one after.
-    const known = exact?.get(k);
-    if (known) {
-      const proved = hard(known.lines);
-      const gotExact = hard(onChannel(slice, -1));
-      wantHard = known.partial ? [...proved, ...wantHard.slice(proved.length)] : proved;
-      gotHard = known.partial ? [...gotExact.slice(0, proved.length), ...gotHard.slice(proved.length)] : gotExact;
-    }
-    const diff = state.unsatisfied ? { index: -1, expected: state.unsatisfied, actual: '' }
-      : firstDivergence(wantHard, gotHard);
+    const { wantHard, gotHard } = compare(k, slice);
+    // A refused choice is often the echo of a line that already went wrong: a
+    // Pokemon knocked out that the replay shows standing is then asked to be
+    // replaced, and nothing was. That line is a die the search can move; only a
+    // refusal behind lines that all agree is a matter of legality.
+    // A replay can also stop on a turn whose replacements were never chosen - a
+    // forfeit, the timer - and a last turn that printed everything it shows is
+    // reproduced, whatever the simulator is still waiting for.
+    const found = firstDivergence(wantHard, gotHard);
+    const early = found && found.index < gotHard.length ? found : null;
+    const finished = !found && k === segments.length - 1;
+    const diff = state.unsatisfied && !finished ? (early || { index: -1, expected: state.unsatisfied, actual: '' }) : found;
 
     if (diff) {
       diffs.push({ turn: k, ...diff });
@@ -583,8 +885,10 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
     badTurn,
     diffs,
     widths,
+    starts,
     notes,
     trace,
+    steer: steered,
     inputLog: [...battle.inputLog],
     rawLog: [...battle.log],
     turn: battle.turn,
@@ -619,6 +923,36 @@ function scoreOf(run, t) {
   return [diff.index, fields];
 }
 
+/**
+ * Which of turn `t`'s draws could change the line the turn disagrees on. A die
+ * thrown after that line was written cannot - with one exception: a move line
+ * is amended after the fact (`[miss]`, `[still]`, a retarget - `attrLastMove`,
+ * `retargetLastMove`), so a move line stays open until the next action starts.
+ */
+function canReach(common, run, t) {
+  const diff = run.diffs[0];
+  if (!diff || diff.turn !== t || diff.index < 0 || run.starts?.[t] === undefined) return () => true;
+  const { gotHard } = compareTurn(common, t, run.rawLog.slice(run.starts[t]));
+  let limit = diff.index;
+  if (/^\|(move|-anim)\|/.test(gotHard[limit] || '')) {
+    limit = Infinity;
+    for (let j = diff.index + 1; j < gotHard.length; j++) {
+      if (ACTION_START.has(gotHard[j].split('|')[1])) { limit = j; break; }
+    }
+  }
+  if (limit === Infinity) return () => true;
+  const reachOf = new Map();
+  return (draw) => {
+    if (draw.at === undefined) return true;
+    let reach = reachOf.get(draw.at);
+    if (reach === undefined) {
+      reach = compareTurn(common, t, run.rawLog.slice(run.starts[t], draw.at)).gotHard.length;
+      reachOf.set(draw.at, reach);
+    }
+    return reach <= limit;
+  };
+}
+
 const outranks = (a, b) => (a[0] !== b[0] ? a[0] > b[0] : a[1] > b[1]);
 const ties = (a, b) => a[0] === b[0] && a[1] === b[1];
 
@@ -628,17 +962,72 @@ const ties = (a, b) => a[0] === b[0] && a[1] === b[1];
  * Draws are taken in the order the simulator consumed them, because a die
  * cannot change a line that was written before it was thrown - so the earliest
  * disagreeing draw is always the one to fix, and fixing it can never undo
- * anything already agreed. Each commit moves the draws after it, so the trace is
- * re-read from a fresh run rather than reused.
+ * anything already agreed. The exception goes first: a draw `steerDice` read
+ * off the observed turn and found printing the wrong line. Dice thrown after
+ * the line the turn disagrees on are skipped (`canReach`). Each commit moves the
+ * draws after it, so the trace is re-read from a fresh run rather than reused.
+ *
+ * A probe is not repeated when nothing it depended on moved. What changed since
+ * it ran is the dice committed since, and a die thrown after the line the probe
+ * failed on cannot reach that line: the run up to it is the same run, so it
+ * fails there again.
  *
  * `subs` is mutated: it is the accumulated answer, keyed by the draw's position
  * in the battle, and it is what the emitted `>rng at` line carries.
  */
 async function resolveTurn(t, common, subs, subTurn, sample, budget) {
-  let run = await playThrough({ ...common, subs, stopAt: t });
+  let run = await playThrough({ ...common, subs, stopAt: t, steer: t });
   let score = scoreOf(run, t);
   let forced = 0;
   let probes = 0;
+
+  const found = new Map();
+  const commits = [];
+  const remember = (probe) => {
+    const start = probe.starts?.[t] ?? 0;
+    return {
+      score: scoreOf(probe, t),
+      since: commits.length,
+      start,
+      lines: probe.rawLog.slice(start),
+      trace: probe.trace.filter(row => row.mark === t),
+    };
+  };
+  const failAt = (rec) => {
+    if (rec.fail !== undefined) return rec.fail;
+    const { start, lines } = rec;
+    const end = start + lines.length;
+    let idx = rec.score[0];
+    if (!Number.isFinite(idx) || idx < 0) return (rec.fail = end);
+    const count = p => compareTurn(common, t, lines.slice(0, p - start)).gotHard.length;
+    const { gotHard } = compareTurn(common, t, lines);
+    if (/^\|(move|-anim)\|/.test(gotHard[idx] || '')) {
+      let next = Infinity;
+      for (let j = idx + 1; j < gotHard.length && next === Infinity; j++) {
+        if (ACTION_START.has(gotHard[j].split('|')[1])) next = j;
+      }
+      idx = next;
+    }
+    if (idx >= gotHard.length) return (rec.fail = end);
+    let lo = start;
+    let hi = end;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (count(mid) > idx) hi = mid; else lo = mid + 1; }
+    return (rec.fail = lo);
+  };
+  const holds = (rec) => {
+    if (!rec.at) rec.at = new Map(rec.trace.map(row => [row.i, row.at]));
+    for (const c of commits.slice(rec.since)) {
+      const thrown = rec.at.get(Number(c));
+      if (thrown !== undefined && thrown < failAt(rec)) return false;
+    }
+    return true;
+  };
+  const commit = (i, value) => {
+    subs[i] = value;
+    subTurn[i] = t;
+    commits.push(i);
+    forced++;
+  };
 
   while (score[0] !== Infinity && score[0] !== -1 && probes < budget) {
     let committed = false;
@@ -652,18 +1041,52 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     // last commit. A move with no named target picks one when the action is
     // queued, at the top of the turn, so the draw that decides it sits below
     // draws that were settled long before the line it spoils shows up.
-    for (const draw of drawsOf(run.trace, t)) {
-      if (subs[draw.i] !== undefined) continue;
+    // A draw the steer has shown prints the wrong line is the likeliest fix,
+    // so those go first; the rest keep the order they were thrown in.
+    const reach = canReach(common, run, t);
+    const all = drawsOf(run.trace, t);
+    const wrong = d => !!run.steer?.get(d.i)?.wrong;
+
+    // Every such draw set right at once, first. A spread move that missed one
+    // target and hit the other needs both accuracy dice moved, and neither
+    // alone brings the line any closer.
+    const fixes = all.filter(d => subs[d.i] === undefined && reach(d) && wrong(d) && run.steer.get(d.i).reps.length);
+    if (fixes.length > 1 && probes < budget) {
+      const trial = { ...subs };
+      for (const d of fixes) {
+        const { reps, groups } = run.steer.get(d.i);
+        const faces = reps.flatMap(v => groups.get(v) || [v]);
+        trial[d.i] = faces[sample.pick(faces.length)];
+      }
+      const probe = await playThrough({ ...common, subs: trial, stopAt: t });
+      probes++;
+      if (outranks(scoreOf(probe, t), score)) {
+        for (const d of fixes) commit(d.i, trial[d.i]);
+        run = await playThrough({ ...common, subs, stopAt: t, steer: t });
+        score = scoreOf(run, t);
+        continue;
+      }
+    }
+
+    for (const draw of [...all.filter(wrong), ...all.filter(d => !wrong(d))]) {
+      if (subs[draw.i] !== undefined || !reach(draw)) continue;
+      const same = v => run.steer?.get(draw.i)?.groups.get(v) || [v];
 
       let best = score;
       const winners = [];
-      for (const v of candidates(draw)) {
-        if (probes >= budget) break;
-        const probe = await playThrough({ ...common, subs: { ...subs, [draw.i]: v }, stopAt: t });
-        probes++;
-        const reach = scoreOf(probe, t);
-        if (outranks(reach, best)) { best = reach; winners.length = 0; winners.push(v); }
-        else if (ties(reach, best) && outranks(reach, score)) winners.push(v);
+      for (const v of candidates(draw, run.steer)) {
+        const key = `${draw.i}|${v}`;
+        let rec = found.get(key);
+        if (!rec || !holds(rec)) {
+          if (probes >= budget) break;
+          const probe = await playThrough({ ...common, subs: { ...subs, [draw.i]: v }, stopAt: t });
+          probes++;
+          rec = remember(probe);
+          found.set(key, rec);
+        }
+        const reach = rec.score;
+        if (outranks(reach, best)) { best = reach; winners.length = 0; winners.push(...same(v)); }
+        else if (ties(reach, best) && outranks(reach, score)) winners.push(...same(v));
       }
       if (!winners.length) continue;
 
@@ -677,22 +1100,18 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
         if (!fallback || outranks(best, fallback.best)) fallback = pick;
         continue;
       }
-      subs[pick.i] = pick.value;
-      subTurn[pick.i] = t;
-      forced++;
+      commit(pick.i, pick.value);
       committed = true;
       break;
     }
 
     if (!committed && fallback) {
-      subs[fallback.i] = fallback.value;
-      subTurn[fallback.i] = t;
-      forced++;
+      commit(fallback.i, fallback.value);
       committed = true;
     }
 
     if (!committed) break;
-    run = await playThrough({ ...common, subs, stopAt: t });
+    run = await playThrough({ ...common, subs, stopAt: t, steer: t });
     score = scoreOf(run, t);
   }
 
@@ -772,7 +1191,7 @@ function exactHp(rawLog, who) {
  * set that the forward pass makes.
  */
 async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict = false) {
-  const run = await playThrough({ ...common, subs, stopAt: t });
+  const run = await playThrough({ ...common, subs, stopAt: t, steer: t });
   if (scoreOf(run, t)[0] !== Infinity) return false;
   const was = who ? exactHp(run.rawLog, who) : null;
 
@@ -780,17 +1199,17 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
   const moving = [];
   let probes = 0;
   for (const draw of drawsOf(run.trace, t)) {
-    for (const v of candidates(draw)) {
+    for (const v of candidates(draw, run.steer)) {
       if (probes >= budget) break;
       const probe = await playThrough({ ...common, subs: { ...subs, [draw.i]: v }, stopAt: t });
       probes++;
       if (scoreOf(probe, t)[0] !== Infinity) continue;
-      const option = { i: draw.i, value: v };
-      options.push(option);
+      const found = (run.steer?.get(draw.i)?.groups.get(v) || [v]).map(value => ({ i: draw.i, value }));
+      options.push(...found);
       // Most of a turn's dice have nothing to do with the Pokemon that is stuck.
       // Only the ones that actually move its HP are worth spending a backtrack
       // on; the rest would redraw the turn and change nothing that matters.
-      if (who && exactHp(probe.rawLog, who) !== was) moving.push(option);
+      if (who && exactHp(probe.rawLog, who) !== was) moving.push(...found);
     }
   }
   const pool = moving.length ? moving : strict ? [] : options;
@@ -818,6 +1237,10 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
  *                     the omniscient channel instead. Stat Point inference supplies
  *                     it: where the evidence has proved which exact HP a percentage
  *                     hid, sampling it again can only pick wrong.
+ * @param pins         `{ subs, turns }`: draws already settled, by ordinal, and the turn
+ *                     each belongs to. Stat Point inference supplies the dice that
+ *                     rebuild its proved turns, so only the turn after them is
+ *                     searched. A pin on a turn that fails is dropped and searched.
  */
 export async function reconstruct({
   formatid,
@@ -832,6 +1255,7 @@ export async function reconstruct({
   maxVariants = 256,
   maxBacktracks = 6,
   exact = null,
+  pins = null,
   onProgress = () => {},
 }) {
   const dex = Dex.forFormat(formatid);
@@ -857,6 +1281,11 @@ export async function reconstruct({
   const spent = new Array(segments.length).fill(0);
   const subs = {};
   const subTurn = {};
+  for (const [i, v] of Object.entries(pins?.subs || {})) {
+    if (pins.turns?.[i] === undefined) continue;
+    subs[i] = v;
+    subTurn[i] = pins.turns[i];
+  }
 
   /** Forget every draw settled from `turn` on, so they can be drawn again. */
   const forget = (turn) => {
@@ -878,6 +1307,17 @@ export async function reconstruct({
 
   let run = await playThrough({ ...common, subs });
   attempts++;
+  // A handed-in pin is only as good as the turn it rebuilds: a spread that
+  // throws a different sequence of dice there moves every ordinal after it. On
+  // a turn proved only in part, the pins stand as long as that part holds.
+  if (run.badTurn !== null && Object.keys(subs).some(i => subTurn[i] >= run.badTurn)) {
+    const t = run.badTurn;
+    const known = exact?.get(t);
+    const held = known?.partial && run.diffs[0]?.index >= compareTurn(common, t, []).exactUpTo;
+    forget(held ? t + 1 : t);
+    run = await playThrough({ ...common, subs });
+    attempts++;
+  }
 
   // Backtracking throws away turns that were already right, on the chance that a
   // different draw makes a later one reachable. That gamble does not always pay,
@@ -1013,6 +1453,7 @@ export async function reconstruct({
     log: onChannel(run.rawLog, -1),
     rawLog: run.rawLog,
     seed: startSeed,
+    pins: { subs: { ...subs }, turns: Object.fromEntries(run.trace.map(r => [r.i, r.mark])) },
     reseeds: reseeds.map((s, i) => (s ? { turn: i, seed: s } : null)).filter(Boolean),
     report: {
       complete,
@@ -1291,10 +1732,10 @@ function verifiedPrefix(view, observed) {
     for (let i = 0; i < Math.max(a.length, b.length); i++) {
       if (a[i] === b[i]?.line) continue;
       const next = b[i]?.at ?? got[k + 1]?.[0]?.at ?? Infinity;
-      return { cutoffAt: next, observedLine: a[i] ?? null, turn: k };
+      return { cutoffAt: next, observedLine: a[i] ?? null, observedAfter: a.slice(i + 1), turn: k };
     }
   }
-  return { cutoffAt: Infinity, observedLine: null, turn: null };
+  return { cutoffAt: Infinity, observedLine: null, observedAfter: [], turn: null };
 }
 
 const HP_FIELD = { '-damage': 3, '-heal': 3, '-sethp': 3, switch: 4, drag: 4, replace: 4 };
@@ -1361,13 +1802,17 @@ async function evidencePass({ inputLog, observed, channel, knowledge, cache, rec
         ctx = attachInference(stream.battle, { view, prefix, channel, knowledge, cache, record });
       }
       await stream.write(line);
+      // Draw ordinals count from installation, and `playThrough` installs right
+      // after `>start`, so a roll found here is addressed the way a pin is.
+      if (line.startsWith('>start')) install(stream.battle);
       if (ctx?.state.ended) break;
     }
     if (!ctx) throw new Error('the input log makes no choices, so there is nothing to infer from');
     ctx.finish();
     if (exact) {
-      const tokens = ctx.paths(pre);
-      ctx.exact = tokens && exactTurns(pre, tokens, prefix);
+      const found = ctx.paths(pre);
+      ctx.exact = found && exactTurns(pre, found.tokens, prefix);
+      ctx.rolls = found?.rolls || null;
     }
     const clock = l => (String(l).startsWith('|t:|') ? '|t:|' : l);
     const drift = firstDivergence(stream.battle.log.map(clock), pre.slice(0, stream.battle.log.length).map(clock));
@@ -1376,7 +1821,7 @@ async function evidencePass({ inputLog, observed, channel, knowledge, cache, rec
     stream.destroy?.();
     await Promise.race([drain, Promise.resolve()]);
   }
-  return { ...ctx.result(), exact: ctx.exact || null };
+  return { ...ctx.result(), exact: ctx.exact || null, rolls: ctx.rolls || null };
 }
 
 /**
@@ -1674,24 +2119,41 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       let base;
       try { base = dryRow(hit, [], new Map()); } finally { for (const u of undo.reverse()) u(); }
 
+      // Whose stat attacks, and which, is the move's to say: Foul Play attacks
+      // with the target's Attack, Body Press with the user's Defence, Psyshock
+      // hits Defence with a special move.
+      const physical = clone.category === 'Physical';
+      const attacker = clone.overrideOffensivePokemon === 'target' ? target : source;
+      const wantOff = clone.overrideOffensiveStat || (physical ? 'atk' : 'spa');
+      const wantDef = clone.overrideDefensiveStat || (physical ? 'def' : 'spd');
       const unknownReads = reads.filter(([p]) => !byPokemon.get(p).kn.known);
-      const off = unknownReads.find(([p, s]) => p === source && (s === 'atk' || s === 'spa'))?.[1] || null;
-      const def = unknownReads.find(([p, s]) => p === target && (s === 'def' || s === 'spd'))?.[1]
-        || reads.find(([p, s]) => p === target && (s === 'def' || s === 'spd'))?.[1] || null;
-      const supported = source !== target && unknownReads.every(([p, s]) =>
-        (p === source && s === off) || (p === target && s === def));
+      const off = unknownReads.some(([p, s]) => p === attacker && s === wantOff) ? wantOff : null;
+      const def = wantDef;
+      const supported = source !== target && clone.overrideDefensivePokemon !== 'source'
+        && !battle.field.pseudoWeather.wonderroom
+        && unknownReads.every(([p, s]) => (p === attacker && s === wantOff) || (p === target && s === wantDef));
 
       // HP matters to Water Spout, Multiscale, Brine, pinch abilities. Ask
       // rather than list: the row either moves with HP or it does not.
       const probe = (p) => [...new Set([p.maxhp, p.maxhp - 1, Math.ceil(p.maxhp / 2),
         Math.floor(p.maxhp / 2), Math.floor(p.maxhp / 3), Math.floor(p.maxhp / 4), 1])].filter(h => h >= 1);
       const moves = p => probe(p).some(h => !sameRow(dryRow(hit, [{ pokemon: p, hp: h }], new Map()), base));
-      return { off, def: def || 'def', supported, targetHp: moves(target), sourceHp: moves(source) };
+      return {
+        off, offBy: attacker === source ? 'source' : 'target', def, supported, targetHp: moves(target), sourceHp: moves(source),
+      };
     });
     Object.assign(hit, shape);
     if (!hit.supported) return hit;
 
-    hit.aVals = hit.off && !S.kn.known ? aliveOf(S.flat[hit.off]) : [0];
+    // The attacking stat is a flat domain (Attack, Special Attack) or, for Body
+    // Press, a dimension of the user's joint key.
+    const A = hit.offBy === 'target' ? T : S;
+    hit.A = A;
+    hit.offDim = hit.off === 'def' || hit.off === 'spd';
+    if (hit.offDim && !A.chain) initChain(A);
+    hit.aVals = !hit.off || A.kn.known ? [0]
+      : hit.offDim ? [...new Set([...A.chain.keys()].map(k => KEY_DIM[hit.off][k]))].sort((x, y) => x - y)
+        : aliveOf(A.flat[hit.off]);
     const dVals = new Set();
     const tStates = new Map();
     for (const [k, hs] of T.chain) {
@@ -1721,8 +2183,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           for (const d of dVals) {
             const row = memo(`row|${ord}|${a}|${d}|${hpKey}`, () => {
               const patches = [];
-              if (hit.off && !S.kn.known) patches.push({ pokemon: source, stats: { [hit.off]: S.stat(hit.off, a) } });
               const tp = { pokemon: target, stats: T.kn.known ? {} : { [hit.def]: T.stat(hit.def, d) } };
+              if (hit.off && !A.kn.known) {
+                if (A === T) tp.stats[hit.off] = T.stat(hit.off, a);
+                else patches.push({ pokemon: source, stats: { [hit.off]: S.stat(hit.off, a) } });
+              }
               if (t) { tp.maxhp = maxHp(T, t[0]); tp.hp = t[1]; }
               patches.push(tp);
               if (s) patches.push({ pokemon: source, maxhp: s[0], hp: s[1] });
@@ -1775,15 +2240,18 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const clamp = x => (typeof x === 'number' && x !== 0 ? Math.max(1, x) : x);
     const modified = clamp(hit.real) !== clamp(dealt);
     const table = new Map();
+    const rolls = new Map();
     for (const [g, [hp, d, h]] of groupsOf(T, hit.def)) {
       const M = maxHp(T, hp);
       const pairs = [];
+      const rs = [];
       for (const a of hit.aVals) {
         for (let si = 0; si < hit.sStates.length; si++) {
           const row = hit.rows.get(rowKey(a, d, hit.targetHp ? hp : null, hit.targetHp ? h : null, si));
           if (!row) continue;
           const v = (a + SPAN * si) * HP_BITS;
-          for (const value of row) {
+          for (const [r, value] of row.entries()) {
+            rs.push(r);
             let x = clamp(value);
             if (typeof x !== 'number' || x <= 0) { pairs.push(v + h); continue; }
             if (modified || x >= h) x = clamp(damageEvent(hit, ctx, T, M, h, x));
@@ -1793,19 +2261,25 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         }
       }
       table.set(g, Int32Array.from(pairs));
+      rolls.set(g, Uint8Array.from(rs));
     }
-    const via = hit.off && !hit.S.kn.known ? { rec: hit.S, stat: hit.off } : null;
+    const via = !hit.off || hit.A.kn.known ? null
+      : hit.offDim ? { rec: hit.A, dim: hit.off } : { rec: hit.A, stat: hit.off };
     const S = hit.S;
     S.hitsThisMove = S.hitMove === ctx.effect ? S.hitsThisMove + 1 : 1;
     S.hitMove = ctx.effect;
     return {
       dim: hit.def,
       table,
+      rolls,
+      rollAt: hit.rollAt,
       via,
       dealtBy: S,
       sourceStates: hit.sourceHp ? hit.sStates : null,
       move: ctx.effect,
-      off: hit.off,
+      // Recoil and drain read the user's own attacking stat off the same hit;
+      // one that belongs to the target or to a key dimension says nothing there.
+      off: hit.A === S && !hit.offDim ? hit.off : null,
       hits: S.hitsThisMove,
       what: `${label(hit.S)}'s ${hit.clone.name} hit ${label(T)}`,
     };
@@ -1934,7 +2408,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       if (id === 'drain' && last?.byA.size && last.move === battle.activeMove && last.victim === hurt) return drainChange(T, last, what);
       return band(dir, what);
     }
-    if (['leechseed', 'shellbell', 'strengthsap', 'painsplit', 'confusion'].includes(id)) return band(dir, what);
+    // Leech Seed drains an eighth of the seeded Pokemon's HP, which scales like
+    // any fraction below; what the seeder gets back is that amount, exact only
+    // when the seeded Pokemon's HP is.
+    if (id === 'leechseed' && kind === 'heal') {
+      return byPokemon.get(other)?.exact ? amountChange(T, kind, () => [raw], ctx, what) : band(dir, what);
+    }
+    if (['shellbell', 'strengthsap', 'painsplit', 'confusion'].includes(id)) return band(dir, what);
 
     // Everything else that scales is written as a fraction of max HP. A raw
     // amount that is not a whole number proves the fraction was passed unrounded;
@@ -1949,6 +2429,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   function onChange(rec, kind, info) {
     sync();
     if (state.ended) return;
+    rec.moved = (rec.moved || 0) + 1;
     if (!rec.chain) initChain(rec);
     for (const change of rec.pending.splice(0)) apply(rec, change, null);
     let change;
@@ -1982,7 +2463,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
    * only if some candidate reached the display through it.
    */
   function apply(rec, change, token) {
-    const before = record && token !== null ? countOf(rec) : 0;
+    const noted = record && (token !== null || change.gate);
+    const before = noted ? countOf(rec) : 0;
     const viaBefore = record && token !== null && change.via ? countOf(change.via.rec) : 0;
     const next = new Map();
     const supported = change.via ? new Uint8Array(SPAN) : null;
@@ -2008,7 +2490,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         if (!res) {
           res = { hs: [], via: [] };
           if (change.same) {
-            const fits = !change.allowSet || change.allowSet.has(M * HP_BITS + h);
+            const fits = (!change.allowSet || change.allowSet.has(M * HP_BITS + h)) && (!change.allow || change.allow(M, h));
             if (fits && (!allow || (h >= allow[0] && h <= allow[1]))) res.hs.push(h);
           } else if (change.band) {
             let lo = change.band === 'up' ? h : 0;
@@ -2049,10 +2531,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     rec.history.push({ change, token, pre: rec.chain, seq: seq++ });
     rec.chain = next;
     if (dealt) change.dealtBy.lastDealt = { move: change.move, off: change.off, hits: change.hits, byA: dealt, change, victim: rec };
-    if (supported && token !== null) {
-      const dom = change.via.rec.flat[change.via.stat];
-      for (let v = 0; v < SPAN; v++) if (dom[v] && !supported[v]) dom[v] = 0;
-    }
+    if (supported && token !== null) narrowVia(change.via, supported);
     // The victim's display also says which HP the attacker could have been on,
     // when the hit depended on it.
     let attackerCut = null;
@@ -2064,7 +2543,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       apply(S, { same: true, allowSet, what: change.what, turn: change.turn }, null);
       if (record) attackerCut = { id: S.id, pokemon: label(S), before: sBefore, after: countOf(S) };
     }
-    if (record && token !== null) {
+    if (noted) {
       const cuts = [];
       const after = countOf(rec);
       if (after !== before) cuts.push({ id: rec.id, pokemon: label(rec), before, after });
@@ -2076,8 +2555,20 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         const same = cuts.find(c => c.id === attackerCut.id);
         if (same) same.after = attackerCut.after; else cuts.push(attackerCut);
       }
-      if (cuts.length) events.push({ turn: change.turn ?? battle.turn, what: change.what, shown: token, cuts });
+      if (cuts.length) events.push({ turn: change.turn ?? battle.turn, what: change.what, ...(token !== null ? { shown: token } : {}), cuts });
     }
+  }
+
+  /** Keep only the attacking-stat values a hit's display left reachable. */
+  function narrowVia(via, ok) {
+    if (via.dim) {
+      const A = via.rec;
+      if (!A.chain) initChain(A);
+      for (const k of [...A.chain.keys()]) if (!ok[KEY_DIM[via.dim][k]]) A.chain.delete(k);
+      return;
+    }
+    const dom = via.rec.flat[via.stat];
+    for (let v = 0; v < SPAN; v++) if (dom[v] && !ok[v]) dom[v] = 0;
   }
 
   /** A printed HP line: settle what is pending for that Pokemon against it. */
@@ -2115,6 +2606,15 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
 
   // ------------------------------------------------------------ the hooks
 
+  // The ordinal of the draw a real hit's damage roll took, so the roll an
+  // evidence path chose for it can be written back as a pin.
+  let rollDraws = null;
+  const origRandomizer = battle.randomizer;
+  battle.randomizer = function (base) {
+    if (rollDraws && !st.dry) rollDraws.push(st.draws);
+    return origRandomizer.call(this, base);
+  };
+
   const origGetDamage = actions.getDamage;
   actions.getDamage = function (source, target, move, suppress) {
     if (state.dry || state.ended || typeof move !== 'object' || !move || move.category === 'Status'
@@ -2124,12 +2624,21 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     sync();
     const clone = Utils.deepClone(move);
     const pre = snapItems([source, target]);
-    const real = origGetDamage.call(this, source, target, move, suppress);
+    const draws = [];
+    rollDraws = draws;
+    let real;
+    try {
+      real = origGetDamage.call(this, source, target, move, suppress);
+    } finally {
+      rollDraws = null;
+    }
     if (typeof real !== 'number' || state.ended) return real;
     const crit = !!target.getMoveHitData(move).crit;
     const post = snapItems([source, target]);
     try {
-      pendingHits.set(target, analyseHit(source, target, clone, crit, real, pre, origGetDamage));
+      const hit = analyseHit(source, target, clone, crit, real, pre, origGetDamage);
+      hit.rollAt = draws.length === 1 ? draws[0] : null;
+      pendingHits.set(target, hit);
     } finally {
       restoreItems(post);
     }
@@ -2182,6 +2691,67 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     });
   }
 
+  // A held item that acts on `Update` - a Sitrus or pinch Berry - fires or not
+  // on the HP the Pokemon is on right then. The simulator is asked, for each
+  // max HP the Pokemon could have, up to which HP its item would fire: the
+  // item's own `onUpdate`, dry. The condition only grows truer as HP falls, so
+  // a bisection finds the edge. Whether the item really fired then keeps only
+  // the HP that agrees - checked where the HP last moved, before the berry's
+  // own heal is applied.
+  const itemFires = (rec, M, h) => guarded(() => {
+    const p = rec.pokemon;
+    const undo = patchAll([{ pokemon: p, maxhp: M, hp: h }]);
+    const items = snapItems([p]);
+    const boosts = { ...p.boosts };
+    const held = p.item;
+    try {
+      battle.singleEvent('Update', p.getItem(), p.itemState, p);
+      return p.item !== held;
+    } finally {
+      restoreItems(items);
+      Object.assign(p.boosts, boosts);
+      undo();
+    }
+  });
+  const fireEdge = (rec, M) => {
+    if (!itemFires(rec, M, 1)) return 0;
+    if (itemFires(rec, M, M)) return M;
+    let lo = 1;
+    let hi = M;
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (itemFires(rec, M, mid)) lo = mid; else hi = mid; }
+    return lo;
+  };
+  let itemChecks = 0;
+  const origUpdate = battle.runEvent;
+  battle.runEvent = function (eventid, target, ...rest) {
+    const rec = eventid === 'Update' && !state.dry && !state.ended ? byPokemon.get(target) : null;
+    if (!rec || rec.exact || !rec.moved || rec.checked === rec.moved || !target.item || !target.getItem().onUpdate) {
+      return origUpdate.call(this, eventid, target, ...rest);
+    }
+    rec.checked = rec.moved;
+    sync();
+    if (state.ended) return origUpdate.call(this, eventid, target, ...rest);
+    const ord = itemChecks++;
+    const edge = new Map();
+    for (const k of rec.chain ? rec.chain.keys() : rec.knKeys) {
+      const M = maxHp(rec, KEY_HP[k]);
+      if (!edge.has(M)) edge.set(M, memo(`edge|${ord}|${rec.id}|${M}`, () => fireEdge(rec, M)));
+    }
+    // An edge of 0 or of the whole bar says nothing about HP.
+    if ([...edge].every(([M, t]) => t === 0 || t === M)) return origUpdate.call(this, eventid, target, ...rest);
+    const name = target.getItem().name;
+    const gate = { same: true, gate: true, turn: battle.turn, what: `${name} on ${label(rec)}`, fired: null };
+    gate.allow = (M, h) => gate.fired === null || !edge.has(M) || (h <= edge.get(M)) === gate.fired;
+    rec.pending.push(gate);
+    const held = target.item;
+    try {
+      return origUpdate.call(this, eventid, target, ...rest);
+    } finally {
+      gate.fired = target.item !== held;
+      gate.what = `${name} ${gate.fired ? 'fired' : 'did not fire'} on ${label(rec)}`;
+    }
+  };
+
   const speedTable = rec => memo(`spe|${sortOrdinal}|${rec.id}`, () => guarded(() => {
     const p = rec.pokemon;
     const saved = p.storedStats.spe;
@@ -2232,6 +2802,105 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
   };
 
+  // The speed an event handler sorts by is the one `updateSpeed` cached, so
+  // every candidate's is taken at that moment rather than when the sort runs.
+  // A forme change (`setSpecies`, which Mega Evolution runs) caches the bare
+  // Speed stat of the new forme until the next update.
+  let speedUpdates = 0;
+  for (const rec of recs) {
+    const p = rec.pokemon;
+    const setSpecies = p.setSpecies;
+    override(p, 'setSpecies', function (...args) {
+      const out = setSpecies.apply(this, args);
+      if (!state.dry && !state.ended) {
+        rec.cachedSpeed = rec.kn.known
+          ? new Float64Array(SPAN).fill(this.speed)
+          : Float64Array.from({ length: SPAN }, (_, s) => rec.stat('spe', s));
+      }
+      return out;
+    });
+    const update = p.updateSpeed;
+    override(p, 'updateSpeed', function () {
+      const out = update.call(this);
+      if (!state.dry && !state.ended) {
+        const at = speedUpdates++;
+        rec.cachedSpeed = rec.kn.known
+          ? new Float64Array(SPAN).fill(this.speed)
+          : memo(`upd|${at}|${rec.id}`, () => guarded(() => {
+            const saved = p.storedStats.spe;
+            const table = new Float64Array(SPAN);
+            try {
+              for (let s = 0; s < SPAN; s++) { p.storedStats.spe = rec.stat('spe', s); table[s] = p.getActionSpeed(); }
+            } finally {
+              p.storedStats.spe = saved;
+            }
+            return table;
+          }));
+      }
+      return out;
+    });
+  }
+
+  // Sorts by speed outside the action queue: switch-in abilities and the end
+  // of the turn (`fieldEvent`), weather's pass over every Pokemon
+  // (`eachEvent`). Each keeps the order its items were sorted into and the log
+  // span each item's handler wrote - a handler is dispatched through
+  // `singleEvent` by `fieldEvent`, through `runEvent` by `eachEvent`.
+  const eventSorts = [];
+  const open = [];
+  const origSpeedSort = battle.speedSort;
+  battle.speedSort = function (list, comparator) {
+    const out = origSpeedSort.call(this, list, comparator);
+    const top = open[open.length - 1];
+    if (top && !top.entry.items && !state.dry) {
+      top.entry.items = list.map((item) => {
+        const holder = item.effectHolder !== undefined ? item.effectHolder : item;
+        return {
+          holder,
+          effect: item.effect || null,
+          order: item.order || 4294967296,
+          priority: item.priority || 0,
+          rec: byPokemon.get(holder) || null,
+        };
+      });
+      for (const it of top.entry.items) if (it.rec && it.rec.cachedSpeed) top.entry.speeds.set(it.rec, it.rec.cachedSpeed);
+    }
+    return out;
+  };
+  for (const [name, dispatch] of [['fieldEvent', 'singleEvent'], ['eachEvent', 'runEvent']]) {
+    const orig = battle[name];
+    battle[name] = function (eventid, ...rest) {
+      if (state.dry || state.ended) return orig.call(this, eventid, ...rest);
+      const entry = { kind: name, eventid, turn: battle.turn, items: null, spans: [], speeds: new Map() };
+      open.push({ entry, dispatch, depth: 0 });
+      try {
+        return orig.call(this, eventid, ...rest);
+      } finally {
+        open.pop();
+        eventSorts.push(entry);
+      }
+    };
+  }
+  for (const [dispatch, targetAt] of [['singleEvent', 3], ['runEvent', 1]]) {
+    const orig = battle[dispatch];
+    battle[dispatch] = function (...args) {
+      const top = open[open.length - 1];
+      if (!top || top.dispatch !== dispatch || top.depth > 0 || state.dry) {
+        if (top) top.depth++;
+        try { return orig.apply(this, args); } finally { if (top) top.depth--; }
+      }
+      const span = { holder: args[targetAt], effect: dispatch === 'singleEvent' ? args[1] : null, start: battle.log.length };
+      top.depth++;
+      try {
+        return orig.apply(this, args);
+      } finally {
+        top.depth--;
+        span.end = battle.log.length;
+        top.entry.spans.push(span);
+      }
+    };
+  }
+
   /**
    * An attacking stat survives a hit only if a candidate it moved there can
    * still reach every later display of that Pokemon. The forward pass checks
@@ -2266,7 +2935,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           for (const h of hs) {
             let ok = false;
             if (change.same) {
-              ok = later.includes(h) && (!change.allowSet || change.allowSet.has(M * HP_BITS + h));
+              ok = later.includes(h) && (!change.allowSet || change.allowSet.has(M * HP_BITS + h)) && (!change.allow || change.allow(M, h));
             } else if (change.band) {
               let lo = change.band === 'up' ? h : 0;
               let hi = change.band === 'down' ? h : M;
@@ -2287,10 +2956,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           }
           if (keep.length) prev.set(k, keep);
         }
-        if (seen) {
-          const dom = change.via.rec.flat[change.via.stat];
-          for (let v = 0; v < SPAN; v++) if (dom[v] && !seen[v]) dom[v] = 0;
-        }
+        if (seen) narrowVia(change.via, seen);
         alive = prev;
       }
       rec.pathKeys = new Set(alive.keys());
@@ -2321,6 +2987,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
    * hit that depended on its attacker's HP takes the attacker's chosen HP, and a
    * hit whose recoil was printed deals an amount the recoil allows. Where more
    * than one value fits, the scaffold's own is kept.
+   *
+   * Returns the exact HP tokens by raw-log index, and for every hit on the path
+   * the damage roll that produces it, keyed by the draw ordinal that roll took.
    */
   function paths(raw) {
     const entries = [];
@@ -2328,6 +2997,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     entries.sort((x, y) => x.e.seq - y.e.seq);
     const cur = new Map();
     const chosen = new Map(recs.map(rec => [rec, []]));
+    const rolls = new Map();
     const secretAt = new Map();
     for (const rec of recs) {
       for (const { at, hist } of rec.shown) {
@@ -2355,15 +3025,20 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const M = maxHp(rec, KEY_HP[k]);
       const d = e.change.dim ? KEY_DIM[e.change.dim][k] : 0;
       const options = [];
+      const rollOf = new Map();
       if (e.change.same) {
-        if (later.includes(h) && (!e.change.allowSet || e.change.allowSet.has(M * HP_BITS + h))) options.push(h);
+        if (later.includes(h) && (!e.change.allowSet || e.change.allowSet.has(M * HP_BITS + h)) && (!e.change.allow || e.change.allow(M, h))) options.push(h);
       } else if (e.change.band) {
         const lo = e.change.band === 'up' ? h : 0;
         const hi = e.change.band === 'down' ? h : M;
         for (const x of later) if (x >= lo && x <= hi) options.push(x);
       } else {
         const attacker = e.change.sourceStates ? cur.get(e.change.dealtBy) : null;
-        for (const packed of e.change.table.get((KEY_HP[k] * SPAN + d) * HP_BITS + h) || []) {
+        const g = (KEY_HP[k] * SPAN + d) * HP_BITS + h;
+        const packs = e.change.table.get(g) || [];
+        const rs = e.change.rolls?.get(g);
+        for (let j = 0; j < packs.length; j++) {
+          const packed = packs[j];
           const h2 = packed % HP_BITS;
           if (!later.includes(h2)) continue;
           const tag = Math.floor(packed / HP_BITS);
@@ -2373,6 +3048,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             if (sM !== maxHp(e.change.dealtBy, KEY_HP[attacker[0]]) || sH !== attacker[1]) continue;
           }
           options.push(h2);
+          if (rs && !rollOf.has(h2)) rollOf.set(h2, rs[j]);
         }
       }
       if (!options.length) return null;
@@ -2380,6 +3056,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const h2 = options.includes(own) ? own : options[0];
       chosen.get(rec)[i] = h2;
       cur.set(rec, [k, h2]);
+      if (e.change.rollAt !== null && e.change.rollAt !== undefined && rollOf.has(h2)) rolls.set(e.change.rollAt, rollOf.get(h2));
     }
 
     const tokens = new Map();
@@ -2393,7 +3070,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         tokens.set(secretAt.get(`${rec.id}|${hist}`), h ? `${h}/${maxHp(rec, KEY_HP[k])}` : '0');
       }
     }
-    return tokens;
+    return { tokens, rolls };
   }
 
   // ------------------------------------------------------------ speed
@@ -2440,6 +3117,48 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
     }
 
+    // Handlers of one event sorted at the same order and priority ran in speed
+    // order, so a Pokemon whose handler wrote a line first had at least the
+    // speed of one whose handler wrote a line after it.
+    const shownIn = (span) => {
+      for (let i = firstAt(span.start); i < view.length && view[i].at < span.end; i++) {
+        if (view[i].at < upTo) return true;
+      }
+      return false;
+    };
+    // Each span belongs to the next item it can: handlers run in sorted order.
+    const matched = (entry) => {
+      const out = [];
+      let next = 0;
+      for (const span of entry.spans) {
+        let j = next;
+        while (j < entry.items.length && !(entry.items[j].holder === span.holder
+          && (!span.effect || !entry.items[j].effect || entry.items[j].effect === span.effect))) j++;
+        if (j === entry.items.length) continue;
+        next = j + 1;
+        out.push({ span, item: entry.items[j] });
+      }
+      return out;
+    };
+    const eventRule = (entry, x, y) => {
+      if (!x.rec || !y.rec || x.rec === y.rec || x.order !== y.order || x.priority !== y.priority) return;
+      const tf = entry.speeds.get(x.rec);
+      const ts = entry.speeds.get(y.rec);
+      if (!tf || !ts) return;
+      const name = it => (entry.kind === 'eachEvent' ? entry.eventid : it.effect?.name || entry.eventid);
+      rules.push({
+        fast: x.rec, slow: y.rec, tf, ts, turn: entry.turn,
+        what: `${label(x.rec)}'s ${name(x)} came before ${label(y.rec)}'s ${name(y)}`,
+      });
+    };
+    for (const entry of eventSorts) {
+      if (!entry.items) continue;
+      const shown = matched(entry).filter(m => m.item.rec && shownIn(m.span)).map(m => m.item);
+      for (let a = 0; a < shown.length; a++) {
+        for (let b = a + 1; b < shown.length; b++) eventRule(entry, shown[a], shown[b]);
+      }
+    }
+
     // The log diverged on who moved: the observed order is the true one.
     const cut = view.find(e => e.at === prefix.cutoffAt);
     const who = line => /^\|(move|cant)\|/.test(String(line || '')) ? String(line).split('|')[2] : null;
@@ -2453,6 +3172,37 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const y = S?.list.find(item => item.pokemon === P?.pokemon && item.order === x?.order && item.priority === x?.priority);
       const Q = x && byPokemon.get(x.pokemon);
       if (P && Q && y && !tainted.has(S.turn)) rules.push({ fast: P, slow: Q, tf: S.speeds.get(P), ts: S.speeds.get(Q), turn: S.turn });
+    }
+
+    // The log diverged inside an event sort: the rebuild's handler for Q wrote
+    // its line where the replay shows P's. That proves P went first only if
+    // the replay shows Q's line too, after P's and before the next action - a
+    // handler can stay silent in the real battle (a Leftovers heal at full HP),
+    // and then the replay's order says nothing about it.
+    const whose = (line) => {
+      const first = String(line).split('|')[2] || '';
+      const ident = /^p[1-4][a-d]?: /.test(first) ? first : tagsOf(String(line)).of;
+      return ident ? byIdent.get(`${identSide(ident)}:${identName(ident)}`) : null;
+    };
+    const rebuilt = cut && battleLines([cut.line])[0];
+    if (rebuilt && prefix.observedLine && !was) {
+      for (const entry of eventSorts) {
+        if (!entry.items) continue;
+        const hit = matched(entry).find(m => m.span.start <= prefix.cutoffAt && prefix.cutoffAt < m.span.end);
+        if (!hit) continue;
+        // P's handler is the one whose effect the replay's line names; an
+        // each-Pokemon pass has one item per Pokemon and no effect to name.
+        const P = whose(prefix.observedLine);
+        const x = P && entry.items.find(it => it.rec === P
+          && (entry.kind === 'eachEvent' || (it.effect && prefix.observedLine.includes(it.effect.name))));
+        let later = false;
+        for (const line of prefix.observedAfter) {
+          if (ACTION_START.has(line.split('|')[1])) break;
+          if (line === rebuilt) { later = true; break; }
+        }
+        if (x && later) eventRule(entry, x, hit.item);
+        break;
+      }
     }
     return rules;
   }
@@ -2481,7 +3231,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           const b = countOf(slow);
           if (a !== before[0]) cuts.push({ id: fast.id, pokemon: label(fast), before: before[0], after: a });
           if (b !== before[1]) cuts.push({ id: slow.id, pokemon: label(slow), before: before[1], after: b });
-          if (cuts.length) events.push({ turn: rule.turn, what: `${label(fast)} acted before ${label(slow)}`, cuts });
+          if (cuts.length) events.push({ turn: rule.turn, what: rule.what || `${label(fast)} acted before ${label(slow)}`, cuts });
         }
       }
     }
@@ -2564,6 +3314,32 @@ function closestSpread(kn, prev) {
 }
 
 const sameSpread = (a, b) => STAT_IDS.every(s => a[s] === b[s]);
+
+/**
+ * The dice that rebuild a scaffold's verified turns under the next guess.
+ *
+ * Within those turns the same dice are thrown in the same order whatever the
+ * spread - accuracy, crits and procs keep the faces the scaffold settled - and
+ * only the damage rolls must change, to the ones the evidence path chose for the
+ * new spreads. The path also runs into the failing turn as far as it was
+ * proved, so its rolls there are handed on too; the scaffold's other dice on
+ * that turn are not, since the search that failed there chose them. A spread
+ * that throws a different sequence is caught by `reconstruct`, which drops the
+ * pins from that turn on.
+ */
+function handOn(built, rolls) {
+  const failed = built.report.diffs[0]?.turn ?? Infinity;
+  const { subs, turns } = built.pins;
+  const out = { subs: {}, turns: {} };
+  const put = (i, v, upTo) => {
+    if (!(turns[i] <= upTo)) return;
+    out.subs[i] = v;
+    out.turns[i] = turns[i];
+  };
+  for (const [i, v] of Object.entries(subs)) put(i, v, failed - 1);
+  for (const [i, r] of rolls || []) put(i, r, failed);
+  return out;
+}
 
 /**
  * Where to aim the next guess. The nearest survivor to a guess the evidence
@@ -2669,7 +3445,11 @@ export async function inferSpreads({
   let rounds = 0;
   let level = 0;
   let exact = null;
+  let pins = null;
   const started = Date.now();
+  // One seed for every round, so the dice a round hands on land on the same
+  // generator: an ordinal nobody pinned draws the same value every time.
+  const seed = sampler(sampleSeed ^ 0x5eed).seed();
 
   // A wrong guess makes a turn that no die can repair, and a full search spends
   // its whole budget proving that. So a guess is first tried on a small budget,
@@ -2687,9 +3467,12 @@ export async function inferSpreads({
     rounds++;
     const packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
     const searchStart = Date.now();
+    const resample = budgets[level].resample || 0;
     built = await reconstruct({
       formatid, packedTeams, playerNames, observed, channel, exact,
-      sampleSeed: sampleSeed + (budgets[level].resample || 0),
+      seed: resample ? null : seed,
+      pins: resample ? null : pins,
+      sampleSeed: sampleSeed + resample,
       maxProbes: budgets[level].maxProbes,
       maxBacktracks: budgets[level].maxBacktracks,
     });
@@ -2708,8 +3491,9 @@ export async function inferSpreads({
     // the next candidate tried. A full set is accepted only when, with all of it
     // pinned, the evidence can name one exact HP path through every verified
     // turn - and the next search is handed those turns exact, so it cannot
-    // sample its way into a dead end there. A Pokemon the log never showed keeps
-    // its guess: nothing about it can be wrong yet.
+    // sample its way into a dead end there, along with the dice that rebuild
+    // them, so it does not search them at all. A Pokemon the log never showed
+    // keeps its guess: nothing about it can be wrong yet.
     const order = [];
     for (const [s, team] of sets.entries()) {
       if (known[s]) continue;
@@ -2722,7 +3506,7 @@ export async function inferSpreads({
       if (n === order.length) {
         tries--;
         const proof = await evidencePass({ inputLog: built.inputLog, observed: lines, channel, knowledge: cond, cache, exact: true });
-        return proof.exact;
+        return proof.exact ? proof : null;
       }
       const [s, i] = order[n];
       const id = `p${s + 1}:${i}`;
@@ -2730,7 +3514,18 @@ export async function inferSpreads({
       const tried = [];
       for (const aim of [aimFor(kn, picks[s][i]), picks[s][i], aimFor(kn, picks[s][i], 0.25), aimFor(kn, picks[s][i], 0.75)]) {
         if (tries <= 0) return null;
-        const pick = closestSpread(kn, aim);
+        const first = closestSpread(kn, aim);
+        if (!first) continue;
+        // HP, Defence and Special Defence first, and the flat stats from what
+        // survives beside them: one hit can tie the two together - Foul Play
+        // reads the target's Attack against its own Defence.
+        const keyed = cloneKnowledge(cond);
+        const pinned = keyed.get(id);
+        pinned.keys.fill(0);
+        pinned.keys[keyOf(first.hp, first.def, first.spd)] = 1;
+        tries--;
+        await settle(built.inputLog, keyed, cache);
+        const pick = closestSpread(pinned, aim);
         if (!pick || tried.some(t => sameSpread(t, pick))) continue;
         tried.push(pick);
         const narrowed = cloneKnowledge(cond);
@@ -2745,14 +3540,16 @@ export async function inferSpreads({
       }
       return null;
     };
-    exact = await choose(0, cloneKnowledge(knowledge));
+    const proof = await choose(0, cloneKnowledge(knowledge));
+    exact = proof?.exact || null;
+    pins = proof ? handOn(built, proof.rolls) : null;
     if (!exact) {
       for (const [s, i] of order) {
         const kn = knowledge.get(`p${s + 1}:${i}`);
         next[s][i] = closestSpread(kn, aimFor(kn, picks[s][i])) || next[s][i];
       }
     }
-    onProgress(`  evidence and new guesses, ${((Date.now() - evidenceStart) / 1000).toFixed(1)}s${exact ? `, ${exact.size} turns exact` : ''}`);
+    onProgress(`  evidence and new guesses, ${((Date.now() - evidenceStart) / 1000).toFixed(1)}s${exact ? `, ${exact.size} turns exact` : ''}${pins ? `, ${Object.keys(pins.subs).length} dice handed on` : ''}`);
     const unchanged = next.every((team, s) => team.every((e, i) => sameSpread(e, picks[s][i])));
     if (unchanged) {
       // The evidence accepts this guess, so what failed was the dice search.

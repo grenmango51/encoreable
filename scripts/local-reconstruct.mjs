@@ -181,9 +181,11 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
     else throw new Error(`rung ${rung} does not apply to a recording`);
   } else {
     // A saved replay: HP is exact for whoever uploaded it and a percentage for
-    // the other, which is p1's view. Stat points come from a fixture, or for an
-    // inferred side from nowhere at all.
-    channel = 1;
+    // the other, so the side whose HP the log states outright is the view it
+    // was saved from. Stat points come from a fixture, or for an inferred side
+    // from nowhere at all.
+    const exactSides = new Set([...maxHpFromLog(observed).keys()].map(key => key.slice(0, 2)));
+    channel = exactSides.size === 1 && exactSides.has('p2') ? 2 : 1;
     const set = TEAM_SETS[teamsKey];
     if (inferred.length && !(source.sheets?.[0] && source.sheets?.[1])) {
       throw new Error('this replay publishes no team sheets - inference needs every field but the Stat Points');

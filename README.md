@@ -114,8 +114,8 @@ Showdown's is the only source of truth. See the scope guards in `PLAN.MD` §3.
 Version pinned in `package.json` (`0.11.11`). MIT.
 Pin it deliberately: `ENGINEERING.md` §6.5 is the register of internal call sites this project
 depends on that upstream does not promise to keep. On any upgrade, diff those and re-run
-`npm run replay`, `npm run reconstruct -- --all --rung s2` **and**
-`npm run reconstruct -- --all --rung s3 --infer p2`, which exercise the rest.
+`npm run replay`, `npm run reconstruct -- --all --rung s2`, `npm run reconstruct -- --all --rung s3`
+**and** `npm run reconstruct -- --all --rung s3 --infer p2`, which exercise the rest.
 
 **Pokémon Showdown client** — https://github.com/smogon/pokemon-showdown-client
 Commit `218cc779512d67961e8aea0ae666d319e8ccf398`, built with `node build`.

@@ -18,11 +18,17 @@ const ROOM_ONLY = new Set([
   'request', 'tempnotify', 'tempnotifyoff',
 ]);
 
+/**
+ * Messages the retired `>eval` RNG controller wrote into the battle itself.
+ * Recordings made with it still carry them; no simulator emits them.
+ */
+const RNG_MESSAGE = /^\|-message\|#rng /;
+
 /** The battle-mechanics lines of a log, with room-level noise removed. */
 export function battleLines(log) {
   const lines = Array.isArray(log) ? log : String(log).split('\n');
   return lines.filter((line) => {
-    if (!line.startsWith('|')) return false;
+    if (!line.startsWith('|') || RNG_MESSAGE.test(line)) return false;
     return !ROOM_ONLY.has(line.split('|')[1]);
   }).map((line) => {
     // the server appends a rating field to |player| that the sim does not

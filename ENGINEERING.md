@@ -599,7 +599,7 @@ with it, the page renders nothing at all and gives no error.
 promises no reproducibility at all. The `RNG` interface is not exported, so it must be
 duck-typed structurally.
 
-Reconstruction (§7) leans on five more that are just as undocumented:
+Reconstruction (§7) leans on more that are just as undocumented:
 
 | Surface | Why it matters | Site |
 |---|---|---|
@@ -609,6 +609,9 @@ Reconstruction (§7) leans on five more that are just as undocumented:
 | `BattleStream._writeLine` dispatches on the verb, and `RoomBattleStream` does not override it | is what lets `>rng` become a recipe line in both venues, §4 | `sim/battle-stream.ts`, `server/room-battle.ts` |
 | a locked Pokemon still gets a request, with one move and **no target field** | naming a target for it is refused outright | `sim/pokemon.ts:971`, `:1090` |
 | `extractChannelMessages` is not re-exported by `sim/index.ts` | reached via `dist/sim/battle.js` | `sim/battle.ts` |
+| the damage roll is `battle.randomizer` (on the battle, not the actions), its one draw | steering brackets it and inference records its ordinal, §7.3 | `sim/battle.ts:1972` |
+| the crit is the one `battle.randomChance` inside `getDamage` before the roll; accuracy is one per target inside `hitStepAccuracy`, with that target in `activeTarget`, and a miss prints `-miss\|user\|target` | each is read off the observed turn, §7.3 | `sim/battle-actions.ts:1397`, `:586` |
+| `attrLastMove` appends `[spread]`, `[miss]` and `[still]` to the move line after the hits | a move line in flight is a prefix of the observed one | `sim/battle.ts:2572` |
 
 Stat Point inference (§7.5) hooks the simulator at more internal points than anything else here:
 
@@ -620,10 +623,14 @@ Stat Point inference (§7.5) hooks the simulator at more internal points than an
 | `pokemon.damage`, `heal` and `sethp` are the only writers of `hp` | every HP change is seen, silent ones included | `sim/pokemon.ts:1601-1672` |
 | `actions.applyRecoilDamage` computes and applies recoil in one call | each candidate's recoil is a dry call of it | `sim/battle-actions.ts:1379` |
 | the queue is sorted by `queue.sort`, then run head-first by `battle.runAction`, and re-sorted before each move | "acted first" is read off the last sort before the action | `sim/battle-queue.ts:413`, `sim/battle.ts:2915` |
+| `fieldEvent` (switch-in, end of turn) and `eachEvent` (weather, `Update`) sort by `battle.speedSort`, then dispatch each handler through `singleEvent` / `runEvent` | an event's order and each handler's lines are read off those calls | `sim/battle.ts:267`, `:293`, `:310` |
+| a handler sorts by the Pokemon's cached `speed`, written only by `updateSpeed` and by `setSpecies` (the bare Speed stat, until the next update); a switch-in handler subtracts under one point for position | candidate speeds are taken at those writes; the fraction never reorders whole speeds | `sim/pokemon.ts:283`, `:1011`, `sim/battle.ts:767` |
+| a held item's pinch check is its own `onUpdate`, run from `eachEvent('Update')` | the check is asked dry, per HP, of the item alone | `data/items.ts` (`sitrusberry`) |
 | `getActionSpeed` and `statModify` are replaced per instance by the Champions mod | speeds and stats are asked of the instance, never the prototype | `data/mods/champions/scripts.ts` |
 
 Pin the `pokemon-showdown` version. On any upgrade, the test is a diff of those call sites plus
-a re-run of `npm run replay`, `npm run reconstruct -- --all --rung s2` **and**
+a re-run of `npm run replay`, `npm run reconstruct -- --all --rung s2`,
+`npm run reconstruct -- --all --rung s3` **and**
 `npm run reconstruct -- --all --rung s3 --infer p2`, which exercise every one of them. Line
 numbers in this document have already drifted once.
 
@@ -688,6 +695,31 @@ is not cosmetic — a spread move needs its **target** draw and its **accuracy**
 together, and neither alone moves the first component. A commit that only improves `fields` is
 a guess, so it is held back until nothing improves `lines`.
 
+Every probe replays the battle from the start, so the search is built to make few of them:
+
+- **Steering reads the dice off the observed turn** (`steerDice`). At the moment a hit is
+  calculated the rebuilt turn has printed exactly what the observed one printed, so the observed
+  turn says what this hit is about to print. The damage roll is bracketed by re-running
+  `getDamage` dry per roll and asking the target's `getHealth` what it would print: HP after a
+  hit only grows with the roll, so the rolls that fit are one run of the sixteen and a bisection
+  finds its ends. Rolls that leave the same exact HP play out identically, so one of them is
+  probed for all. The crit die agrees with the observed `|-crit|` or it does not, and each
+  target's accuracy die with its `|-miss|`; a die that agrees has nothing to fix. A turn whose
+  prefix already disagrees gets no steering and is searched in full.
+- **Dice shown to print the wrong line go first, and together.** A spread move that missed one
+  target and hit the other needs both accuracy dice moved — neither alone brings the line any
+  closer — so every such die is set right in one probe before any is tried alone. That is what
+  reproduces Bo3 game B's turn-3 Heat Wave.
+- **A die thrown after the line the turn disagrees on is skipped**, except within a move line,
+  which `attrLastMove` amends until the next action starts.
+- **A probe is not repeated when nothing it depended on moved.** What changes between scans is
+  the dice committed since; a die thrown after the line a probe failed on cannot reach that line,
+  so the probe fails there again.
+- **A refused choice after a line that already disagrees is that line's failure**, not a matter
+  of legality: a Pokemon knocked out that the replay shows standing is then asked to be
+  replaced, and nothing was. A last turn that printed everything it shows is reproduced, whatever
+  the simulator is still waiting for — a replay can stop on a forfeit or the timer.
+
 When several values reproduce the observation equally well, the one kept is drawn **uniformly
 among them**. That is the whole of the HP sampler. A draw that matched on its own needs no such
 treatment: the generator already picked it uniformly and it survived the comparison, which is
@@ -705,12 +737,17 @@ amount is the damage dealt.
 
 | Rung | Withheld | Result |
 |---|---|---|
-| S1 | the choices | **14/14** line-for-line |
-| S2 | + the seed | **14/14** |
-| S3 | + the opponent's exact HP | **13/14**; the miss is recording 23, whose own input log the simulator refuses (§6.1), so its truth is a two-turn stub |
-| S4 | everything — a saved ladder replay | **MATCH**, all ten turns, 7s, 22 of 119 draws forced |
+| S1 | the choices | **19/19** line-for-line |
+| S2 | + the seed | **19/19**, 10 s for all of them |
+| S3 | + the opponent's exact HP | **19/19**, 10 s; recording 23's own input log is refused by the simulator (§6.1), so its truth is a two-turn stub, reproduced to its last line |
+| S4 | everything — a saved ladder replay | Bo3 game A **MATCH**, ten turns, 1.1 s; game B **MATCH**, six turns, 1.8 s |
 
-Opponent HP across S3: exact on most readings, worst error **one point**. The S4 replay then
+Recordings 100, 111 and 122 were played under the retired `>eval` controller, which wrote
+`|-message|#rng …` lines into the battle itself; `battleLines` drops them. A replay saved by the
+p2 player is read from p2's side: whichever side the log states HP outright for is the view.
+
+Opponent HP across S3: exact on 170 of 174 readings, worst error **one point** — recording 23
+aside, whose readings are held against a truth that stops after two turns. The S4 replay then
 renders, every max HP checks out, and `npm run live --at 4` opens both sides in the real
 client — which also confirms `P2_ALT`'s Stat Points as a side effect, since a wrong spread
 could not have reproduced ten turns of percentages.
@@ -728,13 +765,15 @@ a guess: stat ranges, a spread count, and every event that removed something
 (`inference.events` in the written `.log.json`).
 
 **The simulator decides everything.** One replay of a reconstructed input log is hooked at the
-three places a spread matters, `scripts/lib/reconstruct.mjs` §"Stat Point inference":
+places a spread matters, `scripts/lib/reconstruct.mjs` §"Stat Point inference":
 
 | Hook | What is asked, per surviving spread |
 |---|---|
 | `actions.getDamage` | the damage all 16 rolls would do, from a dry re-run in the real position (§4's `damageLadder` guards: cloned move, no dice consumed, no messages, state restored) |
 | `pokemon.damage` / `heal` / `sethp` | where each candidate's exact HP moves to — then only what `getHealth` would print as the next line survives |
 | `queue.sort` → `battle.runAction` | each candidate's `getActionSpeed`, so "acted before X in the same bracket" becomes a speed bound |
+| `fieldEvent` / `eachEvent` → `speedSort` | the same for switch-in abilities, end-of-turn effects and weather's pass over the field, at each candidate's speed as `updateSpeed` cached it |
+| `runEvent('Update')` | whether the held item's own `onUpdate` fires at each HP, so a pinch Berry that fired or stayed uneaten keeps only the HP on its side of the edge |
 
 The opponent's HP is a percentage, so a candidate is not one HP but the **set** of exact values
 it could be on, carried hit to hit. HP, Defence and Special Defence are one joint key, because
@@ -754,20 +793,38 @@ memoised on that number.
 - **Attacker HP.** Water Spout, Eruption and pinch abilities read the attacker's own HP. The
   dependence is detected by asking (does the row move when HP does?), and then the victim's line
   also filters which HP the attacker could have been on.
+- **Whose stat attacks.** The move says: Foul Play attacks with the target's Attack, Body Press
+  with the user's Defence, Psyshock hits Defence with a special move. A hit keeps the attacking
+  values that reached the display — a flat domain, or for Body Press a dimension of the user's
+  joint key. Foul Play ties the target's Attack to its own Defence, so a new guess fixes HP,
+  Defence and Special Defence first and picks the flat stats from what survives beside them.
+- **Speed order from every sort.** Queued actions (moves, Mega Evolution, switches), switch-in
+  abilities, end-of-turn effects and weather's pass: two items of one sort at the same order and
+  priority ran fastest first, so a Pokemon whose line came first had at least the other's speed.
+  The speed compared is the simulator's at that moment — `getActionSpeed` for the queue, the
+  cached `speed` for event handlers, re-taken when `setSpecies` resets it on Mega Evolution — so
+  Tailwind, Trick Room's reversal, paralysis and Choice Scarf are all the simulator's. A tie can go
+  either way, so every bound is `>=`. Gen 9 re-sorts before each move, so the last sort before an
+  action is the one that decided it. After You, Quash and Instruct taint their turn's queue.
+  Where the rebuild diverges on order, the replay's order is used only when it is proved: a move
+  line always prints, and a handler's line counts only if the replay shows the rebuilt
+  Pokemon's line later in the same phase — a Leftovers heal at full HP prints nothing.
+- **Pinch Berries.** After each HP change the simulator's own check is asked, per max HP, up to
+  which HP the item fires; a bisection finds the edge. Champions already shades the percentage at
+  a half, so a Sitrus seldom adds anything; a quarter Berry does.
 - **Whole paths.** Each display is first checked on its own; then every Pokemon's HP history is
   walked backwards from what survived the last display, and a spread — or an attacking stat — is
   kept only if some path through *every* turn reaches it. Without this, two unknowns hitting each
   other each look possible on turn 2 through states turn 4 rules out.
 - **The 66-point budget**, pushed through every stat after every pass.
 
-**What is not used, and costs precision only.** A hit that reads an unusual stat (Body Press,
-Foul Play), recoil from a multi-target move, a berry that did or did not trigger at its HP
-threshold, and any HP change of unknown shape let the candidate move anywhere its next printed
-line allows. Speed order is read
-from move, Mega Evolution and switch-in actions only, never from residual order, and a turn with
-After You, Quash or Instruct gives none. An effect written as a fraction of max HP is scaled only
-when its amount proves the fraction: a non-integer amount was passed unrounded; a whole one could
-have been rounded either way, so both roundings are kept. None of these can remove a spread that
+**What is not used, and costs precision only.** Shell Bell, Pain Split, Strength Sap, confusion
+damage, what a Leech Seed gives back when the seeded Pokemon is shown as a percentage, a hit under
+Wonder Room, and any HP change of unknown shape let the candidate move anywhere its next printed
+line allows. Recoil summed over several hits is not used either; no move in the format does it.
+An effect written as a fraction of max HP — Leech Seed's drain included — is scaled only when its
+amount proves the fraction: a non-integer amount was passed unrounded; a whole one could have
+been rounded either way, so both roundings are kept. None of these can remove a spread that
 fits.
 
 **The scaffold.** Every hit has to happen in the position it really happened in, so the replay
@@ -782,8 +839,13 @@ diverged, move the guess inside what survived, repeat. Three choices keep that f
   each possible alone are not impossible together;
 - with every guess pinned, the evidence names one exact HP path through the verified turns, and
   the next reconstruction is handed those turns **exact** (compared on the omniscient channel) —
-  so the dice search cannot sample a 91 where only 92 leads anywhere. The search budget starts at
-  150 probes and grows only for a guess the evidence has no quarrel with.
+  so the dice search cannot sample a 91 where only 92 leads anywhere — together with **the dice
+  that rebuild them**. Within the verified turns the same dice are thrown in the same order
+  whatever the spread; accuracy, crits and procs keep the faces the last search settled, and each
+  damage roll becomes the one the path chose for the new spread, at the ordinal the scaffold
+  recorded for it. So a round searches only the turn after them. A spread that throws a different
+  sequence is caught, and the pins from that turn on are dropped and searched. The search budget
+  starts at 150 probes and grows only for a guess the evidence has no quarrel with.
 
 The reconstruction also blames the *other* hidden Pokemon a failing line depends on, on
 alternate backtracks: the attacker for Water Spout, the victim for recoil (§7.3).
@@ -793,11 +855,12 @@ be a defect, and it has not happened in any run.
 
 | Source | Withheld | Result | Time | Real spread |
 |---|---|---|---|---|
-| Bo3 game A, 10 turns | p2's spreads | MATCH, 2 rounds | 15 s | survives, all 4 seen |
-| Bo3 game A | both sides' | MATCH, 7 rounds | 104 s | survives, all 8 seen |
-| Bo3 game B, 6 turns | p2's spreads | MATCH, 6 rounds | 17 s | survives, all 4 seen |
-| Bo3 game B | both sides' | through turn 2 — then the Heat Wave line plain reconstruction also fails with both real teams | 113 s | survives, all seen |
-| 19 recordings, S3 | p2's spreads | 12 MATCH. 25, 34 and 76 stop at turn 1, 3 and 1 — the search runs out, and 76 is a branch recording whose turn 2 refuses a choice. 23, 100, 111 and 122 fail identically without inference (§7.4; the last three carry live `/rng` messages) | up to 272 s | survives, 63 of 63 |
+| Bo3 game A, 10 turns | p2's spreads | MATCH, 2 rounds | 4 s | survives, all 4 seen |
+| Bo3 game A | both sides' | MATCH, 8 rounds | 76 s | survives, all 8 seen |
+| Bo3 game B, 6 turns | p2's spreads | MATCH, 4 rounds | 7 s | survives, all 4 seen |
+| Bo3 game B | both sides' | MATCH, 6 rounds | 40 s | survives, all 7 seen |
+| 19 recordings, S3 | p2's spreads | 19 MATCH | 2 min 20 s in all, up to 28 s each | survives, 76 of 76 |
+| the same, read from p2's side | p1's spreads | MATCH on the two tried (25, 46) | 15–20 s | survives |
 
 What game A leaves of p2, with p1 known: Blastoise 3,822 spreads (HP 24–32, Atk 0–9, Def 0–8,
 SpA 30–32, SpD 0–12, Spe 0–9; 1,420 if all 66 are spent); Pelipper 1,858,677 (SpA 0–2);
@@ -810,6 +873,7 @@ hit, so the log says nothing about it and the count says so. The events, in orde
 | 2 | Garchomp's Dragon Claw leaves Blastoise-Mega at 51% | Blastoise 136.7M → 83.6M |
 | 3 | Blastoise-Mega's Water Spout takes Basculegion to exactly 155/195 | Blastoise 83.6M → 4.9M — SpA pinned to 30–32 |
 | 3 | Pelipper's Hurricane takes Grimmsnarl to exactly 103/202 | Pelipper 136.7M → 46.9M |
+| 4 | Basculegion's Wave Crash leaves Blastoise-Mega at 35% | Blastoise 4.9M → 4.7M |
 | 4 | Pelipper's Hurricane takes Basculegion to exactly 46/195 | Pelipper 46.9M → 29.8M |
 | 5 | Charizard-Mega-Y's Heat Wave leaves Pelipper at 89% | Pelipper 29.8M → 3.3M |
 | 7 | Basculegion's Last Respects leaves Pelipper at 21% | Pelipper 3.3M → 2.2M |
@@ -909,80 +973,30 @@ Optional polish. Two windows show every exact value between them (§5.9), so thi
 not capability. The mechanism is channel −1 (§3); the missing piece is that
 `server/rooms.ts:1964` hands spectators channel 0, so it needs a server-side patch.
 
-### Stat Point inference — the next round of work (§7.5)
+### Stat Point inference — what is still open (§7.5)
 
 **Scope: one side unknown only** (`--infer p2`: your team known, theirs inferred). `--infer
-both` works on the 10-turn Bo3 game but costs ~100 s and leaves wide ranges; it stays as built
-and gets no further work (§10). Every task below keeps the one rule that matters: a spread the
-replay could have come from is never eliminated — checked against the fixtures' real spreads,
-63 of 63 today.
+both` stays as built and gets no further work (§10). Every task keeps the one rule that
+matters: a spread the replay could have come from is never eliminated — checked against the
+fixtures' real spreads, 76 of 76 today.
 
-In order:
-
-1. **Build the dice from the evidence instead of searching for them.** The biggest win, and it
-   finishes what the exact-HP hand-off started. The evidence already knows, for each hit on the
-   proved HP path, which of the 16 rolls produced it — record that roll alongside each
-   transition, and record which draw ordinal was each hit's roll in the scaffold. Within the
-   verified turns the same dice are thrown in the same order whatever the spread; only their
-   values change. So the verified turns are rebuilt by writing `>rng at` pins directly, and only
-   the first failing turn is searched. Check the draw sequence matches before trusting it, and
-   fall back to the search when it does not (a guess that faints something throws fewer dice).
-   Today every round re-searches from turn 1, 5–16 times; afterwards each round is one turn.
-2. **A faint the replay did not show is a dice problem, not a rules problem.** Recording 76: with
-   the guessed spreads and the search's starting dice, Gholdengo's Make It Rain and Metagross's
-   Psychic Fangs knock out Gengar and Sinistcha on turn 2 — really left at 42/167 and 104/177.
-   The simulator then demands replacements, the rebuild has none (none happened), and the
-   choice is refused. `reconstruct()` treats every refused choice as legality that no die can
-   fix, so it never tries a lower roll. A refusal that is a forced switch after an unexpected
-   faint should settle the turn's draws against the observed HP lines instead.
-3. **Find out why the search cannot flip a single die.** Bo3 game B, turn 3: Charizard's Heat
-   Wave *missed* Blastoise (`|-miss|`) and knocked out Sinistcha; the rebuild hits both. Forcing
-   one accuracy draw is exactly what the search is built to do, and it fails here even with both
-   real teams, so the cause is in the search, not in inference. Recording 25 is the same shape
-   with a crit: turn 2's Moonblast crits Sinistcha to 9/177, the rebuild does not crit and leaves
-   25/177. Recording 34 is the HP-path shape: turn 4 shows the burned Metagross at 25%, the
-   rebuild has it at 24% — its hidden exact HP from an earlier roll is a point off, which task 1
-   removes. Task 1 takes the verified turns out of the problem; this is the failing turn itself.
-4. **Speed order from every place the simulator sorts by speed.** Today only the action queue is
-   read — moves, Mega Evolutions, voluntary switches. Mega Evolution order must be confirmed with
-   a test: game B turn 3 has Blastoise mega-evolving before Charizard. Missing: switch-in ability
-   order (lead Drizzle / Drought / Intimidate, which also decides the weather) and end-of-turn
-   order (Leftovers, Rain Dish, weather damage). Rules that already hold and must keep holding:
-   the speed compared is the simulator's `getActionSpeed` at the moment of that sort, so
-   Tailwind, Trick Room's reversal, paralysis, Choice Scarf and weather abilities are the
-   simulator's; only actions of equal priority are compared (Prankster, Protect, Fake Out and
-   Quick Claw's fractional priority change the bracket, not the speed); a tie can go either way,
-   so a bound is `>=`, never `>`; gen 9 re-sorts before each move, so the last sort before an
-   action is the one that decided it; After You, Quash and Instruct taint their turn.
-5. **Use the evidence that is left on the table.** Each lets fewer spreads survive, none can
-   remove a true one:
-   - moves that read an unusual stat — Body Press (the user's Defence as its attack), Foul Play
-     (the target's Attack);
-   - berry thresholds — the team sheet names the berry, so a Sitrus that fired proves HP fell to
-     half or below, and one that did not fire after a hit proves it stayed above;
-   - recoil summed over several hits or targets, Leech Seed's heal, Shell Bell, Pain Split;
-   - replays saved by the p2 player: the exact side is assumed to be p1 today (§7).
-6. **Bracket rolls instead of scanning them.** Damage only grows with the roll, so the rolls
-   that fit an observation are one run of the sixteen: two calls find the ends, a bisection the
-   rest. Small — the roll scan is already a sub-second share — but free.
-7. **Snapshot each turn.** Every probe the dice search makes replays the battle from turn 1, so a
+1. **Snapshot each turn.** Every probe the dice search makes replays the battle from turn 1, so a
    turn-9 search pays for nine turns per probe; restoring a `Battle.toJSON()` snapshot taken at
    the start of the failing turn pays for one. A real win on long battles. It needs the
    serialization round-trip (§10) and the RNG interceptor's draw counter to survive it, since
    pins are addressed by ordinal.
-8. **Parallel probes, sized per machine.** Search probes are independent and could run in
-   worker threads. Only worth it after 1 and 7, and only if the pool is sized by
+2. **Parallel probes, sized per machine.** Search probes are independent and could run in
+   worker threads. Only worth it after 1, and only if the pool is sized by
    `os.availableParallelism()` on whatever machine runs it — never tuned to this one.
-9. **Per-event stat ranges.** Record each stat's range after every event, not just the spread
+3. **Per-event stat ranges.** Record each stat's range after every event, not just the spread
    count, so an event says *which* stats it narrowed: Water Spout on turn 9 cuts Blastoise 4.7M →
    1.1M through its HP and Defence, not its Special Attack, and the count alone hides that. It is
    also what the tooltip will show.
-10. **An "all 66 spent" option.** Real sets spend every point; assuming so cuts roughly 3–10×
-    more. The written count already reports it; make it a switch.
-
-Not inference's to fix: recording 23's own input log records a Memento with no target, which the
-simulator refuses (§6.1); recordings 100, 111 and 122 carry `|-message|#rng armed …` lines from
-live `/rng` rules, which no rebuild emits — filtering those lines would let them through.
+4. **An "all 66 spent" option.** Real sets spend every point; assuming so cuts roughly 3–10×
+   more. The written count already reports it; make it a switch.
+5. **The evidence still unused** (§7.5): Shell Bell, Pain Split, Strength Sap (it heals by the
+   target's Attack), confusion damage, what Leech Seed gives back when the seeded Pokemon is shown
+   as a percentage — a dealt-based link like drain — and hits under Wonder Room.
 
 ---
 
@@ -1004,14 +1018,25 @@ live `/rng` rules, which no rebuild emits — filtering those lines would let th
 - **A prior over what survives.** §7.5 says which spreads the replay allows and ships one of
   them; it does not say which is *likely*. Usage statistics (PLAN.MD §10) would rank the
   survivors and fill the stats no event touched with what people actually run.
-- **Replays with no team sheets.** A Bo1 ladder game publishes no `|showteam|`, so items, moves
-  and natures are unknown too, not just Stat Points. §7.5 refuses such a replay rather than
-  guess them. With a sheet, a damage-boosting item — Expert Belt, Black Glasses, Fairy Feather —
-  is known, and the simulator applies it inside the same `getDamage` call; without one it would
-  be a hidden variable. The plan when this is taken up: a hit above every spread's maximum means
-  a boosting item, and Pokemon that usually carry one get a prior of their own.
-- **Both sides unknown** (`--infer both`). Built and working on the Bo3 game (§7.5), but ~100 s
-  and wide ranges. Frozen as it is; no further work until the one-sided version is done.
+- **Replays with no team sheets.** A Bo1 ladder game (`samples/…-mercifulbird-…`) publishes no
+  `|showteam|`, so the opponent's item, ability, nature and unrevealed moves are unknown too, not
+  just Stat Points; §7.5 refuses such a replay rather than guess them. The plan when this is
+  taken up, in the same shape as §7.5 — the unknowns become more candidate dimensions, and the
+  simulator is still the only thing that computes:
+  - **items the log reveals** are facts: Life Orb and Rocky Helmet recoil, Leftovers and Sitrus
+    heals, a Focus Sash that fires, a Mega Stone on Mega Evolution, anything Knocked Off or
+    Tricked;
+  - **items the log never names** — Choice Band and Specs, Expert Belt, type boosters (Black
+    Glasses, Fairy Feather), Assault Vest, Choice Scarf — become a small per-Pokemon candidate
+    set. Each hit is dry-run per (item, spread): a hit above every no-item spread's maximum proves
+    a boosting item, an attacker that switched moves proves no Choice item, an Assault Vest holder
+    never used a status move, and speed order bounds Scarf. Pokemon that usually carry one get a
+    prior of their own (Sylveon and Fairy Feather, Kingambit and Black Glasses) — a ranking over
+    what survives, never an elimination;
+  - **natures** multiply the stat model by 21 distinct effects, so the joint key grows with them;
+  - **abilities** come from the species' short list and are revealed by most activations.
+- **Both sides unknown** (`--infer both`). Built and working on both Bo3 games (§7.5), but
+  40–80 s and wide ranges. Frozen as it is; no further work until the one-sided version is done.
 - **Any UI.**
 - **Champions video ingestion.**
 
