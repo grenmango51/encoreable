@@ -39,7 +39,8 @@ import { createRequire } from 'module';
 
 import { battleLines } from './lib/protocol.mjs';
 import { listLogFiles, newestLogFile, posix as toPosix } from './lib/recordings.mjs';
-import { inferSpreads, reconstruct, unpackTeams } from './lib/reconstruct.mjs';
+import { inferSpreads } from './lib/inference/infer.mjs';
+import { reconstruct, unpackTeams } from './lib/reconstruct.mjs';
 import {
   alignSpeciesToSheet, crossCheckSheet, loadSource, maxHpFromLog, setsFromSheet, unreplayableChoices,
 } from './lib/replay-source.mjs';

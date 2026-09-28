@@ -1,0 +1,1262 @@
+/**
+ * One evidence pass: replay a rebuilt battle with the simulator hooked, and
+ * remove every spread the verified part of it rules out. The simulator is
+ * asked, per surviving spread and in the real position, at:
+ *
+ *   - every damage calculation. At the moment the real hit is computed, the same
+ *     `getDamage` is run again for every surviving attacking and defending stat,
+ *     under the dry-run guards `damageLadder` established (ENGINEERING.md 4): a
+ *     cloned move, no dice consumed, no messages, state restored. The in-flight
+ *     move is cloned, so weather, Helping Hand, screens and boosts are exactly
+ *     the real ones. `modifyDamage` is memoised on the value it receives, since
+ *     everything after that point is the same whatever the stats were.
+ *   - every HP change. Each candidate carries the set of exact HP values it
+ *     could be sitting on, because the replay shows the opponent only as a
+ *     percentage. A change maps each value through every damage roll, and the
+ *     line the log printed next keeps only what the simulator's own `getHealth`
+ *     would have printed.
+ *   - every held-item check, for a pinch Berry that fired or stayed uneaten.
+ *
+ * Speed order comes from `speed.mjs`. Where the simulator cannot be asked - an
+ * HP change of unknown shape - the candidate may move anywhere the next printed
+ * line allows, which loses precision and never eliminates a spread that fits.
+ * With every guess pinned, the pass also names one exact HP path through the
+ * verified turns and the damage roll behind each hit on it, which is what the
+ * next round is handed.
+ */
+
+import { createRequire } from 'module';
+
+import { battleLines, firstDivergence } from '../protocol.mjs';
+import { install } from '../rng-control.mjs';
+import {
+  ROLLS, SOFT_PRETURN, hpRank, identName, identSide, override, restoreItems, snapItems, splitTurns,
+} from '../reconstruct.mjs';
+import {
+  KEY_DIM, KEY_HP, SPAN, STAT_IDS, aliveOf, fullEvs, maskKeys, spreadCount,
+} from './knowledge.mjs';
+import { attachSpeed } from './speed.mjs';
+
+const require = createRequire(import.meta.url);
+const { BattleStream, toID, Utils } = require('pokemon-showdown');
+
+const HP_BITS = 4096;
+
+/** Every fraction of max HP an effect is written as - `baseMaxhp / 16`, `* 3 / 4`. */
+const FRACTIONS = (() => {
+  const seen = new Set();
+  const out = [];
+  for (const d of [2, 3, 4, 6, 8, 10, 12, 16]) {
+    for (let n = 1; n < d; n++) {
+      const f = n / d;
+      if (!seen.has(f)) { seen.add(f); out.push(f); }
+    }
+  }
+  return out;
+})();
+
+// ------------------------------------------------------- reading the replay
+
+/** The lines one channel shows, each tagged with its index in the raw log. */
+function channelView(raw, channel) {
+  const out = [];
+  for (let i = 0; i < raw.length; i++) {
+    const split = /^\|split\|p([1-4])$/.exec(raw[i]);
+    if (split) {
+      const at = channel === -1 || Number(split[1]) === channel ? i + 1 : i + 2;
+      if (raw[at]) out.push({ line: raw[at], at });
+      i += 2;
+      continue;
+    }
+    if (raw[i]) out.push({ line: raw[i], at: i });
+  }
+  return out;
+}
+
+/**
+ * Where a rebuilt log stops agreeing with the observed one, as a raw-log index.
+ * Compared exactly the way `playThrough` compares, so the verified prefix here
+ * is the one the reconstruction report means.
+ */
+function verifiedPrefix(view, observed) {
+  const want = splitTurns(observed.filter(l => typeof l === 'string'));
+  const got = [[]];
+  for (const entry of view) {
+    got[got.length - 1].push(entry);
+    if (/^\|turn\|\d+/.test(entry.line)) got.push([]);
+  }
+  for (let k = 0; k < want.length; k++) {
+    const soft = (line) => {
+      const kind = String(line).split('|')[1];
+      return kind === 'player' || (k === 0 && SOFT_PRETURN.has(kind));
+    };
+    const a = battleLines(want[k]).filter(l => !soft(l));
+    const b = (got[k] || [])
+      .map(e => ({ at: e.at, line: battleLines([e.line])[0] }))
+      .filter(e => e.line !== undefined && !soft(e.line));
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      if (a[i] === b[i]?.line) continue;
+      const next = b[i]?.at ?? got[k + 1]?.[0]?.at ?? Infinity;
+      return { cutoffAt: next, observedLine: a[i] ?? null, observedAfter: a.slice(i + 1), turn: k };
+    }
+  }
+  return { cutoffAt: Infinity, observedLine: null, observedAfter: [], turn: null };
+}
+
+const HP_FIELD = { '-damage': 3, '-heal': 3, '-sethp': 3, switch: 4, drag: 4, replace: 4 };
+
+function hpLine(line) {
+  const parts = String(line || '').split('|');
+  const at = HP_FIELD[parts[1]];
+  if (at === undefined) return null;
+  return {
+    kind: parts[1],
+    side: identSide(parts[2]),
+    name: identName(parts[2]),
+    token: String(parts[at] || '').split(' ')[0],
+    changes: at === 3,
+  };
+}
+
+// -------------------------------------------------------- one evidence pass
+
+async function replayRaw(lines) {
+  const stream = new BattleStream({ keepAlive: true });
+  const drain = (async () => { for await (const chunk of stream) { /* discard */ } })();
+  for (const line of lines) await stream.write(line);
+  const raw = [...stream.battle.log];
+  stream.destroy?.();
+  await Promise.race([drain, Promise.resolve()]);
+  return raw;
+}
+
+/**
+ * Replay one input log and remove every spread the verified part of it rules
+ * out. `knowledge` is read, never written; the caller intersects the result.
+ */
+export async function evidencePass({ inputLog, observed, channel, knowledge, cache, record, exact = false }) {
+  const lines = (Array.isArray(inputLog) ? inputLog : String(inputLog).split('\n'))
+    .map(l => String(l).trimEnd())
+    .filter(l => l.startsWith('>'));
+  let pre = cache.get('raw');
+  if (!pre) { pre = await replayRaw(lines); cache.set('raw', pre); }
+  const view = channelView(pre, channel);
+  const prefix = verifiedPrefix(view, observed);
+
+  const stream = new BattleStream({ keepAlive: true });
+  const drain = (async () => { for await (const chunk of stream) { /* discard */ } })();
+  let ctx = null;
+  try {
+    for (const line of lines) {
+      if (!ctx && /^>p[1-4] /.test(line)) {
+        ctx = attachInference(stream.battle, { view, prefix, channel, knowledge, cache, record });
+      }
+      await stream.write(line);
+      // Draw ordinals count from installation, and `playThrough` installs right
+      // after `>start`, so a roll found here is addressed the way a pin is.
+      if (line.startsWith('>start')) install(stream.battle);
+      if (ctx?.state.ended) break;
+    }
+    if (!ctx) throw new Error('the input log makes no choices, so there is nothing to infer from');
+    ctx.finish();
+    if (exact) {
+      const found = ctx.paths(pre);
+      ctx.exact = found && exactTurns(pre, found.tokens, prefix);
+      ctx.rolls = found?.rolls || null;
+    }
+    const clock = l => (String(l).startsWith('|t:|') ? '|t:|' : l);
+    const drift = firstDivergence(stream.battle.log.map(clock), pre.slice(0, stream.battle.log.length).map(clock));
+    if (drift) throw new Error(`inference perturbed the battle at raw line ${drift.index}: ${drift.actual} -> ${drift.expected}`);
+  } finally {
+    stream.destroy?.();
+    await Promise.race([drain, Promise.resolve()]);
+  }
+  return { ...ctx.result(), exact: ctx.exact || null, rolls: ctx.rolls || null };
+}
+
+/**
+ * The verified turns of a scaffold as the omniscient channel shows them, with
+ * every hidden HP replaced by the exact value an evidence path chose.
+ */
+function exactTurns(raw, tokens, prefix) {
+  const view = channelView(raw, -1);
+  const turns = new Map();
+  let k = 0;
+  let lines = [];
+  const withHp = (line, token) => {
+    if (token === undefined || token === '0') return line;
+    const parts = line.split('|');
+    const at = HP_FIELD[parts[1]];
+    const field = String(parts[at] || '');
+    parts[at] = `${token}${field.includes(' ') ? field.slice(field.indexOf(' ')) : ''}`;
+    return parts.join('|');
+  };
+  for (const entry of view) {
+    if (prefix.turn !== null && k > prefix.turn) break;
+    // The omniscient view shows a split line's secret half one index before
+    // the half the observing channel shows.
+    const split = /^\|split\|/.test(raw[entry.at - 1] || '');
+    const cut = entry.at === prefix.cutoffAt || (split && entry.at === prefix.cutoffAt - 1);
+    if (prefix.turn !== null && k === prefix.turn && (cut || entry.at > prefix.cutoffAt)) {
+      // The failing line itself is proved only when it is a hidden HP the path
+      // chose; anything else there is the scaffold's mistake, not the truth.
+      if (cut && tokens.has(entry.at)) lines.push(withHp(entry.line, tokens.get(entry.at)));
+      break;
+    }
+    lines.push(withHp(entry.line, tokens.get(entry.at)));
+    if (/^\|turn\|\d+/.test(entry.line)) {
+      turns.set(k, { lines, partial: false });
+      k++;
+      lines = [];
+    }
+  }
+  if (prefix.turn !== null && lines.length) turns.set(prefix.turn, { lines, partial: true });
+  return turns;
+}
+
+function attachInference(battle, { view, prefix, channel, knowledge, cache, record }) {
+  const st = install(battle);
+  const actions = battle.actions;
+  const state = { ended: false, dry: 0 };
+  const events = [];
+  const pendingHits = new Map();
+  const damageContext = new Map();
+  const healContext = new Map();
+  let viewPos = 0;
+  let hitOrdinal = 0;
+  let changeOrdinal = 0;
+  let seq = 0;
+
+  const memo = (key, make) => {
+    let value = cache.get(key);
+    if (value === undefined) { value = make(); cache.set(key, value); }
+    return value;
+  };
+
+  // ------------------------------------------------------------ who is who
+
+  const recs = [];
+  const byPokemon = new Map();
+  const byIdent = new Map();
+  for (const side of battle.sides) {
+    for (const [index, pokemon] of side.pokemon.entries()) {
+      const id = `${side.id}:${index}`;
+      const kn = knowledge.get(id);
+      if (!kn) continue;
+      const byForme = new Map();
+      const rec = {
+        id,
+        side: side.id,
+        pokemon,
+        name: pokemon.name,
+        kn,
+        knKeys: maskKeys(kn.keys),
+        exact: channel === -1 || side.id === `p${channel}`,
+        chain: null,
+        flat: { atk: kn.dom.atk.slice(), spa: kn.dom.spa.slice(), spe: kn.dom.spe.slice() },
+        pending: [],
+        history: [],
+        shown: [],
+        // A stat as the simulator computes it for this Pokemon's current forme.
+        stat(stat, sp) {
+          let table = byForme.get(pokemon.species);
+          if (!table) {
+            table = {};
+            for (const s of STAT_IDS) {
+              table[s] = Int32Array.from({ length: SPAN }, (_, v) => battle.statModify(
+                pokemon.species.baseStats, { ...pokemon.set, evs: { ...fullEvs(pokemon.set.evs), [s]: v } }, s));
+            }
+            byForme.set(pokemon.species, table);
+          }
+          return table[stat][sp];
+        },
+      };
+      recs.push(rec);
+      byPokemon.set(pokemon, rec);
+      byIdent.set(`${side.id}:${pokemon.name}`, rec);
+    }
+  }
+  const maxHp = (rec, hp) => rec.stat('hp', hp);
+  const label = rec => rec.pokemon.species.name;
+  const countOf = rec => spreadCount(rec.chain ? rec.chain.keys() : rec.knKeys, rec.flat).total;
+
+  function initChain(rec) {
+    rec.chain = new Map();
+    for (const k of rec.knKeys) rec.chain.set(k, [maxHp(rec, KEY_HP[k])]);
+  }
+
+  /** The HP values behind one printed display, read off the simulator's `getHealth`. */
+  function interval(rec, M, token) {
+    return memo(`show|${rec.exact ? 'x' : 's'}|${M}|${token}`, () => {
+      const want = hpRank(token, rec.exact);
+      if (!want || (rec.exact && want.max !== null && want.max !== M)) return null;
+      const p = rec.pokemon;
+      const saved = [p.hp, p.maxhp];
+      const rankAt = (h) => {
+        p.hp = h;
+        p.maxhp = M;
+        const shown = p.getHealth();
+        return hpRank(String(rec.exact ? shown.secret : shown.shared).split(' ')[0], rec.exact)?.rank ?? -1;
+      };
+      try {
+        let lo = 0;
+        let hi = M;
+        while (lo < hi) { const mid = (lo + hi) >> 1; if (rankAt(mid) < want.rank) lo = mid + 1; else hi = mid; }
+        const first = lo;
+        hi = M;
+        while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (rankAt(mid) > want.rank) hi = mid - 1; else lo = mid; }
+        return rankAt(first) === want.rank ? [first, lo] : null;
+      } finally {
+        [p.hp, p.maxhp] = saved;
+      }
+    });
+  }
+
+  // ------------------------------------------------------------ dry runs
+
+  function withRoll(roll, fn) {
+    const undo = override(battle, 'random', (m, n) => (m === 16 && n === undefined ? roll : (n === undefined ? 0 : m)));
+    const prevDry = st.dry;
+    st.dry = { roll };
+    try { return fn(); } finally { st.dry = prevDry; undo(); }
+  }
+
+  function patchAll(patches) {
+    const undo = [];
+    for (const { pokemon, stats, hp, maxhp } of patches) {
+      const saved = { stored: { ...pokemon.storedStats }, hp: pokemon.hp, maxhp: pokemon.maxhp, baseMaxhp: pokemon.baseMaxhp };
+      for (const [s, v] of Object.entries(stats || {})) pokemon.storedStats[s] = v;
+      if (maxhp !== undefined) { pokemon.maxhp = maxhp; pokemon.baseMaxhp = maxhp; }
+      if (hp !== undefined) pokemon.hp = hp;
+      undo.push(() => {
+        Object.assign(pokemon.storedStats, saved.stored);
+        pokemon.hp = saved.hp;
+        pokemon.maxhp = saved.maxhp;
+        pokemon.baseMaxhp = saved.baseMaxhp;
+      });
+    }
+    return () => { for (const u of undo.reverse()) u(); };
+  }
+
+  /** Everything a dry run may disturb on the battle itself. */
+  function guarded(fn) {
+    state.dry++;
+    const saved = {
+      log: battle.log.length,
+      faints: battle.faintQueue.length,
+      move: battle.activeMove,
+      target: battle.activeTarget,
+      user: battle.activePokemon,
+      lastDamage: battle.lastDamage,
+    };
+    try {
+      return fn();
+    } finally {
+      battle.log.length = saved.log;
+      battle.faintQueue.length = saved.faints;
+      battle.activeMove = saved.move;
+      battle.activeTarget = saved.target;
+      battle.activePokemon = saved.user;
+      battle.lastDamage = saved.lastDamage;
+      state.dry--;
+    }
+  }
+
+  /**
+   * Sixteen damage values for one set of stats. `getDamage` runs once; every
+   * roll re-runs only `modifyDamage`, memoised on the value it is handed.
+   */
+  function dryRow(hit, patches, post) {
+    return guarded(() => {
+      const undoPatch = patchAll(patches);
+      let row = null;
+      const origModify = actions.modifyDamage;
+      const undoModify = override(actions, 'modifyDamage', function (base, pokemon, target, move, suppress) {
+        let cached = post.get(base);
+        if (!cached) {
+          cached = [];
+          for (let r = 0; r < ROLLS; r++) {
+            restoreItems(hit.items);
+            cached.push(withRoll(r, () => origModify.call(this, base, pokemon, target, move, suppress)));
+          }
+          post.set(base, cached);
+        }
+        row = cached;
+        return cached[0];
+      });
+      try {
+        restoreItems(hit.items);
+        hit.clone.moveHitData = undefined;
+        const out = withRoll(0, () => hit.getDamage.call(actions, hit.source, hit.target, hit.clone, true));
+        return row || new Array(ROLLS).fill(typeof out === 'number' ? out : null);
+      } finally {
+        undoModify();
+        undoPatch();
+        restoreItems(hit.items);
+      }
+    });
+  }
+
+  const rowKey = (a, d, hp, h, si) => `${a}|${d}|${hp ?? '-'}|${h ?? '-'}|${si}`;
+  const sameRow = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+
+  /**
+   * What one real damage calculation depends on, and its value for every
+   * surviving stat. Computed before the real result lands, in the real position.
+   */
+  function analyseHit(source, target, clone, crit, real, items, getDamage) {
+    const S = byPokemon.get(source);
+    const T = byPokemon.get(target);
+    const ord = hitOrdinal++;
+    const hit = { S, T, source, target, clone, real, items, getDamage, ord, supported: false };
+    clone.willCrit = crit;
+    if (!T.chain) initChain(T);
+
+    const shape = memo(`hit|${ord}`, () => {
+      // Which stats the calculation reads, observed rather than assumed: Body
+      // Press, Foul Play and Psyshock read something else, and Wonder Room swaps.
+      const reads = [];
+      const undo = [];
+      for (const p of new Set([source, target])) {
+        const calc = p.calculateStat;
+        const get = p.getStat;
+        undo.push(override(p, 'calculateStat', function (stat, ...rest) { reads.push([p, toID(stat)]); return calc.call(this, stat, ...rest); }));
+        undo.push(override(p, 'getStat', function (stat, ...rest) { reads.push([p, toID(stat)]); return get.call(this, stat, ...rest); }));
+      }
+      let base;
+      try { base = dryRow(hit, [], new Map()); } finally { for (const u of undo.reverse()) u(); }
+
+      // Whose stat attacks, and which, is the move's to say: Foul Play attacks
+      // with the target's Attack, Body Press with the user's Defence, Psyshock
+      // hits Defence with a special move.
+      const physical = clone.category === 'Physical';
+      const attacker = clone.overrideOffensivePokemon === 'target' ? target : source;
+      const wantOff = clone.overrideOffensiveStat || (physical ? 'atk' : 'spa');
+      const wantDef = clone.overrideDefensiveStat || (physical ? 'def' : 'spd');
+      const unknownReads = reads.filter(([p]) => !byPokemon.get(p).kn.known);
+      const off = unknownReads.some(([p, s]) => p === attacker && s === wantOff) ? wantOff : null;
+      const def = wantDef;
+      const supported = source !== target && clone.overrideDefensivePokemon !== 'source'
+        && !battle.field.pseudoWeather.wonderroom
+        && unknownReads.every(([p, s]) => (p === attacker && s === wantOff) || (p === target && s === wantDef));
+
+      // HP matters to Water Spout, Multiscale, Brine, pinch abilities. Ask
+      // rather than list: the row either moves with HP or it does not.
+      const probe = (p) => [...new Set([p.maxhp, p.maxhp - 1, Math.ceil(p.maxhp / 2),
+        Math.floor(p.maxhp / 2), Math.floor(p.maxhp / 3), Math.floor(p.maxhp / 4), 1])].filter(h => h >= 1);
+      const moves = p => probe(p).some(h => !sameRow(dryRow(hit, [{ pokemon: p, hp: h }], new Map()), base));
+      return {
+        off, offBy: attacker === source ? 'source' : 'target', def, supported, targetHp: moves(target), sourceHp: moves(source),
+      };
+    });
+    Object.assign(hit, shape);
+    if (!hit.supported) return hit;
+
+    // The attacking stat is a flat domain (Attack, Special Attack) or, for Body
+    // Press, a dimension of the user's joint key.
+    const A = hit.offBy === 'target' ? T : S;
+    hit.A = A;
+    hit.offDim = hit.off === 'def' || hit.off === 'spd';
+    if (hit.offDim && !A.chain) initChain(A);
+    hit.aVals = !hit.off || A.kn.known ? [0]
+      : hit.offDim ? [...new Set([...A.chain.keys()].map(k => KEY_DIM[hit.off][k]))].sort((x, y) => x - y)
+        : aliveOf(A.flat[hit.off]);
+    const dVals = new Set();
+    const tStates = new Map();
+    for (const [k, hs] of T.chain) {
+      dVals.add(KEY_DIM[hit.def][k]);
+      if (hit.targetHp) for (const h of hs) tStates.set(`${KEY_HP[k]}|${h}`, [KEY_HP[k], h]);
+    }
+    const sStates = [];
+    if (hit.sourceHp) {
+      if (!S.chain) initChain(S);
+      const seen = new Set();
+      for (const [k, hs] of S.chain) {
+        for (const h of hs) {
+          const M = maxHp(S, KEY_HP[k]);
+          if (!seen.has(`${M}|${h}`)) { seen.add(`${M}|${h}`); sStates.push([M, h]); }
+        }
+      }
+    }
+    const targetStates = hit.targetHp ? [...tStates.values()] : [null];
+    hit.sStates = hit.sourceHp ? sStates : [null];
+
+    hit.rows = new Map();
+    for (const t of targetStates) {
+      for (const [si, s] of hit.sStates.entries()) {
+        const hpKey = `${t ? t.join(':') : '-'}|${s ? s.join(':') : '-'}`;
+        const post = new Map();
+        for (const a of hit.aVals) {
+          for (const d of dVals) {
+            const row = memo(`row|${ord}|${a}|${d}|${hpKey}`, () => {
+              const patches = [];
+              const tp = { pokemon: target, stats: T.kn.known ? {} : { [hit.def]: T.stat(hit.def, d) } };
+              if (hit.off && !A.kn.known) {
+                if (A === T) tp.stats[hit.off] = T.stat(hit.off, a);
+                else patches.push({ pokemon: source, stats: { [hit.off]: S.stat(hit.off, a) } });
+              }
+              if (t) { tp.maxhp = maxHp(T, t[0]); tp.hp = t[1]; }
+              patches.push(tp);
+              if (s) patches.push({ pokemon: source, maxhp: s[0], hp: s[1] });
+              return dryRow(hit, patches, post);
+            });
+            hit.rows.set(rowKey(a, d, t && t[0], t && t[1], si), row);
+          }
+        }
+      }
+    }
+    return hit;
+  }
+
+  // ------------------------------------------------------ HP transitions
+
+  /** Group a chain by what a transition depends on: HP stat, one defence, current HP. */
+  function groupsOf(rec, dim) {
+    const out = new Map();
+    for (const [k, hs] of rec.chain) {
+      const hp = KEY_HP[k];
+      const d = dim ? KEY_DIM[dim][k] : 0;
+      for (const h of hs) {
+        const g = (hp * SPAN + d) * HP_BITS + h;
+        if (!out.has(g)) out.set(g, [hp, d, h]);
+      }
+    }
+    return out;
+  }
+
+  /** The simulator's own `Damage` event for one candidate: Focus Sash, Sturdy, Endure. */
+  function damageEvent(hit, ctx, T, M, h, x) {
+    return memo(`dmgev|${hit.ord}|${M}|${h}|${x}`, () => guarded(() => {
+      const undo = patchAll([{ pokemon: T.pokemon, maxhp: M, hp: h }]);
+      const after = snapItems([T.pokemon]);
+      try {
+        restoreItems(ctx.items);
+        return battle.runEvent('Damage', T.pokemon, ctx.source, ctx.effect, x, true);
+      } finally {
+        restoreItems(after);
+        undo();
+      }
+    }));
+  }
+
+  /**
+   * A hit on `T`, as every (attacking stat, attacker HP state) it could have
+   * come through. The two are packed into one `via`: `a + SPAN * state`.
+   */
+  function moveChange(T, hit, dealt, ctx) {
+    const clamp = x => (typeof x === 'number' && x !== 0 ? Math.max(1, x) : x);
+    const modified = clamp(hit.real) !== clamp(dealt);
+    const table = new Map();
+    const rolls = new Map();
+    for (const [g, [hp, d, h]] of groupsOf(T, hit.def)) {
+      const M = maxHp(T, hp);
+      const pairs = [];
+      const rs = [];
+      for (const a of hit.aVals) {
+        for (let si = 0; si < hit.sStates.length; si++) {
+          const row = hit.rows.get(rowKey(a, d, hit.targetHp ? hp : null, hit.targetHp ? h : null, si));
+          if (!row) continue;
+          const v = (a + SPAN * si) * HP_BITS;
+          for (const [r, value] of row.entries()) {
+            rs.push(r);
+            let x = clamp(value);
+            if (typeof x !== 'number' || x <= 0) { pairs.push(v + h); continue; }
+            if (modified || x >= h) x = clamp(damageEvent(hit, ctx, T, M, h, x));
+            if (typeof x !== 'number' || x <= 0) { pairs.push(v + h); continue; }
+            pairs.push(v + Math.max(0, h - Math.trunc(x)));
+          }
+        }
+      }
+      table.set(g, Int32Array.from(pairs));
+      rolls.set(g, Uint8Array.from(rs));
+    }
+    const via = !hit.off || hit.A.kn.known ? null
+      : hit.offDim ? { rec: hit.A, dim: hit.off } : { rec: hit.A, stat: hit.off };
+    const S = hit.S;
+    S.hitsThisMove = S.hitMove === ctx.effect ? S.hitsThisMove + 1 : 1;
+    S.hitMove = ctx.effect;
+    return {
+      dim: hit.def,
+      table,
+      rolls,
+      rollAt: hit.rollAt,
+      via,
+      dealtBy: S,
+      sourceStates: hit.sourceHp ? hit.sStates : null,
+      move: ctx.effect,
+      // Recoil and drain read the user's own attacking stat off the same hit;
+      // one that belongs to the target or to a key dimension says nothing there.
+      off: hit.A === S && !hit.offDim ? hit.off : null,
+      hits: S.hitsThisMove,
+      what: `${label(hit.S)}'s ${hit.clone.name} hit ${label(T)}`,
+    };
+  }
+
+  /** An HP change whose amount the simulator computed from one number we can scale. */
+  /** The HP `run` leaves one candidate on, with the battle handed back untouched. */
+  function dryHp(T, M, h, source, run) {
+    return guarded(() => {
+      const undo = patchAll([{ pokemon: T.pokemon, maxhp: M, hp: h }]);
+      const saved = {
+        faintQueued: T.pokemon.faintQueued,
+        switchFlag: T.pokemon.switchFlag,
+        hurtThisTurn: T.pokemon.hurtThisTurn,
+        sourceLast: source?.lastDamage,
+      };
+      const items = snapItems([T.pokemon]);
+      try {
+        run();
+        return T.pokemon.hp;
+      } finally {
+        T.pokemon.faintQueued = saved.faintQueued;
+        T.pokemon.switchFlag = saved.switchFlag;
+        T.pokemon.hurtThisTurn = saved.hurtThisTurn;
+        if (source) source.lastDamage = saved.sourceLast;
+        restoreItems(items);
+        undo();
+      }
+    });
+  }
+
+  function amountChange(T, kind, amounts, ctx, what) {
+    const ord = changeOrdinal;
+    const table = new Map();
+    for (const [g, [hp, , h]] of groupsOf(T, null)) {
+      const M = maxHp(T, hp);
+      const out = new Set();
+      for (const amount of amounts(M)) {
+        out.add(memo(`amt|${ord}|${M}|${h}|${amount}`, () => dryHp(T, M, h, ctx.source, () => {
+          if (kind === 'heal') battle.heal(amount, T.pokemon, ctx.source, ctx.effect);
+          else battle.spreadDamage([amount], [T.pokemon], ctx.source, ctx.effect);
+        })));
+      }
+      table.set(g, Int32Array.from(out));
+    }
+    return { dim: null, table, via: null, what };
+  }
+
+  /**
+   * Recoil or drain after a hit on a Pokemon shown only as a percentage. The
+   * damage dealt is hidden, but every candidate attacking stat left a set of
+   * amounts it could have dealt, and the simulator turns each into the HP the
+   * attacker's own line has to show. `run(d)` is that simulator call.
+   */
+  function dealtChange(S, last, what, tag, run) {
+    const ord = changeOrdinal;
+    const known = S.kn.known || !last.off;
+    const table = new Map();
+    const dealtOf = new Map();
+    for (const [g, [hp, , h]] of groupsOf(S, null)) {
+      const M = maxHp(S, hp);
+      const pairs = [];
+      const amounts = [];
+      for (const [a, dealt] of last.byA) {
+        if (!known && !S.flat[last.off][a]) continue;
+        for (const d of dealt) {
+          const h2 = memo(`${tag}|${ord}|${M}|${h}|${d}`, () => dryHp(S, M, h, S.pokemon, () => run(d)));
+          pairs.push(a * HP_BITS + h2);
+          amounts.push(d);
+        }
+      }
+      table.set(g, Int32Array.from(pairs));
+      dealtOf.set(g, Int32Array.from(amounts));
+    }
+    return { dim: null, table, dealtOf, victim: last.change, via: known ? null : { rec: S, stat: last.off }, what };
+  }
+
+  /** Recoil: `applyRecoilDamage` computes and applies it in one call. */
+  const recoilChange = (S, last, what) =>
+    dealtChange(S, last, what, 'rcl', d => actions.applyRecoilDamage(d, last.move, S.pokemon));
+
+  /**
+   * Drain: the simulator heals the attacker inside `spreadDamage`, from the
+   * damage the victim really took. So the victim is handed exactly `d` - HP one
+   * above it, max HP above that so no Focus Sash can fire - and the attacker's
+   * HP is read afterwards.
+   */
+  const drainChange = (S, last, what) => dealtChange(S, last, what, 'drn', (d) => {
+    const V = last.victim.pokemon;
+    const saved = {
+      hp: V.hp, maxhp: V.maxhp, baseMaxhp: V.baseMaxhp,
+      hurtThisTurn: V.hurtThisTurn, faintQueued: V.faintQueued, switchFlag: V.switchFlag,
+    };
+    const items = snapItems([V]);
+    try {
+      V.hp = d + 1;
+      V.maxhp = Math.max(V.maxhp, d + 2);
+      V.baseMaxhp = V.maxhp;
+      battle.spreadDamage([d], [V], S.pokemon, last.move);
+    } finally {
+      Object.assign(V, saved);
+      restoreItems(items);
+    }
+  });
+
+  const band = (dir, what) => ({ band: dir, what });
+
+  function effectChange(T, kind, raw, effect, other) {
+    const e = typeof effect === 'string' ? battle.dex.conditions.getByID(effect) : effect;
+    const id = e?.id || '';
+    const ctx = { source: other || null, effect: e };
+    const what = `${e?.name || id || kind} on ${label(T)}`;
+    const dir = kind === 'heal' ? 'up' : 'down';
+    if (typeof raw !== 'number' || !(raw > 0)) return band(dir, what);
+
+    // Drain and recoil are a share of damage dealt. That share is exact when the
+    // Pokemon that took the damage is one whose HP the log shows exactly;
+    // otherwise it is one of the amounts the hit could have dealt, and the line
+    // it prints says which. A recoil summed over several hits says nothing usable.
+    if (id === 'drain' || id === 'recoil') {
+      const hurt = id === 'drain' ? byPokemon.get(other) : null;
+      const exactVictim = hurt ? hurt.exact : T.pokemon.side.foe.active.every(p => !p || byPokemon.get(p)?.exact);
+      if (exactVictim) return amountChange(T, kind, () => [raw], ctx, what);
+      const last = T.lastDealt;
+      if (id === 'recoil' && last?.byA.size && last.move === battle.activeMove && last.hits === 1) return recoilChange(T, last, what);
+      if (id === 'drain' && last?.byA.size && last.move === battle.activeMove && last.victim === hurt) return drainChange(T, last, what);
+      return band(dir, what);
+    }
+    // Leech Seed drains an eighth of the seeded Pokemon's HP, which scales like
+    // any fraction below; what the seeder gets back is that amount, exact only
+    // when the seeded Pokemon's HP is.
+    if (id === 'leechseed' && kind === 'heal') {
+      return byPokemon.get(other)?.exact ? amountChange(T, kind, () => [raw], ctx, what) : band(dir, what);
+    }
+    if (['shellbell', 'strengthsap', 'painsplit', 'confusion'].includes(id)) return band(dir, what);
+
+    // Everything else that scales is written as a fraction of max HP. A raw
+    // amount that is not a whole number proves the fraction was passed unrounded;
+    // a whole one could have been rounded either way, so both are kept.
+    const M0 = T.pokemon.baseMaxhp;
+    const k = FRACTIONS.find(f => Math.abs(raw - M0 * f) < 1e-9);
+    if (k === undefined) return band(dir, what);
+    const whole = Number.isInteger(raw);
+    return amountChange(T, kind, M => (whole ? [...new Set([Math.floor(M * k), Math.ceil(M * k)])] : [M * k]), ctx, what);
+  }
+
+  function onChange(rec, kind, info) {
+    sync();
+    if (state.ended) return;
+    rec.moved = (rec.moved || 0) + 1;
+    if (!rec.chain) initChain(rec);
+    for (const change of rec.pending.splice(0)) apply(rec, change, null);
+    let change;
+    if (kind === 'damage') {
+      const ctx = damageContext.get(rec.pokemon) || { effect: info.effect, source: info.source, items: snapItems([rec.pokemon]) };
+      damageContext.delete(rec.pokemon);
+      const effect = typeof ctx.effect === 'string' ? battle.dex.conditions.getByID(ctx.effect) : ctx.effect;
+      const hit = pendingHits.get(rec.pokemon);
+      pendingHits.delete(rec.pokemon);
+      if (effect?.effectType === 'Move') {
+        change = hit?.supported ? moveChange(rec, hit, info.d, { ...ctx, effect })
+          : band('down', `${effect.name} hit ${label(rec)}`);
+      } else {
+        change = effectChange(rec, 'damage', ctx.raw ?? info.d, effect, ctx.source);
+      }
+    } else if (kind === 'heal') {
+      const ctx = healContext.get(rec.pokemon);
+      healContext.delete(rec.pokemon);
+      change = effectChange(rec, 'heal', ctx?.raw ?? info.d, ctx?.effect ?? info.effect, ctx?.source ?? info.source);
+    } else {
+      change = band('any', `HP set on ${label(rec)}`);
+    }
+    change.turn = battle.turn;
+    changeOrdinal++;
+    rec.pending.push(change);
+  }
+
+  /**
+   * Move every candidate of `rec` through one change. With a printed display,
+   * only the HP values it could print survive, and an attacking stat survives
+   * only if some candidate reached the display through it.
+   */
+  function apply(rec, change, token) {
+    const noted = record && (token !== null || change.gate);
+    const before = noted ? countOf(rec) : 0;
+    const viaBefore = record && token !== null && change.via ? countOf(change.via.rec) : 0;
+    const next = new Map();
+    const supported = change.via ? new Uint8Array(SPAN) : null;
+    const dealt = change.dealtBy && token !== null ? new Map() : null;
+    const dealtOk = change.dealtOf && token !== null ? new Set() : null;
+    const sourceOk = change.sourceStates && token !== null ? new Set() : null;
+    const done = new Map();
+    const allowAt = new Map();
+    for (const [k, hs] of rec.chain) {
+      const hp = KEY_HP[k];
+      const M = maxHp(rec, hp);
+      let allow = null;
+      if (token !== null) {
+        if (!allowAt.has(M)) allowAt.set(M, interval(rec, M, token));
+        allow = allowAt.get(M);
+        if (!allow) continue;
+      }
+      const d = change.dim ? KEY_DIM[change.dim][k] : 0;
+      const out = new Set();
+      for (const h of hs) {
+        const g = (hp * SPAN + d) * HP_BITS + h;
+        let res = done.get(g);
+        if (!res) {
+          res = { hs: [], via: [] };
+          if (change.same) {
+            const fits = (!change.allowSet || change.allowSet.has(M * HP_BITS + h)) && (!change.allow || change.allow(M, h));
+            if (fits && (!allow || (h >= allow[0] && h <= allow[1]))) res.hs.push(h);
+          } else if (change.band) {
+            let lo = change.band === 'up' ? h : 0;
+            let hi = change.band === 'down' ? h : M;
+            if (allow) { lo = Math.max(lo, allow[0]); hi = Math.min(hi, allow[1]); }
+            for (let x = lo; x <= hi; x++) res.hs.push(x);
+          } else {
+            const pairs = change.table.get(g) || [];
+            const amounts = dealtOk ? change.dealtOf.get(g) : null;
+            const hsSeen = new Set();
+            const viaSeen = new Set();
+            for (let j = 0; j < pairs.length; j++) {
+              const packed = pairs[j];
+              const h2 = packed % HP_BITS;
+              if (allow && (h2 < allow[0] || h2 > allow[1])) continue;
+              const tag = Math.floor(packed / HP_BITS);
+              const v = tag % SPAN;
+              if (amounts) dealtOk.add(v * HP_BITS + amounts[j]);
+              if (sourceOk) sourceOk.add(Math.floor(tag / SPAN));
+              hsSeen.add(h2);
+              viaSeen.add(v);
+              if (dealt) {
+                if (!dealt.has(v)) dealt.set(v, new Set());
+                dealt.get(v).add(h - h2);
+              }
+            }
+            res.hs = [...hsSeen];
+            res.via = [...viaSeen];
+          }
+          done.set(g, res);
+        }
+        for (const h2 of res.hs) out.add(h2);
+        if (supported) for (const v of res.via) supported[v] = 1;
+      }
+      if (out.size) next.set(k, [...out]);
+    }
+    if (dealtOk) change.victim.dealtOk = dealtOk;
+    rec.history.push({ change, token, pre: rec.chain, seq: seq++ });
+    rec.chain = next;
+    if (dealt) change.dealtBy.lastDealt = { move: change.move, off: change.off, hits: change.hits, byA: dealt, change, victim: rec };
+    if (supported && token !== null) narrowVia(change.via, supported);
+    // The victim's display also says which HP the attacker could have been on,
+    // when the hit depended on it.
+    let attackerCut = null;
+    if (sourceOk) {
+      const S = change.dealtBy;
+      const allowSet = new Set([...sourceOk].map(si => change.sourceStates[si][0] * HP_BITS + change.sourceStates[si][1]));
+      for (const c of S.pending.splice(0)) apply(S, c, null);
+      const sBefore = record ? countOf(S) : 0;
+      apply(S, { same: true, allowSet, what: change.what, turn: change.turn }, null);
+      if (record) attackerCut = { id: S.id, pokemon: label(S), before: sBefore, after: countOf(S) };
+    }
+    if (noted) {
+      const cuts = [];
+      const after = countOf(rec);
+      if (after !== before) cuts.push({ id: rec.id, pokemon: label(rec), before, after });
+      if (change.via && change.via.rec !== rec) {
+        const viaAfter = countOf(change.via.rec);
+        if (viaAfter !== viaBefore) cuts.push({ id: change.via.rec.id, pokemon: label(change.via.rec), before: viaBefore, after: viaAfter });
+      }
+      if (attackerCut && attackerCut.after !== attackerCut.before) {
+        const same = cuts.find(c => c.id === attackerCut.id);
+        if (same) same.after = attackerCut.after; else cuts.push(attackerCut);
+      }
+      if (cuts.length) events.push({ turn: change.turn ?? battle.turn, what: change.what, ...(token !== null ? { shown: token } : {}), cuts });
+    }
+  }
+
+  /** Keep only the attacking-stat values a hit's display left reachable. */
+  function narrowVia(via, ok) {
+    if (via.dim) {
+      const A = via.rec;
+      if (!A.chain) initChain(A);
+      for (const k of [...A.chain.keys()]) if (!ok[KEY_DIM[via.dim][k]]) A.chain.delete(k);
+      return;
+    }
+    const dom = via.rec.flat[via.stat];
+    for (let v = 0; v < SPAN; v++) if (dom[v] && !ok[v]) dom[v] = 0;
+  }
+
+  /** A printed HP line: settle what is pending for that Pokemon against it. */
+  function observe(line, token, at) {
+    const rec = byIdent.get(`${line.side}:${line.name}`);
+    if (!rec) return;
+    const first = !rec.chain;
+    if (first) initChain(rec);
+    const due = rec.pending.splice(0);
+    if (line.changes) {
+      if (!due.length) due.push(band(line.kind === '-heal' ? 'up' : line.kind === '-damage' ? 'down' : 'any', `${line.kind} on ${label(rec)}`));
+      for (const change of due.slice(0, -1)) apply(rec, change, null);
+      apply(rec, due[due.length - 1], token);
+    } else {
+      for (const change of due) apply(rec, change, null);
+      apply(rec, { same: true, what: first ? `${label(rec)} came in` : `${label(rec)} shown`, turn: battle.turn }, token);
+    }
+    rec.shown.push({ at, hist: rec.history.length - 1 });
+  }
+
+  function sync() {
+    if (state.dry) return;
+    while (!state.ended && viewPos < view.length && view[viewPos].at < battle.log.length) {
+      const entry = view[viewPos++];
+      if (entry.at > prefix.cutoffAt) { state.ended = true; break; }
+      const atCut = entry.at === prefix.cutoffAt;
+      const mine = hpLine(entry.line);
+      const shown = atCut ? hpLine(prefix.observedLine) : mine;
+      if (mine && shown && shown.side === mine.side && shown.name === mine.name && shown.kind === mine.kind) {
+        observe(mine, shown.token, entry.at);
+      }
+      if (atCut) { state.ended = true; break; }
+    }
+  }
+
+  // ------------------------------------------------------------ the hooks
+
+  // The ordinal of the draw a real hit's damage roll took, so the roll an
+  // evidence path chose for it can be written back as a pin.
+  let rollDraws = null;
+  const origRandomizer = battle.randomizer;
+  battle.randomizer = function (base) {
+    if (rollDraws && !st.dry) rollDraws.push(st.draws);
+    return origRandomizer.call(this, base);
+  };
+
+  const origGetDamage = actions.getDamage;
+  actions.getDamage = function (source, target, move, suppress) {
+    if (state.dry || state.ended || typeof move !== 'object' || !move || move.category === 'Status'
+      || !byPokemon.has(source) || !byPokemon.has(target)) {
+      return origGetDamage.call(this, source, target, move, suppress);
+    }
+    sync();
+    const clone = Utils.deepClone(move);
+    const pre = snapItems([source, target]);
+    const draws = [];
+    rollDraws = draws;
+    let real;
+    try {
+      real = origGetDamage.call(this, source, target, move, suppress);
+    } finally {
+      rollDraws = null;
+    }
+    if (typeof real !== 'number' || state.ended) return real;
+    const crit = !!target.getMoveHitData(move).crit;
+    const post = snapItems([source, target]);
+    try {
+      const hit = analyseHit(source, target, clone, crit, real, pre, origGetDamage);
+      hit.rollAt = draws.length === 1 ? draws[0] : null;
+      pendingHits.set(target, hit);
+    } finally {
+      restoreItems(post);
+    }
+    return real;
+  };
+
+  const origSpread = battle.spreadDamage;
+  battle.spreadDamage = function (damage, targetArray, source, effect, instafaint) {
+    if (!state.dry && !state.ended && targetArray) {
+      for (const [i, t] of targetArray.entries()) {
+        if (t && byPokemon.has(t)) damageContext.set(t, { effect, source, raw: damage[i], items: snapItems([t]) });
+      }
+    }
+    return origSpread.call(this, damage, targetArray, source, effect, instafaint);
+  };
+
+  const origHeal = battle.heal;
+  battle.heal = function (damage, target, source, effect) {
+    if (!state.dry && !state.ended) {
+      let t = target;
+      let s = source;
+      let e = effect;
+      if (this.event) { t ||= this.event.target; s ||= this.event.source; e ||= this.effect; }
+      if (t && byPokemon.has(t)) healContext.set(t, { raw: damage, source: s, effect: e });
+    }
+    return origHeal.call(this, damage, target, source, effect);
+  };
+
+  for (const rec of recs) {
+    const p = rec.pokemon;
+    const damage = p.damage;
+    const heal = p.heal;
+    const sethp = p.sethp;
+    override(p, 'damage', function (d, source, effect) {
+      const out = damage.call(this, d, source, effect);
+      if (!state.dry && !state.ended) onChange(rec, 'damage', { d, source, effect });
+      return out;
+    });
+    override(p, 'heal', function (d, source, effect) {
+      const before = this.hp;
+      const out = heal.call(this, d, source, effect);
+      if (!state.dry && !state.ended && this.hp !== before) onChange(rec, 'heal', { d, source, effect });
+      return out;
+    });
+    override(p, 'sethp', function (d) {
+      const before = this.hp;
+      const out = sethp.call(this, d);
+      if (!state.dry && !state.ended && this.hp !== before) onChange(rec, 'sethp', { d });
+      return out;
+    });
+  }
+
+  // A held item that acts on `Update` - a Sitrus or pinch Berry - fires or not
+  // on the HP the Pokemon is on right then. The simulator is asked, for each
+  // max HP the Pokemon could have, up to which HP its item would fire: the
+  // item's own `onUpdate`, dry. The condition only grows truer as HP falls, so
+  // a bisection finds the edge. Whether the item really fired then keeps only
+  // the HP that agrees - checked where the HP last moved, before the berry's
+  // own heal is applied.
+  const itemFires = (rec, M, h) => guarded(() => {
+    const p = rec.pokemon;
+    const undo = patchAll([{ pokemon: p, maxhp: M, hp: h }]);
+    const items = snapItems([p]);
+    const boosts = { ...p.boosts };
+    const held = p.item;
+    try {
+      battle.singleEvent('Update', p.getItem(), p.itemState, p);
+      return p.item !== held;
+    } finally {
+      restoreItems(items);
+      Object.assign(p.boosts, boosts);
+      undo();
+    }
+  });
+  const fireEdge = (rec, M) => {
+    if (!itemFires(rec, M, 1)) return 0;
+    if (itemFires(rec, M, M)) return M;
+    let lo = 1;
+    let hi = M;
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (itemFires(rec, M, mid)) lo = mid; else hi = mid; }
+    return lo;
+  };
+  let itemChecks = 0;
+  const origUpdate = battle.runEvent;
+  battle.runEvent = function (eventid, target, ...rest) {
+    const rec = eventid === 'Update' && !state.dry && !state.ended ? byPokemon.get(target) : null;
+    if (!rec || rec.exact || !rec.moved || rec.checked === rec.moved || !target.item || !target.getItem().onUpdate) {
+      return origUpdate.call(this, eventid, target, ...rest);
+    }
+    rec.checked = rec.moved;
+    sync();
+    if (state.ended) return origUpdate.call(this, eventid, target, ...rest);
+    const ord = itemChecks++;
+    const edge = new Map();
+    for (const k of rec.chain ? rec.chain.keys() : rec.knKeys) {
+      const M = maxHp(rec, KEY_HP[k]);
+      if (!edge.has(M)) edge.set(M, memo(`edge|${ord}|${rec.id}|${M}`, () => fireEdge(rec, M)));
+    }
+    // An edge of 0 or of the whole bar says nothing about HP.
+    if ([...edge].every(([M, t]) => t === 0 || t === M)) return origUpdate.call(this, eventid, target, ...rest);
+    const name = target.getItem().name;
+    const gate = { same: true, gate: true, turn: battle.turn, what: `${name} on ${label(rec)}`, fired: null };
+    gate.allow = (M, h) => gate.fired === null || !edge.has(M) || (h <= edge.get(M)) === gate.fired;
+    rec.pending.push(gate);
+    const held = target.item;
+    try {
+      return origUpdate.call(this, eventid, target, ...rest);
+    } finally {
+      gate.fired = target.item !== held;
+      gate.what = `${name} ${gate.fired ? 'fired' : 'did not fire'} on ${label(rec)}`;
+    }
+  };
+
+  const speed = attachSpeed(battle, {
+    state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label, countOf,
+  });
+
+  /**
+   * An attacking stat survives a hit only if a candidate it moved there can
+   * still reach every later display of that Pokemon. The forward pass checks
+   * each display on its own; walking each HP history back from what survived
+   * the last one keeps only whole paths - which is what makes two unknown
+   * Pokemon hitting each other consistent across turns, not just within one.
+   */
+  function backward() {
+    for (const rec of recs) {
+      if (!rec.history.length) continue;
+      let alive = new Map(rec.chain);
+      rec.alive = [];
+      for (let i = rec.history.length - 1; i >= 0; i--) {
+        rec.alive[i] = alive;
+        const { change, token, pre } = rec.history[i];
+        const seen = change.via && token !== null ? new Uint8Array(SPAN) : null;
+        const prev = new Map();
+        const allowAt = new Map();
+        for (const [k, hs] of pre) {
+          const later = alive.get(k);
+          if (!later) continue;
+          const hp = KEY_HP[k];
+          const M = maxHp(rec, hp);
+          let allow = null;
+          if (token !== null) {
+            if (!allowAt.has(M)) allowAt.set(M, interval(rec, M, token));
+            allow = allowAt.get(M);
+            if (!allow) continue;
+          }
+          const d = change.dim ? KEY_DIM[change.dim][k] : 0;
+          const keep = [];
+          for (const h of hs) {
+            let ok = false;
+            if (change.same) {
+              ok = later.includes(h) && (!change.allowSet || change.allowSet.has(M * HP_BITS + h)) && (!change.allow || change.allow(M, h));
+            } else if (change.band) {
+              let lo = change.band === 'up' ? h : 0;
+              let hi = change.band === 'down' ? h : M;
+              if (allow) { lo = Math.max(lo, allow[0]); hi = Math.min(hi, allow[1]); }
+              ok = later.some(x => x >= lo && x <= hi);
+            } else {
+              for (const packed of change.table.get((hp * SPAN + d) * HP_BITS + h) || []) {
+                const h2 = packed % HP_BITS;
+                if (!later.includes(h2)) continue;
+                const v = Math.floor(packed / HP_BITS) % SPAN;
+                if (change.dealtOk && !change.dealtOk.has(v * HP_BITS + h - h2)) continue;
+                ok = true;
+                if (!seen) break;
+                seen[v] = 1;
+              }
+            }
+            if (ok) keep.push(h);
+          }
+          if (keep.length) prev.set(k, keep);
+        }
+        if (seen) narrowVia(change.via, seen);
+        alive = prev;
+      }
+      rec.pathKeys = new Set(alive.keys());
+    }
+  }
+
+  /** What the backward walk removed, as one event per Pokemon. */
+  function wholePaths() {
+    const before = record ? new Map(recs.map(rec => [rec, countOf(rec)])) : null;
+    backward();
+    for (const rec of recs) {
+      if (rec.pathKeys && rec.chain) for (const k of [...rec.chain.keys()]) if (!rec.pathKeys.has(k)) rec.chain.delete(k);
+    }
+    if (!record) return;
+    const cuts = [];
+    for (const rec of recs) {
+      const after = countOf(rec);
+      if (after !== before.get(rec)) cuts.push({ id: rec.id, pokemon: label(rec), before: before.get(rec), after });
+    }
+    if (cuts.length) {
+      events.push({ turn: battle.turn, what: 'every turn at once - recoil, attacker HP and later displays checked against earlier hits', cuts });
+    }
+  }
+
+  /**
+   * One exact HP path per Pokemon through everything the verified log showed,
+   * when every spread is pinned. Chosen in the order the changes happened, so a
+   * hit that depended on its attacker's HP takes the attacker's chosen HP, and a
+   * hit whose recoil was printed deals an amount the recoil allows. Where more
+   * than one value fits, the scaffold's own is kept.
+   *
+   * Returns the exact HP tokens by raw-log index, and for every hit on the path
+   * the damage roll that produces it, keyed by the draw ordinal that roll took.
+   */
+  function paths(raw) {
+    const entries = [];
+    for (const rec of recs) for (const [i, e] of rec.history.entries()) entries.push({ rec, i, e });
+    entries.sort((x, y) => x.e.seq - y.e.seq);
+    const cur = new Map();
+    const chosen = new Map(recs.map(rec => [rec, []]));
+    const rolls = new Map();
+    const secretAt = new Map();
+    for (const rec of recs) {
+      for (const { at, hist } of rec.shown) {
+        const split = at >= 2 && /^\|split\|/.test(raw[at - 2] || '');
+        const exactAt = split && raw[at] !== raw[at - 1] && !rec.exact ? at - 1 : at;
+        secretAt.set(`${rec.id}|${hist}`, exactAt);
+      }
+    }
+    const scaffoldHp = (rec, hist) => {
+      const at = secretAt.get(`${rec.id}|${hist}`);
+      const m = at === undefined ? null : /^(\d+)\//.exec(String(hpLine(raw[at])?.token || ''));
+      return m ? Number(m[1]) : null;
+    };
+    for (const { rec, i, e } of entries) {
+      const alive = rec.alive?.[i];
+      if (!alive) return null;
+      let state = cur.get(rec);
+      if (!state) {
+        const [k, hs] = [...e.pre.entries()][0] || [];
+        if (k === undefined) return null;
+        state = [k, hs[0]];
+      }
+      const [k, h] = state;
+      const later = alive.get(k) || [];
+      const M = maxHp(rec, KEY_HP[k]);
+      const d = e.change.dim ? KEY_DIM[e.change.dim][k] : 0;
+      const options = [];
+      const rollOf = new Map();
+      if (e.change.same) {
+        if (later.includes(h) && (!e.change.allowSet || e.change.allowSet.has(M * HP_BITS + h)) && (!e.change.allow || e.change.allow(M, h))) options.push(h);
+      } else if (e.change.band) {
+        const lo = e.change.band === 'up' ? h : 0;
+        const hi = e.change.band === 'down' ? h : M;
+        for (const x of later) if (x >= lo && x <= hi) options.push(x);
+      } else {
+        const attacker = e.change.sourceStates ? cur.get(e.change.dealtBy) : null;
+        const g = (KEY_HP[k] * SPAN + d) * HP_BITS + h;
+        const packs = e.change.table.get(g) || [];
+        const rs = e.change.rolls?.get(g);
+        for (let j = 0; j < packs.length; j++) {
+          const packed = packs[j];
+          const h2 = packed % HP_BITS;
+          if (!later.includes(h2)) continue;
+          const tag = Math.floor(packed / HP_BITS);
+          if (e.change.dealtOk && !e.change.dealtOk.has((tag % SPAN) * HP_BITS + h - h2)) continue;
+          if (attacker) {
+            const [sM, sH] = e.change.sourceStates[Math.floor(tag / SPAN)];
+            if (sM !== maxHp(e.change.dealtBy, KEY_HP[attacker[0]]) || sH !== attacker[1]) continue;
+          }
+          options.push(h2);
+          if (rs && !rollOf.has(h2)) rollOf.set(h2, rs[j]);
+        }
+      }
+      if (!options.length) return null;
+      const own = e.token !== null ? scaffoldHp(rec, i) : null;
+      const h2 = options.includes(own) ? own : options[0];
+      chosen.get(rec)[i] = h2;
+      cur.set(rec, [k, h2]);
+      if (e.change.rollAt !== null && e.change.rollAt !== undefined && rollOf.has(h2)) rolls.set(e.change.rollAt, rollOf.get(h2));
+    }
+
+    const tokens = new Map();
+    for (const rec of recs) {
+      if (rec.exact) continue;
+      const k = cur.get(rec)?.[0];
+      if (k === undefined) continue;
+      for (const { hist } of rec.shown) {
+        const h = chosen.get(rec)[hist];
+        if (h === undefined) return null;
+        tokens.set(secretAt.get(`${rec.id}|${hist}`), h ? `${h}/${maxHp(rec, KEY_HP[k])}` : '0');
+      }
+    }
+    return { tokens, rolls };
+  }
+
+  return {
+    state,
+    paths,
+    finish() {
+      sync();
+      state.ended = true;
+      wholePaths();
+      speed.apply(speed.rules());
+    },
+    result() {
+      return {
+        recs: recs.map(rec => ({
+          id: rec.id,
+          keys: rec.chain ? [...rec.chain.keys()] : rec.knKeys,
+          flat: rec.flat,
+          seen: !!rec.chain,
+        })),
+        // In the order they were applied: every HP event as the battle ran, then
+        // the whole-path check, then speed order, which needs every turn's sort.
+        events,
+        cutoff: prefix.cutoffAt === Infinity ? null : { turn: prefix.turn, observed: prefix.observedLine },
+      };
+    },
+  };
+}

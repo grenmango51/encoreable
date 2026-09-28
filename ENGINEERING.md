@@ -765,7 +765,7 @@ a guess: stat ranges, a spread count, and every event that removed something
 (`inference.events` in the written `.log.json`).
 
 **The simulator decides everything.** One replay of a reconstructed input log is hooked at the
-places a spread matters, `scripts/lib/reconstruct.mjs` §"Stat Point inference":
+places a spread matters, `scripts/lib/inference/`:
 
 | Hook | What is asked, per surviving spread |
 |---|---|
@@ -919,7 +919,11 @@ moved. That is the headless proof for §4; `/rng` is the same engine driven from
 | `scripts/lib/verify-branch.mjs` | prove a played branch is prefix + new choices (§5.9) |
 | `scripts/lib/browser.mjs` | two isolated browser profiles, side by side (§5.9) |
 | `scripts/lib/replay-source.mjs` | any source — recording or saved replay — as lines, teams and sheets (§7) |
-| `scripts/lib/reconstruct.mjs` | transcribe the choices, settle the dice, check every turn (§7); infer Stat Points by elimination (§7.5) |
+| `scripts/lib/reconstruct.mjs` | transcribe the choices, read the dice off the replay, check every turn (§7) |
+| `scripts/lib/inference/infer.mjs` | infer Stat Points by elimination: the rounds of guess, rebuild, evidence (§7.5) |
+| `scripts/lib/inference/knowledge.mjs` | what is still possible per Pokemon, the 66-point budget, and picking the next guess (§7.5) |
+| `scripts/lib/inference/evidence.mjs` | one evidence pass: the simulator hooked at every hit, HP change and held-item check (§7.5) |
+| `scripts/lib/inference/speed.mjs` | speed order from every sort the simulator makes by speed (§7.5) |
 | `scripts/lib/branch-launch.mjs` | the one launch path: import, two windows, both slots (§5.10) |
 | `scripts/client/replay-branch.js` | the replay page's "Play from here" button (§5.10) |
 | `scripts/lib/replay-html.mjs` | replay shell (§6.3) |

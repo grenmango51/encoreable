@@ -68,7 +68,7 @@ plain and once with the named draws forced, and reports what moved.
 | Path | What it is |
 |---|---|
 | `scripts/local-*.mjs` | The entry points — one file per command in the table above. |
-| `scripts/lib/` | Shared machinery: truncation, RNG control, protocol diffing, the WebSocket clients, the browser launcher. |
+| `scripts/lib/` | Shared machinery: truncation, RNG control, protocol diffing, the WebSocket clients, the browser launcher, reconstruction. `scripts/lib/inference/` is the Stat Point inference. |
 | `scripts/client/` | Scripts that run **in the browser**, served over HTTP — not runnable with `node`. |
 | `scripts/server/` | Code that runs **inside the Showdown server process**, copied into `runtime/config/` by provisioning. |
 | `scripts/fixtures/` | The two fixture teams, as export text. |
