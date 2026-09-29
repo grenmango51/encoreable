@@ -20,8 +20,10 @@ import fs from 'fs';
 
 import { createRequire } from 'module';
 
+import { unmaskIllusion } from './protocol.mjs';
+
 const require = createRequire(import.meta.url);
-const { Teams, toID } = require('pokemon-showdown');
+const { Dex, Teams, toID } = require('pokemon-showdown');
 
 /** Pull the protocol log out of a saved replay page. */
 function logFromReplayHtml(html) {
@@ -214,7 +216,7 @@ export function alignSpeciesToSheet(packedTeam, sheet) {
  */
 export function setsFromSheet(sheet) {
   return sheet.map(row => ({
-    name: row.species || row.name,
+    name: row.name || row.species,
     species: row.species || row.name,
     item: row.item,
     ability: row.ability,
@@ -226,6 +228,190 @@ export function setsFromSheet(sheet) {
   }));
 }
 
+const identOf = (field) => {
+  const m = /^(p[1-4])[a-d]?: (.+)$/.exec(String(field || ''));
+  return m ? { side: m[1], name: m[2] } : null;
+};
+
+/** `Charizard, L50, M, shiny` -> `{ species, level, gender, shiny }`. */
+function parseDetails(details) {
+  const [species, ...rest] = String(details || '').split(', ');
+  const level = Number((rest.find(r => /^L\d+$/.test(r)) || 'L100').slice(1));
+  const gender = rest.find(r => r === 'M' || r === 'F') || '';
+  return { species, level, gender, shiny: rest.includes('shiny') };
+}
+
+/**
+ * What a log reveals about one side's sets, for a replay that publishes no team
+ * sheet: the Pokemon previewed, the level and gender their details carry, every
+ * move each one chose, and the item and ability it showed. The first item and
+ * ability shown are the ones it brought; one passed on by Trick or copied by
+ * Trace is not.
+ *
+ * Whose ability a `[from] ability:` tag names is settled by the species: `[of]`
+ * is the owner for Rough Skin and Hospitality, but the attacker for Volt
+ * Absorb, and only the owner's species can have the ability. An ability that
+ * appears only after Mega Evolution belongs to the Mega forme, not the set.
+ *
+ * Everything the log never showed is filled with a stated assumption, listed
+ * per Pokemon in `assumed`: an ability the species has only one of is known by
+ * elimination, an unseen item is none, and an unseen nature is neutral.
+ */
+export function setsFromLog(lines, side, formatid) {
+  const dex = Dex.forFormat(formatid);
+  const mons = [];
+  for (const line of lines) {
+    const p = line.split('|');
+    if (p[1] === 'poke' && p[2] === side) {
+      const d = parseDetails(p[3]);
+      mons.push({ ...d, name: null, moves: [], item: null, ability: null });
+    }
+  }
+  const baseOf = species => toID(dex.species.get(species).baseSpecies || species);
+  const byName = new Map();
+  const find = (who) => {
+    if (!who || who.side !== side) return null;
+    return byName.get(who.name) || null;
+  };
+  const canHave = (mon, ability) => Object.values(dex.species.get(mon.species).abilities || {})
+    .some(a => toID(a) === toID(ability));
+  const tagsOf = line => Object.fromEntries(line.split('|').slice(2)
+    .map(f => /^\[([a-z]+)\]\s*(.*)$/.exec(f.trim())).filter(Boolean).map(m => [m[1], m[2]]));
+
+  // Names as the log shows them - a Pokemon Illusion was disguised as is still
+  // printed under its own name - and everything else as it really happened.
+  for (const line of lines) {
+    const p = line.split('|');
+    if (!['switch', 'drag', 'replace'].includes(p[1])) continue;
+    const who = identOf(p[2]);
+    if (!who || who.side !== side || byName.has(who.name)) continue;
+    // A preview hides some formes (`Urshifu-*`); the Pokemon sent in shows it.
+    const d = parseDetails(p[3]);
+    const mon = mons.find(m => !m.name && baseOf(m.species.replace(/-\*$/, '')) === baseOf(d.species));
+    if (!mon) continue;
+    mon.name = who.name;
+    if (mon.species.endsWith('-*')) mon.species = d.species;
+    byName.set(who.name, mon);
+  }
+
+  for (const line of unmaskIllusion(lines).lines) {
+    const p = line.split('|');
+    const kind = p[1];
+    const tags = tagsOf(line);
+    const subject = find(identOf(p[2]));
+    const of = find(identOf(tags.of));
+
+    if (kind === 'move' && subject && (!tags.from || tags.from === 'lockedmove')) {
+      const move = dex.moves.get(p[3]);
+      if (move.exists && move.id !== 'struggle' && !subject.moves.includes(move.name)) subject.moves.push(move.name);
+    }
+    if (kind === 'cant' && subject && p[4]) {
+      const move = dex.moves.get(p[4]);
+      if (move.exists && !subject.moves.includes(move.name)) subject.moves.push(move.name);
+    }
+
+    // Items: the Mega Stone, an item used up or knocked off, one announced or
+    // frisked, and every effect credited to one. Rocky Helmet and the
+    // retaliation Berries hurt the attacker, and name their holder in `[of]`.
+    const giveItem = (mon, item) => { if (mon && item && mon.item === null) mon.item = dex.items.get(item).name || item; };
+    if (kind === '-mega') giveItem(subject, p[4]);
+    if (kind === '-enditem') giveItem(subject, p[3]);
+    if (kind === '-item' && !/^move:/.test(tags.from || '') && !/Pickpocket|Magician|Pickup/.test(tags.from || '')) giveItem(subject, p[3]);
+    if (kind === '-activate' && /^item: /.test(p[3] || '')) giveItem(subject, p[3].slice(6));
+    if (/^item: /.test(tags.from || '')) giveItem(kind === '-damage' && of ? of : subject, tags.from.slice(6));
+
+    // Abilities, only ever as the species could have them.
+    const giveAbility = (mon, ability) => {
+      if (mon && ability && mon.ability === null && canHave(mon, ability)) mon.ability = dex.abilities.get(ability).name || ability;
+    };
+    if (kind === '-ability' && !/^move:/.test(tags.from || '')) {
+      if (tags.from === 'ability: Trace') giveAbility(subject, 'Trace');
+      else if (!tags.from) giveAbility(subject, p[3]);
+    }
+    if (kind === '-activate' && /^ability: /.test(p[3] || '')) giveAbility(subject, p[3].slice(9));
+    if (/^ability: /.test(tags.from || '')) {
+      const ability = tags.from.slice(9);
+      for (const mon of [subject, of]) if (mon && canHave(mon, ability)) { giveAbility(mon, ability); break; }
+    }
+  }
+
+  const sets = [];
+  const assumed = [];
+  for (const mon of mons) {
+    const species = dex.species.get(mon.species.replace(/-\*$/, ''));
+    const abilities = Object.values(species.abilities || {});
+    const notes = [];
+    let ability = mon.ability;
+    if (!ability && abilities.length === 1) ability = abilities[0];
+    if (!ability) { ability = abilities[0] || ''; notes.push(`ability ${ability || 'none'} (one of ${abilities.join(', ')})`); }
+    if (mon.item === null) notes.push('no item');
+    notes.push('a neutral nature');
+    if (mon.moves.length < 4) notes.push(`${mon.moves.length} move${mon.moves.length === 1 ? '' : 's'} seen`);
+    const name = mon.name || species.name;
+    sets.push({
+      name,
+      species: species.name,
+      item: mon.item || '',
+      ability,
+      moves: mon.moves,
+      nature: 'Serious',
+      gender: mon.gender,
+      shiny: mon.shiny,
+      level: mon.level || 50,
+      evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+    });
+    assumed.push({ name, notes });
+  }
+  return { sets, assumed };
+}
+
+/**
+ * A sheet's sets as the log shows them: Open Team Sheets publish neither a
+ * nickname nor shininess, and both are printed in every line that names the
+ * Pokemon, so they are taken from the log, matched by species.
+ */
+export function withLogIdentity(sets, lines, side, formatid) {
+  const seen = setsFromLog(lines, side, formatid).sets;
+  return sets.map((set) => {
+    const mon = seen.find(m => sameSpecies(m.species, set.species || set.name));
+    return mon ? { ...set, name: mon.name, shiny: mon.shiny, gender: mon.gender || set.gender } : set;
+  });
+}
+
+/**
+ * Check a supplied team against what a log shows of it, for a replay with no
+ * team sheet: the Pokemon it previewed, every move each one used, and the item
+ * and ability each one showed.
+ */
+export function crossCheckLog(lines, side, formatid, packedTeam) {
+  const { sets } = setsFromLog(lines, side, formatid);
+  const mine = Teams.unpack(packedTeam);
+  const problems = [];
+  for (const seen of sets) {
+    const got = mine.find(s => sameSpecies(s.species || s.name, seen.species));
+    if (!got) { problems.push(`${seen.species} appears in the log but not in the supplied team`); continue; }
+    const moves = (got.moves || []).map(toID);
+    for (const move of seen.moves) if (!moves.includes(toID(move))) problems.push(`${seen.species} used ${move}, which the supplied set lacks`);
+  }
+  return problems;
+}
+
+/**
+ * Which supplied team belongs to which side, read off the species each side
+ * previewed: a player's own team can sit on either side of someone else's
+ * replay.
+ */
+export function teamsForSides(lines, teams) {
+  const previewed = ['p1', 'p2'].map(side => lines
+    .filter(l => l.startsWith(`|poke|${side}|`))
+    .map(l => toID(parseDetails(l.split('|')[3]).species)));
+  const overlap = (packed, i) => (packed ? Teams.unpack(packed) : [])
+    .filter(s => previewed[i].some(sp => sameSpecies(sp, s.species || s.name))).length;
+  const straight = overlap(teams[0], 0) + overlap(teams[1], 1);
+  const swapped = overlap(teams[1], 0) + overlap(teams[0], 1);
+  return swapped > straight ? [teams[1], teams[0]] : teams;
+}
+
 /**
  * Choices in an input log that the simulator will refuse to replay.
  *
@@ -233,7 +419,7 @@ export function setsFromSheet(sheet) {
  * non-zero, and an auto-chosen target leaves it zero - so a move needing a
  * target can be written down without one. Replaying that line takes the
  * explicit path, which rejects it (`sim/side.ts:663`). The log is unreplayable
- * through no fault of ours; `ENGINEERING.md` 6.1 documents the same defect
+ * through no fault of ours; `docs/engineering.md` 6.1 documents the same defect
  * arriving via `/choose default`.
  *
  * Worth naming out loud: a source with any of these cannot be reproduced

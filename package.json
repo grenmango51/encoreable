@@ -5,7 +5,7 @@
   "description": "An analysis board for competitive Pokemon: restore a recorded battle to any turn and play it forward, both sides, in the real Showdown interface.",
   "type": "commonjs",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18"
   },
   "scripts": {
     "start": "node scripts/local-battle.mjs",
@@ -15,9 +15,10 @@
     "live": "node scripts/local-live.mjs",
     "serve": "node scripts/local-serve.mjs",
     "stop": "node scripts/local-stop.mjs",
-    "check": "node scripts/local-check.mjs"
+    "check": "node scripts/local-check.mjs",
+    "postinstall": "node node_modules/pokemon-showdown/build"
   },
   "dependencies": {
-    "pokemon-showdown": "0.11.11"
+    "pokemon-showdown": "git+https://github.com/smogon/pokemon-showdown.git#a5df8274e85b0889bf2a9b3422a08b39732374fc"
   }
 }

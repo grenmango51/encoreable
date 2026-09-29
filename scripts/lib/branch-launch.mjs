@@ -211,7 +211,7 @@ export async function launchBranch({ inputLog, turn, cut = null, verbose = false
 
     // `invitebattle` joins a user straight into a slot - no invite handshake - when
     // they are already in the room and the slot has a team from the imported log
-    // (chat-commands/core.ts:1236). `restoreplayers` issues one per slot, using the
+    // (chat-commands/core.ts:1218). `restoreplayers` issues one per slot, using the
     // names the input log carried.
     admin.send(roomid, '/restoreplayers');
 

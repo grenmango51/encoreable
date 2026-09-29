@@ -3,7 +3,7 @@
  * browser can reasonably issue.
  *
  * `/importinputlog` carries two packed teams and runs 1.5-3KB. It is registered
- * as a multi-line command (`chat-commands/core.ts:1849`), so the whole log goes
+ * as a multi-line command (`chat-commands/core.ts:1833`), so the whole log goes
  * in one frame - and the multi-line path is only taken when the text actually
  * contains a newline. The operator never sees the log at all.
  *

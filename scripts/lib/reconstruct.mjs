@@ -7,7 +7,7 @@
  * work as it goes.
  *
  *   1. the simulator says what choice it wants and what is legal
- *      (`side.activeRequest`, ENGINEERING.md 5.7). We only answer "which of the
+ *      (`side.activeRequest`, docs/engineering.md 5.7). We only answer "which of the
  *      offered options did the player pick", and the observed log says.
  *   2. the turn is written, and the protocol lines it emitted are compared - in
  *      the same channel the observation came from - against the observed ones.
@@ -23,20 +23,22 @@
  * simulator every question that takes.
  *
  * Searching for a seed that reproduces a whole turn at once costs the *product*
- * of every random event in it, which is why ENGINEERING.md 4 opens by saying
+ * of every random event in it, which is why docs/engineering.md 4 opens by saying
  * seed search was never required. Settling draws one at a time costs their sum.
  * `>editbattle hp` stays rejected: it writes an HP no roll can produce, a log
- * inconsistent with its own seed (ENGINEERING.md 4.3).
+ * inconsistent with its own seed (docs/engineering.md 4.3).
  */
 
+import os from 'os';
 import { createRequire } from 'module';
+import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 
-import { battleLines, firstDivergence } from './protocol.mjs';
+import { battleLines, firstDivergence, unmaskIllusion } from './protocol.mjs';
 import { install, traceOn, markDraws, atLine } from './rng-control.mjs';
 
 const require = createRequire(import.meta.url);
-const { BattleStream, Dex, Teams, toID, Utils } = require('pokemon-showdown');
-// Not re-exported by `sim/index.ts`; see ENGINEERING.md 6.5. This is the sim's
+const { Battle, BattleStream, Dex, Teams, toID, Utils } = require('pokemon-showdown');
+// Not re-exported by `sim/index.ts`; see docs/engineering.md 6.5. This is the sim's
 // own resolver for the secret/public split, so no percentage arithmetic of ours
 // exists anywhere in this project.
 const { extractChannelMessages } = require('pokemon-showdown/dist/sim/battle.js');
@@ -48,7 +50,8 @@ const CHOOSABLE_TARGETS = new Set(['normal', 'any', 'adjacentFoe', 'adjacentAlly
  * Pre-turn protocol lines allowed to differ without failing the reconstruction.
  *
  * A Bo3 replay says `|tier|... (Bo3)` and publishes `|showteam|` lines that a
- * plain single game never emits. `|player|` repeats: a recording produced by
+ * plain single game never emits; a ladder game says `|rated|`, which decides
+ * nothing in the battle. `|player|` repeats: a recording produced by
  * branching re-issues `>player` to update an avatar, and the server echoes one
  * more for every browser window that joins - neither is something the simulator
  * emits from a battle. Names, avatars and teams are checked directly instead.
@@ -56,7 +59,7 @@ const CHOOSABLE_TARGETS = new Set(['normal', 'any', 'adjacentFoe', 'adjacentAlly
  * Everything substantive is still compared: `|poke|`, `|teamsize|`, `|start`,
  * the lead `|switch|` lines and `|turn|1`.
  */
-export const SOFT_PRETURN = new Set(['tier', 'rule', 'showteam', 'teampreview', 'player']);
+export const SOFT_PRETURN = new Set(['tier', 'rated', 'rule', 'showteam', 'teampreview', 'player']);
 
 // --------------------------------------------------------------- log utilities
 
@@ -137,7 +140,7 @@ function planSegment(segment, dex) {
       // A `[from]` move was executed by something other than a fresh choice -
       // Copycat, Instruct, Dancer, Magic Bounce, Sleep Talk. `lockedmove` is the
       // exception: a locked Pokemon still gets a request offering exactly one
-      // move (sim/pokemon.ts:1090), so it does need a choice line.
+      // move (sim/pokemon.ts:1084), so it does need a choice line.
       if (from && from !== 'lockedmove') continue;
       const side = identSide(parts[2]);
       const slot = identSlot(parts[2]);
@@ -250,7 +253,7 @@ function targetLoc(actorSide, actorSlot, targetIdent) {
  * Every target a move choice could have carried, best guess first.
  *
  * A replay under-determines a move's target in three separate ways, all of them
- * measured against the real input logs in `recordings/`:
+ * measured against the real input logs in `recordings/local/`:
  *
  *   - the target may never have been named at all. `>p2 move memento` and
  *     `>p2 move memento +1` are not the same input: with no target the simulator
@@ -266,7 +269,7 @@ function targetLoc(actorSide, actorSlot, targetIdent) {
  * variables. `preferred` goes first because it is right most of the time.
  */
 function targetOptions(side, actorSlot, moveTarget, preferred = null) {
-  // A locked move is offered with NO target field at all (`sim/pokemon.ts:971`
+  // A locked move is offered with NO target field at all (`sim/pokemon.ts:965`
   // returns just `{move, id}`), and naming a target for it is rejected outright:
   // the simulator reuses the target stored when the move was first chosen.
   if (!moveTarget || !CHOOSABLE_TARGETS.has(moveTarget)) return [''];
@@ -275,7 +278,7 @@ function targetOptions(side, actorSlot, moveTarget, preferred = null) {
   // choosable-target move with no target outright. A recorded log CAN still
   // contain one - `getChoice()` omits a `targetLoc` of 0, which is what an
   // auto-chosen target leaves behind - and such a log is unreplayable through
-  // no fault of ours (ENGINEERING.md 6.1). Detected and reported, not guessed.
+  // no fault of ours (docs/engineering.md 6.1). Detected and reported, not guessed.
   const doubles = side.active.length >= 2;
   if (moveTarget === 'adjacentAllyOrSelf') return [` -${actorSlot + 1}`];
   if (moveTarget === 'adjacentAlly') return [` -${actorSlot === 0 ? 2 : 1}`];
@@ -307,7 +310,7 @@ function selfSwitchLast(dex) {
  * The choice string for one side's current request.
  *
  * Everything legal is read off the live request. Nothing is read off the set's
- * movelist: legality is dynamic (ENGINEERING.md 5.6), and a locked or disabled
+ * movelist: legality is dynamic (docs/engineering.md 5.6), and a locked or disabled
  * move is offered or withheld by the simulator, not by us.
  */
 function choiceFor(side, plan, state, notes) {
@@ -316,17 +319,25 @@ function choiceFor(side, plan, state, notes) {
 
   if (request.teamPreview) {
     const bench = request.side.pokemon.map(p => identName(p.ident));
+    // Illusion copies the last Pokemon brought that has not fainted, so one it
+    // was shown as goes last - unless it led.
+    const leads = side.active.length;
+    const last = (state.disguises?.[sideId] || [])
+      .filter(name => !state.reveal[sideId].slice(0, leads).includes(name))
+      .map(name => bench.indexOf(name))
+      .filter(at => at >= 0);
     const order = [];
     for (const name of state.reveal[sideId]) {
       const at = bench.indexOf(name);
-      if (at >= 0 && !order.includes(at + 1)) order.push(at + 1);
+      if (at >= 0 && !order.includes(at + 1) && !last.includes(at)) order.push(at + 1);
     }
-    for (let i = 0; i < bench.length && order.length < state.sizes[sideId]; i++) {
-      if (!order.includes(i + 1)) {
+    for (let i = 0; i < bench.length && order.length < state.sizes[sideId] - last.length; i++) {
+      if (!order.includes(i + 1) && !last.includes(i)) {
         order.push(i + 1);
         notes.push(`${sideId} brought a Pokemon that never appeared - assumed ${bench[i]}`);
       }
     }
+    order.push(...last.map(at => at + 1));
     return `team ${order.slice(0, state.sizes[sideId]).join(', ')}`;
   }
 
@@ -414,6 +425,21 @@ function choiceFor(side, plan, state, notes) {
   }).join(', ');
 }
 
+/**
+ * The input line that ends the battle the way the observed one ended, when no
+ * Pokemon decided it: a forfeit or the timer leaves `|win|` (or `|tie`) as the
+ * last line while the simulator is still waiting for choices. The room's own
+ * announcement is filtered by `battleLines`; the recipe says `>forcelose`.
+ */
+function forcedEnding(segment, sides) {
+  const lines = battleLines(segment);
+  const last = lines[lines.length - 1] || '';
+  if (last === '|tie') return '>forcetie';
+  const won = /^\|win\|(.*)$/.exec(last);
+  const loser = won && sides.find(s => s.name !== won[1]);
+  return loser ? `>forcelose ${loser.id}` : null;
+}
+
 /** The lines a raw log slice shows on one channel. */
 function onChannel(raw, channel) {
   return extractChannelMessages(raw.join('\n'), [channel])[channel];
@@ -427,7 +453,7 @@ export const ROLLS = 16;
 /**
  * An HP display as a number that only ever grows with HP, so the values behind
  * one display form a single interval. Champions shades `20/100` and `50/100` by
- * which side of the fifth or the half they fall (`sim/pokemon.ts:2075`).
+ * which side of the fifth or the half they fall (`sim/pokemon.ts:2070`).
  */
 export function hpRank(token, exact) {
   if (token === '0') return { rank: 0, max: null };
@@ -810,6 +836,86 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
   };
 }
 
+// ------------------------------------------------------------- turn snapshots
+
+/** The pins a snapshot's position depends on: every one addressed before it. */
+const pinsBefore = (subs, draws) => Object.keys(subs || {})
+  .map(Number)
+  .filter(i => i < draws)
+  .sort((a, b) => a - b)
+  .map(i => `${i}=${subs[i]}`)
+  .join(' ');
+
+/**
+ * The battle as it stood when turn `k` began, so a probe of that turn can start
+ * there instead of at turn 0.
+ *
+ * `Battle.toJSON()` serializes the simulator's own state; the interceptor's is
+ * taken beside it, because pins are addressed by ordinal and the ordinal of the
+ * next draw has to survive the round trip. The interceptor itself is left out
+ * of the battle's serialization - it holds the generator, which the serializer
+ * refuses, and it is installed again on restore. A battle the serializer cannot
+ * take gets no snapshot, and its probes replay from the start as before.
+ */
+function takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes }) {
+  const st = battle.__rng;
+  let json;
+  delete battle.__rng;
+  try {
+    json = JSON.stringify(battle.toJSON());
+  } catch {
+    return null;
+  } finally {
+    battle.__rng = st;
+  }
+  return {
+    id: ++snapshotCount,
+    turn: k,
+    json,
+    log: battle.log.slice(),
+    draws: st.draws,
+    reseeds: st.reseeds,
+    sinceReseed: st.sinceReseed,
+    pins: pinsBefore(subs, st.draws),
+    variants: variants.slice(0, k).map(v => v || 0),
+    logAt,
+    starts: starts.slice(0, k),
+    widths: widths.slice(0, k),
+    notes: notes.slice(),
+  };
+}
+
+/**
+ * The snapshot a run up to turn `t` can start from, or null. The position at
+ * the start of a turn is fixed by the choices before it and by every pin
+ * addressed before its first draw; pins for that turn and later ones only act
+ * after it, the same whether the run starts at turn 0 or here.
+ */
+function snapshotFor(common, subs, t) {
+  const snap = t >= 1 ? common.snaps?.get(t) : null;
+  if (!snap) return null;
+  for (let k = 0; k < t; k++) if ((common.variants[k] || 0) !== snap.variants[k]) return null;
+  return pinsBefore(subs, snap.draws) === snap.pins ? snap : null;
+}
+
+/** A battle rebuilt from a snapshot, with the interceptor where it left off. */
+function restoreSnapshot(snap, subs) {
+  let battle;
+  try {
+    battle = Battle.fromJSON(snap.json);
+  } catch {
+    return null;
+  }
+  battle.restart(() => {});
+  const st = install(battle);
+  st.draws = snap.draws;
+  st.reseeds = snap.reseeds;
+  st.sinceReseed = snap.sinceReseed;
+  const pairs = Object.entries(subs || {}).map(([i, v]) => [Number(i), Number(v)]);
+  if (pairs.length) st.pins = new Map(pairs);
+  return battle;
+}
+
 /**
  * Replay the whole battle under a given set of per-turn seeds.
  *
@@ -817,8 +923,14 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
  * unless `tolerant` is set - which is how a best-effort log is produced after
  * the search gives up. With `steer`, that turn's damage, crit and accuracy dice
  * are read off the observed turn as they are thrown (`steerDice`).
+ *
+ * A run that stops at turn `t` takes a snapshot of the battle when turn `t`
+ * begins, and a later run that stops there under the same earlier choices and
+ * pins starts from it (`from`). Such a run replays one turn instead of all of
+ * them. It carries the snapshot's recipe, not its own, so it has no input log:
+ * only a run from turn 0 produces one.
  */
-async function playThrough({ header, segments, plans, reseeds, variants, subs, channel, exact, state0, dex, stopAt, tolerant, steer = null }) {
+async function playThrough({ header, segments, plans, reseeds, variants, subs, channel, exact, state0, dex, stopAt, tolerant, steer = null, snaps = null, from = null }) {
   const stream = new BattleStream({ keepAlive: true });
   const sink = [];
   const drain = (async () => { for await (const chunk of stream) sink.push(chunk); })();
@@ -837,31 +949,41 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
   // reconstruction re-simulates itself with no help from this file. Installing
   // the interceptor never perturbs the stream, so the empty case writes nothing
   // and the log of a battle that needed no forcing carries no `>rng` at all.
-  await stream.write(header[0]);
+  const restored = from ? restoreSnapshot(from, subs) : null;
+  if (restored) {
+    stream.battle = restored;
+  } else {
+    from = null;
+    await stream.write(header[0]);
+    if (!stream.battle) throw new Error('no battle after >start - the header is malformed');
+    install(stream.battle);
+  }
   const battle = stream.battle;
-  if (!battle) throw new Error('no battle after >start - the header is malformed');
-  install(battle);
   const trace = traceOn(battle);
   // Each draw also records how long the log was when it was thrown: a die
   // cannot change a line written before it.
   const push = trace.push;
   trace.push = row => push.call(trace, { ...row, at: battle.log.length });
-  if (subs && Object.keys(subs).length) await stream.write(atLine(subs));
+  if (!from && subs && Object.keys(subs).length) await stream.write(atLine(subs));
 
   const compare = (k, slice) => compareTurn({ segments, exact, channel }, k, slice);
   const at = { k: 0, logAt: 0 };
   const steered = steer === null ? null : new Map();
   if (steered) steerDice(battle, { at, turn: steer, compare, channel, out: steered });
-  await stream.write(header.slice(1).join('\n'));
+  if (!from) await stream.write(header.slice(1).join('\n'));
 
-  const notes = [];
+  const notes = from ? from.notes.slice() : [];
   const diffs = [];
-  const widths = [];
-  const starts = [];
+  const widths = from ? from.widths.slice() : [];
+  const starts = from ? from.starts.slice() : [];
   let badTurn = null;
-  let logAt = 0;
+  let logAt = from ? from.logAt : 0;
 
-  for (let k = 0; k < segments.length; k++) {
+  for (let k = from ? from.turn : 0; k < segments.length; k++) {
+    if (snaps && !from && k === stopAt && k >= 1) {
+      const snap = takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes });
+      if (snap) snaps.set(k, snap);
+    }
     markDraws(battle, k);
     at.k = k;
     at.logAt = logAt;
@@ -875,6 +997,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
     const state = {
       reveal: state0.reveal,
       sizes: state0.sizes,
+      disguises: state0.disguises,
       forced: { p1: [...plans[k].forced.p1], p2: [...plans[k].forced.p2] },
       unsatisfied: null,
       selfSwitchLast: selfSwitchLast(dex),
@@ -888,13 +1011,23 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
       },
     };
 
-    // Drive this turn until the simulator moves past it.
+    // Drive this turn until the simulator moves past it. A battle that ended
+    // without a Pokemon deciding it ends here once everything before its
+    // `|win|` has been printed.
+    const ending = k === segments.length - 1 ? forcedEnding(segments[k], battle.sides) : null;
     let guard = 0;
     while (!battle.ended) {
       if (k >= 1 && battle.turn > k) break;
       if (k === 0 && battle.turn >= 1) break;
       const waiting = battle.sides.filter(s => s.requestState);
       if (!waiting.length) break;
+      if (ending) {
+        const { wantHard, gotHard } = compare(k, battle.log.slice(logAt));
+        if (gotHard.length === wantHard.length - 1 && gotHard.every((line, i) => line === wantHard[i])) {
+          await stream.write(ending);
+          break;
+        }
+      }
       if (++guard > 24) {
         state.unsatisfied = `turn ${k} never resolved after ${guard} choice rounds`;
         break;
@@ -907,7 +1040,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
       if (before === after) {
         // A rejected choice is a silent no-op: the error goes to the side
         // channel, never to the battle log, and the turn simply does not
-        // advance (ENGINEERING.md 5.7). Assert progress or it hangs unnoticed.
+        // advance (docs/engineering.md 5.7). Assert progress or it hangs unnoticed.
         state.unsatisfied = `turn ${k}: a choice was rejected - nothing advanced`;
         break;
       }
@@ -947,7 +1080,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
     notes,
     trace,
     steer: steered,
-    inputLog: [...battle.inputLog],
+    inputLog: from ? null : [...battle.inputLog],
     rawLog: [...battle.log],
     turn: battle.turn,
     ended: battle.ended,
@@ -957,6 +1090,210 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
   stream.destroy?.();
   await Promise.race([drain, Promise.resolve()]);
   return result;
+}
+
+/** A run up to turn `t`, from that turn's snapshot when one fits. */
+const runTo = (common, subs, t, steer = null) =>
+  playThrough({ ...common, subs, stopAt: t, steer, from: snapshotFor(common, subs, t) });
+
+// ------------------------------------------------------------ parallel probes
+
+/**
+ * Worker threads that run probes ahead of the search.
+ *
+ * A probe is a pure function of the snapshot it starts from and the pins it is
+ * given, so it can run anywhere. The search itself is unchanged: it still asks
+ * for one probe at a time, in the same order, against the same budget, and a
+ * worker only answers a question before it is asked. What a reconstruction finds
+ * therefore never depends on how many threads found it - only how long it took.
+ *
+ * The pool is sized per machine: `os.availableParallelism()` less the thread the
+ * search runs on, and no pool at all below two workers, where the messages would
+ * cost more than they save. This file is the workers' entry too.
+ */
+const PROBE_ROLE = 'reconstruct-probe';
+
+/**
+ * Contexts and snapshots one worker holds. Both ends forget the same way - the
+ * oldest that the message in hand does not use - so the main thread always
+ * knows what a worker still has.
+ */
+const HELD = 16;
+function hold(list, key, inUse) {
+  list.push(key);
+  const gone = [];
+  while (list.length > HELD) {
+    const at = list.findIndex(k => !inUse.includes(k));
+    gone.push(...list.splice(at, 1));
+  }
+  return gone;
+}
+
+let contextCount = 0;
+let snapshotCount = 0;
+let workers = null;
+
+/** What a worker needs to replay one reconstruction's turns. */
+const contextPayload = ({ formatid, header, segments, plans, reseeds, channel, exact, state0 }) =>
+  ({ formatid, header, segments, plans, reseeds, channel, exact, state0 });
+
+function probePool(threads, formatid) {
+  const size = Math.max(0, Math.floor(threads) - 1);
+  if (size < 2 || !isMainThread) return null;
+  if (workers?.size === size) return workers;
+  workers?.close();
+  workers = createPool(size, formatid);
+  return workers;
+}
+
+function createPool(size, formatid) {
+  const slots = [];
+  const waiting = [];
+  let jobs = 0;
+
+  const pump = () => {
+    for (const slot of slots) {
+      if (!slot.ready || slot.busy || slot.dead || !waiting.length) continue;
+      const job = waiting.shift();
+      const msg = { job: ++jobs, ctx: { id: job.common.id }, snap: { id: job.snap.id }, subs: job.subs, variants: job.variants, t: job.t };
+      const inUse = [`c${job.common.id}`, `s${job.snap.id}`];
+      if (!slot.held.includes(inUse[0])) {
+        msg.ctx.payload = contextPayload(job.common);
+        hold(slot.held, inUse[0], inUse);
+      }
+      if (!slot.held.includes(inUse[1])) {
+        msg.snap.payload = { ...job.snap, log: undefined };
+        hold(slot.held, inUse[1], inUse);
+      }
+      job.state = 'sent';
+      slot.busy = job;
+      // Held only while it works: an idle pool never keeps the process alive.
+      slot.worker.ref();
+      slot.worker.postMessage(msg);
+    }
+  };
+
+  for (let i = 0; i < size; i++) {
+    const worker = new Worker(new URL(import.meta.url), { workerData: { role: PROBE_ROLE, formatid } });
+    const slot = { worker, ready: false, busy: null, dead: false, held: [] };
+    worker.on('message', (msg) => {
+      if (msg.ready) { slot.ready = true; pump(); return; }
+      const job = slot.busy;
+      slot.busy = null;
+      worker.unref();
+      if (job) {
+        job.state = 'done';
+        if (msg.error) job.reject(new Error(msg.error)); else job.resolve(msg.run);
+      }
+      pump();
+    });
+    worker.on('error', (err) => {
+      slot.dead = true;
+      worker.unref();
+      if (slot.busy) { slot.busy.reject(err); slot.busy = null; }
+    });
+    // Listening refs the worker's port, so this comes after the listeners.
+    worker.unref();
+    slots.push(slot);
+  }
+
+  return {
+    size,
+    submit(common, snap, subs, t) {
+      const job = { common, snap, subs, variants: common.variants.slice(), t, state: 'queued' };
+      job.promise = new Promise((resolve, reject) => { job.resolve = resolve; job.reject = reject; });
+      job.promise.catch(() => {});
+      waiting.push(job);
+      pump();
+      return job;
+    },
+    withdraw(job) {
+      const at = waiting.indexOf(job);
+      if (at < 0) return false;
+      waiting.splice(at, 1);
+      return true;
+    },
+    close() {
+      for (const slot of slots) slot.worker.terminate();
+    },
+  };
+}
+
+/**
+ * The worker's side: hold what it is sent, answer one probe at a time. The
+ * simulator loads its data on the first battle it builds, which costs far more
+ * than a probe, so a worker builds one before it says it is ready - until then
+ * the search runs its probes itself.
+ */
+function serveProbes() {
+  const held = new Map();
+  const order = [];
+  const dexes = new Map();
+  new Battle({ formatid: workerData.formatid });
+  parentPort.on('message', async ({ job, ctx, snap, subs, variants, t }) => {
+    try {
+      const inUse = [`c${ctx.id}`, `s${snap.id}`];
+      for (const [key, payload] of [[inUse[0], ctx.payload], [inUse[1], snap.payload]]) {
+        if (!payload) continue;
+        held.set(key, payload);
+        for (const gone of hold(order, key, inUse)) held.delete(gone);
+      }
+      const common = held.get(`c${ctx.id}`);
+      const from = held.get(`s${snap.id}`);
+      if (!dexes.has(common.formatid)) dexes.set(common.formatid, Dex.forFormat(common.formatid));
+      const run = await playThrough({ ...common, dex: dexes.get(common.formatid), variants, subs, stopAt: t, from });
+      parentPort.postMessage({
+        job,
+        run: {
+          badTurn: run.badTurn, diffs: run.diffs, starts: run.starts, widths: run.widths,
+          trace: [...run.trace], tail: run.rawLog.slice(from.logAt),
+        },
+      });
+    } catch (err) {
+      parentPort.postMessage({ job, error: String(err?.stack || err) });
+    }
+  });
+  parentPort.postMessage({ ready: true });
+}
+
+/**
+ * The probes of one turn's search, answered by the pool when it got there first
+ * and on this thread otherwise. `ahead` names the probes the search is about to
+ * ask for, in the order it will ask; `get` is the asking. A probe still waiting
+ * for a worker when it is asked for is taken back and run here, and anything a
+ * worker could not answer is run here too, so the pool can only save time.
+ */
+function prober(common, t) {
+  const jobs = new Map();
+  const keyOf = subs => Object.keys(subs).map(Number).sort((a, b) => a - b).map(i => `${i}=${subs[i]}`).join(' ');
+  return {
+    ahead(list) {
+      if (!common.pool) return;
+      for (const subs of list) {
+        const key = keyOf(subs);
+        if (jobs.has(key)) continue;
+        const snap = snapshotFor(common, subs, t);
+        if (snap) jobs.set(key, common.pool.submit(common, snap, subs, t));
+      }
+    },
+    async get(subs) {
+      const job = jobs.get(keyOf(subs));
+      // The search itself only ever waits on promises, so a worker's messages
+      // are read only when it yields: once, before a queued probe is taken back.
+      if (job?.state === 'queued') await new Promise(resolve => setImmediate(resolve));
+      if (job && !(job.state === 'queued' && common.pool.withdraw(job))) {
+        try {
+          const run = await job.promise;
+          return { ...run, rawLog: job.snap.log.slice(0, job.snap.logAt).concat(run.tail), steer: null, inputLog: null, notes: [] };
+        } catch { /* run it here */ }
+      }
+      return runTo(common, subs, t);
+    },
+    cancel() {
+      for (const job of jobs.values()) if (job.state === 'queued') common.pool.withdraw(job);
+      jobs.clear();
+    },
+  };
 }
 
 /**
@@ -1034,13 +1371,14 @@ const ties = (a, b) => a[0] === b[0] && a[1] === b[1];
  * in the battle, and it is what the emitted `>rng at` line carries.
  */
 async function resolveTurn(t, common, subs, subTurn, sample, budget) {
-  let run = await playThrough({ ...common, subs, stopAt: t, steer: t });
+  let run = await runTo(common, subs, t, t);
   let score = scoreOf(run, t);
   let forced = 0;
   let probes = 0;
 
   const found = new Map();
   const commits = [];
+  const ask = prober(common, t);
   const remember = (probe) => {
     const start = probe.starts?.[t] ?? 0;
     return {
@@ -1109,24 +1447,42 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     // target and hit the other needs both accuracy dice moved, and neither
     // alone brings the line any closer.
     const fixes = all.filter(d => subs[d.i] === undefined && reach(d) && wrong(d) && run.steer.get(d.i).reps.length);
+    let trial = null;
     if (fixes.length > 1 && probes < budget) {
-      const trial = { ...subs };
+      trial = { ...subs };
       for (const d of fixes) {
         const { reps, groups } = run.steer.get(d.i);
         const faces = reps.flatMap(v => groups.get(v) || [v]);
         trial[d.i] = faces[sample.pick(faces.length)];
       }
-      const probe = await playThrough({ ...common, subs: trial, stopAt: t });
+    }
+
+    // The probes this scan will ask for, in order, are known before it asks:
+    // the workers start on them now.
+    const order = [...all.filter(wrong), ...all.filter(d => !wrong(d))];
+    const planned = trial ? [trial] : [];
+    for (const draw of order) {
+      if (subs[draw.i] !== undefined || !reach(draw)) continue;
+      for (const v of candidates(draw, run.steer)) {
+        const rec = found.get(`${draw.i}|${v}`);
+        if (!rec || !holds(rec)) planned.push({ ...subs, [draw.i]: v });
+      }
+    }
+    ask.ahead(planned.slice(0, budget - probes));
+
+    if (trial) {
+      const probe = await ask.get(trial);
       probes++;
       if (outranks(scoreOf(probe, t), score)) {
+        ask.cancel();
         for (const d of fixes) commit(d.i, trial[d.i]);
-        run = await playThrough({ ...common, subs, stopAt: t, steer: t });
+        run = await runTo(common, subs, t, t);
         score = scoreOf(run, t);
         continue;
       }
     }
 
-    for (const draw of [...all.filter(wrong), ...all.filter(d => !wrong(d))]) {
+    for (const draw of order) {
       if (subs[draw.i] !== undefined || !reach(draw)) continue;
       const same = v => run.steer?.get(draw.i)?.groups.get(v) || [v];
 
@@ -1137,7 +1493,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
         let rec = found.get(key);
         if (!rec || !holds(rec)) {
           if (probes >= budget) break;
-          const probe = await playThrough({ ...common, subs: { ...subs, [draw.i]: v }, stopAt: t });
+          const probe = await ask.get({ ...subs, [draw.i]: v });
           probes++;
           rec = remember(probe);
           found.set(key, rec);
@@ -1168,8 +1524,9 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
       committed = true;
     }
 
+    ask.cancel();
     if (!committed) break;
-    run = await playThrough({ ...common, subs, stopAt: t, steer: t });
+    run = await runTo(common, subs, t, t);
     score = scoreOf(run, t);
   }
 
@@ -1249,17 +1606,20 @@ function exactHp(rawLog, who) {
  * set that the forward pass makes.
  */
 async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict = false) {
-  const run = await playThrough({ ...common, subs, stopAt: t, steer: t });
+  const run = await runTo(common, subs, t, t);
   if (scoreOf(run, t)[0] !== Infinity) return false;
   const was = who ? exactHp(run.rawLog, who) : null;
 
   const options = [];
   const moving = [];
   let probes = 0;
-  for (const draw of drawsOf(run.trace, t)) {
+  const draws = drawsOf(run.trace, t);
+  const ask = prober(common, t);
+  ask.ahead(draws.flatMap(draw => candidates(draw, run.steer).map(v => ({ ...subs, [draw.i]: v }))).slice(0, budget));
+  for (const draw of draws) {
     for (const v of candidates(draw, run.steer)) {
       if (probes >= budget) break;
-      const probe = await playThrough({ ...common, subs: { ...subs, [draw.i]: v }, stopAt: t });
+      const probe = await ask.get({ ...subs, [draw.i]: v });
       probes++;
       if (scoreOf(probe, t)[0] !== Infinity) continue;
       const found = (run.steer?.get(draw.i)?.groups.get(v) || [v]).map(value => ({ i: draw.i, value }));
@@ -1270,6 +1630,7 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
       if (who && exactHp(probe.rawLog, who) !== was) moving.push(...found);
     }
   }
+  ask.cancel();
   const pool = moving.length ? moving : strict ? [] : options;
   if (!pool.length) return false;
 
@@ -1284,11 +1645,12 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
 /**
  * Rebuild an input log from an observed protocol log.
  *
- * @param formatid     e.g. `gen9championsvgc2026regmb`
+ * @param formatid     e.g. `gen9championsvgc2026regmc`
  * @param packedTeams  both teams, packed, stat points included
  * @param playerNames  both names, as the observed `|player|` lines carry them
  * @param observed     the observed protocol lines
- * @param channel      -1 if the observation is omniscient, 1 if it is p1's view
+ * @param channel      -1 if the observation is omniscient, 1 or 2 if it is that player's
+ *                     view, 0 if it is a spectator's
  * @param seed         the real seed when it is known; otherwise searched
  * @param sampleSeed   fixes the seed search, so a reconstruction is reproducible
  * @param exact        turn -> the same turn's lines with every HP exact, compared on
@@ -1299,6 +1661,9 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
  *                     each belongs to. Stat Point inference supplies the dice that
  *                     rebuild its proved turns, so only the turn after them is
  *                     searched. A pin on a turn that fails is dropped and searched.
+ * @param threads      how many threads the dice search may use, this one included;
+ *                     the machine's own count by default. The answer is the same
+ *                     for any count.
  */
 export async function reconstruct({
   formatid,
@@ -1314,6 +1679,7 @@ export async function reconstruct({
   maxBacktracks = 6,
   exact = null,
   pins = null,
+  threads = os.availableParallelism(),
   onProgress = () => {},
 }) {
   const dex = Dex.forFormat(formatid);
@@ -1321,7 +1687,10 @@ export async function reconstruct({
   const segments = splitTurns(lines);
   if (segments.length < 2) throw new Error('observed log has no complete turn');
 
-  const plans = segments.map(s => planSegment(s, dex));
+  // Who was really sent in, and who really acted, is planned from the log with
+  // every Illusion seen through; the turns are still compared as shown.
+  const unmasked = unmaskIllusion(lines);
+  const plans = splitTurns(unmasked.lines).map(s => planSegment(s, dex));
   recoverChargeTargets(plans);
 
   const sample = sampler(sampleSeed);
@@ -1333,7 +1702,7 @@ export async function reconstruct({
     `>player p2 ${JSON.stringify({ name: playerNames[1], avatar: avatar.p2, team: packedTeams[1] })}`,
   ];
 
-  const state0 = { reveal: revealOrder(lines), sizes: teamSizes(lines) };
+  const state0 = { reveal: revealOrder(unmasked.lines), sizes: teamSizes(lines), disguises: unmasked.disguises };
   const reseeds = new Array(segments.length).fill(null);
   const variants = new Array(segments.length).fill(0);
   const spent = new Array(segments.length).fill(0);
@@ -1358,7 +1727,10 @@ export async function reconstruct({
   for (const { turn, seed: at } of seedPlan || []) {
     if (turn >= 1 && turn < reseeds.length) reseeds[turn] = at;
   }
-  const common = { header, segments, plans, reseeds, variants, channel, exact, state0, dex };
+  const common = {
+    header, segments, plans, reseeds, variants, channel, exact, state0, dex, formatid,
+    id: ++contextCount, snaps: new Map(), pool: probePool(threads, formatid),
+  };
   let attempts = 0;
   let backtracks = 0;
   let forcedDraws = 0;
@@ -1434,7 +1806,7 @@ export async function reconstruct({
     for (let v = 1; v < width && !solved; v++) {
       variants[t] = v;
       forget(t);
-      const probe = await playThrough({ ...common, subs, stopAt: t });
+      const probe = await runTo(common, subs, t);
       attempts++;
       if (probe.badTurn === null) { solved = true; break; }
       const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
@@ -1536,3 +1908,5 @@ export async function reconstruct({
 export function unpackTeams(packedTeams) {
   return packedTeams.map(t => Teams.unpack(t));
 }
+
+if (!isMainThread && workerData?.role === PROBE_ROLE) serveProbes();

@@ -2,7 +2,7 @@
  * Omniscient replay harness.
  *
  * 1. Brings up the local Showdown server and client host if they are not running.
- * 2. Plays a scripted Champions Reg M-B doubles battle through the real server
+ * 2. Plays a scripted Champions Reg M-C doubles battle through the real server
  *    with two websocket clients.
  * 3. Reads the battle log the server writes on `end()`, which carries the
  *    inputLog (seed + both packed teams + every choice).
@@ -33,7 +33,7 @@
  *
  * The rules are armed *before* the reseed on purpose. `>reseed` replaces the
  * generator object, so a run that forces nothing is how a broken accessor
- * announces itself (ENGINEERING.md 4.2).
+ * announces itself (docs/engineering.md 4.2).
  */
 
 import { spawn } from 'child_process';
@@ -55,7 +55,7 @@ const { P1_EXPORT, P2_EXPORT } = require('./fixtures/teams.js');
 const ROOT = process.cwd();
 const RUNTIME_LOGS = path.join(ROOT, 'runtime', 'logs');
 const REPLAY_DIR = path.join(ROOT, 'replays');
-const FORMAT = 'gen9championsvgc2026regmb';
+const FORMAT = 'gen9championsvgc2026regmc';
 
 const argv = process.argv.slice(2);
 const flag = name => argv.includes(name);
@@ -295,7 +295,8 @@ async function main() {
   const logData = JSON.parse(fs.readFileSync(logFile, 'utf8'));
 
   // runtime/ is generated and gets deleted to reset the server, so keep a copy
-  // of the recording outside it.
+  // of the recording outside it, in the recordings/local/ folder for how it was
+  // played.
   const archived = archiveLogFile(ROOT, logFile);
   if (archived !== logFile) console.log(`Archived to:  ${posix(ROOT, archived)}`);
 

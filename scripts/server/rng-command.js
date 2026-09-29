@@ -5,12 +5,12 @@
  *
  * This file runs inside the Showdown server process. Provisioning copies it to
  * `runtime/config/rng-command.js`, and `config/config.js` hands its `commands`
- * table to `Chat.loadPlugin(Config, 'config')` (`server/chat.ts:2089`). Nothing
+ * table to `Chat.loadPlugin(Config, 'config')` (`server/chat.ts:2046`). Nothing
  * outside `config/` is touched.
  *
  * `Config.subprocesses = 0` puts the simulator in the main process
- * (`server/config-loader.ts:91` -> `room-battle.ts:1368` ->
- * `lib/process-manager.ts:633`), so `room.battle.stream.battle` is a live
+ * (`server/config-loader.ts:91` -> `room-battle.ts:1369` ->
+ * `lib/process-manager.ts:632`), so `room.battle.stream.battle` is a live
  * `Battle` object this command can read and mutate synchronously. There is no
  * `>eval`, no payload string and no worker in between.
  *
@@ -39,7 +39,7 @@
  *     something nobody has.
  *   - by **ordinal** (`>rng at 3=5 17=0`), which names the nth draw since
  *     installation and the value it takes. This is what reconstruction needs
- *     (ENGINEERING.md 7): rebuilding someone else's battle means choosing dice
+ *     (docs/engineering.md 7): rebuilding someone else's battle means choosing dice
  *     that have no names yet, one at a time, against the log they produced.
  *
  * Every rule-matched draw identifies itself from a stack frame plus the context
@@ -591,7 +591,7 @@ function arm(battle, parts, record) {
  * Ordinals count from installation, so the pinning line has to sit at the same
  * point in the recipe that it sat at when the values were found - for
  * reconstruction that is between `>start` and `>player`, which is what puts the
- * gender roll of a genderless set under control too (ENGINEERING.md 7.2).
+ * gender roll of a genderless set under control too (docs/engineering.md 7.2).
  */
 function pin(battle, pairs, record) {
 	const st = install(battle);

@@ -20,14 +20,16 @@ the table does not already place. Ask for that file, by name, on its own, and wa
 | Script that runs in the browser, served over HTTP | `scripts/client/<name>.js` — never runnable with `node` |
 | Code that runs inside the Showdown server process | `scripts/server/<name>.js` — CommonJS, copied into `runtime/config/` by provisioning, never `.mjs` |
 | Team or format fixture loaded by Node | `scripts/fixtures/<name>.js` — CommonJS, not ESM |
-| Recorded battle worth keeping | `recordings/<battleid>.log.json` — tracked, cannot be regenerated |
-| Public-ladder replay kept as test material | `samples/<name>.html` |
+| Battle our local server recorded, worth keeping | `recordings/local/<scripted, probes, self-play or branched>/<battleid>.log.json` — tracked, cannot be regenerated; `recordings/README.md` picks the folder |
+| Input log rebuilt from a replay | `recordings/reconstructed/reconstructed-<replay name>.log.json` — written there by `npm run reconstruct` |
+| Replay page saved from play.pokemonshowdown.com | `recordings/showdown/<full-sheets, mine-open, mine-closed, others-open or others-closed>/<name as downloaded>.html` |
+| Battle video | `recordings/video/<tournament or champions>/` — gitignored; list it in that folder's `README.md` |
 | Rendered replay page | `replays/` — written by the commands, gitignored, never hand-authored |
 | Local Showdown server file | `runtime/` — generated from `node_modules`, never edited by hand |
 | Upstream client file | `vendor/` — a clone of someone else's repo, never edited |
 | Explanation of a directory whose contents are not self-evident | `<that-directory>/README.md` |
-| Document answering a question none of `PLAN.MD`, `ENGINEERING.md`, `BRANCHING.md` owns | the repo root, as `<NAME>.md` — first check whether it belongs *inside* one of those three |
-| Scratch file, experiment, probe, or one-off diagnostic | nowhere in this repo — use the session scratchpad and delete it |
+| Document answering a question no document in `docs/` owns | `docs/<name>.md`, lowercase — first check whether it belongs *inside* one of those |
+| Scratch file, experiment, probe, or one-off diagnostic | nowhere in this repo — use the session scratchpad and delete it; only a battle it recorded that is worth keeping goes to `recordings/local/probes/` |
 
 ## Extensions carry meaning
 

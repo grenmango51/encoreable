@@ -26,8 +26,8 @@ import { createRequire } from 'module';
 
 import { identName, identSide, reconstruct, sampler } from '../reconstruct.mjs';
 import {
-  FLAT, aimFor, cloneKnowledge, closestSpread, defaultSpread, freshKnowledge, fullEvs,
-  intersectKnowledge, keyOf, maskKeys, pinKnowledge, sameSpread, spreadCount, summarise, tighten,
+  BUDGET, FLAT, STAT_IDS, aimFor, cloneKnowledge, closestSpread, defaultSpread, freshKnowledge, fullEvs,
+  intersectKnowledge, keyOf, maskKeys, pinKnowledge, sameSpread, spreadsLeft, summarise, tighten,
 } from './knowledge.mjs';
 import { evidencePass } from './evidence.mjs';
 
@@ -66,6 +66,8 @@ function handOn(built, rolls) {
  * @param sets     both teams as set objects - everything the sheets publish. A
  *                 known side's sets carry their real Stat Points.
  * @param known    `[p1Known, p2Known]`
+ * @param allSpent assume every unknown set spends all 66 points, as real sets do.
+ *                 An assumption, not evidence: off unless asked for.
  * @returns the surviving spreads per Pokemon, the events that removed the rest,
  *          and the reconstruction built from the spread it settled on.
  */
@@ -79,6 +81,8 @@ export async function inferSpreads({
   sampleSeed = 1,
   maxProbes = 4000,
   maxRounds = 16,
+  allSpent = false,
+  threads,
   onProgress = () => {},
 }) {
   const dex = Dex.forFormat(formatid);
@@ -100,7 +104,7 @@ export async function inferSpreads({
 
   const blank = new Map();
   for (const [s, team] of sets.entries()) {
-    for (const [i, set] of team.entries()) blank.set(`p${s + 1}:${i}`, freshKnowledge(set, known[s]));
+    for (const [i, set] of team.entries()) blank.set(`p${s + 1}:${i}`, freshKnowledge(set, known[s], allSpent));
   }
   let picks = sets.map((team, s) => team.map((set) => {
     if (known[s]) return fullEvs(set.evs);
@@ -110,7 +114,7 @@ export async function inferSpreads({
   }));
 
   const settle = async (inputLog, knowledge, cache, record = false) => {
-    const counts = () => new Map([...knowledge].map(([id, kn]) => [id, spreadCount(maskKeys(kn.keys), kn.dom).total]));
+    const counts = () => new Map([...knowledge].map(([id, kn]) => [id, spreadsLeft(kn)]));
     const initial = record ? counts() : null;
     let first = null;
     let afterFirst = null;
@@ -172,6 +176,7 @@ export async function inferSpreads({
       sampleSeed: sampleSeed + resample,
       maxProbes: budgets[level].maxProbes,
       maxBacktracks: budgets[level].maxBacktracks,
+      threads,
     });
     const diff = built.report.diffs[0];
     onProgress(`round ${rounds}${level ? ` (search ${level + 1})` : ''}, ${((Date.now() - searchStart) / 1000).toFixed(1)}s: ${built.report.complete ? 'the whole log reproduces'
@@ -282,7 +287,8 @@ export async function inferSpreads({
         used: picks[s][i],
         contains: (evs) => {
           const e = fullEvs(evs);
-          return !!kn.keys[keyOf(e.hp, e.def, e.spd)] && FLAT.every(x => kn.dom[x][e[x]]);
+          const sum = STAT_IDS.reduce((t, x) => t + e[x], 0);
+          return !!kn.keys[keyOf(e.hp, e.def, e.spd)] && FLAT.every(x => kn.dom[x][e[x]]) && (!kn.spent || sum === BUDGET);
         },
       });
     }

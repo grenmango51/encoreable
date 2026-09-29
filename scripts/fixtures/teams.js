@@ -74,7 +74,7 @@ Modest Nature
 `.trim();
 
 // p2 — the first four Pokemon exist to remove themselves from the field quickly.
-// Reg M-B requires a six-Pokemon team, but Team Preview brings only four, so the
+// Reg M-C requires a six-Pokemon team, but Team Preview brings only four, so the
 // last two are there for legality and are never selected.
 const P2_EXPORT = `
 Glalie @ Glalitite

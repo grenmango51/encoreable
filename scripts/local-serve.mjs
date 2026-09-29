@@ -209,7 +209,7 @@ async function main() {
   console.log('\nInstructions:');
   console.log('1. Pick a different guest name in each tab.');
   console.log('2. Build or import a team in each tab.');
-  console.log('3. Challenge the other player to [Gen 9 Champions] VGC 2026 Reg M-B.');
+  console.log('3. Challenge the other player to [Gen 9 Champions] VGC 2026 Reg M-C.');
   console.log('Press Ctrl+C to stop both servers.\n');
 }
 

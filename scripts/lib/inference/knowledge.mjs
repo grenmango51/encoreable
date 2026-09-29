@@ -7,6 +7,9 @@
  * file holds that model, the 66-point budget pushed through it, the count of
  * whole spreads it allows, and how the next guess is picked from it. Nothing
  * here runs the simulator.
+ *
+ * A Pokemon marked `spent` is assumed to use all 66 points, as real sets do.
+ * That is an assumption, not evidence, so it is only ever asked for.
  */
 
 export const SPAN = 33;
@@ -40,7 +43,7 @@ export const aliveOf = (mask) => {
 
 // ------------------------------------------------------------ what is known
 
-export function freshKnowledge(set, known) {
+export function freshKnowledge(set, known, spent = false) {
   const keys = new Uint8Array(KEYS);
   const dom = { atk: new Uint8Array(SPAN), spa: new Uint8Array(SPAN), spe: new Uint8Array(SPAN) };
   if (known) {
@@ -51,7 +54,7 @@ export function freshKnowledge(set, known) {
     for (let k = 0; k < KEYS; k++) if (KEY_SUM[k] <= BUDGET) keys[k] = 1;
     for (const s of FLAT) dom[s].fill(1);
   }
-  return { known, keys, dom };
+  return { known, spent: !known && spent, keys, dom };
 }
 
 export function cloneKnowledge(map) {
@@ -59,6 +62,7 @@ export function cloneKnowledge(map) {
   for (const [id, kn] of map) {
     out.set(id, {
       known: kn.known,
+      spent: kn.spent,
       keys: kn.keys.slice(),
       dom: { atk: kn.dom.atk.slice(), spa: kn.dom.spa.slice(), spe: kn.dom.spe.slice() },
     });
@@ -85,31 +89,62 @@ export function intersectKnowledge(kn, keys, flat) {
   return moved;
 }
 
+/** Which totals a set of stats can reach, one surviving value from each. */
+function reach(masks) {
+  let out = Uint8Array.of(1);
+  for (const mask of masks) {
+    const next = new Uint8Array(out.length + mask.length - 1);
+    for (let t = 0; t < out.length; t++) {
+      if (!out[t]) continue;
+      for (let v = 0; v < mask.length; v++) if (mask[v]) next[t + v] = 1;
+    }
+    out = next;
+  }
+  return out;
+}
+
+/**
+ * The budget as a test per key and per flat value: a value fits if some choice
+ * for everything else that survives brings the total within 66 - or, for a
+ * Pokemon assumed to spend every point, to exactly 66.
+ */
+function budgetTest(keys, dom, spent) {
+  const keySums = new Uint8Array(3 * (SPAN - 1) + 1);
+  for (const k of keys) keySums[KEY_SUM[k]] = 1;
+  const within = (sums) => {
+    if (spent) return need => need >= 0 && need < sums.length && sums[need] === 1;
+    const upTo = new Uint8Array(sums.length);
+    for (let t = 0, any = 0; t < sums.length; t++) { any |= sums[t]; upTo[t] = any; }
+    return need => need >= 0 && upTo[Math.min(need, sums.length - 1)] === 1;
+  };
+  const flatFits = within(reach(FLAT.map(s => dom[s])));
+  return {
+    key: k => flatFits(BUDGET - KEY_SUM[k]),
+    flat: FLAT.map((s, j) => {
+      const rest = within(reach([keySums, ...FLAT.filter((_, i) => i !== j).map(x => dom[x])]));
+      return v => rest(BUDGET - v);
+    }),
+  };
+}
+
 /**
  * The 66-point budget, pushed through every stat: a value that cannot fit beside
- * the cheapest surviving choice for everything else is gone.
+ * any surviving choice for everything else is gone.
  */
 export function tighten(kn) {
   let moved = false;
-  for (let round = 0; round < 4; round++) {
-    let minKey = Infinity;
-    for (let k = 0; k < KEYS; k++) if (kn.keys[k] && KEY_SUM[k] < minKey) minKey = KEY_SUM[k];
-    const mins = {};
-    for (const s of FLAT) mins[s] = kn.dom[s].indexOf(1);
-    if (minKey === Infinity || FLAT.some(s => mins[s] < 0)) {
+  for (let round = 0; round < 8; round++) {
+    if (!kn.keys.includes(1) || FLAT.some(s => !kn.dom[s].includes(1))) {
       const any = kn.keys.includes(1) || FLAT.some(s => kn.dom[s].includes(1));
       kn.keys.fill(0);
       for (const s of FLAT) kn.dom[s].fill(0);
       return moved || any;
     }
-    const flatMin = mins.atk + mins.spa + mins.spe;
+    const fits = budgetTest(maskKeys(kn.keys), kn.dom, kn.spent);
     let changed = false;
-    for (let k = 0; k < KEYS; k++) {
-      if (kn.keys[k] && KEY_SUM[k] + flatMin > BUDGET) { kn.keys[k] = 0; changed = true; }
-    }
-    for (const s of FLAT) {
-      const rest = minKey + flatMin - mins[s];
-      for (let v = 0; v < SPAN; v++) if (kn.dom[s][v] && v + rest > BUDGET) { kn.dom[s][v] = 0; changed = true; }
+    for (let k = 0; k < KEYS; k++) if (kn.keys[k] && !fits.key(k)) { kn.keys[k] = 0; changed = true; }
+    for (const [j, s] of FLAT.entries()) {
+      for (let v = 0; v < SPAN; v++) if (kn.dom[s][v] && !fits.flat[j](v)) { kn.dom[s][v] = 0; changed = true; }
     }
     if (!changed) break;
     moved = true;
@@ -149,6 +184,40 @@ export const maskKeys = (mask) => {
   return out;
 };
 
+/** The whole spreads left for one Pokemon, counted the way it is assumed to spend. */
+export function spreadsLeft(kn, keys = maskKeys(kn.keys), dom = kn.dom) {
+  const count = spreadCount(keys, dom);
+  return kn.spent ? count.spent : count.total;
+}
+
+/**
+ * Each stat's range across the whole spreads that survive, as `{ min, max }`, or
+ * null for a stat with nothing left. A value counts only if it fits the budget
+ * beside some surviving choice for everything else - the rule `tighten` pushes
+ * through, read here without moving anything.
+ */
+export function rangesOf(keys, flat, spent = false) {
+  const out = Object.fromEntries(STAT_IDS.map(s => [s, null]));
+  const list = Array.isArray(keys) ? keys : [...keys];
+  if (!list.length || FLAT.some(s => !flat[s].includes(1))) return out;
+  const fits = budgetTest(list, flat, spent);
+  const lo = { hp: SPAN, def: SPAN, spd: SPAN };
+  const hi = { hp: -1, def: -1, spd: -1 };
+  for (const k of list) {
+    if (!fits.key(k)) continue;
+    lo.hp = Math.min(lo.hp, KEY_HP[k]); hi.hp = Math.max(hi.hp, KEY_HP[k]);
+    lo.def = Math.min(lo.def, KEY_DEF[k]); hi.def = Math.max(hi.def, KEY_DEF[k]);
+    lo.spd = Math.min(lo.spd, KEY_SPD[k]); hi.spd = Math.max(hi.spd, KEY_SPD[k]);
+  }
+  if (hi.hp < 0) return out;
+  for (const s of ['hp', 'def', 'spd']) out[s] = { min: lo[s], max: hi[s] };
+  for (const [j, s] of FLAT.entries()) {
+    const values = aliveOf(flat[s]).filter(fits.flat[j]);
+    if (values.length) out[s] = { min: values[0], max: values[values.length - 1] };
+  }
+  return out;
+}
+
 /** What survives for one Pokemon, as a range per stat plus the spread count. */
 export function summarise(kn) {
   const keys = maskKeys(kn.keys);
@@ -160,7 +229,7 @@ export function summarise(kn) {
     const values = aliveOf(FLAT.includes(s) ? kn.dom[s] : seen[s]);
     stats[s] = values.length ? { min: values[0], max: values[values.length - 1], count: values.length } : null;
   }
-  return { spreads: count.total, allSpent: count.spent, stats };
+  return { spreads: kn.spent ? count.spent : count.total, allSpent: count.spent, stats };
 }
 
 // ------------------------------------------------------------ the next guess
@@ -204,7 +273,7 @@ export function closestSpread(kn, prev) {
     if (!kn.keys[k]) continue;
     const room = BUDGET - KEY_SUM[k];
     if (room < 0) continue;
-    const f = upTo[Math.min(room, upTo.length - 1)];
+    const f = kn.spent ? best[room] : upTo[Math.min(room, upTo.length - 1)];
     if (!f) continue;
     const cost = Math.abs(KEY_HP[k] - prev.hp) + Math.abs(KEY_DEF[k] - prev.def) + Math.abs(KEY_SPD[k] - prev.spd) + f.cost;
     if (!win || cost < win.cost) win = { cost, k, f };

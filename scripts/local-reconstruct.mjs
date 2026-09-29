@@ -7,8 +7,8 @@
  * `npm run replay`, `npm run live` and "Play from here" work on someone else's
  * ladder game with no changes at all.
  *
- * The four rungs exist because each one adds exactly one unknown, and the 14
- * recordings are ground truth for the first three:
+ * The four rungs exist because each one adds exactly one unknown, and the
+ * battles in recordings/local/ are ground truth for the first three:
  *
  *   s1  a recording's log, both teams, and the real seed   -> choices only
  *   s2  the same, seed withheld                            -> choices + RNG
@@ -16,21 +16,21 @@
  *   s4  a saved .html replay                               -> everything
  *
  * `--infer p1|p2|both` withholds one more thing: that side's Stat Points. They
- * are inferred from the replay (ENGINEERING.md 7.5) instead of read from a
+ * are inferred from the replay (docs/engineering.md 7.5) instead of read from a
  * fixture - `p2` is "I know my team, not theirs", `both` knows neither. On a
  * recording the real spreads stay available as the check; on a replay, the
  * fixture named by `--teams` is the check when it has that side.
  *
  * Usage:
  *   node scripts/local-reconstruct.mjs --rung s1
- *   node scripts/local-reconstruct.mjs --rung s3 --from recordings/<x>.log.json
+ *   node scripts/local-reconstruct.mjs --rung s3 --from recordings/local/scripted/<x>.log.json
  *   node scripts/local-reconstruct.mjs --rung s1 --all
- *   node scripts/local-reconstruct.mjs --from "samples/<replay>.html" --teams alt
- *   node scripts/local-reconstruct.mjs --from "samples/<replay>.html" --infer p2
+ *   node scripts/local-reconstruct.mjs --from "recordings/showdown/full-sheets/<replay>.html" --teams alt
+ *   node scripts/local-reconstruct.mjs --from "recordings/showdown/full-sheets/<replay>.html" --infer p2
  *   node scripts/local-reconstruct.mjs --rung s3 --all --infer p2
  *
  * Flags: --from <file> --rung s1|s2|s3 --all --teams <fixture> --infer p1|p2|both
- *        --sample <n> --out <file> --dry-run --verbose --max-tries <n>
+ *        --all-spent --sample <n> --max-probes <n> --threads <n> --out <file> --dry-run --verbose
  */
 
 import fs from 'fs';
@@ -42,7 +42,8 @@ import { listLogFiles, newestLogFile, posix as toPosix } from './lib/recordings.
 import { inferSpreads } from './lib/inference/infer.mjs';
 import { reconstruct, unpackTeams } from './lib/reconstruct.mjs';
 import {
-  alignSpeciesToSheet, crossCheckSheet, loadSource, maxHpFromLog, setsFromSheet, unreplayableChoices,
+  alignSpeciesToSheet, crossCheckLog, crossCheckSheet, loadSource, maxHpFromLog, setsFromLog, setsFromSheet,
+  teamsForSides, unreplayableChoices, withLogIdentity,
 } from './lib/replay-source.mjs';
 
 const require = createRequire(import.meta.url);
@@ -70,7 +71,7 @@ const chatty = (...a) => { if (VERBOSE) console.log(' ', ...a); };
  *
  * A recording produced by branching carries a `>reseed`: `npm run live` keeps
  * the position and rolls fresh dice from that turn on. Turn boundaries are not
- * derivable by counting (ENGINEERING.md 5.8), so the log is replayed one line at
+ * derivable by counting (docs/engineering.md 5.8), so the log is replayed one line at
  * a time and `battle.turn` is read off at the moment the reseed lands.
  */
 async function reseedPlan(inputLog) {
@@ -154,7 +155,7 @@ function hpAccuracy(truthLines, builtLines, side) {
 
 // -------------------------------------------------------------- one run
 
-async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProbes, write, outDir, infer }) {
+async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProbes, threads, write, outDir, infer, allSpent, showEvents }) {
   let rung = requestedRung;
   const source = loadSource(file);
   const label = path.basename(file);
@@ -183,19 +184,17 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
   } else {
     // A saved replay: HP is exact for whoever uploaded it and a percentage for
     // the other, so the side whose HP the log states outright is the view it
-    // was saved from. Stat points come from a fixture, or for an inferred side
-    // from nowhere at all.
+    // was saved from. A replay the server published states neither side's:
+    // that is a spectator's view. Stat points come from a fixture, or for an
+    // inferred side from nowhere at all.
     const exactSides = new Set([...maxHpFromLog(observed).keys()].map(key => key.slice(0, 2)));
-    channel = exactSides.size === 1 && exactSides.has('p2') ? 2 : 1;
+    channel = !exactSides.size ? 0 : exactSides.size === 1 && exactSides.has('p2') ? 2 : 1;
     const set = TEAM_SETS[teamsKey];
-    if (inferred.length && !(source.sheets?.[0] && source.sheets?.[1])) {
-      throw new Error('this replay publishes no team sheets - inference needs every field but the Stat Points');
-    }
     if (!set && inferred.length < 2) {
       throw new Error(`no fixture team set "${teamsKey}" - have ${Object.keys(TEAM_SETS).join(', ')}`);
     }
-    packedTeams = [set?.p1, set?.p2]
-      .map(text => (text ? Teams.pack(Teams.import(text)) : null))
+    // A fixture's own team can sit on either side of someone else's replay.
+    packedTeams = teamsForSides(observed, [set?.p1, set?.p2].map(text => (text ? Teams.pack(Teams.import(text)) : null)))
       .map((packed, i) => (packed ? alignSpeciesToSheet(packed, source.sheets?.[i]) : null));
     rung = 's4';
   }
@@ -206,8 +205,9 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
   const supplied = i => !inferred.includes(`p${i + 1}`);
   const problems = [];
   for (const [i, sheet] of (source.sheets || []).entries()) {
-    if (!supplied(i)) continue;
-    for (const p of crossCheckSheet(sheet, packedTeams[i])) problems.push(`p${i + 1} ${p}`);
+    if (!supplied(i) || !packedTeams[i]) continue;
+    const found = sheet ? crossCheckSheet(sheet, packedTeams[i]) : crossCheckLog(observed, `p${i + 1}`, source.formatid, packedTeams[i]);
+    for (const p of found) problems.push(`p${i + 1} ${p}`);
   }
   const statedMax = maxHpFromLog(observed);
   if (statedMax.size) {
@@ -242,12 +242,27 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
   let built;
   let inference = null;
   let truthSets = [null, null];
+  const readOffLog = [false, false];
   if (inferred.length) {
     // What the inferred side's sheet publishes, and nothing else. Its real
     // spreads - a recording's own, or the fixture's - are kept only as the check.
+    // A replay with no sheet for that side says only what the battle showed: its
+    // sets are read off the log, and everything else is an assumption, named.
     const sets = [0, 1].map((i) => {
+      readOffLog[i] = !supplied(i) && source.kind === 'replay' && !source.sheets?.[i];
       if (supplied(i)) return Teams.unpack(packedTeams[i]);
-      if (source.kind === 'replay') return setsFromSheet(source.sheets[i]);
+      if (source.kind === 'replay' && source.sheets?.[i]) {
+        return withLogIdentity(setsFromSheet(source.sheets[i]), observed, `p${i + 1}`, source.formatid);
+      }
+      if (source.kind === 'replay') {
+        const read = setsFromLog(observed, `p${i + 1}`, source.formatid);
+        say(`  p${i + 1} published no team sheet - its sets are read off the log:`);
+        for (const [j, set] of read.sets.entries()) {
+          const shown = [set.item && `@ ${set.item}`, set.ability, set.moves.join(' / ')].filter(Boolean).join('  ');
+          say(`     ${set.name.padEnd(14)} ${shown}${read.assumed[j].notes.length ? `   assumed: ${read.assumed[j].notes.join(', ')}` : ''}`);
+        }
+        return read.sets;
+      }
       return Teams.unpack(packedTeams[i]).map(s => ({ ...s, evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 } }));
     });
     truthSets = [0, 1].map(i => (!supplied(i) && packedTeams[i] ? Teams.unpack(packedTeams[i]) : null));
@@ -260,6 +275,8 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
       channel,
       sampleSeed,
       maxProbes,
+      allSpent,
+      threads,
       onProgress: chatty,
     });
     built = inference.built;
@@ -275,6 +292,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
       seedPlan,
       sampleSeed,
       maxProbes,
+      threads,
       onProgress: chatty,
     });
   }
@@ -299,8 +317,8 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
   }
   if (inexpressible.length) {
     say(`     warning: the source's own input log is unreplayable - ${inexpressible.join(', ')} ` +
-        `recorded with no target (ENGINEERING.md 6.1). The real choice cannot be expressed, so ` +
-        `this battle is reproduced by forcing its draws rather than by matching choices.`);
+        `recorded with no target (docs/engineering.md 6.1). The real choice cannot be expressed, ` +
+        `so this battle is reproduced by forcing its draws rather than by matching choices.`);
   }
   for (const note of r.notes) say(`     note: ${note}`);
   for (const d of r.diffs.slice(0, 3)) {
@@ -326,6 +344,22 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
         .map(s => (p.stats[s] ? `${s} ${p.stats[s].min}-${p.stats[s].max}` : `${s} -`)).join('  ');
       say(`       ${p.side} ${p.species.padEnd(14)} ${p.spreads.toLocaleString('en')} of ${p.from.toLocaleString('en')} left  ${ranges}` +
           `${kept === null ? '' : kept ? '  (real spread survives)' : '  REAL SPREAD ELIMINATED'}`);
+      if (!p.spreads) {
+        say(readOffLog[side]
+          ? '         no spread fits the set read off the log, so one of its assumptions is wrong - the events say which observation ruled it out'
+          : '         no spread fits the published set - a mechanic the inference does not model, or a defect');
+      }
+    }
+    // Which event narrowed what, and to which ranges. A whole suite prints only
+    // the totals above; every event is in the written log either way.
+    if (showEvents) {
+      for (const e of inference.events) {
+        say(`       turn ${e.turn}: ${e.what}${e.shown ? ` (shown ${e.shown})` : ''}`);
+        for (const c of e.cuts) {
+          const moved = c.narrowed.map(s => `${s} ${c.stats[s] ? `${c.stats[s].min}-${c.stats[s].max}` : 'none'}`).join(', ');
+          say(`         ${c.pokemon} ${c.before.toLocaleString('en')} -> ${c.after.toLocaleString('en')}${moved ? `  ${moved}` : ''}`);
+        }
+      }
     }
   }
 
@@ -375,8 +409,9 @@ async function main() {
   const teamsKey = opt('--teams', 'alt');
   const sampleSeed = Number(opt('--sample', '1'));
   const maxProbes = Number(opt('--max-probes', '4000'));
+  const threads = opt('--threads') ? Number(opt('--threads')) : undefined;
   const write = !flag('--dry-run');
-  const outDir = path.join(ROOT, 'recordings');
+  const outDir = path.join(ROOT, 'recordings', 'reconstructed');
   const infer = opt('--infer') ? opt('--infer').toLowerCase() : null;
   if (infer && !['p1', 'p2', 'both'].includes(infer)) throw new Error('--infer takes p1, p2 or both');
 
@@ -393,17 +428,20 @@ async function main() {
   // how much of a recording to withhold, and a replay withholds everything by
   // being what it is. Naming it here keeps the header from claiming otherwise.
   const heading = files.every(f => f.toLowerCase().endsWith('.html')) ? 's4' : rung;
-  say(`reconstruct: rung ${heading}${infer ? `, Stat Points of ${infer === 'both' ? 'both sides' : infer} inferred` : ''}, ` +
+  say(`reconstruct: rung ${heading}${infer ? `, Stat Points of ${infer === 'both' ? 'both sides' : infer} inferred` : ''}` +
+    `${infer && flag('--all-spent') ? ', every point assumed spent' : ''}, ` +
     `${files.length} source${files.length === 1 ? '' : 's'}, sample seed ${sampleSeed}`);
 
   const results = [];
   for (const file of files) {
     try {
       results.push(await runOne({
-        file, rung, teamsKey, sampleSeed, maxProbes,
+        file, rung, teamsKey, sampleSeed, maxProbes, threads,
         write: write && !flag('--all'),
         outDir,
         infer,
+        allSpent: flag('--all-spent'),
+        showEvents: !flag('--all'),
       }));
     } catch (err) {
       say(`  ${path.basename(file)}: ERROR ${err.message}`);

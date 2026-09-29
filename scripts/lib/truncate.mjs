@@ -9,7 +9,7 @@
  * Turn boundaries are found by replaying the log ONE LINE AT A TIME and watching
  * `battle.turn`. Choice lines do not map one-per-side-per-turn - a faint
  * replacement adds an extra `>pN switch ...` in the middle of a turn - so index
- * arithmetic silently cuts in the wrong place. See ENGINEERING.md 5.8.
+ * arithmetic silently cuts in the wrong place. See docs/engineering.md 5.8.
  *
  * The `>start` seed is never touched: replaying the prefix under the recorded
  * seed is what reproduces the recorded position, and any other seed lands
@@ -102,7 +102,7 @@ export function positionText(position) {
  *
  * `>rng force` rules are deliberately left alone. A rule is an instruction about
  * an outcome, not a record of a draw, so surviving the branch is what it is for
- * (ENGINEERING.md 4.2).
+ * (docs/engineering.md 4.2).
  */
 export function trimPins(lines, spent) {
   const out = [];
@@ -132,7 +132,7 @@ export async function truncateAtTurn(raw, target, { reseed = false } = {}) {
   if (bad) {
     throw new Error(
       `input log contains a "default" choice (${bad}) - an auto-chosen targeted move is ` +
-      `recorded without its target and cannot be replayed (ENGINEERING.md 6.1)`
+      `recorded without its target and cannot be replayed (docs/engineering.md 6.1)`
     );
   }
 

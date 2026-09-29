@@ -5,7 +5,7 @@
  *
  *   - every damage calculation. At the moment the real hit is computed, the same
  *     `getDamage` is run again for every surviving attacking and defending stat,
- *     under the dry-run guards `damageLadder` established (ENGINEERING.md 4): a
+ *     under the dry-run guards `damageLadder` established (docs/engineering.md 4): a
  *     cloned move, no dice consumed, no messages, state restored. The in-flight
  *     move is cloned, so weather, Helping Hand, screens and boosts are exactly
  *     the real ones. `modifyDamage` is memoised on the value it receives, since
@@ -33,7 +33,7 @@ import {
   ROLLS, SOFT_PRETURN, hpRank, identName, identSide, override, restoreItems, snapItems, splitTurns,
 } from '../reconstruct.mjs';
 import {
-  KEY_DIM, KEY_HP, SPAN, STAT_IDS, aliveOf, fullEvs, maskKeys, spreadCount,
+  KEY_DIM, KEY_HP, SPAN, STAT_IDS, aliveOf, fullEvs, maskKeys, rangesOf, spreadCount,
 } from './knowledge.mjs';
 import { attachSpeed } from './speed.mjs';
 
@@ -112,6 +112,7 @@ function hpLine(line) {
   return {
     kind: parts[1],
     side: identSide(parts[2]),
+    slot: 'abcd'.indexOf(String(parts[2] || '')[2]),
     name: identName(parts[2]),
     token: String(parts[at] || '').split(' ')[0],
     changes: at === 3,
@@ -183,12 +184,14 @@ function exactTurns(raw, tokens, prefix) {
   const turns = new Map();
   let k = 0;
   let lines = [];
+  // A path that ends a Pokemon on 0 HP prints it fainted, whatever HP the
+  // scaffold left it on.
   const withHp = (line, token) => {
-    if (token === undefined || token === '0') return line;
+    if (token === undefined) return line;
     const parts = line.split('|');
     const at = HP_FIELD[parts[1]];
     const field = String(parts[at] || '');
-    parts[at] = `${token}${field.includes(' ') ? field.slice(field.indexOf(' ')) : ''}`;
+    parts[at] = token === '0' ? '0 fnt' : `${token}${field.includes(' ') ? field.slice(field.indexOf(' ')) : ''}`;
     return parts.join('|');
   };
   for (const entry of view) {
@@ -217,7 +220,7 @@ function exactTurns(raw, tokens, prefix) {
 function attachInference(battle, { view, prefix, channel, knowledge, cache, record }) {
   const st = install(battle);
   const actions = battle.actions;
-  const state = { ended: false, dry: 0 };
+  const state = { ended: false, dry: 0, hold: 0 };
   const events = [];
   const pendingHits = new Map();
   const damageContext = new Map();
@@ -278,7 +281,27 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   }
   const maxHp = (rec, hp) => rec.stat('hp', hp);
   const label = rec => rec.pokemon.species.name;
-  const countOf = rec => spreadCount(rec.chain ? rec.chain.keys() : rec.knKeys, rec.flat).total;
+  const countOf = (rec) => {
+    const count = spreadCount(rec.chain ? rec.chain.keys() : rec.knKeys, rec.flat);
+    return rec.kn.spent ? count.spent : count.total;
+  };
+
+  // What an event did to one Pokemon: the spread count before and after, each
+  // stat's range after, and which of those ranges it moved.
+  const measure = rec => ({ count: countOf(rec), stats: rangesOf(rec.chain ? rec.chain.keys() : rec.knKeys, rec.flat, rec.kn.spent) });
+  const sameRange = (a, b) => (a === null ? b === null : b !== null && a.min === b.min && a.max === b.max);
+  function cutOf(rec, before) {
+    const after = measure(rec);
+    if (after.count === before.count) return null;
+    return {
+      id: rec.id,
+      pokemon: label(rec),
+      before: before.count,
+      after: after.count,
+      stats: after.stats,
+      narrowed: STAT_IDS.filter(s => !sameRange(before.stats[s], after.stats[s])),
+    };
+  }
 
   function initChain(rec) {
     rec.chain = new Map();
@@ -398,6 +421,43 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   }
 
   const rowKey = (a, d, hp, h, si) => `${a}|${d}|${hp ?? '-'}|${h ?? '-'}|${si}`;
+
+  /** The stored stat a calculation asking for `stat` reads right now. */
+  const roomStat = stat => (!battle.field.pseudoWeather.wonderroom ? stat
+    : stat === 'def' ? 'spd' : stat === 'spd' ? 'def' : stat);
+
+  /**
+   * A confusion self-hit, as a hit on itself: the simulator's own
+   * `getConfusionDamage`, run again for every surviving Attack and Defence and
+   * all sixteen rolls. It reads nothing but the Pokemon's own stats.
+   */
+  function selfHit(pokemon, basePower, real, items, getConfusionDamage) {
+    const T = byPokemon.get(pokemon);
+    const ord = hitOrdinal++;
+    if (!T.chain) initChain(T);
+    const def = roomStat('def');
+    const hit = {
+      S: T, T, A: T, source: pokemon, target: pokemon, real, items, ord, supported: true,
+      off: 'atk', offDim: false, offBy: 'source', def, targetHp: false, sourceHp: false, sStates: [null],
+      clone: { name: 'confusion' }, what: `${label(T)} hurt itself in its confusion`,
+    };
+    hit.aVals = aliveOf(T.flat.atk);
+    const dVals = new Set([...T.chain.keys()].map(k => KEY_DIM[def][k]));
+    hit.rows = new Map();
+    for (const a of hit.aVals) {
+      for (const d of dVals) {
+        hit.rows.set(rowKey(a, d, null, null, 0), memo(`conf|${ord}|${a}|${d}`, () => guarded(() => {
+          const undo = patchAll([{ pokemon, stats: { atk: T.stat('atk', a), [def]: T.stat(def, d) } }]);
+          try {
+            return Array.from({ length: ROLLS }, (_, r) => withRoll(r, () => getConfusionDamage.call(actions, pokemon, basePower)));
+          } finally {
+            undo();
+          }
+        })));
+      }
+    }
+    return hit;
+  }
   const sameRow = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 
   /**
@@ -428,16 +488,17 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
 
       // Whose stat attacks, and which, is the move's to say: Foul Play attacks
       // with the target's Attack, Body Press with the user's Defence, Psyshock
-      // hits Defence with a special move.
+      // hits Defence with a special move. Under Wonder Room a stat asked for as
+      // one defence is read from the other (`calculateStat`), so the Stat Points
+      // that matter are the other defence's.
       const physical = clone.category === 'Physical';
       const attacker = clone.overrideOffensivePokemon === 'target' ? target : source;
       const wantOff = clone.overrideOffensiveStat || (physical ? 'atk' : 'spa');
       const wantDef = clone.overrideDefensiveStat || (physical ? 'def' : 'spd');
       const unknownReads = reads.filter(([p]) => !byPokemon.get(p).kn.known);
-      const off = unknownReads.some(([p, s]) => p === attacker && s === wantOff) ? wantOff : null;
-      const def = wantDef;
+      const off = unknownReads.some(([p, s]) => p === attacker && s === wantOff) ? roomStat(wantOff) : null;
+      const def = roomStat(wantDef);
       const supported = source !== target && clone.overrideDefensivePokemon !== 'source'
-        && !battle.field.pseudoWeather.wonderroom
         && unknownReads.every(([p, s]) => (p === attacker && s === wantOff) || (p === target && s === wantDef));
 
       // HP matters to Water Spout, Multiscale, Brine, pinch abilities. Ask
@@ -548,10 +609,14 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const modified = clamp(hit.real) !== clamp(dealt);
     const table = new Map();
     const rolls = new Map();
+    // Which pairs were lethal before the `Damage` event, for a display that
+    // says the Pokemon survived one.
+    const lethal = new Map();
     for (const [g, [hp, d, h]] of groupsOf(T, hit.def)) {
       const M = maxHp(T, hp);
       const pairs = [];
       const rs = [];
+      const fatal = [];
       for (const a of hit.aVals) {
         for (let si = 0; si < hit.sStates.length; si++) {
           const row = hit.rows.get(rowKey(a, d, hit.targetHp ? hp : null, hit.targetHp ? h : null, si));
@@ -560,6 +625,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           for (const [r, value] of row.entries()) {
             rs.push(r);
             let x = clamp(value);
+            fatal.push(typeof x === 'number' && x >= h ? 1 : 0);
             if (typeof x !== 'number' || x <= 0) { pairs.push(v + h); continue; }
             if (modified || x >= h) x = clamp(damageEvent(hit, ctx, T, M, h, x));
             if (typeof x !== 'number' || x <= 0) { pairs.push(v + h); continue; }
@@ -569,6 +635,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
       table.set(g, Int32Array.from(pairs));
       rolls.set(g, Uint8Array.from(rs));
+      lethal.set(g, Uint8Array.from(fatal));
     }
     const via = !hit.off || hit.A.kn.known ? null
       : hit.offDim ? { rec: hit.A, dim: hit.off } : { rec: hit.A, stat: hit.off };
@@ -579,6 +646,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       dim: hit.def,
       table,
       rolls,
+      lethal,
       rollAt: hit.rollAt,
       via,
       dealtBy: S,
@@ -588,7 +656,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       // one that belongs to the target or to a key dimension says nothing there.
       off: hit.A === S && !hit.offDim ? hit.off : null,
       hits: S.hitsThisMove,
-      what: `${label(hit.S)}'s ${hit.clone.name} hit ${label(T)}`,
+      what: hit.what || `${label(hit.S)}'s ${hit.clone.name} hit ${label(T)}`,
     };
   }
 
@@ -604,6 +672,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         sourceLast: source?.lastDamage,
       };
       const items = snapItems([T.pokemon]);
+      // A candidate on `h` HP is standing, whatever the real Pokemon did: one
+      // already queued to faint would skip `faint()`, which is what sets HP to 0.
+      T.pokemon.faintQueued = false;
       try {
         run();
         return T.pokemon.hp;
@@ -633,6 +704,29 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       table.set(g, Int32Array.from(out));
     }
     return { dim: null, table, via: null, what };
+  }
+
+  /**
+   * An HP change whose amount is another Pokemon's stat: `amounts` maps each
+   * surviving value of that stat to the amount the simulator computed from it,
+   * and the display keeps only the values that print what the log shows.
+   */
+  function statAmountChange(T, kind, amounts, via, ctx, what) {
+    const ord = changeOrdinal;
+    const table = new Map();
+    for (const [g, [hp, , h]] of groupsOf(T, null)) {
+      const M = maxHp(T, hp);
+      const pairs = [];
+      for (const [a, amount] of amounts) {
+        const h2 = memo(`stat|${ord}|${M}|${h}|${amount}`, () => dryHp(T, M, h, ctx.source, () => {
+          if (kind === 'heal') battle.heal(amount, T.pokemon, ctx.source, ctx.effect);
+          else battle.spreadDamage([amount], [T.pokemon], ctx.source, ctx.effect);
+        }));
+        pairs.push(a * HP_BITS + h2);
+      }
+      table.set(g, Int32Array.from(pairs));
+    }
+    return { dim: null, table, via, what };
   }
 
   /**
@@ -716,12 +810,43 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       return band(dir, what);
     }
     // Leech Seed drains an eighth of the seeded Pokemon's HP, which scales like
-    // any fraction below; what the seeder gets back is that amount, exact only
-    // when the seeded Pokemon's HP is.
+    // any fraction below. What the seeder gets back is the amount it really
+    // took: exact when the seeded Pokemon's HP is, and otherwise one of the
+    // amounts its own line allowed - the seeder's line then says which.
     if (id === 'leechseed' && kind === 'heal') {
-      return byPokemon.get(other)?.exact ? amountChange(T, kind, () => [raw], ctx, what) : band(dir, what);
+      const seeded = byPokemon.get(other);
+      if (seeded?.exact) return amountChange(T, kind, () => [raw], ctx, what);
+      const last = T.lastDealt;
+      if (last?.byA.size && last.victim === seeded && last.move === e && last.turn === battle.turn) {
+        return dealtChange(T, last, what, 'lsd', d => battle.heal(d, T.pokemon, other, e));
+      }
+      return band(dir, what);
     }
-    if (['shellbell', 'strengthsap', 'painsplit', 'confusion'].includes(id)) return band(dir, what);
+    // Shell Bell gives back an eighth of everything the holder's move dealt:
+    // exact when every Pokemon it hurt is shown exactly, and otherwise, for a
+    // single hit on one Pokemon, one of the amounts that hit could have dealt.
+    if (id === 'shellbell' && kind === 'heal') {
+      const hurt = T.victimMove === battle.activeMove ? [...T.victims] : [];
+      if (hurt.length && hurt.every(r => r.exact)) return amountChange(T, kind, () => [raw], ctx, what);
+      const last = T.lastDealt;
+      if (hurt.length === 1 && last?.byA.size && last.move === battle.activeMove && last.hits === 1 && last.victim === hurt[0]) {
+        const V = last.victim.pokemon;
+        const move = battle.activeMove;
+        return dealtChange(T, last, what, 'shb', d => battle.singleEvent('AfterMoveSecondarySelf', e, T.pokemon.itemState, T.pokemon, V, { ...move, totalDamage: d }));
+      }
+      return band(dir, what);
+    }
+    // Strength Sap heals by the target's Attack: a known amount when that
+    // Attack is known, and otherwise one amount per Attack still possible,
+    // taken before the move lowered it (`sapFor`).
+    if (id === 'strengthsap' && kind === 'heal') {
+      const sapped = byPokemon.get(other);
+      if (sapped?.kn.known) return amountChange(T, kind, () => [raw], ctx, what);
+      const sap = sapFor.get(T.pokemon);
+      sapFor.delete(T.pokemon);
+      if (!sapped || sap?.rec !== sapped) return band(dir, what);
+      return statAmountChange(T, kind, sap.amounts, { rec: sapped, stat: 'atk' }, ctx, `Strength Sap on ${label(sapped)}'s Attack`);
+    }
 
     // Everything else that scales is written as a fraction of max HP. A raw
     // amount that is not a whole number proves the fraction was passed unrounded;
@@ -730,7 +855,12 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const k = FRACTIONS.find(f => Math.abs(raw - M0 * f) < 1e-9);
     if (k === undefined) return band(dir, what);
     const whole = Number.isInteger(raw);
-    return amountChange(T, kind, M => (whole ? [...new Set([Math.floor(M * k), Math.ceil(M * k)])] : [M * k]), ctx, what);
+    const change = amountChange(T, kind, M => (whole ? [...new Set([Math.floor(M * k), Math.ceil(M * k)])] : [M * k]), ctx, what);
+    // What Leech Seed takes from a Pokemon shown as a percentage is what its
+    // seeder gets back, so the amounts that fit this line are handed on.
+    const seeder = id === 'leechseed' && kind === 'damage' && !T.exact ? byPokemon.get(other) : null;
+    if (seeder) Object.assign(change, { dealtBy: seeder, move: e, off: null, hits: 1 });
+    return change;
   }
 
   function onChange(rec, kind, info) {
@@ -749,6 +879,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       if (effect?.effectType === 'Move') {
         change = hit?.supported ? moveChange(rec, hit, info.d, { ...ctx, effect })
           : band('down', `${effect.name} hit ${label(rec)}`);
+        const src = ctx.source && ctx.source !== rec.pokemon ? byPokemon.get(ctx.source) : null;
+        if (src) {
+          if (src.victimMove !== effect) { src.victimMove = effect; src.victims = new Set(); }
+          src.victims.add(rec);
+        }
       } else {
         change = effectChange(rec, 'damage', ctx.raw ?? info.d, effect, ctx.source);
       }
@@ -756,6 +891,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const ctx = healContext.get(rec.pokemon);
       healContext.delete(rec.pokemon);
       change = effectChange(rec, 'heal', ctx?.raw ?? info.d, ctx?.effect ?? info.effect, ctx?.source ?? info.source);
+    } else if (rec.painSplit) {
+      change = rec.painSplit;
+      rec.painSplit = null;
     } else {
       change = band('any', `HP set on ${label(rec)}`);
     }
@@ -765,14 +903,27 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   }
 
   /**
+   * The HP values a display allows. One that follows a survived lethal hit - a
+   * Focus Sash, Sturdy, Endure - allows exactly 1.
+   */
+  function allowed(rec, M, token, survived) {
+    const band = interval(rec, M, token);
+    if (!band || !survived) return band;
+    return band[0] <= 1 && band[1] >= 1 ? [1, 1] : null;
+  }
+
+  /**
    * Move every candidate of `rec` through one change. With a printed display,
    * only the HP values it could print survive, and an attacking stat survives
    * only if some candidate reached the display through it.
    */
-  function apply(rec, change, token) {
+  function apply(rec, change, token, survived = false) {
     const noted = record && (token !== null || change.gate);
-    const before = noted ? countOf(rec) : 0;
-    const viaBefore = record && token !== null && change.via ? countOf(change.via.rec) : 0;
+    // Each Pokemon this event can move, measured before it moves it.
+    const befores = new Map();
+    const touch = (r) => { if (noted && !befores.has(r)) befores.set(r, measure(r)); };
+    touch(rec);
+    if (token !== null && change.via) touch(change.via.rec);
     const next = new Map();
     const supported = change.via ? new Uint8Array(SPAN) : null;
     const dealt = change.dealtBy && token !== null ? new Map() : null;
@@ -785,7 +936,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const M = maxHp(rec, hp);
       let allow = null;
       if (token !== null) {
-        if (!allowAt.has(M)) allowAt.set(M, interval(rec, M, token));
+        if (!allowAt.has(M)) allowAt.set(M, allowed(rec, M, token, survived));
         allow = allowAt.get(M);
         if (!allow) continue;
       }
@@ -807,9 +958,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           } else {
             const pairs = change.table.get(g) || [];
             const amounts = dealtOk ? change.dealtOf.get(g) : null;
+            const fatal = survived ? change.lethal?.get(g) : null;
             const hsSeen = new Set();
             const viaSeen = new Set();
             for (let j = 0; j < pairs.length; j++) {
+              if (fatal && !fatal[j]) continue;
               const packed = pairs[j];
               const h2 = packed % HP_BITS;
               if (allow && (h2 < allow[0] || h2 > allow[1])) continue;
@@ -835,33 +988,21 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       if (out.size) next.set(k, [...out]);
     }
     if (dealtOk) change.victim.dealtOk = dealtOk;
-    rec.history.push({ change, token, pre: rec.chain, seq: seq++ });
+    rec.history.push({ change, token, survived, pre: rec.chain, seq: seq++ });
     rec.chain = next;
-    if (dealt) change.dealtBy.lastDealt = { move: change.move, off: change.off, hits: change.hits, byA: dealt, change, victim: rec };
+    if (dealt) change.dealtBy.lastDealt = { move: change.move, off: change.off, hits: change.hits, byA: dealt, change, victim: rec, turn: change.turn };
     if (supported && token !== null) narrowVia(change.via, supported);
     // The victim's display also says which HP the attacker could have been on,
     // when the hit depended on it.
-    let attackerCut = null;
     if (sourceOk) {
       const S = change.dealtBy;
       const allowSet = new Set([...sourceOk].map(si => change.sourceStates[si][0] * HP_BITS + change.sourceStates[si][1]));
       for (const c of S.pending.splice(0)) apply(S, c, null);
-      const sBefore = record ? countOf(S) : 0;
+      touch(S);
       apply(S, { same: true, allowSet, what: change.what, turn: change.turn }, null);
-      if (record) attackerCut = { id: S.id, pokemon: label(S), before: sBefore, after: countOf(S) };
     }
     if (noted) {
-      const cuts = [];
-      const after = countOf(rec);
-      if (after !== before) cuts.push({ id: rec.id, pokemon: label(rec), before, after });
-      if (change.via && change.via.rec !== rec) {
-        const viaAfter = countOf(change.via.rec);
-        if (viaAfter !== viaBefore) cuts.push({ id: change.via.rec.id, pokemon: label(change.via.rec), before: viaBefore, after: viaAfter });
-      }
-      if (attackerCut && attackerCut.after !== attackerCut.before) {
-        const same = cuts.find(c => c.id === attackerCut.id);
-        if (same) same.after = attackerCut.after; else cuts.push(attackerCut);
-      }
+      const cuts = [...befores].map(([r, before]) => cutOf(r, before)).filter(Boolean);
       if (cuts.length) events.push({ turn: change.turn ?? battle.turn, what: change.what, ...(token !== null ? { shown: token } : {}), cuts });
     }
   }
@@ -878,9 +1019,23 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     for (let v = 0; v < SPAN; v++) if (dom[v] && !ok[v]) dom[v] = 0;
   }
 
-  /** A printed HP line: settle what is pending for that Pokemon against it. */
-  function observe(line, token, at) {
-    const rec = byIdent.get(`${line.side}:${line.name}`);
+  /**
+   * Whose HP a printed line shows: the Pokemon in that slot, which is the one
+   * the line names or, under Illusion, the one disguised as it.
+   */
+  function recOf(line) {
+    const p = battle.sides.find(s => s.id === line.side)?.active[line.slot];
+    if (p && (p.name === line.name || p.illusion?.name === line.name)) return byPokemon.get(p);
+    return byIdent.get(`${line.side}:${line.name}`);
+  }
+
+  /**
+   * A printed HP line: settle what is pending for that Pokemon against it. One
+   * read `ahead` of the cutoff is evidence but not a line of the scaffold's, so
+   * it is never handed on as proved.
+   */
+  function observe(line, token, at, ahead = false, survived = false) {
+    const rec = recOf(line);
     if (!rec) return;
     const first = !rec.chain;
     if (first) initChain(rec);
@@ -888,25 +1043,56 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     if (line.changes) {
       if (!due.length) due.push(band(line.kind === '-heal' ? 'up' : line.kind === '-damage' ? 'down' : 'any', `${line.kind} on ${label(rec)}`));
       for (const change of due.slice(0, -1)) apply(rec, change, null);
-      apply(rec, due[due.length - 1], token);
+      apply(rec, due[due.length - 1], token, survived);
     } else {
       for (const change of due) apply(rec, change, null);
       apply(rec, { same: true, what: first ? `${label(rec)} came in` : `${label(rec)} shown`, turn: battle.turn }, token);
     }
-    rec.shown.push({ at, hist: rec.history.length - 1 });
+    rec.shown.push({ at, hist: rec.history.length - 1, ahead });
   }
 
+  /**
+   * The Pokemon a line announces survived a lethal hit - a Focus Sash, Sturdy,
+   * Endure - as `side:name`, or null. Its next HP line is that hit's, and the
+   * simulator's own `Damage` event decides per candidate whether it survives.
+   */
+  // Only the announcement itself, which ends the line: a Traced Sturdy names
+  // Sturdy too, and says nothing about a hit.
+  const SURVIVAL = /^\|(-enditem|-ability|-activate)\|(p[1-4])[a-d]: ([^|]+)\|(Focus Sash|Sturdy|ability: Sturdy|move: Endure)$/;
+  const survivor = (line) => {
+    const m = SURVIVAL.exec(String(line || ''));
+    return m ? `${m[2]}:${m[3]}` : null;
+  };
+
+  /**
+   * The replay's HP line for the Pokemon the rebuild's cutoff line is about,
+   * when the replay first announces that it survived a lethal hit and the
+   * rebuild's hit left it standing without one. Nothing else may stand between.
+   */
+  function survivedLine(mine) {
+    for (const line of [prefix.observedLine, ...prefix.observedAfter]) {
+      const hp = hpLine(line);
+      if (hp) return hp.side === mine.side && hp.name === mine.name && hp.kind === mine.kind ? hp : null;
+      if (survivor(line) !== `${mine.side}:${mine.name}`) return null;
+    }
+    return null;
+  }
+
+  let survived = null;
   function sync() {
-    if (state.dry) return;
+    if (state.dry || state.hold) return;
     while (!state.ended && viewPos < view.length && view[viewPos].at < battle.log.length) {
       const entry = view[viewPos++];
       if (entry.at > prefix.cutoffAt) { state.ended = true; break; }
       const atCut = entry.at === prefix.cutoffAt;
       const mine = hpLine(entry.line);
-      const shown = atCut ? hpLine(prefix.observedLine) : mine;
+      const direct = atCut ? hpLine(prefix.observedLine) : mine;
+      const shown = direct || (atCut && mine ? survivedLine(mine) : null);
       if (mine && shown && shown.side === mine.side && shown.name === mine.name && shown.kind === mine.kind) {
-        observe(mine, shown.token, entry.at);
+        const lethal = !direct || survived === `${mine.side}:${mine.name}`;
+        observe(mine, shown.token, entry.at, !direct, lethal);
       }
+      survived = mine ? null : survivor(entry.line) || survived;
       if (atCut) { state.ended = true; break; }
     }
   }
@@ -949,6 +1135,28 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     } finally {
       restoreItems(post);
     }
+    return real;
+  };
+
+  // A confusion self-hit rolls its damage outside `getDamage`.
+  const origConfusion = actions.getConfusionDamage;
+  actions.getConfusionDamage = function (pokemon, basePower) {
+    const rec = byPokemon.get(pokemon);
+    if (state.dry || state.ended || !rec || rec.kn.known) return origConfusion.call(this, pokemon, basePower);
+    sync();
+    const pre = snapItems([pokemon]);
+    const draws = [];
+    rollDraws = draws;
+    let real;
+    try {
+      real = origConfusion.call(this, pokemon, basePower);
+    } finally {
+      rollDraws = null;
+    }
+    if (typeof real !== 'number' || state.ended) return real;
+    const hit = selfHit(pokemon, basePower, real, pre, origConfusion);
+    hit.rollAt = draws.length === 1 ? draws[0] : null;
+    pendingHits.set(pokemon, hit);
     return real;
   };
 
@@ -1059,8 +1267,92 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
   };
 
+  // Two moves whose effect reads a Pokemon's hidden side, asked as they hit.
+  //
+  // Strength Sap heals its user by the target's Attack as it stood before the
+  // move lowered it, so that Attack is taken per surviving value here and the
+  // heal is scaled from it (`effectChange`).
+  //
+  // Pain Split sets both Pokemon to the average of their HP. With one shown
+  // exactly and the other as a percentage, the simulator's own `onHit` is run
+  // again for every HP the hidden one could be on: each leaves it on some HP,
+  // and leaves the exact one on some HP too, which has to be the one the log
+  // shows - the scaffold's own where it reproduces the log, and the replay's
+  // where the scaffold first goes wrong on exactly that line. Its displays wait
+  // until the move is done (`state.hold`), because that is when the exact one's
+  // HP is known; and the link holds even when the hidden one's own display lies
+  // past the cutoff (`final`).
+  const sapFor = new Map();
+  let painOrdinal = 0;
+  const origSingle = battle.singleEvent;
+  battle.singleEvent = function (eventid, effect, effectState, target, source, ...rest) {
+    if (eventid !== 'Hit' || state.dry || state.ended || !effect || typeof target !== 'object' || typeof source !== 'object') {
+      return origSingle.call(this, eventid, effect, effectState, target, source, ...rest);
+    }
+    const T = byPokemon.get(target);
+    const S = byPokemon.get(source);
+    if (effect.id === 'strengthsap' && T && S && !T.kn.known) {
+      const amounts = new Map();
+      for (const a of aliveOf(T.flat.atk)) {
+        amounts.set(a, guarded(() => {
+          const undo = patchAll([{ pokemon: target, stats: { atk: T.stat('atk', a) } }]);
+          try { return target.getStat('atk', false, true); } finally { undo(); }
+        }));
+      }
+      sapFor.set(source, { rec: T, amounts });
+    }
+    if (effect.id !== 'painsplit' || !T || !S || T === S || T.exact === S.exact) {
+      return origSingle.call(this, eventid, effect, effectState, target, source, ...rest);
+    }
+    sync();
+    if (state.ended) return origSingle.call(this, eventid, effect, effectState, target, source, ...rest);
+    const X = T.exact ? S : T;
+    const Y = T.exact ? T : S;
+    if (!X.chain) initChain(X);
+    for (const c of X.pending.splice(0)) apply(X, c, null);
+    const ord = painOrdinal++;
+    const outcome = new Map();
+    for (const [g, [hp, , h]] of groupsOf(X, null)) {
+      const M = maxHp(X, hp);
+      outcome.set(g, memo(`pain|${ord}|${M}|${h}`, () => guarded(() => {
+        const undo = patchAll([{ pokemon: X.pokemon, maxhp: M, hp: h }, { pokemon: Y.pokemon }]);
+        try {
+          origSingle.call(battle, eventid, effect, effectState, target, source, ...rest);
+          return [X.pokemon.hp, Y.pokemon.hp];
+        } finally {
+          undo();
+        }
+      })));
+    }
+    const change = { dim: null, table: new Map(), via: null, final: true, what: `Pain Split between ${label(X)} and ${label(Y)}` };
+    X.painSplit = change;
+    const start = battle.log.length;
+    state.hold++;
+    try {
+      return origSingle.call(this, eventid, effect, effectState, target, source, ...rest);
+    } finally {
+      state.hold--;
+      if (X.painSplit) {
+        X.painSplit = null;
+        change.turn = battle.turn;
+        X.pending.push(change);
+      }
+      const isY = line => line?.kind === '-sethp' && line.side === Y.side && line.name === Y.name;
+      const yAt = view.find(v => v.at >= start && v.at < battle.log.length && isY(hpLine(v.line)))?.at;
+      let yHp = null;
+      if (yAt !== undefined && yAt < prefix.cutoffAt) yHp = Y.pokemon.hp;
+      else if (yAt !== undefined && yAt === prefix.cutoffAt && isY(hpLine(prefix.observedLine))) {
+        const m = /^(\d+)\//.exec(hpLine(prefix.observedLine).token);
+        if (m) yHp = Number(m[1]);
+      }
+      for (const [g, [hX, hY]] of outcome) {
+        change.table.set(g, yHp === null || hY === yHp ? Int32Array.of(hX) : new Int32Array(0));
+      }
+    }
+  };
+
   const speed = attachSpeed(battle, {
-    state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label, countOf,
+    state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label, measure, cutOf,
   });
 
   /**
@@ -1077,7 +1369,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       rec.alive = [];
       for (let i = rec.history.length - 1; i >= 0; i--) {
         rec.alive[i] = alive;
-        const { change, token, pre } = rec.history[i];
+        const { change, token, survived, pre } = rec.history[i];
         const seen = change.via && token !== null ? new Uint8Array(SPAN) : null;
         const prev = new Map();
         const allowAt = new Map();
@@ -1088,11 +1380,12 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           const M = maxHp(rec, hp);
           let allow = null;
           if (token !== null) {
-            if (!allowAt.has(M)) allowAt.set(M, interval(rec, M, token));
+            if (!allowAt.has(M)) allowAt.set(M, allowed(rec, M, token, survived));
             allow = allowAt.get(M);
             if (!allow) continue;
           }
           const d = change.dim ? KEY_DIM[change.dim][k] : 0;
+          const fatalOf = survived ? change.lethal : null;
           const keep = [];
           for (const h of hs) {
             let ok = false;
@@ -1104,7 +1397,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
               if (allow) { lo = Math.max(lo, allow[0]); hi = Math.min(hi, allow[1]); }
               ok = later.some(x => x >= lo && x <= hi);
             } else {
-              for (const packed of change.table.get((hp * SPAN + d) * HP_BITS + h) || []) {
+              const g = (hp * SPAN + d) * HP_BITS + h;
+              const fatal = fatalOf?.get(g);
+              for (const [j, packed] of (change.table.get(g) || []).entries()) {
+                if (fatal && !fatal[j]) continue;
                 const h2 = packed % HP_BITS;
                 if (!later.includes(h2)) continue;
                 const v = Math.floor(packed / HP_BITS) % SPAN;
@@ -1127,17 +1423,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
 
   /** What the backward walk removed, as one event per Pokemon. */
   function wholePaths() {
-    const before = record ? new Map(recs.map(rec => [rec, countOf(rec)])) : null;
+    const before = record ? new Map(recs.map(rec => [rec, measure(rec)])) : null;
     backward();
     for (const rec of recs) {
       if (rec.pathKeys && rec.chain) for (const k of [...rec.chain.keys()]) if (!rec.pathKeys.has(k)) rec.chain.delete(k);
     }
     if (!record) return;
-    const cuts = [];
-    for (const rec of recs) {
-      const after = countOf(rec);
-      if (after !== before.get(rec)) cuts.push({ id: rec.id, pokemon: label(rec), before: before.get(rec), after });
-    }
+    const cuts = recs.map(rec => cutOf(rec, before.get(rec))).filter(Boolean);
     if (cuts.length) {
       events.push({ turn: battle.turn, what: 'every turn at once - recoil, attacker HP and later displays checked against earlier hits', cuts });
     }
@@ -1199,7 +1491,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         const g = (KEY_HP[k] * SPAN + d) * HP_BITS + h;
         const packs = e.change.table.get(g) || [];
         const rs = e.change.rolls?.get(g);
+        const fatal = e.survived ? e.change.lethal?.get(g) : null;
         for (let j = 0; j < packs.length; j++) {
+          if (fatal && !fatal[j]) continue;
           const packed = packs[j];
           const h2 = packed % HP_BITS;
           if (!later.includes(h2)) continue;
@@ -1226,7 +1520,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       if (rec.exact) continue;
       const k = cur.get(rec)?.[0];
       if (k === undefined) continue;
-      for (const { hist } of rec.shown) {
+      for (const { hist, ahead } of rec.shown) {
+        if (ahead) continue;
         const h = chosen.get(rec)[hist];
         if (h === undefined) return null;
         tokens.set(secretAt.get(`${rec.id}|${hist}`), h ? `${h}/${maxHp(rec, KEY_HP[k])}` : '0');
@@ -1241,6 +1536,12 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     finish() {
       sync();
       state.ended = true;
+      // A change already settled against a line the log shows stands even when
+      // its own Pokemon's display lies past the cutoff.
+      for (const rec of recs) {
+        const last = rec.pending.findLastIndex(c => c.final);
+        for (const c of rec.pending.splice(0, last + 1)) apply(rec, c, null);
+      }
       wholePaths();
       speed.apply(speed.rules());
     },

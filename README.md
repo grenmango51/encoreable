@@ -8,19 +8,20 @@ choosing moves for **both** sides.
 
 Chess players have had this for decades. Pokémon players rewatch a video.
 
-Target ruleset is **Pokémon Champions VGC** (`[Gen 9 Champions] VGC 2026 Reg M-B`), doubles.
+Target ruleset is **Pokémon Champions VGC** (`[Gen 9 Champions] VGC 2026 Reg M-C`), doubles.
 
 ---
 
 ## Requirements
 
-- **Node 22 or newer.** On this machine Node lives at `C:\Program Files\nodejs\node.exe`
+- **Node 22.18 or newer**, which the pinned Showdown requires. On this machine Node lives at `C:\Program Files\nodejs\node.exe`
   and is **not** on the PATH. Before using a terminal:
   ```powershell
   $env:Path = "C:\Program Files\nodejs;" + $env:Path
   ```
 - **A Chromium browser** — Chrome or Edge. Two windows get opened side by side.
-- `npm install`, once.
+- `npm install`, once. It downloads the pinned Showdown commit from GitHub and builds it, which
+  takes about a minute.
 
 ---
 
@@ -34,7 +35,7 @@ The `.bat` files are double-click equivalents that need no terminal.
 | `npm run live` | `live.bat` | **The product.** A recorded battle, restored to a turn, playable from both sides in the real UI. |
 | `npm run battle` | `battle.bat` | Record a new battle. Two browser windows, teams pre-loaded, challenge auto-issued. |
 | `npm run replay` | `replay.bat` | The determinism proof: play, re-simulate, diff, render a replay page. |
-| `npm run reconstruct` | `reconstruct.bat` | Turn a saved ladder replay plus both team sheets into a battle the other commands can use. With `--infer p2`, the opponent's Stat Points are worked out from the replay instead of supplied. |
+| `npm run reconstruct` | `reconstruct.bat` | Turn a saved ladder replay plus both team sheets into a battle the other commands can use. With `--infer p2`, the opponent's Stat Points are worked out from the replay instead of supplied; a replay with no team sheets has the opponent's sets read off the log. |
 | `npm run stop` | — | Kill the servers. |
 | `npm run check` | — | Verify the server binds to loopback and the format loads. |
 | `npm run serve` | — | The static client host on its own (rarely needed directly). |
@@ -53,7 +54,7 @@ same thing as `npm run live` for whichever turn is on screen.
 Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 `npm run live` also takes `--at <turn>`, `--dry-run`, `--verify <log.json>`.
 `npm run reconstruct` takes `--all`, `--rung s1|s2|s3`, `--teams <key>`, `--infer p1|p2|both`,
-`--sample <n>`, `--max-probes <n>`, `--dry-run`.
+`--all-spent`, `--sample <n>`, `--max-probes <n>`, `--threads <n>`, `--dry-run`.
 `npm run replay` takes `--force "<outcome> <subject> [move]"` (repeatable) with `--at <turn>`
 and `--seed <seed>`: it replays a recording twice from that turn under one shared reseed, once
 plain and once with the named draws forced, and reports what moved.
@@ -72,11 +73,11 @@ plain and once with the named draws forced, and reports what moved.
 | `scripts/client/` | Scripts that run **in the browser**, served over HTTP — not runnable with `node`. |
 | `scripts/server/` | Code that runs **inside the Showdown server process**, copied into `runtime/config/` by provisioning. |
 | `scripts/fixtures/` | The two fixture teams, as export text. |
-| `recordings/` | Finished battles with their input logs. Tracked — these cannot be regenerated. |
-| `samples/` | Public-ladder replays. The input to `npm run reconstruct`, and its test material. |
+| `recordings/` | Every battle we keep, sorted by how it was made: `local/` battles our server ran, with their input logs (tracked — they cannot be regenerated); `reconstructed/` input logs rebuilt from a replay; `showdown/` replay pages saved from play.pokemonshowdown.com, the input to `npm run reconstruct`; `video/` battle videos. `recordings/README.md` says where a new one goes. |
 | `replays/` | Rendered replay pages. Generated output, gitignored. |
 | `runtime/` | The local Showdown server. **Generated** from `node_modules` — safe to delete. |
 | `vendor/` | A clone of the upstream Showdown *client*. Only `play.pokemonshowdown.com/` is used, to serve the real battle UI. |
+| `docs/` | The project's documents — see Documentation below. |
 
 `.js` versus `.mjs` is not decoration: `.mjs` is a Node ES module, `.js` under
 `scripts/client/` is browser code, and `.js` under `scripts/fixtures/` and `scripts/server/` is
@@ -88,9 +89,11 @@ CommonJS.
 
 | Doc | Question it answers |
 |---|---|
-| `PLAN.MD` | Why we are building this — premise, scope guards, landscape, risks. |
-| `ENGINEERING.md` | How it works, what is proven, and what breaks. The engineering reference. |
-| `BRANCHING.md` | How a recorded battle becomes a playable position, from either entry point. |
+| `docs/plan.md` | Why we are building this — premise, scope guards, landscape, risks. |
+| `docs/engineering.md` | How it works, what is proven, and what breaks. The engineering reference. |
+| `docs/branching.md` | How a recorded battle becomes a playable position, from either entry point. |
+| `docs/extension.md` | What it would take to ship as a Chrome extension, and the live-site probes that decide it. |
+| `docs/evidence-catalog.md` | Which effects can reveal a hidden stat, and the plan to find and use every one of them. |
 | `CLAUDE.md` | Where a new file goes. Read it before adding one. |
 
 ---
@@ -104,16 +107,17 @@ the server will accept as a *live room* via `/importinputlog`. Two browser windo
 one per side, and the battle carries on from there.
 
 The simulator is never modified. We do not write damage, accuracy, or turn-order logic —
-Showdown's is the only source of truth. See the scope guards in `PLAN.MD` §3.
+Showdown's is the only source of truth. See the scope guards in `docs/plan.md` §3.
 
 ---
 
 ## Upstream references
 
 **Pokémon Showdown server** — https://github.com/smogon/pokemon-showdown
-Version pinned in `package.json` (`0.11.11`). MIT.
-Pin it deliberately: `ENGINEERING.md` §6.5 is the register of internal call sites this project
-depends on that upstream does not promise to keep. On any upgrade, diff those and re-run
+Pinned in `package.json` to upstream commit `a5df827`, the code play.pokemonshowdown.com runs,
+not to an npm release; `npm install` builds it. MIT.
+Pin it deliberately: `docs/engineering.md` §6.5 is the register of internal call sites this
+project depends on that upstream does not promise to keep, and how to upgrade. On any upgrade, diff those and re-run
 `npm run replay`, `npm run reconstruct -- --all --rung s2`, `npm run reconstruct -- --all --rung s3`
 **and** `npm run reconstruct -- --all --rung s3 --infer p2`, which exercise the rest.
 

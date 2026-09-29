@@ -7,11 +7,12 @@
  *
  * `runtime/` is generated: `provision-local-server.mjs` rebuilds it from
  * `node_modules/pokemon-showdown`, and deleting it to reset the server is a
- * normal thing to do. So recordings worth keeping are archived to `recordings/`,
- * which is tracked and outside the generated tree.
+ * normal thing to do. So recordings worth keeping are archived to
+ * `recordings/local/<how it was played>/`, which is tracked and outside the
+ * generated tree (recordings/README.md).
  *
- * Both directories are searched. On a name collision `recordings/` wins, so an
- * archived copy is authoritative once it exists.
+ * Both directories are searched, `recordings/` at any depth. On a name collision
+ * `recordings/` wins, so an archived copy is authoritative once it exists.
  */
 
 import fs from 'fs';
@@ -73,13 +74,41 @@ export function newestLogFileWithTurns(root, turns) {
 }
 
 /**
- * Copy a recording into `recordings/` so it survives a rebuild of `runtime/`.
- * Returns the archived path. Existing archives are left alone.
+ * The `recordings/local/` folder a battle this server ran belongs in, read off
+ * its input log (recordings/local/README.md):
+ *
+ * - `branched`: a `>player` line after the first choice - `npm run live`
+ *   restored it from another recording and the players rejoined mid-battle.
+ * - `scripted`: p1 is `Ghosts<n>` - `npm run replay` picked every move.
+ * - `self-play`: anything else - a person picked the moves, as in `npm run battle`.
+ *
+ * `probes/` is never chosen here: whatever builds a probe battle files it.
+ */
+export function localFolderFor(file) {
+  const lines = readInputLog(file).split('\n');
+  const firstChoice = lines.findIndex(l => /^>p\d /.test(l));
+  if (firstChoice >= 0 && lines.slice(firstChoice).some(l => l.startsWith('>player '))) return 'branched';
+  const p1 = lines.find(l => l.startsWith('>player p1 '));
+  let name = '';
+  try { name = JSON.parse(p1.slice('>player p1 '.length)).name || ''; } catch { /* no p1 line */ }
+  return /^Ghosts\d/.test(name) ? 'scripted' : 'self-play';
+}
+
+/**
+ * Copy a recording into `recordings/local/<folder>/` so it survives a rebuild
+ * of `runtime/`. Returns the archived path. A file already under `recordings/`
+ * is returned as it is, and one archived before under the same name, in any
+ * folder, returns that copy.
  */
 export function archiveLogFile(root, file) {
-  const dest = path.join(root, 'recordings', path.basename(file));
+  const recordings = path.join(root, 'recordings');
+  const inside = path.relative(recordings, path.resolve(file));
+  if (inside && !inside.startsWith('..') && !path.isAbsolute(inside)) return file;
+  const existing = walk(recordings).find(f => path.basename(f) === path.basename(file));
+  if (existing) return existing;
+  const dest = path.join(recordings, 'local', localFolderFor(file), path.basename(file));
   fs.mkdirSync(path.dirname(dest), { recursive: true });
-  if (!fs.existsSync(dest)) fs.copyFileSync(file, dest);
+  fs.copyFileSync(file, dest);
   return dest;
 }
 
@@ -88,7 +117,7 @@ export function archiveLogFile(root, file) {
  *
  * A reconstructed log reproduces its replay line for line, but its dice were
  * chosen and the opponent's HP was sampled from inside the band a percentage
- * allows (ENGINEERING.md 7). It is a faithful reading of someone else's battle,
+ * allows (docs/engineering.md 7). It is a faithful reading of someone else's battle,
  * not a record of one this server ran, and every command that loads one says so -
  * including when a side's Stat Points were inferred rather than supplied -
  * `npm run live` reaches for the newest recording by default, and the newest is

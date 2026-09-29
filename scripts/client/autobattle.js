@@ -66,7 +66,7 @@ window.POKEMON_SHOWDOWN_TESTCLIENT_KEY = 'local';
   // Live-branch mode: join an already-running battle room instead of starting a
   // new challenge. The teams come from the imported input log, so no team is set.
   const autoJoin = params.get('autojoin');
-  const format = params.get('format') || 'gen9championsvgc2026regmb';
+  const format = params.get('format') || 'gen9championsvgc2026regmc';
 
   if (!autoName && !autoTeam && !autoChallenge && !autoAccept && !autoJoin) {
     return; // Normal manual mode
@@ -74,21 +74,21 @@ window.POKEMON_SHOWDOWN_TESTCLIENT_KEY = 'local';
 
   console.log('[Encoreable Autobattle] Started for:', { autoName, autoTeam, autoChallenge, autoAccept, autoJoin });
 
-  // Standard legal teams for Champions VGC 2026 Reg M-B
+  // Standard legal teams for Champions VGC 2026 Reg M-C
   const P1_PACKED = 'Gardevoir||Gardevoirite|Synchronize|Moonblast,Psychic,Thunderbolt,Protect|Modest|2,,,32,,32||||50|,,,,,Fairy]Klefki||LightClay|Prankster|Sandstorm,ThunderWave,Reflect,Protect|Calm|2,,,32,,32||||50|,,,,,Steel]Tyranitar||LumBerry|SandStream|RockSlide,Crunch,LowKick,Protect|Adamant|2,,,32,,32||||50|,,,,,Rock]Excadrill||FocusSash|SandRush|HighHorsepower,IronHead,RockSlide,Protect|Jolly|2,,,32,,32||||50|,,,,,Ground]Sinistcha||Leftovers|Hospitality|MatchaGotcha,StrengthSap,RagePowder,TrickRoom|Calm|2,,,32,,32||||50|,,,,,Water]Kommo-o||WhiteHerb|Overcoat|ClangingScales,AuraSphere,Flamethrower,Protect|Modest|2,,,32,,32||||50|,,,,,Steel';
   const P2_PACKED = 'Charizard||CharizarditeY|Blaze|HeatWave,AirSlash,SolarBeam,Protect|Timid|2,,,32,,32||||50|,,,,,Fire]Garchomp||LifeOrb|RoughSkin|Earthquake,DragonClaw,RockSlide,Protect|Jolly|2,,,32,,32||||50|,,,,,Ground]Archaludon||WhiteHerb|Stamina|DracoMeteor,FlashCannon,Thunderbolt,DragonPulse|Modest|2,,,32,,32||||50|,,,,,Steel]Pelipper||SitrusBerry|Drizzle|Hurricane,WeatherBall,Tailwind,Protect|Modest|2,,,32,,32||||50|,,,,,Water]Basculegion-F||MysticWater|SwiftSwim|HydroPump,ShadowBall,IceBeam,Surf|Modest|2,,,32,,32||||50|,,,,,Water]Grimmsnarl||LightClay|Prankster|SpiritBreak,LightScreen,FakeOut,Reflect|Careful|2,,,32,,32||||50|,,,,,Dark';
 
   // 3. Pre-populate teams into localStorage
-  const team1Line = `[${format}]Champions Reg M-B (Rain/Sun Team)|${P2_PACKED}`;
-  const team2Line = `[${format}]Champions Reg M-B (Sand/TrickRoom Team)|${P1_PACKED}`;
+  const team1Line = `[${format}]Champions Reg M-C (Rain/Sun Team)|${P2_PACKED}`;
+  const team2Line = `[${format}]Champions Reg M-C (Sand/TrickRoom Team)|${P1_PACKED}`;
   
   try {
     let existing = localStorage.getItem('showdown_teams') || '';
     let newTeams = existing;
-    if (!newTeams.includes('Champions Reg M-B (Sand/TrickRoom Team)')) {
+    if (!newTeams.includes('Champions Reg M-C (Sand/TrickRoom Team)')) {
       newTeams = team2Line + (newTeams ? '\n' + newTeams : '');
     }
-    if (!newTeams.includes('Champions Reg M-B (Rain/Sun Team)')) {
+    if (!newTeams.includes('Champions Reg M-C (Rain/Sun Team)')) {
       newTeams = team1Line + (newTeams ? '\n' + newTeams : '');
     }
     localStorage.setItem('showdown_teams', newTeams);
@@ -174,7 +174,7 @@ window.POKEMON_SHOWDOWN_TESTCLIENT_KEY = 'local';
         // 2. Join an existing room, or set a team and start a challenge.
         //
         // Never send /utm in join mode. Supplying a team to a side that already
-        // has one throws in sim/battle.ts:3245 and kills the battle.
+        // has one throws in sim/battle.ts:3248 and kills the battle.
         if (autoJoin) {
           let joinAttempts = 0;
           let joinInterval = setInterval(() => {

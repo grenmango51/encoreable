@@ -13,7 +13,7 @@ import { ACTION_START, identName, identSide, override, tagsOf } from '../reconst
 import { SPAN } from './knowledge.mjs';
 
 export function attachSpeed(battle, {
-  state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label, countOf,
+  state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label, measure, cutOf,
 }) {
   const sorts = [];
   const executed = [];
@@ -254,12 +254,15 @@ export function attachSpeed(battle, {
       }
     }
 
-    // The log diverged on who moved: the observed order is the true one.
+    // The log diverged on who moved: the observed order is the true one. A
+    // side with Illusion can print one Pokemon's name for another, so the
+    // replay's line names nobody for certain there.
     const cut = view.find(e => e.at === prefix.cutoffAt);
+    const disguised = battle.sides.some(side => side.pokemon.some(p => p.baseAbility === 'illusion'));
     const who = line => /^\|(move|cant)\|/.test(String(line || '')) ? String(line).split('|')[2] : null;
     const was = who(prefix.observedLine);
     const got = who(cut?.line);
-    if (was && got && was !== got) {
+    if (was && got && was !== got && !disguised) {
       const ex = executed.find(e => e.start <= prefix.cutoffAt && prefix.cutoffAt < e.end);
       const P = byIdent.get(`${identSide(was)}:${identName(was)}`);
       const S = ex?.sort;
@@ -280,16 +283,19 @@ export function attachSpeed(battle, {
       return ident ? byIdent.get(`${identSide(ident)}:${identName(ident)}`) : null;
     };
     const rebuilt = cut && battleLines([cut.line])[0];
-    if (rebuilt && prefix.observedLine && !was) {
+    if (rebuilt && prefix.observedLine && !was && !disguised) {
       for (const entry of eventSorts) {
         if (!entry.items) continue;
         const hit = matched(entry).find(m => m.span.start <= prefix.cutoffAt && prefix.cutoffAt < m.span.end);
         if (!hit) continue;
-        // P's handler is the one whose effect the replay's line names; an
-        // each-Pokemon pass has one item per Pokemon and no effect to name.
+        // P's handler is the one for the same effect as Q's - both Pokemon's
+        // Perish Song counts, both Leftovers - or the one whose effect the
+        // replay's line names; an each-Pokemon pass has one item per Pokemon
+        // and no effect to name.
         const P = whose(prefix.observedLine);
         const x = P && entry.items.find(it => it.rec === P
-          && (entry.kind === 'eachEvent' || (it.effect && prefix.observedLine.includes(it.effect.name))));
+          && (entry.kind === 'eachEvent'
+            || (it.effect && (it.effect === hit.item.effect || prefix.observedLine.includes(it.effect.name)))));
         let later = false;
         for (const line of prefix.observedAfter) {
           if (ACTION_START.has(line.split('|')[1])) break;
@@ -309,7 +315,7 @@ export function attachSpeed(battle, {
       moved = false;
       for (const rule of rules) {
         const { fast, slow, tf, ts } = rule;
-        const before = record && sweep === 1 ? [countOf(fast), countOf(slow)] : null;
+        const before = record && sweep === 1 ? [measure(fast), measure(slow)] : null;
         let maxFast = -Infinity;
         let minSlow = Infinity;
         for (let v = 0; v < SPAN; v++) {
@@ -321,11 +327,7 @@ export function attachSpeed(battle, {
           if (slow.flat.spe[v] && ts[v] > maxFast) { slow.flat.spe[v] = 0; moved = true; }
         }
         if (before) {
-          const cuts = [];
-          const a = countOf(fast);
-          const b = countOf(slow);
-          if (a !== before[0]) cuts.push({ id: fast.id, pokemon: label(fast), before: before[0], after: a });
-          if (b !== before[1]) cuts.push({ id: slow.id, pokemon: label(slow), before: before[1], after: b });
+          const cuts = [cutOf(fast, before[0]), cutOf(slow, before[1])].filter(Boolean);
           if (cuts.length) events.push({ turn: rule.turn, what: rule.what || `${label(fast)} acted before ${label(slow)}`, cuts });
         }
       }
