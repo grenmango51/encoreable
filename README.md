@@ -39,6 +39,7 @@ The `.bat` files are double-click equivalents that need no terminal.
 | `npm run stop` | — | Kill the servers. |
 | `npm run check` | — | Verify the server binds to loopback and the format loads. |
 | `npm run serve` | — | The static client host on its own (rarely needed directly). |
+| `npm run extension` | `extension.bat` | Build the Chrome extension into `extension/dist/`: the same board on play.pokemonshowdown.com, with no Node and no local server. Load that folder at `chrome://extensions` → **Load unpacked**. Starts no server; with `--check` it proves the build against the Node reference in a throwaway Chrome. |
 
 **Start here:**
 
@@ -58,6 +59,8 @@ Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 `npm run replay` takes `--force "<outcome> <subject> [move]"` (repeatable) with `--at <turn>`
 and `--seed <seed>`: it replays a recording twice from that turn under one shared reseed, once
 plain and once with the named draws forced, and reports what moved.
+`npm run extension` takes `--check [sim|room|entry|rng|package]` (all of them when none is
+named), `--headful` and `--verbose`.
 
 > Note the bare `--` in `npm run live -- --at 4`. It tells npm the flags are for the
 > script, not for npm. `live.bat --at 4` needs no such thing.
@@ -77,11 +80,12 @@ plain and once with the named draws forced, and reports what moved.
 | `replays/` | Rendered replay pages. Generated output, gitignored. |
 | `runtime/` | The local Showdown server. **Generated** from `node_modules` — safe to delete. |
 | `vendor/` | A clone of the upstream Showdown *client*. Only `play.pokemonshowdown.com/` is used, to serve the real battle UI. |
+| `extension/` | The Chrome extension: `src/` its code, `check/` the checks that hold it to the Node reference, `dist/` the built extension (generated, gitignored). See `extension/README.md`. |
 | `docs/` | The project's documents — see Documentation below. |
 
 `.js` versus `.mjs` is not decoration: `.mjs` is a Node ES module, `.js` under
-`scripts/client/` is browser code, and `.js` under `scripts/fixtures/` and `scripts/server/` is
-CommonJS.
+`scripts/client/` and `extension/src/` is browser code, and `.js` under `scripts/fixtures/` and
+`scripts/server/` is CommonJS.
 
 ---
 
@@ -92,7 +96,7 @@ CommonJS.
 | `docs/plan.md` | Why we are building this — premise, scope guards, landscape, risks. |
 | `docs/engineering.md` | How it works, what is proven, and what breaks. The engineering reference. |
 | `docs/branching.md` | How a recorded battle becomes a playable position, from either entry point. |
-| `docs/extension.md` | What it would take to ship as a Chrome extension, and the live-site probes that decide it. |
+| `docs/extension.md` | How the board runs as a Chrome extension: the live-site probes it rests on, how it is built, and what each step proved. |
 | `docs/evidence-catalog.md` | Which effects can reveal a hidden stat, and the plan to find and use every one of them. |
 | `CLAUDE.md` | Where a new file goes. Read it before adding one. |
 

@@ -16,6 +16,7 @@
     "serve": "node scripts/local-serve.mjs",
     "stop": "node scripts/local-stop.mjs",
     "check": "node scripts/local-check.mjs",
+    "extension": "node scripts/local-extension.mjs",
     "postinstall": "node node_modules/pokemon-showdown/build"
   },
   "dependencies": {

@@ -70,8 +70,18 @@
 		return snapshot && snapshot.rules ? snapshot.rules : [];
 	}
 
+	/**
+	 * A host that serves only some battle rooms - the extension on the public
+	 * site, where every other room is a real battle with a real server behind it -
+	 * names them with `window.__rngPanelRooms(roomid)`. Any other room is left
+	 * exactly as the vanilla client draws it. Unset, every room is served.
+	 */
+	function served(roomid) {
+		return typeof window.__rngPanelRooms !== 'function' || !!window.__rngPanelRooms(roomid);
+	}
+
 	function send(roomid, command) {
-		if (window.app && app.send) app.send(command, roomid);
+		if (window.app && app.send && served(roomid)) app.send(command, roomid);
 	}
 
 	function requestState(roomid) {
@@ -492,7 +502,7 @@
 	function decorate(room) {
 		var battle = room.battle;
 		var roomid = room.id;
-		if (!battle || !room.$controls) return;
+		if (!battle || !room.$controls || !served(roomid)) return;
 		var snapshot = state[roomid];
 
 		room.$controls.find('.rng-mark').remove();
@@ -727,6 +737,7 @@
 		proto.showMoveTooltip = function (move, type, pokemon, serverPokemon, gmaxMove) {
 			var html = origMove.apply(this, arguments);
 			try {
+				if (!served(this.battle.roomid)) return html;
 				if (type !== 'move' || !pokemon || pokemon.side !== this.battle.mySide) return html;
 				var rows = moveRows(this.battle, move, pokemon);
 				showing = { roomid: this.battle.roomid, rows: rows };
@@ -740,6 +751,7 @@
 		proto.showPokemonTooltip = function (pokemon, serverPokemon, isActive, illusionIndex) {
 			var html = origPokemon.apply(this, arguments);
 			try {
+				if (!served(this.battle.roomid)) return html;
 				var subject = pokemon;
 				if (!subject && serverPokemon) {
 					subject = { name: serverPokemon.name, side: this.battle.mySide };

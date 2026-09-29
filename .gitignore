@@ -10,6 +10,9 @@ vendor/
 # Rendered replay pages, written by npm run replay / rng / branch.
 replays/
 
+# The built Chrome extension, written by npm run extension. Load it unpacked from here.
+extension/dist/
+
 # Battle recordings ARE tracked - they are the input to every branch command
 # and cannot be regenerated. See recordings/README.md.
 

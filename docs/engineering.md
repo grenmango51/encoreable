@@ -1063,6 +1063,7 @@ natures in or out is the next step (§9).
 | `npm run replay` | Provision, play the fixture, re-simulate, diff, render, report. The determinism + full-information proof. |
 | `npm run live` | Truncate at a turn, import it as a live room, open two windows on it. §5.9. |
 | `npm run reconstruct` | Rebuild an input log from a replay plus both teams, then check it turn by turn. §7. |
+| `npm run extension` | Build the Chrome extension into `extension/dist/`; `--check` holds each step to the Node reference in a throwaway Chrome. `docs/extension.md`. |
 
 `npm run replay` serves its page from the client host and puts a **Play from here** button in the
 replay control row, which does the same thing as `npm run live` for the turn on screen. §5.10.
