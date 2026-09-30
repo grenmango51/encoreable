@@ -2,7 +2,7 @@
 
 **Read first:** `engineering.md` §7.5 (Stat Points by elimination), §7.6 (closed team sheets),
 §9 (open tasks).
-**Status:** plan, not started.
+**Status:** Phases 0–3 and 5 done; Phase 4 not started.
 **Target format:** `gen9championsvgc2026regmc`, Reg M-C, live on play.pokemonshowdown.com.
 **Verified against:** `pokemon-showdown` at upstream commit `a5df827` (2026-09-22), the commit
 `package.json` pins; `scripts/lib/inference/` as of commit `e6d3501` plus the working tree of
@@ -48,21 +48,20 @@ mechanism.
 
 ## 2. Where the evidence pass stands
 
-What is built, what is known to be missing, and what nobody has checked yet. "Unverified" means
-a search of `scripts/lib/inference/` found no special handling. A generic hook may already cover
-it, and Phase 3 settles that.
+What is built, what is known to be missing, and what nobody has checked yet. Status counts reflect
+the full Reg M-C catalog run (`npm run catalog`).
 
 | # | Mechanism | Sink | Hook today | Status |
 |---|---|---|---|---|
-| M1 | damage taken | hidden % line | `actions.getDamage` rows per (attacking stat, defending stat) | built |
-| M2 | damage dealt | known exact line | the same rows, attacker side | built |
-| M3 | a hidden stat read inside a damage calculation, other than the attack/defence pair | either HP line | `analyseHit` sees the read and marks the hit `supported: false`, and `onChange` then treats it as "HP went down" (`band('down')`) | **gap**: seen, then thrown away |
-| M4 | an HP change that is a fraction of max HP (chip, heal, weather, status) | hidden % line | `effectChange`, fractions scaled only when the amount proves them | built |
-| M5 | a hidden amount carried over to an exact line | known exact line | recoil, drain, Leech Seed, Shell Bell, Pain Split, Strength Sap | built; Counter family, Final Gambit, Wish, Endeavor, Liquid Ooze unverified |
-| M6 | an HP threshold crossed or not | a line present or absent | pinch Berries (`runEvent('Update')`), Focus Sash, Sturdy, Endure (`Damage` event) | built; Substitute breaking, Berserk, Emergency Exit unverified |
-| M7 | order | order of lines | `speed.mjs`, every sort by speed | built |
-| M8 | a stat moved between Pokemon | later damage and HP lines | none | unverified: Power Split, Guard Split, Speed Swap, Transform, Imposter |
-| M9 | a stat named or compared in a message | what a line names | none | only Shell Side Arm has a legal user |
+| M1 | damage taken | hidden % line | `actions.getDamage` rows per (attacking stat, defending stat) | built: 1309 USED, 4 UNUSED, 6 UNSOUND |
+| M2 | damage dealt | known exact line | the same rows, attacker side | built: 556 USED, 0 UNUSED, 1 UNSOUND |
+| M3 | a hidden stat read inside a damage calculation, other than the attack/defence pair | either HP line | `analyseHit` sees the read and marks the hit `supported: false`, and `onChange` then treats it as "HP went down" (`band('down')`) | gap: 136 USED, 135 UNUSED |
+| M4 | an HP change that is a fraction of max HP (chip, heal, weather, status) | hidden % line | `effectChange`, fractions scaled only when the amount proves them | merged into M1/M6 |
+| M5 | a hidden amount carried over to an exact line | known exact line | recoil, drain, Leech Seed, Shell Bell, Pain Split, Strength Sap | built: 16 USED |
+| M6 | an HP threshold crossed or not | a line present or absent | pinch Berries (`runEvent('Update')`), Focus Sash, Sturdy, Endure (`Damage` event) | built: 1179 USED, 7 UNUSED, 10 UNSOUND |
+| M7 | order | order of lines | `speed.mjs`, every sort by speed | built: 179 USED, 151 UNUSED, 4 UNSOUND |
+| M8 | a stat moved between Pokemon | later damage and HP lines | none | unverified: Power Split, Guard Split, Transform probed under M1/M6/M7/M9 |
+| M9 | a stat named or compared in a message | what a line names | none | 599 USED, 308 UNUSED, 3 UNSOUND |
 
 Reg M-C's legal pool on upstream master: 293 species that pass `checkSpecies`, 203 abilities in
 their slots, 510 moves at least one of them can learn (`checkCanLearn`), 166 items. Against Reg
@@ -217,28 +216,42 @@ says which candidates are worth a dimension at all.
 
 ---
 
-## 4. Files this plan would add
+## 4. Files added
 
-`CLAUDE.md` applies at execution time: **ask for each new file by name, one at a time.
-Approving this plan does not count.** The rows below are where the table would put each one. They
-are not permission to create them.
+The evidence catalog and reports:
 
-| What | Where the table would put it | Open question |
-|---|---|---|
-| the probe and coverage run | `scripts/local-<name>.mjs` + one `package.json` script + `<name>.bat`, or a flag on `npm run reconstruct` | new command or flag: a new command that is a variant of an existing one is a flag |
-| template building, perturbing, diffing | inside that command, or `scripts/lib/inference/<name>.mjs` if a second command shares it | shared or not |
-| probe battles worth keeping as tests | `recordings/local/probes/<battleid>.log.json` | which ones, since the rest can be regenerated |
-| the coverage summary | §5 of this file | — |
-| Phase 0 scripts | the session scratchpad, deleted afterwards | — |
+| File | What it holds |
+|---|---|
+| `scripts/local-catalog.mjs` | The evidence catalog command and probe pipeline (`npm run catalog`), Phases 1, 2, 3 and 5 |
+| `catalog.bat` | Double-click entry point for `npm run catalog` |
+| `scripts/fixtures/catalog.js` | Hand-set templates, written reasons, mechanism assignments and notes, keyed by effect id |
+| `docs/evidence-open-sheets.md` | Generated open-sheet report: Stat Points revealed by every legal effect, summary and work lists |
+| `docs/evidence-closed-sheets.md` | Generated closed-sheet report: what every legal effect names, silent sinks, hazards and work lists |
 
 ---
 
 ## 5. Coverage
 
-Not run yet. Phase 3 fills this in.
+Generated from the full 988-effect catalog run (`npm run catalog`). Full details in `docs/evidence-open-sheets.md` and `docs/evidence-closed-sheets.md`.
+
+### 5.1 By mechanism
 
 | Mechanism | Effects probed | USED | UNUSED | UNSOUND |
 |---|---|---|---|---|
+| M1 | 440 | 1309 | 4 | 6 |
+| M2 | 392 | 556 | 0 | 1 |
+| M3 | 152 | 136 | 135 | 0 |
+| M4 | 0 | 0 | 0 | 0 |
+| M5 | 8 | 16 | 0 | 0 |
+| M6 | 106 | 1179 | 7 | 10 |
+| M7 | 152 | 179 | 151 | 4 |
+| M8 | 0 | 0 | 0 | 0 |
+| M9 | 229 | 599 | 308 | 3 |
+
+### 5.2 Gaps (Phase 4 work list)
+
+- **UNSOUND (24 rows across 5 effects):** `guardsplit` (user-hidden HP), `nightdaze` (user-hidden SpA, target-hidden HP, target-hidden SpD), `powersplit` (user-hidden HP, user-hidden Atk), `transform` (user-hidden HP across M1/M6/M9, target-hidden Spe across M7), `illusion` (holder-hidden HP M9).
+- **UNUSED (605 rows):** M1 (4), M3 (135), M6 (7), M7 (151), M9 (308). The top score gaps are speed-dependent damage moves (M3) and unrevealed ability/item stat modifiers.
 
 ---
 

@@ -439,7 +439,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const hit = {
       S: T, T, A: T, source: pokemon, target: pokemon, real, items, ord, supported: true,
       off: 'atk', offDim: false, offBy: 'source', def, targetHp: false, sourceHp: false, sStates: [null],
-      clone: { name: 'confusion' }, what: `${label(T)} hurt itself in its confusion`,
+      clone: { name: 'confusion', id: 'confusion' }, effect: 'condition:confusion', what: `${label(T)} hurt itself in its confusion`,
     };
     hit.aVals = aliveOf(T.flat.atk);
     const dVals = new Set([...T.chain.keys()].map(k => KEY_DIM[def][k]));
@@ -652,6 +652,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       dealtBy: S,
       sourceStates: hit.sourceHp ? hit.sStates : null,
       move: ctx.effect,
+      effect: hit.effect || (hit.clone?.id ? `move:${hit.clone.id}` : (ctx.effect?.id ? `move:${ctx.effect.id}` : undefined)),
       // Recoil and drain read the user's own attacking stat off the same hit;
       // one that belongs to the target or to a key dimension says nothing there.
       off: hit.A === S && !hit.offDim ? hit.off : null,
@@ -703,7 +704,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
       table.set(g, Int32Array.from(out));
     }
-    return { dim: null, table, via: null, what };
+    return { dim: null, table, via: null, what, ...(ctx?.effect ? { effect: effectTag(ctx.effect) } : {}) };
   }
 
   /**
@@ -726,7 +727,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
       table.set(g, Int32Array.from(pairs));
     }
-    return { dim: null, table, via, what };
+    return { dim: null, table, via, what, ...(ctx?.effect ? { effect: effectTag(ctx.effect) } : {}) };
   }
 
   /**
@@ -755,7 +756,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       table.set(g, Int32Array.from(pairs));
       dealtOf.set(g, Int32Array.from(amounts));
     }
-    return { dim: null, table, dealtOf, victim: last.change, via: known ? null : { rec: S, stat: last.off }, what };
+    return { dim: null, table, dealtOf, victim: last.change, via: known ? null : { rec: S, stat: last.off }, what, effect: last.move?.id ? `move:${last.move.id}` : undefined };
   }
 
   /** Recoil: `applyRecoilDamage` computes and applies it in one call. */
@@ -786,15 +787,38 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
   });
 
-  const band = (dir, what) => ({ band: dir, what });
+  function effectTag(e) {
+    if (!e) return undefined;
+    if (typeof e === 'string') {
+      if (e.includes(':')) return e;
+      const c = battle.dex.conditions.get(e);
+      const m = battle.dex.moves.get(e);
+      const i = battle.dex.items.get(e);
+      const a = battle.dex.abilities.get(e);
+      const found = (m.exists && m) || (a.exists && a) || (i.exists && i) || (c.exists && c);
+      if (found) {
+        const type = (found.effectType || 'condition').toLowerCase();
+        return `${type === 'status' ? 'condition' : type}:${found.id}`;
+      }
+      return `condition:${battle.dex.toID(e)}`;
+    }
+    if (e.id) {
+      const type = (e.effectType || 'condition').toLowerCase();
+      return `${type === 'status' ? 'condition' : type}:${e.id}`;
+    }
+    return undefined;
+  }
+
+  const band = (dir, what, effect) => ({ band: dir, what, ...(effect ? { effect } : {}) });
 
   function effectChange(T, kind, raw, effect, other) {
     const e = typeof effect === 'string' ? battle.dex.conditions.getByID(effect) : effect;
+    const effId = effectTag(e || effect);
     const id = e?.id || '';
     const ctx = { source: other || null, effect: e };
     const what = `${e?.name || id || kind} on ${label(T)}`;
     const dir = kind === 'heal' ? 'up' : 'down';
-    if (typeof raw !== 'number' || !(raw > 0)) return band(dir, what);
+    if (typeof raw !== 'number' || !(raw > 0)) return band(dir, what, effId);
 
     // Drain and recoil are a share of damage dealt. That share is exact when the
     // Pokemon that took the damage is one whose HP the log shows exactly;
@@ -1003,7 +1027,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
     if (noted) {
       const cuts = [...befores].map(([r, before]) => cutOf(r, before)).filter(Boolean);
-      if (cuts.length) events.push({ turn: change.turn ?? battle.turn, what: change.what, ...(token !== null ? { shown: token } : {}), cuts });
+      if (cuts.length) events.push({ turn: change.turn ?? battle.turn, what: change.what, ...(change.effect ? { effect: change.effect } : {}), ...(token !== null ? { shown: token } : {}), cuts });
     }
   }
 
@@ -1254,8 +1278,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
     // An edge of 0 or of the whole bar says nothing about HP.
     if ([...edge].every(([M, t]) => t === 0 || t === M)) return origUpdate.call(this, eventid, target, ...rest);
-    const name = target.getItem().name;
-    const gate = { same: true, gate: true, turn: battle.turn, what: `${name} on ${label(rec)}`, fired: null };
+    const item = target.getItem();
+    const name = item.name;
+    const gate = { same: true, gate: true, turn: battle.turn, effect: item.id ? `item:${item.id}` : undefined, what: `${name} on ${label(rec)}`, fired: null };
     gate.allow = (M, h) => gate.fired === null || !edge.has(M) || (h <= edge.get(M)) === gate.fired;
     rec.pending.push(gate);
     const held = target.item;
@@ -1324,7 +1349,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         }
       })));
     }
-    const change = { dim: null, table: new Map(), via: null, final: true, what: `Pain Split between ${label(X)} and ${label(Y)}` };
+    const change = { dim: null, table: new Map(), via: null, final: true, effect: 'move:painsplit', what: `Pain Split between ${label(X)} and ${label(Y)}` };
     X.painSplit = change;
     const start = battle.log.length;
     state.hold++;
@@ -1431,7 +1456,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     if (!record) return;
     const cuts = recs.map(rec => cutOf(rec, before.get(rec))).filter(Boolean);
     if (cuts.length) {
-      events.push({ turn: battle.turn, what: 'every turn at once - recoil, attacker HP and later displays checked against earlier hits', cuts });
+      events.push({ turn: battle.turn, what: 'every turn at once - recoil, attacker HP and later displays checked against earlier hits', effect: 'paths:whole', cuts });
     }
   }
 

@@ -40,6 +40,7 @@ The `.bat` files are double-click equivalents that need no terminal.
 | `npm run check` | — | Verify the server binds to loopback and the format loads. |
 | `npm run serve` | — | The static client host on its own (rarely needed directly). |
 | `npm run extension` | `extension.bat` | Build the Chrome extension into `extension/dist/`: the same board on play.pokemonshowdown.com, with no Node and no local server. Load that folder at `chrome://extensions` → **Load unpacked**. Starts no server; with `--check` it proves the build against the Node reference in a throwaway Chrome. |
+| `npm run catalog` | `catalog.bat` | Run the evidence catalog probe across every legal effect in Reg M-C: open team sheets (Stat Points) and closed team sheets (names, silent sinks, hazards). With `--check`, verifies committed reports match. |
 
 **Start here:**
 
@@ -61,6 +62,8 @@ and `--seed <seed>`: it replays a recording twice from that turn under one share
 plain and once with the named draws forced, and reports what moved.
 `npm run extension` takes `--check [sim|room|entry|rng|package]` (all of them when none is
 named), `--headful` and `--verbose`.
+`npm run catalog` takes `--pool`, `--list`, `--shard <k/n>`, `--only <id>`, `--kind <kind>`,
+`--inputs <file>`, `--out <dir>`, `--no-coverage`, `--check`, `--threads <n>`, `--verbose`.
 
 > Note the bare `--` in `npm run live -- --at 4`. It tells npm the flags are for the
 > script, not for npm. `live.bat --at 4` needs no such thing.
@@ -98,6 +101,8 @@ named), `--headful` and `--verbose`.
 | `docs/branching.md` | How a recorded battle becomes a playable position, from either entry point. |
 | `docs/extension.md` | How the board runs as a Chrome extension: the live-site probes it rests on, how it is built, and what each step proved. |
 | `docs/evidence-catalog.md` | Which effects can reveal a hidden stat, and the plan to find and use every one of them. |
+| `docs/evidence-open-sheets.md` | What every legal effect lets reach the log about Stat Points; summary and work lists for open-sheet inference. |
+| `docs/evidence-closed-sheets.md` | What every legal effect names, where `setsFromLog` puts it, silent sinks and hazards for closed-sheet inference. |
 | `CLAUDE.md` | Where a new file goes. Read it before adding one. |
 
 ---

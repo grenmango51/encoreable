@@ -208,7 +208,8 @@ export function attachSpeed(battle, {
         const X = byPokemon.get(x.pokemon);
         const Y = byPokemon.get(y.pokemon);
         if (!X || !Y) continue;
-        rules.push({ fast: X, slow: Y, tf: S.speeds.get(X), ts: S.speeds.get(Y), turn: S.turn });
+        const actLabel = it => it.action?.choice === 'move' ? (it.action.move ? `move:${battle.dex.toID(it.action.move)}` : 'move') : (it.action?.choice || 'action');
+        rules.push({ fast: X, slow: Y, tf: S.speeds.get(X), ts: S.speeds.get(Y), turn: S.turn, effect: `${actLabel(x)} vs ${actLabel(y)}` });
       }
     }
 
@@ -241,8 +242,10 @@ export function attachSpeed(battle, {
       const ts = entry.speeds.get(y.rec);
       if (!tf || !ts) return;
       const name = it => (entry.kind === 'eachEvent' ? entry.eventid : it.effect?.name || entry.eventid);
+      const effLabel = it => it.effect ? `${(it.effect.effectType || 'condition').toLowerCase()}:${it.effect.id}` : `event:${entry.eventid}`;
       rules.push({
         fast: x.rec, slow: y.rec, tf, ts, turn: entry.turn,
+        effect: `${effLabel(x)} vs ${effLabel(y)}`,
         what: `${label(x.rec)}'s ${name(x)} came before ${label(y.rec)}'s ${name(y)}`,
       });
     };
@@ -269,7 +272,11 @@ export function attachSpeed(battle, {
       const x = S?.list.find(item => item.action === ex.action);
       const y = S?.list.find(item => item.pokemon === P?.pokemon && item.order === x?.order && item.priority === x?.priority);
       const Q = x && byPokemon.get(x.pokemon);
-      if (P && Q && y && !tainted.has(S.turn)) rules.push({ fast: P, slow: Q, tf: S.speeds.get(P), ts: S.speeds.get(Q), turn: S.turn });
+      if (P && Q && y && !tainted.has(S.turn)) {
+        const actP = y.action?.choice === 'move' ? (y.action.move ? `move:${battle.dex.toID(y.action.move)}` : 'move') : (y.action?.choice || 'action');
+        const actQ = x.action?.choice === 'move' ? (x.action.move ? `move:${battle.dex.toID(x.action.move)}` : 'move') : (x.action?.choice || 'action');
+        rules.push({ fast: P, slow: Q, tf: S.speeds.get(P), ts: S.speeds.get(Q), turn: S.turn, effect: `${actP} vs ${actQ}` });
+      }
     }
 
     // The log diverged inside an event sort: the rebuild's handler for Q wrote
@@ -328,7 +335,7 @@ export function attachSpeed(battle, {
         }
         if (before) {
           const cuts = [cutOf(fast, before[0]), cutOf(slow, before[1])].filter(Boolean);
-          if (cuts.length) events.push({ turn: rule.turn, what: rule.what || `${label(fast)} acted before ${label(slow)}`, cuts });
+          if (cuts.length) events.push({ turn: rule.turn, what: rule.what || `${label(fast)} acted before ${label(slow)}`, ...(rule.effect ? { effect: rule.effect } : {}), cuts });
         }
       }
     }
