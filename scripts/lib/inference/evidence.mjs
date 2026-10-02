@@ -1285,6 +1285,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const dealt = change.dealtBy && token !== null && !change.noDealt ? new Map() : null;
     const dealtOk = change.dealtOf && token !== null ? new Set() : null;
     const sourceOk = change.sourceStates && token !== null ? new Set() : null;
+    // A hit that reads its attacker's own HP - Water Spout, a pinch ability -
+    // beside the attacker's own flat stat says which values of that stat go
+    // with which of the attacker's keys.
+    const sourceTied = sourceOk && change.via && change.via.rec === change.dealtBy && change.via.rec !== rec && !change.via.dim
+      ? new Set() : null;
     const done = new Map();
     const allowAt = new Map();
     const tied = tiedStat(rec, change);
@@ -1332,6 +1337,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
               const v = tag % SPAN;
               if (amounts) dealtOk.add(v * HP_BITS + amounts[j]);
               if (sourceOk) sourceOk.add(Math.floor(tag / SPAN));
+              if (sourceTied) sourceTied.add(tag);
               hsSeen.add(h2);
               viaSeen.add(v);
               if (tied) pv.push(h2, v);
@@ -1390,6 +1396,25 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         apply(R, { same: true, ...c, what: change.what, turn: change.turn }, null);
       };
       if (allowSet || X === S) narrow(S, { allowSet, allowDims: X === S ? allowDims : null });
+      if (sourceTied && allowSet && S.chain) {
+        const byState = new Map();
+        for (const tag of sourceTied) {
+          const si = Math.floor(tag / SPAN);
+          if (!byState.has(si)) byState.set(si, new Set());
+          byState.get(si).add(tag % SPAN);
+        }
+        const byKey = new Map();
+        for (const [k, hs] of S.chain) {
+          const M = maxHp(S, KEY_HP[k]);
+          const vs = new Set();
+          for (const [si, values] of byState) {
+            const [sM, sH] = change.sourceStates[si];
+            if (sM === M && hs.includes(sH)) for (const v of values) vs.add(v);
+          }
+          byKey.set(k, vs);
+        }
+        tie(S, change.via.stat, byKey);
+      }
       if (X && X !== S && xDim) narrow(X, { allowDims });
       if (X && !xDim) {
         touch(X);
