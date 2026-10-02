@@ -2064,6 +2064,7 @@ async function dumpWorld(pool, [key, templateKey, stat, value], { control, entri
     console.log(`  T${e.turn} ${e.what}${e.shown ? ` (shown ${e.shown})` : ''}${cut ? `: ${cut.before} -> ${cut.after}${cut.narrowed.length ? `, ${cut.narrowed.map(s => `${STAT_NAME[s]} ${cut.stats[s] ? `${cut.stats[s].min}-${cut.stats[s].max}` : 'none'}`).join(', ')}` : ''}` : ''}`);
   }
   for (const c of r.inf.checks || []) console.log(`  check T${c.turn}: ${c.what} - ${c.reason}`);
+  if (r.inf.cutoff) console.log(`  evidence read up to turn ${r.inf.cutoff.turn}, where the rebuild printed another line than ${r.inf.cutoff.observed}`);
 }
 
 async function main() {

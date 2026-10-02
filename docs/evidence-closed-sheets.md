@@ -36,7 +36,7 @@ its handlers name. A control's own rebuild is shown when it is not SAFE, since t
 | Kind | Effects | READ | MISSED | MISREAD | FALSE | Silent (no line names it) | SILENT-SINK witnesses | HAZARD-UNSOUND | HAZARD-REBUILD | TRUE-SET-FAILS |
 |---|---|---|---|---|---|---|---|---|---|---|
 | move | 510 | 1389 | 18 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| ability | 203 | 109 | 17 | 6 | 0 | 131 | 158 | 55 | 7 | 5 |
+| ability | 203 | 109 | 17 | 6 | 0 | 131 | 158 | 55 | 9 | 3 |
 | item | 166 | 130 | 2 | 4 | 2 | 48 | 74 | 64 | 0 | 2 |
 | condition | 94 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | nature | 25 | 0 | 0 | 0 | 0 | 25 | 44 | 28 | 0 | 0 |
@@ -186,6 +186,8 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `ability:hugepower` | 2 | W-toxic | known exact | HAZARD-UNSOUND | turn 2: Azumarill's Strength hit Snorlax |
 | `ability:hugepower` | 2 | W-trade | known exact | HAZARD-UNSOUND | turn 1: Azumarill's Strength hit Snorlax |
 | `ability:hugepower` | 2 | W-two-moves | known exact | HAZARD-UNSOUND | turn 1: Azumarill's Strength hit Snorlax |
+| `ability:illusion` | 2 | W-paralysis | names, presence | HAZARD-REBUILD | turn 2: wanted \|move\|p2a: Slowking\|Strength\|p1a: Snorlax, got \|move\|p1a: Snorlax\|Splash\|p1a: Snorlax |
+| `ability:illusion` | 2 | W-taunt | names, presence | HAZARD-REBUILD | turn 1: wanted \|-start\|p2a: Slowking\|move: Taunt, got \|-immune\|p2a: Slowking\|[from] ability: Oblivious |
 | `ability:fluffy` | 1 | W-phys-taken | hidden %, presence | HAZARD-UNSOUND | turn 1: Snorlax's Dragon Claw hit Houndstone |
 | `ability:fluffy` | 1 | W-pivot | hidden % | HAZARD-UNSOUND | turn 1: Snorlax's Dragon Claw hit Houndstone |
 | `ability:liquidvoice` | 1 | W-spec-dealt | known exact | HAZARD-UNSOUND | turn 1: Primarina's Round hit Snorlax |
@@ -1471,11 +1473,11 @@ Other boxes: MISREAD p2 Slowking move Strength; MISREAD p2 Slowking move Round; 
 | W-pace | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
 | W-trade | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | SAFE |  |
 | W-burn | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
-| W-paralysis | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | TRUE-SET-FAILS |  |
+| W-paralysis | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | HAZARD-REBUILD |  |
 | W-toxic | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
 | W-sleep | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
 | W-confusion | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | TRUE-SET-FAILS |  |
-| W-taunt | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | TRUE-SET-FAILS |  |
+| W-taunt | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | HAZARD-REBUILD |  |
 | W-lethal | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | SAFE |  |
 | W-pivot | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | TRUE-SET-FAILS |  |
 | W-two-moves | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
