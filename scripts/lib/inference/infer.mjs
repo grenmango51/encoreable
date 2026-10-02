@@ -26,7 +26,7 @@ import { createRequire } from 'module';
 
 import { disguisableStays, identName, identSide, reconstruct, sampler, unsettledDisguises } from '../reconstruct.mjs';
 import {
-  BUDGET, FLAT, STAT_IDS, aimFor, cloneKnowledge, closestSpread, defaultSpread, freshKnowledge, fullEvs,
+  BUDGET, FLAT, SPAN, STAT_IDS, aimFor, cloneKnowledge, closestSpread, defaultSpread, freshKnowledge, fullEvs,
   intersectKnowledge, keyOf, maskKeys, pinKnowledge, sameSpread, spreadsLeft, summarise, tieHas, tighten, uniteKnowledge,
 } from './knowledge.mjs';
 import { evidencePass } from './evidence.mjs';
@@ -310,7 +310,10 @@ export async function inferSpreads({
           const e = fullEvs(evs);
           const sum = STAT_IDS.reduce((t, x) => t + e[x], 0);
           const k = keyOf(e.hp, e.def, e.spd);
-          return !!kn.keys[k] && FLAT.every(x => kn.dom[x][e[x]] && (!kn.ties?.[x] || tieHas(kn.ties[x], k, e[x]))) && (!kn.spent || sum === BUDGET);
+          const pairs = Object.entries(kn.ties || {}).filter(([n]) => n.includes('|'));
+          return !!kn.keys[k] && FLAT.every(x => kn.dom[x][e[x]] && (!kn.ties?.[x] || tieHas(kn.ties[x], k, e[x])))
+            && pairs.every(([n, m]) => { const [a, b] = n.split('|'); return m[e[a] * SPAN + e[b]] === 1; })
+            && (!kn.spent || sum === BUDGET);
         },
       });
     }

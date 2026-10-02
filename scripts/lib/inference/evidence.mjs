@@ -34,7 +34,7 @@ import {
   splitTurns, withDice,
 } from '../reconstruct.mjs';
 import {
-  FLAT, KEY_DIM, KEY_HP, SPAN, STAT_IDS, aliveOf, fullEvs, maskKeys, newTie, rangesOf, spreadCount, supported, tieHas, tieWords,
+  FLAT, KEY_DIM, KEY_HP, SPAN, STAT_IDS, aliveOf, fullEvs, maskKeys, newTie, pairName, rangesOf, spreadCount, supported, tieHas, tieWords,
 } from './knowledge.mjs';
 import { attachSpeed } from './speed.mjs';
 
@@ -1396,24 +1396,42 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         apply(R, { same: true, ...c, what: change.what, turn: change.turn }, null);
       };
       if (allowSet || X === S) narrow(S, { allowSet, allowDims: X === S ? allowDims : null });
-      if (sourceTied && allowSet && S.chain) {
+      if (sourceTied && S.chain && (allowSet || X === S)) {
         const byState = new Map();
         for (const tag of sourceTied) {
           const si = Math.floor(tag / SPAN);
           if (!byState.has(si)) byState.set(si, new Set());
           byState.get(si).add(tag % SPAN);
         }
-        const byKey = new Map();
-        for (const [k, hs] of S.chain) {
-          const M = maxHp(S, KEY_HP[k]);
-          const vs = new Set();
+        // The attacker's own second flat stat - a Gyro Ball user's Speed beside
+        // its Attack - goes with the values of the first it came with.
+        if (X === S && !xDim) {
+          const name = pairName(change.via.stat, change.extra.stat);
+          const first = name.startsWith(`${change.via.stat}|`);
+          const m = new Uint8Array(SPAN * SPAN);
           for (const [si, values] of byState) {
-            const [sM, sH] = change.sourceStates[si];
-            if (sM === M && hs.includes(sH)) for (const v of values) vs.add(v);
+            const x = change.sourceStates[si][2];
+            for (const v of values) m[first ? v * SPAN + x : x * SPAN + v] = 1;
           }
-          byKey.set(k, vs);
+          const had = S.ties[name];
+          if (had) for (let i = 0; i < had.length; i++) had[i] &= m[i];
+          else S.ties[name] = m;
         }
-        tie(S, change.via.stat, byKey);
+        if (allowSet || xDim) {
+          const byKey = new Map();
+          for (const [k, hs] of S.chain) {
+            const M = maxHp(S, KEY_HP[k]);
+            const vs = new Set();
+            for (const [si, values] of byState) {
+              const [sM, sH, sX] = change.sourceStates[si];
+              if (sM !== null && (sM !== M || !hs.includes(sH))) continue;
+              if (xDim && X === S && sX !== KEY_DIM[change.extra.stat][k]) continue;
+              for (const v of values) vs.add(v);
+            }
+            byKey.set(k, vs);
+          }
+          tie(S, change.via.stat, byKey);
+        }
       }
       if (X && X !== S && xDim) narrow(X, { allowDims });
       if (X && !xDim) {

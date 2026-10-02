@@ -50,6 +50,11 @@ export const aliveOf = (mask) => {
  * and Defence, in recoil, drain, Foul Play or a confusion self-hit. Two 32-bit
  * words per key: values 0-31 in the first, 32 in the second. A stat with no tie
  * allows every value of its domain beside every key.
+ *
+ * A hit can also read two flat stats of one Pokemon together - a Gyro Ball
+ * user's Attack and its own Speed. That pair is a tie too, named `atk|spe`:
+ * one byte per pair of values, the first-named stat's value times SPAN plus the
+ * other's.
  */
 export const newTie = () => new Uint32Array(KEYS * 2);
 export const tieHas = (tie, k, v) => (v < 32 ? (tie[2 * k] >>> v) & 1 : tie[2 * k + 1] & 1) === 1;
@@ -63,6 +68,13 @@ export function tieWords(values) {
   return [lo >>> 0, hi];
 }
 const maskWords = mask => tieWords(aliveOf(mask));
+export const pairName = (a, b) => (FLAT.indexOf(a) < FLAT.indexOf(b) ? `${a}|${b}` : `${b}|${a}`);
+const pairsOf = ties => Object.entries(ties || {}).filter(([n]) => n.includes('|')).map(([n, m]) => {
+  const [a, b] = n.split('|');
+  return { a, b, m };
+});
+/** Whether every pair tie allows the flat values in `vals`. */
+const pairsAllow = (pairs, vals) => pairs.every(({ a, b, m }) => m[vals[a] * SPAN + vals[b]] === 1);
 const cloneTies = ties => Object.fromEntries(Object.entries(ties || {}).map(([s, t]) => [s, t.slice()]));
 const wordValues = (lo, hi) => {
   const out = [];
@@ -78,8 +90,9 @@ const wordValues = (lo, hi) => {
  */
 export function supported(keys, dom, ties = {}) {
   const tied = FLAT.filter(s => ties?.[s]);
+  const pairs = pairsOf(ties);
   let list = [...keys];
-  if (!tied.length) return { keys: list, dom };
+  if (!tied.length && !pairs.length) return { keys: list, dom };
   const out = { ...dom };
   for (let round = 0; round < 8; round++) {
     let changed = false;
@@ -96,6 +109,24 @@ export function supported(keys, dom, ties = {}) {
         if (mask[v] && !(v < 32 ? (lo >>> v) & 1 : hi & 1)) { mask[v] = 0; changed = true; }
       }
       out[s] = mask;
+    }
+    for (const { a, b, m } of pairs) {
+      const ma = out[a].slice();
+      const mb = out[b].slice();
+      for (let x = 0; x < SPAN; x++) {
+        if (!ma[x]) continue;
+        let ok = false;
+        for (let y = 0; y < SPAN && !ok; y++) ok = out[b][y] === 1 && m[x * SPAN + y] === 1;
+        if (!ok) { ma[x] = 0; changed = true; }
+      }
+      for (let y = 0; y < SPAN; y++) {
+        if (!mb[y]) continue;
+        let ok = false;
+        for (let x = 0; x < SPAN && !ok; x++) ok = ma[x] === 1 && m[x * SPAN + y] === 1;
+        if (!ok) { mb[y] = 0; changed = true; }
+      }
+      out[a] = ma;
+      out[b] = mb;
     }
     if (!changed) break;
   }
@@ -153,10 +184,11 @@ export function intersectKnowledge(kn, keys, flat, ties = {}) {
   for (const [s, tie] of Object.entries(ties || {})) {
     const mine = kn.ties[s];
     if (!mine) { kn.ties[s] = tie.slice(); moved = true; continue; }
+    const pair = s.includes('|');
     for (let i = 0; i < mine.length; i++) {
       const both = (mine[i] & tie[i]) >>> 0;
       if (both === mine[i]) continue;
-      if (kn.keys[i >> 1]) moved = true;
+      if (pair || kn.keys[i >> 1]) moved = true;
       mine[i] = both;
     }
   }
@@ -209,7 +241,18 @@ function budgetTest(keys, dom, spent) {
 export function uniteKnowledge(kn, other) {
   const tied = new Set([...Object.keys(kn.ties || {}), ...Object.keys(other.ties || {})]);
   const ties = {};
-  for (const s of tied) {
+  for (const s of [...tied].filter(n => n.includes('|'))) {
+    const [a, b] = s.split('|');
+    const m = new Uint8Array(SPAN * SPAN);
+    for (const src of [kn, other]) {
+      const own = src.ties?.[s];
+      for (let x = 0; x < SPAN; x++) {
+        for (let y = 0; y < SPAN; y++) if (src.dom[a][x] && src.dom[b][y] && (!own || own[x * SPAN + y])) m[x * SPAN + y] = 1;
+      }
+    }
+    ties[s] = m;
+  }
+  for (const s of [...tied].filter(n => !n.includes('|'))) {
     const tie = newTie();
     for (const src of [kn, other]) {
       const [lo, hi] = maskWords(src.dom[s]);
@@ -279,6 +322,7 @@ function sums(lists) {
  * using all 66.
  */
 export function spreadCount(keys, dom, ties = {}) {
+  if (pairsOf(ties).length) return pairedCount(keys, dom, ties);
   const tied = FLAT.filter(s => ties?.[s]);
   const flat = sums(FLAT.filter(s => !tied.includes(s)).map(s => aliveOf(dom[s])));
   const upTo = new Float64Array(flat.length);
@@ -322,6 +366,71 @@ export const maskKeys = (mask) => {
 };
 
 /** The whole spreads left for one Pokemon, counted the way it is assumed to spend. */
+/**
+ * The flat values each key allows - its domain, cut by any tie on that key -
+ * as lists, with a signature that two keys allowing the same share.
+ */
+function listsFor(k, dom, ties, words) {
+  const lists = {};
+  let sig = '';
+  for (const [j, s] of FLAT.entries()) {
+    if (ties?.[s]) {
+      const lo = (ties[s][2 * k] & words[j][0]) >>> 0;
+      const hi = ties[s][2 * k + 1] & words[j][1];
+      lists[s] = wordValues(lo, hi);
+      sig += `${lo}.${hi}|`;
+    } else {
+      lists[s] = null;
+      sig += '-|';
+    }
+  }
+  return { lists, sig };
+}
+
+/** For each total of the three flat stats, the whole choices of them every pair tie allows. */
+function pairedSums(lists, dom, pairs) {
+  const vals = FLAT.map(s => lists[s] || aliveOf(dom[s]));
+  const out = new Float64Array(3 * (SPAN - 1) + 1);
+  const v = {};
+  for (const x of vals[0]) {
+    v.atk = x;
+    for (const y of vals[1]) {
+      v.spa = y;
+      for (const z of vals[2]) {
+        v.spe = z;
+        if (pairsAllow(pairs, v)) out[x + y + z]++;
+      }
+    }
+  }
+  return out;
+}
+
+/** `spreadCount` with a pair tie: every key's own choices of the flat stats, enumerated. */
+function pairedCount(keys, dom, ties) {
+  const pairs = pairsOf(ties);
+  const words = FLAT.map(s => maskWords(dom[s]));
+  const memo = new Map();
+  let total = 0;
+  let spent = 0;
+  for (const k of keys) {
+    const room = BUDGET - KEY_SUM[k];
+    if (room < 0) continue;
+    const { lists, sig } = listsFor(k, dom, ties, words);
+    let by = memo.get(sig);
+    if (!by) {
+      const at = pairedSums(lists, dom, pairs);
+      const upTo = new Float64Array(at.length);
+      let run = 0;
+      for (let t = 0; t < at.length; t++) { run += at[t]; upTo[t] = run; }
+      by = { at, upTo };
+      memo.set(sig, by);
+    }
+    total += by.upTo[Math.min(room, by.upTo.length - 1)];
+    if (room < by.at.length) spent += by.at[room];
+  }
+  return { total, spent };
+}
+
 export function spreadsLeft(kn, keys = maskKeys(kn.keys), dom = kn.dom) {
   const count = spreadCount(keys, dom, kn.ties);
   return kn.spent ? count.spent : count.total;
@@ -385,6 +494,7 @@ export function defaultSpread(dex, set, hp) {
 
 /** The surviving spread nearest `prev`, counting Stat Points moved. */
 export function closestSpread(kn, prev) {
+  if (pairsOf(kn.ties).length) return closestPaired(kn, prev);
   if (FLAT.some(s => kn.ties?.[s])) return closestTied(kn, prev);
   const A = aliveOf(kn.dom.atk);
   const S = aliveOf(kn.dom.spa);
@@ -469,6 +579,53 @@ function closestTied(kn, prev) {
       for (const v of lists[j]) pick(j + 1, sum + v, cost + Math.abs(v - prev[tied[j]]), { ...vals, [tied[j]]: v });
     };
     pick(0, 0, 0, {});
+  }
+  if (!win) return null;
+  return { hp: KEY_HP[win.k], atk: win.vals.atk, def: KEY_DEF[win.k], spa: win.vals.spa, spd: KEY_SPD[win.k], spe: win.vals.spe };
+}
+
+/** `closestSpread` with a pair tie: the cheapest whole choice of flat values per total, per key. */
+function closestPaired(kn, prev) {
+  const pairs = pairsOf(kn.ties);
+  const words = FLAT.map(s => maskWords(kn.dom[s]));
+  const memo = new Map();
+  let win = null;
+  for (let k = 0; k < KEYS; k++) {
+    if (!kn.keys[k]) continue;
+    const room = BUDGET - KEY_SUM[k];
+    if (room < 0) continue;
+    const keyCost = Math.abs(KEY_HP[k] - prev.hp) + Math.abs(KEY_DEF[k] - prev.def) + Math.abs(KEY_SPD[k] - prev.spd);
+    if (win && keyCost >= win.cost) continue;
+    const { lists, sig } = listsFor(k, kn.dom, kn.ties, words);
+    let best = memo.get(sig);
+    if (!best) {
+      const vals = FLAT.map(s => lists[s] || aliveOf(kn.dom[s]));
+      const at = [];
+      const v = {};
+      for (const x of vals[0]) {
+        v.atk = x;
+        for (const y of vals[1]) {
+          v.spa = y;
+          for (const z of vals[2]) {
+            v.spe = z;
+            if (!pairsAllow(pairs, v)) continue;
+            const cost = Math.abs(x - prev.atk) + Math.abs(y - prev.spa) + Math.abs(z - prev.spe);
+            if (!at[x + y + z] || cost < at[x + y + z].cost) at[x + y + z] = { cost, vals: { ...v } };
+          }
+        }
+      }
+      const upTo = [];
+      let run = null;
+      for (let r = 0; r <= 3 * (SPAN - 1); r++) {
+        if (at[r] && (!run || at[r].cost < run.cost)) run = at[r];
+        upTo[r] = run;
+      }
+      best = { at, upTo };
+      memo.set(sig, best);
+    }
+    const f = kn.spent ? best.at[room] : best.upTo[Math.min(room, best.upTo.length - 1)];
+    if (!f) continue;
+    if (!win || keyCost + f.cost < win.cost) win = { cost: keyCost + f.cost, k, vals: f.vals };
   }
   if (!win) return null;
   return { hp: KEY_HP[win.k], atk: win.vals.atk, def: KEY_DEF[win.k], spa: win.vals.spa, spd: KEY_SPD[win.k], spe: win.vals.spe };
