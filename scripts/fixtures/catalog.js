@@ -115,14 +115,17 @@ const witnessMoves = {
 };
 
 /**
- * Abilities that do nothing in these battles unless the probe is about them -
+ * Abilities that seldom act in these battles unless the probe is about them -
  * no weather, no terrain, no Berry, no ally to protect - in order of
  * preference. A move's hidden user holds the first of these its species has,
  * or else Run Away, which no species needs to have for the simulator to run it:
  * an ability that acts (Intimidate, Static, Refrigerate) would put its own
  * changes, and its own gaps, on the move's card. An item's or a nature's hidden
  * holder is picked among species whose first ability is one of these, because
- * that is the one a replay with no team sheet assumes.
+ * that is the one a replay with no team sheet assumes. Some still stop a
+ * witness - Own Tempo the confusion one, Insomnia the sleep one - in the
+ * effect's battle and its control alike, so they can hide a change but never
+ * make one. An ability's control holds Run Away instead (`baselineAbility`).
  */
 const quietAbilities = [
   'Run Away', 'Honey Gather', 'Ball Fetch', 'Keen Eye', 'Illuminate', 'Inner Focus', 'Shell Armor', 'Battle Armor',

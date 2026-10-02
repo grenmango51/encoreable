@@ -833,15 +833,12 @@ function itemHolder(effect, sc) {
 }
 
 /**
- * The ability a holder's control has instead: another of its species' own that
- * does nothing here, or else Run Away, which does nothing in a trainer battle.
- * One that acts - Shed Skin curing a witness's status, an ability announcing
- * itself - would make the control differ for reasons of its own.
+ * The ability a holder's control has instead: Run Away, which does nothing in a
+ * trainer battle. Any other would act somewhere in the battery - Own Tempo stops
+ * the confusion witness, Shed Skin cures a status, an announcement prints a
+ * line - and the control would differ for reasons of its own.
  */
-function baselineAbility(species, abilityName) {
-  const own = Object.values(species.abilities).filter(a => a !== abilityName);
-  return FIXTURE.quietAbilities.find(a => own.includes(a)) || 'Run Away';
-}
+const baselineAbility = () => 'Run Away';
 
 /**
  * The witness battery, for an item, ability or nature on the hidden Pokemon
@@ -869,7 +866,7 @@ function batteryTemplates(effect) {
     const knownUsers = effect.users.filter(id => !knownCast.has(toID(dex.species.get(id).baseSpecies)));
     const holder = !holderHidden && effect.kind === 'ability' ? pickUser(knownUsers, { anyAbility: true }) || dex.species.get(knownUsers[0] || effect.users[0]) : null;
     const knownBase = holder
-      ? { ...FIXTURE.cast.known, name: holder.baseSpecies, species: holder.name, gender: genderOf(holder) || '', ability: baselineAbility(holder, effect.name) }
+      ? { ...FIXTURE.cast.known, name: holder.baseSpecies, species: holder.name, gender: genderOf(holder) || '', ability: baselineAbility() }
       : { ...FIXTURE.cast.known };
     const apply = (withEffect) => {
       const hidden = hiddenFrom(hiddenSpecies, hiddenAbilityBase, '', []);
@@ -878,7 +875,7 @@ function batteryTemplates(effect) {
         if (holderHidden) hidden.item = withEffect ? effect.name : '';
         else known.item = withEffect ? effect.name : FIXTURE.cast.known.item;
       } else if (effect.kind === 'ability') {
-        if (holderHidden) hidden.ability = withEffect ? effect.name : baselineAbility(hiddenSpecies, effect.name);
+        if (holderHidden) hidden.ability = withEffect ? effect.name : baselineAbility();
         else known.ability = withEffect ? effect.name : knownBase.ability;
       } else if (effect.kind === 'nature') {
         hidden.nature = withEffect ? effect.name : 'Serious';
@@ -1187,6 +1184,7 @@ async function cover(template, stat, entry, effectName) {
       diff: r.diff,
       cutBy: [...new Set(cutBy)],
       narrowedBy: [...new Set(r.inf.events.filter(e => e.cuts.some(x => x.id === 'p2:0' && x.narrowed.includes(stat))).map(e => e.what))],
+      setAside: (r.inf.checks || []).map(c => `${c.what} - ${c.reason}`),
     });
   }
   // Told apart, but only by the battle's own lines as far as can be seen: the
@@ -1652,6 +1650,10 @@ function renderOpen(records, pool) {
   out.push('mechanism, else the best use. So Gyro Ball\'s Speed through its damage (M3) and through turn order (M7) are two');
   out.push('verdicts, and one does not hide the other. The grid gives each, bracketed when only a modified line showed it.');
   out.push('');
+  out.push('The inference checks its own shortcuts as it goes: where one gives another answer than the simulator at the stats');
+  out.push('the rebuild is running with, the line is set aside, not trusted. A line set aside can leave a stat UNUSED or');
+  out.push('REBUILD-FAILED, never UNSOUND; §2.7 lists every one.');
+  out.push('');
   out.push('**Outcomes:** CHANNEL — at least one change. NO CHANNEL — the effect acted and changed the log, but nothing it changed');
   out.push('depends on a Stat Point in these battles. NOT SHOWN — no template made it change the log: it failed, or did nothing');
   out.push('these battles could see; the card says which. **Sinks:** `hidden %` an HP figure of the hidden side, `known exact`');
@@ -1766,6 +1768,19 @@ function renderOpen(records, pool) {
   else {
     out.push('| Effect | Outcome | Stats read, unseen |', '|---|---|---|');
     for (const r of flagged) out.push(`| \`${r.key}\` | ${r.open.outcome} | ${unreadStats(r).map(s => STAT_NAME[s]).join(', ')} |`);
+    out.push('');
+  }
+  out.push('### 2.7 Set aside by the inference\'s own check', '');
+  out.push('Where a shortcut of the evidence pass gave another answer than the simulator, at the stats the rebuild was running with, and the line was not used rather than trusted. Each is evidence given up, never a spread removed: work to use it.', '');
+  const asideOf = r => [...new Set(r.open.stats.flatMap(s => (s.worlds || []).flatMap(w => w.setAside || [])))];
+  const aside = open.filter(r => asideOf(r).length).sort((a, b) => b.weight - a.weight || a.key.localeCompare(b.key));
+  if (!aside.length) out.push('None.', '');
+  else {
+    out.push('| Effect | Weight | What was set aside, and why |', '|---|---|---|');
+    for (const r of aside) {
+      const lines = asideOf(r);
+      out.push(`| \`${r.key}\` | ${r.weight} | ${esc(lines.slice(0, 3).join('; '))}${lines.length > 3 ? `; and ${lines.length - 3} more` : ''} |`);
+    }
     out.push('');
   }
 
@@ -2048,6 +2063,7 @@ async function dumpWorld(pool, [key, templateKey, stat, value], { control, entri
     const cut = e.cuts.find(c => c.id === 'p2:0');
     console.log(`  T${e.turn} ${e.what}${e.shown ? ` (shown ${e.shown})` : ''}${cut ? `: ${cut.before} -> ${cut.after}${cut.narrowed.length ? `, ${cut.narrowed.map(s => `${STAT_NAME[s]} ${cut.stats[s] ? `${cut.stats[s].min}-${cut.stats[s].max}` : 'none'}`).join(', ')}` : ''}` : ''}`);
   }
+  for (const c of r.inf.checks || []) console.log(`  check T${c.turn}: ${c.what} - ${c.reason}`);
 }
 
 async function main() {

@@ -34,6 +34,10 @@ A stat is judged per role and per mechanism: the worst defect over the templates
 mechanism, else the best use. So Gyro Ball's Speed through its damage (M3) and through turn order (M7) are two
 verdicts, and one does not hide the other. The grid gives each, bracketed when only a modified line showed it.
 
+The inference checks its own shortcuts as it goes: where one gives another answer than the simulator at the stats
+the rebuild is running with, the line is set aside, not trusted. A line set aside can leave a stat UNUSED or
+REBUILD-FAILED, never UNSOUND; §2.7 lists every one.
+
 **Outcomes:** CHANNEL — at least one change. NO CHANNEL — the effect acted and changed the log, but nothing it changed
 depends on a Stat Point in these battles. NOT SHOWN — no template made it change the log: it failed, or did nothing
 these battles could see; the card says which. **Sinks:** `hidden %` an HP figure of the hidden side, `known exact`
@@ -50,9 +54,9 @@ holds it and acts on the hidden Pokemon. At most three changed lines per stat ar
 
 | Kind | Effects | CHANNEL | NO CHANNEL | NOT SHOWN | UNFIREABLE | USED | UNUSED | UNSOUND | REBUILD-FAILED | MASKED | ERROR | UNSTABLE |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| move | 510 | 418 | 77 | 15 | 0 | 1279 | 0 | 24 | 19 | 15 | 3 | 13 |
-| ability | 203 | 62 | 48 | 93 | 0 | 157 | 2 | 18 | 12 | 7 | 0 | 5 |
-| item | 166 | 137 | 5 | 24 | 0 | 386 | 0 | 20 | 1 | 7 | 0 | 4 |
+| move | 510 | 418 | 77 | 15 | 0 | 1291 | 0 | 0 | 30 | 19 | 0 | 13 |
+| ability | 203 | 56 | 42 | 105 | 0 | 160 | 0 | 0 | 10 | 6 | 0 | 4 |
+| item | 166 | 137 | 5 | 24 | 0 | 406 | 0 | 0 | 0 | 8 | 0 | 4 |
 
 The verdict columns count (effect, role, stat, mechanism): a stat is judged once for each mechanism it showed through. Of the 94 conditions, which have no battles of their own, 14 had changes printed under their name, counted above under the effect that set them (§6).
 
@@ -60,14 +64,14 @@ The verdict columns count (effect, role, stat, mechanism): a stat is judged once
 
 | Mechanism | Effects | USED | UNUSED | UNSOUND | REBUILD-FAILED | MASKED | Only through lines the battle prints anyway |
 |---|---|---|---|---|---|---|---|
-| M1 | 494 | 1024 | 2 | 25 | 15 | 1 | 474 |
-| M2 | 516 | 601 | 0 | 21 | 6 | 7 | 325 |
-| M3 | 5 | 4 | 0 | 0 | 3 | 0 | 0 |
-| M4 | 69 | 60 | 0 | 0 | 2 | 11 | 36 |
-| M5 | 36 | 48 | 0 | 5 | 0 | 7 | 27 |
-| M6 | 18 | 15 | 0 | 0 | 3 | 1 | 9 |
-| M7 | 70 | 64 | 0 | 3 | 3 | 2 | 2 |
-| M8 | 4 | 0 | 0 | 8 | 0 | 0 | 8 |
+| M1 | 488 | 1041 | 0 | 0 | 15 | 1 | 462 |
+| M2 | 510 | 615 | 0 | 0 | 8 | 7 | 319 |
+| M3 | 5 | 5 | 0 | 0 | 2 | 0 | 0 |
+| M4 | 69 | 61 | 0 | 0 | 0 | 12 | 36 |
+| M5 | 36 | 50 | 0 | 0 | 0 | 10 | 27 |
+| M6 | 17 | 17 | 0 | 0 | 1 | 1 | 8 |
+| M7 | 68 | 62 | 0 | 0 | 6 | 2 | 2 |
+| M8 | 4 | 0 | 0 | 0 | 8 | 0 | 8 |
 | M9 | 2 | 5 | 0 | 0 | 0 | 0 | 0 |
 | M? | 1 | 1 | 0 | 0 | 0 | 0 | 0 |
 
@@ -80,79 +84,13 @@ gave that verdict; `npm run catalog -- --dump <effect> <role>/<template> <stat> 
 
 ### 2.1 UNSOUND — fix before anything else
 
-| Effect | Weight | Role | Stat | Mech | Templates | First that lost it | Where its rebuild broke |
-|---|---|---|---|---|---|---|---|
-| `move:counter` | 41 | U | Def | M5 | before | before, world 32 | turn 2: wanted `\|-damage\|p1a: Snorlax\|227/255`, got `\|-damage\|p1a: Snorlax\|223/255` |
-| `move:mirrorcoat` | 14 | U | SpD | M5 | before-special | before-special, world 32 | turn 2: wanted `\|-damage\|p1a: Snorlax\|233/255`, got `\|-damage\|p1a: Snorlax\|231/255` |
-| `move:metalburst` | 7 | U | Def | M5 | before | before, world 32 | turn 2: wanted `\|-damage\|p1a: Snorlax\|249/255`, got `\|-damage\|p1a: Snorlax\|248/255` |
-| `move:powersplit` | 7 | T | HP | M1 | after | after, world 0 | it rebuilt |
-| `move:powersplit` | 7 | T | Atk | M8 | after | after, world 0 | it rebuilt |
-| `move:powersplit` | 7 | T | Def | M1 | after | after, world 0 | it rebuilt |
-| `move:powersplit` | 7 | U | HP | M1 | after | after, world 0 | it rebuilt |
-| `move:powersplit` | 7 | U | Atk | M8 | after | after, world 0 | it rebuilt |
-| `move:powersplit` | 7 | U | Def | M1 | after | after, world 0 | it rebuilt |
-| `move:guardsplit` | 6 | T | HP | M1 | after | after, world 0 | turn 2: wanted `\|-damage\|p2a: Blastoise\|51/100`, got `\|-damage\|p2a: Blastoise\|64/100` |
-| `move:guardsplit` | 6 | T | Atk | M2 | after | after, world 0 | turn 2: wanted `\|-damage\|p2a: Blastoise\|51/100`, got `\|-damage\|p2a: Blastoise\|64/100` |
-| `move:guardsplit` | 6 | T | Def | M8 | after | after, world 0 | turn 2: wanted `\|-damage\|p2a: Blastoise\|51/100`, got `\|-damage\|p2a: Blastoise\|64/100` |
-| `move:guardsplit` | 6 | U | Def | M8 | after | after, world 32 | it rebuilt |
-| `move:comeuppance` | 4 | U | Def | M5 | before | before, world 32 | turn 2: wanted `\|-damage\|p1a: Snorlax\|195/255`, got `\|-damage\|p1a: Snorlax\|182/255` |
-| `move:comeuppance` | 4 | U | SpD | M5 | before-special | before-special, world 32 | turn 2: wanted `\|-damage\|p1a: Snorlax\|216/255`, got `\|-damage\|p1a: Snorlax\|207/255` |
-| `move:powertrick` | 3 | U | HP | M1 | after | after, world 0 | turn 2: wanted `\|-damage\|p2a: Forretress\|76/100`, got `\|-damage\|p2a: Forretress\|86/100` |
-| `move:powertrick` | 3 | U | Atk | M8 | after | after, world 0 | turn 2: wanted `\|-damage\|p2a: Forretress\|75/100`, got `\|-damage\|p2a: Forretress\|86/100` |
-| `move:powertrick` | 3 | U | Def | M8 | after | after, world 0 | turn 2: wanted `\|-damage\|p2a: Forretress\|76/100`, got `\|-damage\|p2a: Forretress\|86/100` |
-| `ability:illusion` | 2 | H | HP | M1 | W-phys-taken, W-spec-taken, W-trade, W-pivot | W-phys-taken, world 32 | it rebuilt |
-| `ability:illusion` | 2 | H | Def | M1 | W-phys-taken, W-trade, W-pivot | W-phys-taken, world 32 | it rebuilt |
-| `ability:illusion` | 2 | O | Atk | M2 | W-phys-dealt, W-trade | W-phys-dealt, world 0 | it rebuilt |
-| `ability:illusion` | 2 | O | SpA | M2 | W-spec-dealt | W-spec-dealt, world 32 | it rebuilt |
-| `ability:imposter` | 1 | H | HP | M1 | W-phys-taken, W-spec-taken, W-trade, W-confusion, W-pivot | W-phys-taken, world 0 | turn 0: wanted `\|switch\|p2a: Ditto\|Ditto, L50\|147/169`, got `\|switch\|p2a: Ditto\|Ditto, L50\|147/147` |
-| `ability:imposter` | 1 | H | Spe | M7 | W-phys-dealt, W-spec-dealt, W-phys-taken, W-spec-taken, W-order-up, W-order-down, W-pace, W-trade, W-burn, W-toxic, W-sleep, W-pivot, W-two-moves | W-phys-dealt, world 32 | it rebuilt |
-| `ability:imposter` | 1 | O | Atk | M2 | W-phys-dealt, W-trade | W-phys-dealt, world 0 | it rebuilt |
-| `ability:imposter` | 1 | O | SpA | M2 | W-spec-dealt | W-spec-dealt, world 0 | turn 1: wanted `\|-damage\|p1a: Ditto\|99/143`, got `\|-damage\|p1a: Ditto\|91/143` |
-| `ability:pixilate` | 1 | H | Atk | M2 | W-phys-dealt, W-trade, W-Normal-dealt, W-burn, W-paralysis, W-toxic, W-sleep, W-taunt, W-two-moves | W-phys-dealt, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|197/255`, got `\|-damage\|p1a: Snorlax\|180/255` |
-| `ability:pixilate` | 1 | H | SpA | M2 | W-spec-dealt, W-two-moves | W-spec-dealt, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|210/255`, got `\|-damage\|p1a: Snorlax\|201/255` |
-| `ability:pixilate` | 1 | O | HP | M1 | W-phys-taken, W-spec-taken, W-trade, W-Normal-taken | W-phys-taken, world 0 | turn 1: wanted `\|-damage\|p2a: Blastoise\|62/100`, got `\|-damage\|p2a: Blastoise\|74/100` |
-| `ability:pixilate` | 1 | O | Def | M1 | W-phys-taken, W-trade, W-Normal-taken | W-phys-taken, world 0 | turn 1: wanted `\|-damage\|p2a: Blastoise\|63/100`, got `\|-damage\|p2a: Blastoise\|74/100` |
-| `ability:pixilate` | 1 | O | SpD | M1 | W-spec-taken | W-spec-taken, world 0 | turn 1: wanted `\|-damage\|p2a: Blastoise\|67/100`, got `\|-damage\|p2a: Blastoise\|76/100` |
-| `ability:refrigerate` | 1 | H | Atk | M2 | W-phys-dealt, W-trade, W-Normal-dealt, W-burn, W-paralysis, W-sleep, W-taunt, W-two-moves | W-phys-dealt, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|188/255`, got `\|-damage\|p1a: Snorlax\|171/255` |
-| `ability:refrigerate` | 1 | H | SpA | M2 | W-spec-dealt, W-two-moves | W-spec-dealt, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|215/255`, got `\|-damage\|p1a: Snorlax\|206/255` |
-| `ability:refrigerate` | 1 | O | HP | M1 | W-phys-taken, W-spec-taken, W-trade, W-Normal-taken | W-phys-taken, world 0 | turn 1: wanted `\|-damage\|p2a: Blastoise\|79/100`, got `\|-damage\|p2a: Blastoise\|85/100` |
-| `ability:refrigerate` | 1 | O | Def | M1 | W-phys-taken, W-trade, W-Normal-taken | W-phys-taken, world 0 | turn 1: wanted `\|-damage\|p2a: Blastoise\|79/100`, got `\|-damage\|p2a: Blastoise\|85/100` |
-| `ability:refrigerate` | 1 | O | SpD | M1 | W-spec-taken | W-spec-taken, world 0 | turn 1: wanted `\|-damage\|p2a: Blastoise\|84/100`, got `\|-damage\|p2a: Blastoise\|89/100` |
-| `item:altarianite` | 1 | H | HP | M1 | W-trade | W-trade, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|165/255`, got `\|-damage\|p1a: Snorlax\|150/255` |
-| `item:altarianite` | 1 | H | Atk | M2 | W-phys-dealt, W-trade, W-two-moves | W-phys-dealt, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|167/255`, got `\|-damage\|p1a: Snorlax\|152/255` |
-| `item:altarianite` | 1 | H | Def | M1 | W-trade | W-trade, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|165/255`, got `\|-damage\|p1a: Snorlax\|150/255` |
-| `item:altarianite` | 1 | H | SpA | M2 | W-spec-dealt, W-two-moves | W-spec-dealt, world 0 | it rebuilt |
-| `item:feraligite` | 1 | H | HP | M1 | W-trade | W-trade, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|132/255`, got `\|-damage\|p1a: Snorlax\|116/255` |
-| `item:feraligite` | 1 | H | Atk | M2 | W-phys-dealt, W-trade, W-two-moves | W-phys-dealt, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|132/255`, got `\|-damage\|p1a: Snorlax\|117/255` |
-| `item:feraligite` | 1 | H | Def | M1 | W-trade | W-trade, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|132/255`, got `\|-damage\|p1a: Snorlax\|116/255` |
-| `item:feraligite` | 1 | H | SpA | M2 | W-spec-dealt, W-two-moves | W-spec-dealt, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|218/255`, got `\|-damage\|p1a: Snorlax\|212/255` |
-| `item:gardevoirite` | 1 | H | Atk | M2 | W-phys-dealt, W-trade, W-two-moves | W-phys-dealt, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|183/255`, got `\|-damage\|p1a: Snorlax\|170/255` |
-| `item:gardevoirite` | 1 | H | SpA | M2 | W-spec-dealt, W-two-moves | W-spec-dealt, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|192/255`, got `\|-damage\|p1a: Snorlax\|185/255` |
-| `item:glalitite` | 1 | H | Atk | M2 | W-phys-dealt, W-trade, W-two-moves | W-phys-dealt, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|159/255`, got `\|-damage\|p1a: Snorlax\|146/255` |
-| `item:glalitite` | 1 | H | SpA | M2 | W-spec-dealt, W-two-moves | W-spec-dealt, world 0 | it rebuilt |
-| `item:pinsirite` | 1 | H | HP | M1 | W-trade | W-trade, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|135/255`, got `\|-damage\|p1a: Snorlax\|119/255` |
-| `item:pinsirite` | 1 | H | Atk | M2 | W-phys-dealt, W-trade, W-two-moves | W-phys-dealt, world 0 | it rebuilt |
-| `item:pinsirite` | 1 | H | Def | M1 | W-trade | W-trade, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|135/255`, got `\|-damage\|p1a: Snorlax\|119/255` |
-| `item:pinsirite` | 1 | H | SpA | M2 | W-spec-dealt, W-two-moves | W-spec-dealt, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|225/255`, got `\|-damage\|p1a: Snorlax\|219/255` |
-| `item:salamencite` | 1 | H | HP | M1 | W-trade | W-trade, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|141/255`, got `\|-damage\|p1a: Snorlax\|126/255` |
-| `item:salamencite` | 1 | H | Atk | M2 | W-phys-dealt, W-trade, W-two-moves | W-phys-dealt, world 0 | it rebuilt |
-| `item:salamencite` | 1 | H | Def | M1 | W-trade | W-trade, world 0 | turn 1: wanted `\|-damage\|p1a: Snorlax\|141/255`, got `\|-damage\|p1a: Snorlax\|126/255` |
-| `item:salamencite` | 1 | H | SpA | M2 | W-spec-dealt, W-two-moves | W-spec-dealt, world 0 | it rebuilt |
-| `move:transform` | 1 | T | HP | M1 | after | after, world 0 | turn 2: wanted `\|-damage\|p2a: Blastoise\|79/100`, got `\|-damage\|p2a: Blastoise\|84/100` |
-| `move:transform` | 1 | T | Atk | M8 | after | after, world 0 | turn 2: wanted `\|-damage\|p2a: Blastoise\|80/100`, got `\|-damage\|p2a: Blastoise\|84/100` |
-| `move:transform` | 1 | T | Def | M8 | after | after, world 0 | turn 2: wanted `\|-damage\|p2a: Blastoise\|79/100`, got `\|-damage\|p2a: Blastoise\|84/100` |
-| `move:transform` | 1 | T | Spe | M7 | quiet, before, after, pace | quiet, world 0 | it rebuilt |
-| `move:transform` | 1 | U | HP | M1 | after | after, world 0 | turn 0: wanted `\|switch\|p2a: Ditto\|Ditto, L50\|143/255`, got `\|switch\|p2a: Ditto\|Ditto, L50\|143/143` |
-| `move:transform` | 1 | U | Spe | M7 | quiet, after | quiet, world 32 | it rebuilt |
+None.
 
 ### 2.2 UNUSED, by score
 
 Score = weight × information: 3 for a `known exact` line, 2 for `hidden %`, 1 otherwise.
 
-| Rank | Effect | Role | Stat | Sink | Mech | Templates | Weight | Info | Score |
-|---|---|---|---|---|---|---|---|---|---|
-| 1 | `ability:moldbreaker` | H | HP | hidden % | M1 | W-confusion | 8 | 2 | 16 |
-| 2 | `ability:quickdraw` | H | HP | hidden % | M1 | W-confusion | 1 | 2 | 2 |
+None.
 
 ### 2.3 REBUILD-FAILED and ERROR
 
@@ -160,41 +98,46 @@ The first line the rebuild got wrong, as its last round compared it: turns the i
 
 | Effect | Weight | Role | Stat | Mech | Templates | First that failed | Observed | Rebuilt |
 |---|---|---|---|---|---|---|---|---|
-| `item:oranberry` | 293 | H | HP | M4 | W-toxic | W-toxic, world 0, turn 3 | `\|-damage\|p2a: Blastoise\|112/174 tox\|[from] psn` | `\|-damage\|p2a: Blastoise\|114/174 tox\|[from] psn` |
 | `move:substitute` | 292 | U | HP | M6 | broken-at-the-edge | broken-at-the-edge, world 0, turn 2 | `\|-end\|p2a: Blastoise\|Substitute` | `\|-activate\|p2a: Blastoise\|move: Substitute\|[damage]` |
 | `move:imprison` | 57 | U | HP | M1 | quiet, before, after | quiet, world 0, turn 2 | `\|-damage\|p2b: Avalugg\|87/100` | `\|-damage\|p2b: Avalugg\|86/100` |
 | `move:imprison` | 57 | U | Def | M1 | quiet, before, after | quiet, world 0, turn 2 | `\|-damage\|p2b: Avalugg\|87/100` | `\|-damage\|p2b: Avalugg\|86/100` |
 | `move:thrash` | 34 | U | HP | M1 | quiet | quiet, world 0, turn 2 | `\|-start\|p2a: Tyranitar\|confusion\|[fatigue]` | `\|move\|p1a: Snorlax\|Splash\|p1a: Snorlax` |
-| `move:gyroball` | 33 | T | HP | M1 | quiet, before, pivot | quiet, world 0, turn 1 | `\|-damage\|p2a: Blastoise\|168/186` | `\|-damage\|p2a: Blastoise\|173/186` |
-| `move:gyroball` | 33 | T | Def | M1 | quiet, before, pivot | quiet, world 0, turn 1 | `\|-damage\|p2a: Blastoise\|168/186` | `\|-damage\|p2a: Blastoise\|173/186` |
-| `move:gyroball` | 33 | T | Spe | M3 | quiet, before, after, pivot | quiet, world 32, turn 1 | `\|-damage\|p2a: Blastoise\|164/186` | `\|-damage\|p2a: Blastoise\|173/186` |
 | `move:gyroball` | 33 | U | Atk | M2 | quiet, before | quiet, world 32, turn 1 | `\|-damage\|p1a: Snorlax\|236/255` | `\|-damage\|p1a: Snorlax\|240/255` |
 | `move:gyroball` | 33 | U | Spe | M3 | quiet, before, after | quiet, world 0, turn 1 | `\|-damage\|p1a: Snorlax\|239/255` | `\|-damage\|p1a: Snorlax\|240/255` |
-| `move:toxic` | 31 | T | HP | M4 | quiet | quiet, world 0, turn 4 | `\|-damage\|p2a: Blastoise\|77/186 tox\|[from] psn` | `\|-damage\|p2a: Blastoise\|76/186 tox\|[from] psn` |
-| `move:electroball` | 25 | T | HP | M1 | quiet, before, pivot | quiet, world 0, turn 1 | `\|-damage\|p2a: Blastoise\|155/186` | `\|-damage\|p2a: Blastoise\|162/186` |
-| `move:electroball` | 25 | T | SpD | M1 | quiet, before, after, pivot | quiet, world 0, turn 1 | `\|-damage\|p2a: Blastoise\|155/186` | `\|-damage\|p2a: Blastoise\|162/186` |
 | `move:electroball` | 25 | U | SpA | M2 | quiet, before, after | quiet, world 0, turn 1 | `\|-damage\|p1a: Snorlax\|216/255` | `\|-damage\|p1a: Snorlax\|207/255` |
 | `move:electroball` | 25 | U | Spe | M3 | quiet, before, after | quiet, world 0, turn 1 | `\|-damage\|p1a: Snorlax\|216/255` | `\|-damage\|p1a: Snorlax\|207/255` |
-| `move:beatup` | 23 | T | HP | M1 | quiet, before, after, pivot | quiet, world 0, turn 1 | `\|-damage\|p2a: Blastoise\|93/100` | `\|-damage\|p2a: Blastoise\|95/100` |
-| `move:beatup` | 23 | T | Def | M1 | quiet, before, after, pivot | quiet, world 0, turn 1 | `\|-damage\|p2a: Blastoise\|93/100` | `\|-damage\|p2a: Blastoise\|95/100` |
-| `move:beatup` | 23 | U | Atk | M2 | quiet, before, after | quiet, world 0, turn 1 | `\|-damage\|p1a: Snorlax\|243/255` | `\|-damage\|p1a: Snorlax\|241/255` |
 | `move:petaldance` | 7 | U | HP | M1 | quiet | quiet, world 0, turn 4 | `\|-activate\|p2a: Florges\|confusion` | `\|-end\|p2a: Florges\|confusion` |
-| `move:guardsplit` | 6 | U | Atk | M2 | after | after, world 0, turn 2 | `\|-damage\|p2a: Indeedee\|59/152` | `\|-damage\|p2a: Indeedee\|76/152` |
+| `move:powersplit` | 7 | T | HP | M1 | after | after, world 0, turn 2 | `\|-damage\|p2a: Blastoise\|116/186` | `\|-damage\|p2a: Blastoise\|138/186` |
+| `move:powersplit` | 7 | T | Atk | M8 | after | after, world 0, turn 2 | `\|-damage\|p2a: Blastoise\|118/186` | `\|-damage\|p2a: Blastoise\|138/186` |
+| `move:powersplit` | 7 | T | Def | M1 | after | after, world 0, turn 2 | `\|-damage\|p2a: Blastoise\|116/186` | `\|-damage\|p2a: Blastoise\|138/186` |
+| `move:powersplit` | 7 | U | HP | M1 | after | after, world 0, turn 2 | `\|-damage\|p2a: Mr. Rime\|100/187` | `\|-damage\|p2a: Mr. Rime\|124/187` |
+| `move:powersplit` | 7 | U | Atk | M8 | after | after, world 0, turn 2 | `\|-damage\|p2a: Mr. Rime\|101/187` | `\|-damage\|p2a: Mr. Rime\|124/187` |
+| `move:powersplit` | 7 | U | Def | M1 | after | after, world 0, turn 2 | `\|-damage\|p2a: Mr. Rime\|100/187` | `\|-damage\|p2a: Mr. Rime\|124/187` |
+| `move:guardsplit` | 6 | T | HP | M1 | after | after, world 0, turn 2 | `\|-damage\|p2a: Blastoise\|95/186` | `\|-damage\|p2a: Blastoise\|122/186` |
+| `move:guardsplit` | 6 | T | Atk | M2 | after | after, world 0, turn 2 | `\|-damage\|p2a: Blastoise\|95/186` | `\|-damage\|p2a: Blastoise\|122/186` |
+| `move:guardsplit` | 6 | T | Def | M8 | after | after, world 0, turn 2 | `\|-damage\|p2a: Blastoise\|95/186` | `\|-damage\|p2a: Blastoise\|122/186` |
+| `move:guardsplit` | 6 | U | HP | M1 | after | after, world 0, turn 2 | `\|-damage\|p2a: Indeedee\|66/177` | `\|-damage\|p2a: Indeedee\|101/177` |
+| `move:guardsplit` | 6 | U | Atk | M2 | after | after, world 0, turn 2 | `\|-damage\|p2a: Indeedee\|68/177` | `\|-damage\|p2a: Indeedee\|101/177` |
+| `move:guardsplit` | 6 | U | Def | M8 | after | after, world 0, turn 2 | `\|-damage\|p2a: Indeedee\|68/177` | `\|-damage\|p2a: Indeedee\|101/177` |
+| `move:powertrick` | 3 | U | HP | M1 | after | after, world 0, turn 2 | `\|-damage\|p2a: Forretress\|139/182` | `\|-damage\|p2a: Forretress\|158/182` |
+| `move:powertrick` | 3 | U | Atk | M8 | after | after, world 0, turn 2 | `\|-damage\|p2a: Forretress\|137/182` | `\|-damage\|p2a: Forretress\|158/182` |
+| `move:powertrick` | 3 | U | Def | M8 | after | after, world 0, turn 2 | `\|-damage\|p2a: Forretress\|139/182` | `\|-damage\|p2a: Forretress\|158/182` |
 | `ability:illusion` | 2 | H | Atk | M2 | W-phys-dealt, W-burn, W-paralysis, W-toxic, W-sleep, W-confusion, W-taunt, W-two-moves | W-phys-dealt, world 0, turn 1 | `\|move\|p2a: Slowking\|Strength\|p1a: Snorlax` | `\|move\|p2a: Slowking\|Splash\|p2a: Slowking` |
 | `ability:illusion` | 2 | H | SpA | M2 | W-spec-dealt, W-two-moves | W-spec-dealt, world 0, turn 1 | `\|move\|p2a: Slowking\|Round\|p1a: Snorlax` | `\|move\|p2a: Slowking\|Splash\|p2a: Slowking` |
-| `ability:illusion` | 2 | H | SpD | M1 | W-spec-taken | W-spec-taken, world 0, turn 1 | `\|-damage\|p2a: Slowking\|136/202` | `\|-damage\|p2a: Slowking\|127/167` |
 | `ability:illusion` | 2 | H | Spe | M7 | W-order-up, W-order-down, W-pace | W-order-up, world 32, turn 1 | `\|move\|p2a: Slowking\|Splash\|p2a: Slowking` | `\|move\|p1a: Goodra\|Splash\|p1a: Goodra` |
 | `ability:illusion` | 2 | O | SpD | M1 | W-spec-taken | W-spec-taken, world 0, turn 0 | `\|switch\|p1a: Mudsdale\|Mudsdale, L50, M\|155/155` | `\|switch\|p1a: Mudsdale\|Mudsdale, L50, M\|207/207` |
-| `ability:illusion` | 2 | O | Spe | M6 | W-phys-dealt, W-spec-dealt | W-phys-dealt, world 0, turn 1 | `\|-damage\|p1a: Mudsdale\|112/155` | `\|-damage\|p1a: Mudsdale\|119/155` |
 | `ability:illusion` | 2 | O | Spe | M7 | W-phys-taken, W-spec-taken | W-phys-taken, world 0, turn 0 | `\|switch\|p1a: Mudsdale\|Mudsdale, L50, M\|155/155` | `\|switch\|p1a: Mudsdale\|Mudsdale, L50, M\|207/207` |
-| `ability:psychicsurge` | 2 | H | HP | M1 | W-confusion | W-confusion, world 0, turn 3 | `\|-damage\|p2a: Indeedee\|76/100\|[from] confusion` | `\|-damage\|p2a: Indeedee\|79/100\|[from] confusion` |
-| `ability:sandstream` | 2 | H | Atk | M6 | W-toxic | W-toxic, world 0, turn 1 | `\|-damage\|p2a: Tyranitar\|193/207 tox\|[from] psn` | `\|-damage\|p2a: Tyranitar\|195/207 tox\|[from] psn` |
-| `ability:curiousmedicine` | 1 | H | HP | M1 | W-confusion | W-confusion, world 0, turn 3 | `\|-damage\|p2a: Slowking\|80/100\|[from] confusion` | `\|-damage\|p2a: Slowking\|82/100\|[from] confusion` |
-| `ability:curiousmedicine` | 1 | H | Def | M1 | W-confusion | W-confusion, world 0, turn 3 | `\|-damage\|p2a: Slowking\|80/100\|[from] confusion` | `\|-damage\|p2a: Slowking\|82/100\|[from] confusion` |
 | `ability:effectspore` | 1 | O | Spe | M7 | W-phys-dealt | W-phys-dealt, world 0, turn 1 | `\|-status\|p2a: Blastoise\|par\|[from] ability: Effect Spore\|[of] p1a: Vileplume` | `\|-status\|p2a: Blastoise\|slp\|[from] ability: Effect Spore\|[of] p1a: Vileplume` |
-| `move:ficklebeam` | 1 | T | HP | M1 | quiet, before, after, pivot | quiet, world 0 | inference perturbed the battle at raw line 50: \|move\|p1a: Snorlax\|Fickle Beam\|p2a: Blastoise -> \|move\|p1a: Snorlax\|Fickle Beam\|p2a: Blastoise\|[anim] Fickle Beam… | — |
-| `move:ficklebeam` | 1 | T | SpD | M1 | quiet, before, after, pivot | quiet, world 0 | inference perturbed the battle at raw line 50: \|move\|p1a: Snorlax\|Fickle Beam\|p2a: Blastoise -> \|move\|p1a: Snorlax\|Fickle Beam\|p2a: Blastoise\|[anim] Fickle Beam… | — |
-| `move:ficklebeam` | 1 | U | SpA | M2 | quiet, before, after | quiet, world 0 | inference perturbed the battle at raw line 48: \|move\|p2a: Hydrapple\|Fickle Beam\|p1a: Snorlax -> \|move\|p2a: Hydrapple\|Fickle Beam\|p1a: Snorlax\|[anim] Fickle Beam… | — |
+| `ability:imposter` | 1 | H | HP | M1 | W-phys-taken, W-spec-taken, W-trade, W-confusion, W-pivot | W-phys-taken, world 0, turn 1 | `\|-damage\|p2a: Ditto\|101/155` | `\|-damage\|p2a: Ditto\|116/155` |
+| `ability:imposter` | 1 | H | Spe | M7 | W-phys-taken, W-spec-taken, W-trade, W-pivot | W-phys-taken, world 0, turn 1 | `\|-damage\|p2a: Ditto\|101/155` | `\|-damage\|p2a: Ditto\|116/155` |
+| `ability:imposter` | 1 | O | Atk | M2 | W-phys-dealt, W-trade | W-phys-dealt, world 32, turn 1 | `\|-damage\|p1a: Ditto\|121/143` | `\|-damage\|p1a: Ditto\|126/143` |
+| `ability:imposter` | 1 | O | SpA | M2 | W-spec-dealt | W-spec-dealt, world 0, turn 1 | `\|-damage\|p1a: Ditto\|99/143` | `\|-damage\|p1a: Ditto\|91/143` |
+| `move:transform` | 1 | T | HP | M1 | after | after, world 0, turn 2 | `\|-damage\|p2a: Blastoise\|147/186` | `\|-damage\|p2a: Blastoise\|157/186` |
+| `move:transform` | 1 | T | Atk | M8 | after | after, world 0, turn 2 | `\|-damage\|p2a: Blastoise\|149/186` | `\|-damage\|p2a: Blastoise\|157/186` |
+| `move:transform` | 1 | T | Def | M8 | after | after, world 0, turn 2 | `\|-damage\|p2a: Blastoise\|147/186` | `\|-damage\|p2a: Blastoise\|157/186` |
+| `move:transform` | 1 | T | Spe | M7 | after | after, world 0, turn 2 | `\|-damage\|p2a: Blastoise\|147/186` | `\|-damage\|p2a: Blastoise\|159/186` |
+| `move:transform` | 1 | U | HP | M1 | after | after, world 0, turn 2 | `\|-damage\|p2a: Ditto\|47/155` | `\|-damage\|p2a: Ditto\|83/155` |
+| `move:transform` | 1 | U | Spe | M7 | after | after, world 0, turn 2 | `\|-damage\|p2a: Ditto\|50/155` | `\|-damage\|p2a: Ditto\|83/155` |
 
 ### 2.4 MASKED — told apart by the battle itself; the effect's own line cut nothing more
 
@@ -207,24 +150,28 @@ Each needs a battle in which nothing else carries the stat, to say whether the i
 | `item:ironball` | 293 | H | Atk | M2 | W-confusion | `\|-damage\|p1a: Snorlax\|215/255` |
 | `item:leftovers` | 293 | O | Atk | M5 | W-phys-dealt | `\|-heal\|p1a: Snorlax\|255/255\|[from] item: Leftovers` |
 | `item:metronome` | 293 | H | Atk | M2 | W-trade, W-burn, W-paralysis, W-toxic, W-taunt | `\|-damage\|p1a: Snorlax\|167/255` |
+| `item:oranberry` | 293 | H | HP | M4 | W-phys-taken, W-toxic | `\|-heal\|p2a: Blastoise\|19/100\|[from] item: Oran Berry` |
 | `item:oranberry` | 293 | H | Def | M1 | W-phys-taken | `\|-damage\|p2a: Blastoise\|0 fnt` |
 | `item:shellbell` | 293 | O | Def | M5 | W-trade | `\|-heal\|p1a: Snorlax\|219/255\|[from] item: Shell Bell\|[of] p2a: Blastoise` |
 | `move:substitute` | 292 | U | HP | M4 | before | `\|-damage\|p2a: Umbreon\|5/100` |
 | `move:encore` | 63 | T | Atk | M2 | before | `\|-damage\|p1a: Snorlax\|86/255` |
-| `move:toxic` | 31 | T | Def | M5 | after | `\|-damage\|p2a: Blastoise\|0 fnt\|[from] psn` |
+| `move:counter` | 41 | U | Def | M5 | before | `\|-damage\|p1a: Snorlax\|219/255` |
 | `move:sludgewave` | 29 | T | Def | M5 | after | `\|-damage\|p2a: Blastoise\|0 fnt\|[from] psn` |
 | `move:roost` | 27 | U | HP | M4 | before | `\|-heal\|p2a: Corviknight\|91/100` |
 | `move:wish` | 26 | U | HP | M4 | before | `\|-heal\|p2a: Umbreon\|80/100\|[from] move: Wish\|[wisher] Umbreon` |
 | `move:recover` | 23 | U | HP | M4 | before | `\|-heal\|p2a: Hydrapple\|82/100` |
 | `move:synthesis` | 17 | U | HP | M4 | before | `\|-heal\|p2a: Florges\|69/100` |
 | `move:lifedew` | 14 | U | HP | M4 | before | `\|-heal\|p2a: Goodra\|64/100` |
+| `move:mirrorcoat` | 14 | U | SpD | M5 | before-special | `\|-damage\|p1a: Snorlax\|229/255` |
 | `ability:regenerator` | 8 | H | HP | M4 | W-pivot | `\|-heal\|p2a: Hydrapple\|98/100\|[from] ability: Regenerator\|[silent]` |
 | `ability:regenerator` | 8 | H | Def | M5 | W-pivot | `\|-heal\|p2a: Hydrapple\|98/100\|[from] ability: Regenerator\|[silent]` |
-| `ability:synchronize` | 7 | H | Atk | M5 | W-toxic | `\|-damage\|p1a: Snorlax\|6/255 tox\|[from] psn` |
+| `move:metalburst` | 7 | U | Def | M5 | before | `\|-damage\|p1a: Snorlax\|248/255` |
 | `move:quash` | 7 | T | Spe | M7 | pace | `p2b: Avalugg before p2a: Blastoise` |
 | `move:quash` | 7 | U | Spe | M7 | pace | `p1a: Ampharos before p2b: Avalugg` |
 | `move:moonlight` | 5 | U | HP | M4 | before | `\|-heal\|p2a: Umbreon\|80/100` |
 | `move:morningsun` | 5 | U | HP | M4 | before | `\|-heal\|p2a: Arcanine\|88/100` |
+| `move:comeuppance` | 4 | U | Def | M5 | before | `\|-damage\|p1a: Snorlax\|168/255` |
+| `move:comeuppance` | 4 | U | SpD | M5 | before-special | `\|-damage\|p1a: Snorlax\|207/255` |
 | `ability:moody` | 2 | O | Atk | M2 | W-trade | `\|-damage\|p1a: Glalie\|123/175` |
 | `ability:stamina` | 2 | O | Atk | M2 | W-trade | `\|-damage\|p1a: Archaludon\|165/185` |
 | `ability:grassysurge` | 1 | O | Atk | M5 | W-phys-dealt | `\|-heal\|p1a: Rillaboom\|195/195\|[from] Grassy Terrain` |
@@ -273,6 +220,7 @@ Each needs a hand-set template (`scripts/fixtures/catalog.js`), or a written rea
 | `move:swallow` | 12 | maxhp | failed: \|-fail\|p2a: Torterra |
 | `ability:blaze` | 11 | hp, maxhp | changed nothing |
 | `ability:innerfocus` | 11 | — | changed nothing |
+| `ability:keeneye` | 11 | — | changed nothing |
 | `ability:overgrow` | 11 | hp, maxhp | changed nothing |
 | `ability:torrent` | 11 | hp, maxhp | changed nothing |
 | `move:steelroller` | 11 | — | failed: \|-fail\|p2a: Aggron; failed: \|-fail\|p1a: Snorlax; failed: \|-fail\|p1a: Ampharos |
@@ -288,11 +236,15 @@ Each needs a hand-set template (`scripts/fixtures/catalog.js`), or a written rea
 | `ability:chlorophyll` | 6 | — | changed nothing |
 | `ability:cursedbody` | 6 | — | changed nothing |
 | `ability:ironfist` | 6 | — | changed nothing |
+| `ability:pickup` | 6 | — | changed nothing |
 | `ability:prankster` | 6 | — | changed nothing |
 | `ability:sandveil` | 6 | — | changed nothing |
+| `ability:unburden` | 6 | — | changed nothing |
 | `ability:cutecharm` | 5 | — | changed nothing |
+| `ability:defiant` | 5 | — | changed nothing |
 | `ability:naturalcure` | 5 | — | changed nothing |
 | `ability:poisonpoint` | 5 | — | changed nothing |
+| `ability:rockhead` | 5 | — | changed nothing |
 | `ability:snowcloak` | 5 | — | changed nothing |
 | `ability:steadfast` | 5 | — | changed nothing |
 | `ability:swiftswim` | 5 | — | changed nothing |
@@ -312,6 +264,7 @@ Each needs a hand-set template (`scripts/fixtures/catalog.js`), or a written rea
 | `ability:healer` | 3 | — | changed nothing |
 | `ability:klutz` | 3 | — | changed nothing |
 | `ability:leafguard` | 3 | — | changed nothing |
+| `ability:overcoat` | 3 | — | changed nothing |
 | `ability:plus` | 3 | — | changed nothing |
 | `ability:poisontouch` | 3 | — | changed nothing |
 | `ability:reckless` | 3 | — | changed nothing |
@@ -345,16 +298,20 @@ Each needs a hand-set template (`scripts/fixtures/catalog.js`), or a written rea
 | `move:topsyturvy` | 2 | — | failed: \|-fail\|p2a: Grapploct; failed: \|-fail\|p1a: Snorlax; failed: \|-fail\|p1a: Ampharos |
 | `ability:battlebond` | 1 | hp | changed nothing |
 | `ability:bigpecks` | 1 | — | changed nothing |
+| `ability:filter` | 1 | — | changed nothing |
 | `ability:forecast` | 1 | — | changed nothing |
 | `ability:galewings` | 1 | hp, maxhp | changed nothing |
 | `ability:grasspelt` | 1 | — | changed nothing |
 | `ability:guarddog` | 1 | — | changed nothing |
+| `ability:heavymetal` | 1 | — | changed nothing |
 | `ability:liquidooze` | 1 | — | changed nothing |
 | `ability:longreach` | 1 | — | changed nothing |
 | `ability:magmaarmor` | 1 | — | changed nothing |
 | `ability:marvelscale` | 1 | — | changed nothing |
 | `ability:megalauncher` | 1 | — | changed nothing |
+| `ability:merciless` | 1 | — | changed nothing |
 | `ability:mimicry` | 1 | — | changed nothing |
+| `ability:mirrorarmor` | 1 | hp | changed nothing |
 | `ability:opportunist` | 1 | — | changed nothing |
 | `ability:quickfeet` | 1 | — | changed nothing |
 | `ability:rattled` | 1 | — | changed nothing |
@@ -363,8 +320,10 @@ Each needs a hand-set template (`scripts/fixtures/catalog.js`), or a written rea
 | `ability:screencleaner` | 1 | — | changed nothing |
 | `ability:skilllink` | 1 | — | changed nothing |
 | `ability:slushrush` | 1 | — | changed nothing |
+| `ability:stalwart` | 1 | — | changed nothing |
 | `ability:stench` | 1 | — | changed nothing |
 | `ability:suctioncups` | 1 | — | changed nothing |
+| `ability:superluck` | 1 | — | changed nothing |
 | `ability:surgesurfer` | 1 | — | changed nothing |
 | `ability:whitesmoke` | 1 | — | changed nothing |
 | `move:courtchange` | 1 | — | failed: \|-fail\|p2a: Cinderace; failed: \|-fail\|p1a: Snorlax; failed: \|-fail\|p1a: Ampharos |
@@ -391,13 +350,28 @@ The handlers read the stat and no battle here changed a line with it: a template
 | `move:stealthrock` | NO CHANNEL | HP |
 | `ability:aftermath` | NO CHANNEL | HP |
 | `ability:eartheater` | NO CHANNEL | HP |
-| `ability:mirrorarmor` | NO CHANNEL | HP |
 | `ability:poisonheal` | NO CHANNEL | HP |
 | `ability:shedskin` | CHANNEL | HP |
 | `ability:sturdy` | NO CHANNEL | HP |
 | `ability:voltabsorb` | NO CHANNEL | HP |
 | `ability:waterabsorb` | NO CHANNEL | HP |
 | `item:redcard` | CHANNEL | HP |
+
+### 2.7 Set aside by the inference's own check
+
+Where a shortcut of the evidence pass gave another answer than the simulator, at the stats the rebuild was running with, and the line was not used rather than trusted. Each is evidence given up, never a spread removed: work to use it.
+
+| Effect | Weight | What was set aside, and why |
+|---|---|---|
+| `move:counter` | 41 | Goodra-Hisui's Counter hit Snorlax - its damage was carried over from an earlier hit, so it was not used |
+| `move:mirrorcoat` | 14 | Blastoise's Mirror Coat hit Snorlax - its damage was carried over from an earlier hit, so it was not used |
+| `move:metalburst` | 7 | Aggron's Metal Burst hit Snorlax - its damage was carried over from an earlier hit, so it was not used |
+| `move:powersplit` | 7 | Snorlax's Strength hit Mr. Rime - Snorlax had a stat it read moved by another effect, so it was not used; Mr. Rime's Strength hit Snorlax - Mr. Rime had a stat it read moved by another effect, so it was not used; Snorlax's Strength hit Blastoise - Snorlax had a stat it read moved by another effect, so it was not used; and 1 more |
+| `move:guardsplit` | 6 | Snorlax's Strength hit Indeedee-F - Indeedee-F had a stat it read moved by another effect, so it was not used; Indeedee-F's Strength hit Snorlax - Snorlax had a stat it read moved by another effect, so it was not used; Snorlax's Strength hit Blastoise - Blastoise had a stat it read moved by another effect, so it was not used; and 1 more |
+| `move:comeuppance` | 4 | Houndoom's Comeuppance hit Snorlax - its damage was carried over from an earlier hit, so it was not used |
+| `move:powertrick` | 3 | Snorlax's Strength hit Forretress - Forretress had a stat it read moved by another effect, so it was not used |
+| `ability:imposter` | 1 | Ditto's Speed - is not the one its Stat Points give, so its turn order was not used; Snorlax's Strength hit Ditto - Ditto had a stat it read moved by another effect, so it was not used; Snorlax's Round hit Ditto - Ditto had a stat it read moved by another effect, so it was not used; and 4 more |
+| `move:transform` | 1 | Ditto's Speed - is not the one its Stat Points give, so its turn order was not used; Snorlax's Strength hit Ditto - Ditto had a stat it read moved by another effect, so it was not used; Ditto's Strength hit Snorlax - Ditto had a stat it read moved by another effect, so it was not used; and 4 more |
 
 ## 3. Moves
 
@@ -420,6 +394,7 @@ Target hidden: HP and the defence it hits, through M1. User hidden: the attackin
 | Assurance | Dark | Phys | 59 | Umbreon | T✓ | U✓ | T✓ | · | · | · |
 | Aura Sphere | Fighting | Spec | 15 | Kommo-o | T✓ | · | · | U✓ | T✓ | · |
 | Avalanche | Ice | Phys | 37 | Aggron | T✓ | U✓ | T✓ | · | · | · |
+| Beat Up | Dark | Phys | 23 | Annihilape | T✓ | U✓ | T✓ | · | · | · |
 | Bite | Dark | Phys | 74 | Umbreon | T✓ | U✓ | T✓ | · | · | · |
 | Blast Burn | Fire | Spec | 10 | Skeledirge | T✓ | · | · | U✓ | T✓ | · |
 | Blizzard | Ice | Spec | 66 | Goodra-Hisui | T✓ | · | · | U✓ | T✓ | · |
@@ -463,6 +438,7 @@ Target hidden: HP and the defence it hits, through M1. User hidden: the attackin
 | Fake Out | Normal | Phys | 33 | Blastoise | T✓ | U✓ | T✓ | · | · | · |
 | Feint | Normal | Phys | 35 | Goodra-Hisui | T✓ | U✓ | T✓ | · | · | · |
 | Fell Stinger | Bug | Phys | 5 | Overqwil | T✓ | U✓ | T✓ | · | · | · |
+| Fickle Beam | Dragon | Spec | 1 | Hydrapple | T✓ | · | · | U✓ | T✓ | · |
 | Fiery Dance | Fire | Spec | 1 | Volcarona | T✓ | · | · | U✓ | T✓ | · |
 | Fire Lash | Fire | Phys | 1 | Salazzle | T✓ | U✓ | T✓ | · | · | · |
 | First Impression | Bug | Phys | 6 | Sirfetch’d | T✓ | U✓ | T✓ | · | · | · |
@@ -994,51 +970,6 @@ Physical · Flying · 1 users · weight 1 · outcome CHANNEL
 | U | Atk | after | known exact | 1 | `\|-damage\|p1a: Snorlax\|137/255` | `\|-damage\|p1a: Snorlax\|110/255` | as % | M2 | own | USED (own event) | 0: 0–27 · 32: 31–32 | Toucannon's Beak Blast hit Snorlax |
 | U | Atk | before | known exact | 2 | `\|-damage\|p1a: Snorlax\|137/255 brn` | `\|-damage\|p1a: Snorlax\|110/255 brn` | as % | M2 | own | USED | 0: 0–27 · 32: 31–32 | Toucannon's Beak Blast hit Snorlax |
 | U | Atk | quiet | known exact | 1 | `\|-damage\|p1a: Snorlax\|137/255` | `\|-damage\|p1a: Snorlax\|110/255` | as % | M2 | own | USED | 0: 0–27 · 32: 31–32 | Toucannon's Beak Blast hit Snorlax |
-
-#### Beat Up · `move:beatup`
-
-Physical · Dark · 23 users · weight 23 · outcome CHANNEL
-
-| | HP | Atk | Def | SpA | SpD | Spe |
-|---|---|---|---|---|---|---|
-| target hidden | ↻ M1 | · | ↻ M1 | · | · | · |
-| user hidden | · | ↻ M2 | · | · | · | · |
-
-| Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| T | HP | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|93/100` | `\|-damage\|p2a: Blastoise\|94/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
-| T | HP | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|87/100` | `\|-damage\|p2a: Blastoise\|89/100` | same | M1 | own | 〃 |  |  |
-| T | HP | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|80/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M1 | own | 〃 |  |  |
-| T | HP | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|93/100` | `\|-damage\|p2a: Blastoise\|94/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
-| T | HP | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|87/100` | `\|-damage\|p2a: Blastoise\|89/100` | same | M1 | own | 〃 |  |  |
-| T | HP | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|80/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M1 | own | 〃 |  |  |
-| T | HP | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|93/100` | `\|-damage\|p2a: Blastoise\|94/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
-| T | HP | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|87/100` | `\|-damage\|p2a: Blastoise\|89/100` | same | M1 | own | 〃 |  |  |
-| T | HP | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|80/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M1 | own | 〃 |  |  |
-| T | HP | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|93/100` | `\|-damage\|p2a: Blastoise\|94/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
-| T | HP | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|87/100` | `\|-damage\|p2a: Blastoise\|89/100` | same | M1 | own | 〃 |  |  |
-| T | HP | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|80/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M1 | own | 〃 |  |  |
-| T | Def | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|93/100` | `\|-damage\|p2a: Blastoise\|94/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
-| T | Def | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|87/100` | `\|-damage\|p2a: Blastoise\|90/100` | same | M1 | own | 〃 |  |  |
-| T | Def | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|80/100` | `\|-damage\|p2a: Blastoise\|84/100` | same | M1 | own | 〃 |  |  |
-| T | Def | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|93/100` | `\|-damage\|p2a: Blastoise\|94/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
-| T | Def | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|87/100` | `\|-damage\|p2a: Blastoise\|90/100` | same | M1 | own | 〃 |  |  |
-| T | Def | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|80/100` | `\|-damage\|p2a: Blastoise\|84/100` | same | M1 | own | 〃 |  |  |
-| T | Def | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|93/100` | `\|-damage\|p2a: Blastoise\|94/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
-| T | Def | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|87/100` | `\|-damage\|p2a: Blastoise\|90/100` | same | M1 | own | 〃 |  |  |
-| T | Def | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|80/100` | `\|-damage\|p2a: Blastoise\|84/100` | same | M1 | own | 〃 |  |  |
-| T | Def | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|93/100` | `\|-damage\|p2a: Blastoise\|94/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
-| T | Def | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|87/100` | `\|-damage\|p2a: Blastoise\|90/100` | same | M1 | own | 〃 |  |  |
-| T | Def | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|80/100` | `\|-damage\|p2a: Blastoise\|84/100` | same | M1 | own | 〃 |  |  |
-| U | Atk | after | known exact | 1 | `\|-damage\|p1a: Snorlax\|243/255` | `\|-damage\|p1a: Snorlax\|241/255` | as % | M2 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
-| U | Atk | after | known exact | 1 | `\|-damage\|p1a: Snorlax\|231/255` | `\|-damage\|p1a: Snorlax\|227/255` | as % | M2 | own | 〃 |  |  |
-| U | Atk | after | known exact | 1 | `\|-damage\|p1a: Snorlax\|222/255` | `\|-damage\|p1a: Snorlax\|216/255` | as % | M2 | own | 〃 |  |  |
-| U | Atk | before | known exact | 2 | `\|-damage\|p1a: Snorlax\|243/255` | `\|-damage\|p1a: Snorlax\|241/255` | as % | M2 | own | REBUILD-FAILED | 0: 0–32 · 32: 0–32 (partial) | — |
-| U | Atk | before | known exact | 2 | `\|-damage\|p1a: Snorlax\|231/255` | `\|-damage\|p1a: Snorlax\|227/255` | as % | M2 | own | 〃 |  |  |
-| U | Atk | before | known exact | 2 | `\|-damage\|p1a: Snorlax\|222/255` | `\|-damage\|p1a: Snorlax\|216/255` | as % | M2 | own | 〃 |  |  |
-| U | Atk | quiet | known exact | 1 | `\|-damage\|p1a: Snorlax\|243/255` | `\|-damage\|p1a: Snorlax\|241/255` | as % | M2 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
-| U | Atk | quiet | known exact | 1 | `\|-damage\|p1a: Snorlax\|231/255` | `\|-damage\|p1a: Snorlax\|227/255` | as % | M2 | own | 〃 |  |  |
-| U | Atk | quiet | known exact | 1 | `\|-damage\|p1a: Snorlax\|222/255` | `\|-damage\|p1a: Snorlax\|216/255` | as % | M2 | own | 〃 |  |  |
 
 #### Belly Drum · `move:bellydrum`
 
@@ -1644,12 +1575,12 @@ Physical · Dark · 4 users · weight 4 · outcome CHANNEL
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| user hidden | · | · | ‼ M5 | · | ‼ M5 | · |
+| user hidden | · | · | ○ M5 | · | ○ M5 | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| U | Def | before | known exact | 2 | `\|-damage\|p1a: Snorlax\|168/255` | `\|-damage\|p1a: Snorlax\|195/255` | as % | M5 | own | UNSOUND | 0: 0–1 · 32: none (partial) LOST | — |
-| U | SpD | before-special | known exact | 2 | `\|-damage\|p1a: Snorlax\|207/255` | `\|-damage\|p1a: Snorlax\|216/255` | as % | M5 | own | UNSOUND | 0: 0–6 · 32: none (partial) LOST | — |
+| U | Def | before | known exact | 2 | `\|-damage\|p1a: Snorlax\|168/255` | `\|-damage\|p1a: Snorlax\|195/255` | as % | M5 | own | MASKED | 0: 0–1 · 32: 0–32 (partial) | — |
+| U | SpD | before-special | known exact | 2 | `\|-damage\|p1a: Snorlax\|207/255` | `\|-damage\|p1a: Snorlax\|216/255` | as % | M5 | own | MASKED | 0: 0–6 · 32: 0–32 (partial) | — |
 
 Templates: user-hidden/quiet failed (`\|-fail\|p2a: Houndoom`) · user-hidden/before · user-hidden/before-special · user-hidden/after failed (`\|-fail\|p2a: Houndoom`) · user-hidden/pace failed (`\|-fail\|p2a: Houndoom`)
 
@@ -1762,11 +1693,11 @@ Physical · Fighting · 41 users · weight 41 · outcome CHANNEL
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| user hidden | · | · | ‼ M5 | · | · | · |
+| user hidden | · | · | ○ M5 | · | · | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| U | Def | before | known exact | 2 | `\|-damage\|p1a: Snorlax\|219/255` | `\|-damage\|p1a: Snorlax\|227/255` | as % | M5 | own | UNSOUND | 0: 0–0 · 32: none (partial) LOST | — |
+| U | Def | before | known exact | 2 | `\|-damage\|p1a: Snorlax\|219/255` | `\|-damage\|p1a: Snorlax\|227/255` | as % | M5 | own | MASKED | 0: 0–0 · 32: 0–32 (partial) | — |
 
 Templates: user-hidden/quiet failed (`\|-fail\|p2a: Goodra`) · user-hidden/before · user-hidden/after failed (`\|-fail\|p2a: Goodra`) · user-hidden/pace failed (`\|-fail\|p2a: Goodra`)
 
@@ -2242,19 +2173,19 @@ Scan: reads `getStat:spe`.
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| target hidden | ↻ M1 | · | · | · | ↻ M1 | · |
+| target hidden | ✓ M1 | · | · | · | ✓ M1 | · |
 | user hidden | · | · | · | ↻ M2 | · | ↻ M3 |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| T | HP | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|86/100` | same | M1 | own | MASKED | 0: 0–32 (partial) · 32: 2–32 | — |
-| T | HP | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|86/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
-| T | HP | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|86/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
-| T | HP | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|86/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
-| T | SpD | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
-| T | SpD | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
-| T | SpD | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
-| T | SpD | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
+| T | HP | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|86/100` | same | M1 | own | USED (own event) | 0: 0–4 · 32: 4–32 | Snorlax's Electro Ball hit Blastoise |
+| T | HP | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|86/100` | same | M1 | own | USED | 0: 0–8 · 32: 4–32 | Snorlax's Electro Ball hit Blastoise |
+| T | HP | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|86/100` | same | M1 | own | USED | 0: 0–8 · 32: 4–32 | Snorlax's Electro Ball hit Blastoise |
+| T | HP | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|86/100` | same | M1 | own | USED | 0: 0–8 · 32: 4–32 | Snorlax's Electro Ball hit Blastoise |
+| T | SpD | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | own | USED | 0: 0–11 · 32: 0–32 | Snorlax's Electro Ball hit Blastoise |
+| T | SpD | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | own | USED | 0: 0–11 · 32: 0–32 | Snorlax's Electro Ball hit Blastoise |
+| T | SpD | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | own | USED | 0: 0–11 · 32: 0–32 | Snorlax's Electro Ball hit Blastoise |
+| T | SpD | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | own | USED | 0: 0–11 · 32: 0–32 | Snorlax's Electro Ball hit Blastoise |
 | U | SpA | after | known exact | 1 | `\|-damage\|p1a: Snorlax\|216/255` | `\|-damage\|p1a: Snorlax\|207/255` | as % | M2 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
 | U | SpA | before | known exact | 2 | `\|-damage\|p1a: Snorlax\|216/255` | `\|-damage\|p1a: Snorlax\|207/255` | as % | M2 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
 | U | SpA | quiet | known exact | 1 | `\|-damage\|p1a: Snorlax\|216/255` | `\|-damage\|p1a: Snorlax\|207/255` | as % | M2 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
@@ -2442,29 +2373,6 @@ Status · Flying · 20 users · weight 20 · outcome CHANNEL
 | T | Atk | after | known exact | 3 | `\|-damage\|p1a: Snorlax\|235/255` | `\|-damage\|p1a: Snorlax\|229/255` | as % | M2 | modified | USED (own event) | 0: 0–22 · 32: 27–32 | Blastoise's Strength hit Snorlax |
 | U | HP | after | hidden % | 2 | `\|-damage\|p2a: Corviknight\|90/100` | `\|-damage\|p2a: Corviknight\|92/100` | same | M1 | modified | USED (own event) | 0: 0–15 · 32: 0–32 | Snorlax's Strength hit Corviknight |
 | U | Def | after | hidden % | 2 | `\|-damage\|p2a: Corviknight\|90/100` | `\|-damage\|p2a: Corviknight\|92/100` | same | M1 | modified | USED (own event) | 0: 0–7 · 32: 0–32 | Snorlax's Strength hit Corviknight |
-
-#### Fickle Beam · `move:ficklebeam`
-
-Special · Dragon · 1 users · weight 1 · outcome CHANNEL
-
-| | HP | Atk | Def | SpA | SpD | Spe |
-|---|---|---|---|---|---|---|
-| target hidden | ! M1 | · | · | · | ! M1 | · |
-| user hidden | · | · | · | ! M2 | · | · |
-
-| Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| T | HP | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|86/100` | same | M1 | own | ERROR | 0: error · 32: error | — |
-| T | HP | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|86/100` | same | M1 | own | ERROR | 0: error · 32: error | — |
-| T | HP | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|86/100` | same | M1 | own | ERROR | 0: error · 32: error | — |
-| T | HP | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|86/100` | same | M1 | own | ERROR | 0: error · 32: error | — |
-| T | SpD | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|86/100` | same | M1 | own | ERROR | 0: error · 32: error | — |
-| T | SpD | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|86/100` | same | M1 | own | ERROR | 0: error · 32: error | — |
-| T | SpD | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|86/100` | same | M1 | own | ERROR | 0: error · 32: error | — |
-| T | SpD | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|83/100` | `\|-damage\|p2a: Blastoise\|86/100` | same | M1 | own | ERROR | 0: error · 32: error | — |
-| U | SpA | after | known exact | 1 | `\|-damage\|p1a: Snorlax\|203/255` | `\|-damage\|p1a: Snorlax\|191/255` | as % | M2 | own | ERROR | 0: error · 32: error | — |
-| U | SpA | before | known exact | 2 | `\|-damage\|p1a: Snorlax\|203/255` | `\|-damage\|p1a: Snorlax\|191/255` | as % | M2 | own | ERROR | 0: error · 32: error | — |
-| U | SpA | quiet | known exact | 1 | `\|-damage\|p1a: Snorlax\|203/255` | `\|-damage\|p1a: Snorlax\|191/255` | as % | M2 | own | ERROR | 0: error · 32: error | — |
 
 #### Final Gambit · `move:finalgambit`
 
@@ -3142,18 +3050,18 @@ Scan flag: reads SpD and no battle here changed a line with it.
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| target hidden | (‼ M1) | (‼ M2) | (‼ M8) | · | · | · |
-| user hidden | (✓ M1) | (↻ M2) | (‼ M8) | · | · | · |
+| target hidden | (↻ M1) | (↻ M2) | (↻ M8) | · | · | · |
+| user hidden | (↻ M1) | (↻ M2) | (↻ M8) | · | · | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| T | HP | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|51/100` | `\|-damage\|p2a: Blastoise\|59/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: 0–18 LOST | Snorlax's Strength hit Blastoise |
-| T | Atk | after | known exact | 3 | `\|-damage\|p1a: Snorlax\|220/255` | `\|-damage\|p1a: Snorlax\|209/255` | as % | M2 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | — |
-| T | Def | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|51/100` | `\|-damage\|p2a: Blastoise\|57/100` | same | M8 | modified | UNSOUND | 0: none (partial) LOST · 32: 0–5 LOST | Snorlax's Strength hit Blastoise; Blastoise's Strength hit Snorlax |
+| T | HP | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|51/100` | `\|-damage\|p2a: Blastoise\|59/100` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
+| T | Atk | after | known exact | 3 | `\|-damage\|p1a: Snorlax\|220/255` | `\|-damage\|p1a: Snorlax\|209/255` | as % | M2 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
+| T | Def | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|51/100` | `\|-damage\|p2a: Blastoise\|57/100` | same | M8 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | T | Def | after | known exact | 3 | `\|-damage\|p1a: Snorlax\|219/255` | `\|-damage\|p1a: Snorlax\|223/255` | as % | M8 | modified | 〃 |  |  |
-| U | HP | after | hidden % | 2 | `\|-damage\|p2a: Indeedee\|37/100` | `\|-damage\|p2a: Indeedee\|49/100` | same | M1 | modified | USED (own event) | 0: 0–9 (partial) · 32: 0–32 | Snorlax's Strength hit Indeedee-F |
+| U | HP | after | hidden % | 2 | `\|-damage\|p2a: Indeedee\|37/100` | `\|-damage\|p2a: Indeedee\|49/100` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
 | U | Atk | after | known exact | 3 | `\|-damage\|p1a: Snorlax\|209/255` | `\|-damage\|p1a: Snorlax\|191/255` | as % | M2 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
-| U | Def | after | hidden % | 2 | `\|-damage\|p2a: Indeedee\|38/100` | `\|-damage\|p2a: Indeedee\|48/100` | same | M8 | modified | UNSOUND | 0: 0–6 (partial) · 32: 0–25 LOST | Snorlax's Strength hit Indeedee-F; Indeedee-F's Strength hit Snorlax |
+| U | Def | after | hidden % | 2 | `\|-damage\|p2a: Indeedee\|38/100` | `\|-damage\|p2a: Indeedee\|48/100` | same | M8 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | U | Def | after | known exact | 3 | `\|-damage\|p1a: Snorlax\|207/255` | `\|-damage\|p1a: Snorlax\|215/255` | as % | M8 | modified | 〃 |  |  |
 
 #### Gunk Shot · `move:gunkshot`
@@ -3204,23 +3112,23 @@ Scan: reads `getStat:spe`.
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| target hidden | ↻ M1 | · | ↻ M1 | · | · | ↻ M3 |
+| target hidden | ✓ M1 | · | ✓ M1 | · | · | ✓ M3 |
 | user hidden | · | ↻ M2 | · | · | · | ↻ M3 |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| T | HP | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|90/100` | `\|-damage\|p2a: Blastoise\|92/100` | same | M1 | own | MASKED | 0: 0–32 (partial) · 32: 0–32 | — |
-| T | HP | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|90/100` | `\|-damage\|p2a: Blastoise\|92/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
-| T | HP | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|90/100` | `\|-damage\|p2a: Blastoise\|92/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
-| T | HP | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|90/100` | `\|-damage\|p2a: Blastoise\|92/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
-| T | Def | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|90/100` | `\|-damage\|p2a: Blastoise\|92/100` | same | M1 | own | MASKED | 0: 0–32 (partial) · 32: 0–32 | — |
-| T | Def | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|90/100` | `\|-damage\|p2a: Blastoise\|92/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
-| T | Def | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|90/100` | `\|-damage\|p2a: Blastoise\|92/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
-| T | Def | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|90/100` | `\|-damage\|p2a: Blastoise\|92/100` | same | M1 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
-| T | Spe | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|91/100` | `\|-damage\|p2a: Blastoise\|88/100` | same | M3 | own | REBUILD-FAILED | 0: 0–32 · 32: 0–32 (partial) | — |
-| T | Spe | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|91/100` | `\|-damage\|p2a: Blastoise\|88/100` | same | M3 | own | REBUILD-FAILED | 0: 0–32 · 32: 0–32 (partial) | — |
-| T | Spe | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|91/100` | `\|-damage\|p2a: Blastoise\|88/100` | same | M3 | own | REBUILD-FAILED | 0: 0–32 · 32: 0–32 (partial) | — |
-| T | Spe | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|91/100` | `\|-damage\|p2a: Blastoise\|88/100` | same | M3 | own | REBUILD-FAILED | 0: 0–32 · 32: 0–32 (partial) | — |
+| T | HP | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|90/100` | `\|-damage\|p2a: Blastoise\|92/100` | same | M1 | own | USED (own event) | 0: 0–9 · 32: 0–32 | Snorlax's Gyro Ball hit Blastoise |
+| T | HP | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|90/100` | `\|-damage\|p2a: Blastoise\|92/100` | same | M1 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
+| T | HP | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|90/100` | `\|-damage\|p2a: Blastoise\|92/100` | same | M1 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
+| T | HP | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|90/100` | `\|-damage\|p2a: Blastoise\|92/100` | same | M1 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
+| T | Def | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|90/100` | `\|-damage\|p2a: Blastoise\|92/100` | same | M1 | own | USED (own event) | 0: 0–2 · 32: 0–32 | Snorlax's Gyro Ball hit Blastoise |
+| T | Def | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|90/100` | `\|-damage\|p2a: Blastoise\|92/100` | same | M1 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
+| T | Def | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|90/100` | `\|-damage\|p2a: Blastoise\|92/100` | same | M1 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
+| T | Def | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|90/100` | `\|-damage\|p2a: Blastoise\|92/100` | same | M1 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
+| T | Spe | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|91/100` | `\|-damage\|p2a: Blastoise\|88/100` | same | M3 | own | USED | 0: 0–29 · 32: 18–32 | every turn at once - recoil, attacker HP and later displays checked against earlier hits; Snorlax's Gyro Ball hit Blastoise |
+| T | Spe | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|91/100` | `\|-damage\|p2a: Blastoise\|88/100` | same | M3 | own | USED | 0: 0–32 · 32: 18–32 | Snorlax's Gyro Ball hit Blastoise |
+| T | Spe | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|91/100` | `\|-damage\|p2a: Blastoise\|88/100` | same | M3 | own | USED | 0: 0–32 · 32: 18–32 | Snorlax's Gyro Ball hit Blastoise |
+| T | Spe | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|91/100` | `\|-damage\|p2a: Blastoise\|88/100` | same | M3 | own | USED | 0: 0–32 · 32: 18–32 | Snorlax's Gyro Ball hit Blastoise |
 | U | Atk | after | known exact | 1 | `\|-damage\|p1a: Snorlax\|240/255` | `\|-damage\|p1a: Snorlax\|236/255` | as % | M2 | own | MASKED | 0: 0–25 · 32: 0–32 (partial) | — |
 | U | Atk | before | known exact | 2 | `\|-damage\|p1a: Snorlax\|240/255` | `\|-damage\|p1a: Snorlax\|236/255` | as % | M2 | own | REBUILD-FAILED | 0: 0–32 · 32: 0–32 (partial) | — |
 | U | Atk | quiet | known exact | 1 | `\|-damage\|p1a: Snorlax\|240/255` | `\|-damage\|p1a: Snorlax\|236/255` | as % | M2 | own | REBUILD-FAILED | 0: 0–32 · 32: 0–32 (partial) | — |
@@ -4058,11 +3966,11 @@ Physical · Steel · 7 users · weight 7 · outcome CHANNEL
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| user hidden | · | · | ‼ M5 | · | · | · |
+| user hidden | · | · | ○ M5 | · | · | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| U | Def | before | known exact | 2 | `\|-damage\|p1a: Snorlax\|248/255` | `\|-damage\|p1a: Snorlax\|249/255` | hidden | M5 | own | UNSOUND | 0: 0–20 · 32: none (partial) LOST | — |
+| U | Def | before | known exact | 2 | `\|-damage\|p1a: Snorlax\|248/255` | `\|-damage\|p1a: Snorlax\|249/255` | hidden | M5 | own | MASKED | 0: 0–20 · 32: 0–32 (partial) | — |
 
 Templates: user-hidden/quiet failed (`\|-fail\|p2a: Aggron`) · user-hidden/before · user-hidden/before-special failed (`no \|move\| line for Metal Burst`) · dice differ for hp, spd · user-hidden/after failed (`\|-fail\|p2a: Aggron`) · user-hidden/pace failed (`\|-fail\|p2a: Aggron`)
 
@@ -4109,11 +4017,11 @@ Special · Psychic · 14 users · weight 14 · outcome CHANNEL
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| user hidden | · | · | · | · | ‼ M5 | · |
+| user hidden | · | · | · | · | ○ M5 | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| U | SpD | before-special | known exact | 2 | `\|-damage\|p1a: Snorlax\|229/255` | `\|-damage\|p1a: Snorlax\|233/255` | as % | M5 | own | UNSOUND | 0: 0–11 · 32: none (partial) LOST | — |
+| U | SpD | before-special | known exact | 2 | `\|-damage\|p1a: Snorlax\|229/255` | `\|-damage\|p1a: Snorlax\|233/255` | as % | M5 | own | MASKED | 0: 0–11 · 32: 0–32 (partial) | — |
 
 Templates: user-hidden/quiet failed (`\|-fail\|p2a: Blastoise`) · user-hidden/before failed (`\|-fail\|p2a: Blastoise`) · user-hidden/before-special · user-hidden/after failed (`\|-fail\|p2a: Blastoise`) · user-hidden/pace failed (`\|-fail\|p2a: Blastoise`)
 
@@ -4595,26 +4503,26 @@ Physical · Poison · 6 users · weight 6 · outcome CHANNEL
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| T | HP | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|81/100` | `\|-damage\|p2a: Blastoise\|84/100` | same | M1 | own | USED (own event) | 0: 0–6 (partial) · 32: 0–32 | Snorlax's Poison Fang hit Blastoise |
+| T | HP | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|81/100` | `\|-damage\|p2a: Blastoise\|84/100` | same | M1 | own | USED (own event) | 0: 0–0 · 32: 9–32 | Snorlax's Poison Fang hit Blastoise; tox on Blastoise |
 | T | HP | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|75/100 tox\|[from] psn` | `\|-damage\|p2a: Blastoise\|78/100 tox\|[from] psn` | same | M4 | modified | 〃 |  |  |
 | T | HP | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|20/100y tox\|[from] psn` | `\|-damage\|p2a: Blastoise\|30/100 tox\|[from] psn` | same | M4 | modified | 〃 |  |  |
 | T | HP | after | … | | 1 more changed line(s) | | | | | | | |
-| T | HP | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|81/100` | `\|-damage\|p2a: Blastoise\|84/100` | same | M1 | own | USED | 0: 0–7 (partial) · 32: 0–32 | Snorlax's Poison Fang hit Blastoise |
+| T | HP | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|81/100` | `\|-damage\|p2a: Blastoise\|84/100` | same | M1 | own | USED | 0: 0–1 · 32: 10–32 | Snorlax's Poison Fang hit Blastoise; tox on Blastoise |
 | T | HP | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|75/100 tox\|[from] psn` | `\|-damage\|p2a: Blastoise\|78/100 tox\|[from] psn` | same | M4 | modified | 〃 |  |  |
 | T | HP | before | hidden % | 3 | `\|-damage\|p2a: Blastoise\|63/100 tox\|[from] psn` | `\|-damage\|p2a: Blastoise\|66/100 tox\|[from] psn` | same | M4 | modified | 〃 |  |  |
 | T | HP | before | … | | 1 more changed line(s) | | | | | | | |
-| T | HP | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|81/100` | `\|-damage\|p2a: Blastoise\|84/100` | same | M1 | own | USED | 0: 0–7 (partial) · 32: 0–32 | Snorlax's Poison Fang hit Blastoise |
+| T | HP | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|81/100` | `\|-damage\|p2a: Blastoise\|84/100` | same | M1 | own | USED | 0: 0–7 · 32: 9–32 | Snorlax's Poison Fang hit Blastoise; tox on Blastoise |
 | T | HP | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|75/100 tox\|[from] psn` | `\|-damage\|p2a: Blastoise\|78/100 tox\|[from] psn` | same | M4 | modified | 〃 |  |  |
 | T | HP | pivot | hidden % | 3 | `\|-damage\|p2a: Blastoise\|69/100 tox\|[from] psn` | `\|-damage\|p2a: Blastoise\|72/100 tox\|[from] psn` | same | M4 | modified | 〃 |  |  |
 | T | HP | pivot | … | | 1 more changed line(s) | | | | | | | |
-| T | HP | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|81/100` | `\|-damage\|p2a: Blastoise\|84/100` | same | M1 | own | USED | 0: 0–7 (partial) · 32: 0–32 | Snorlax's Poison Fang hit Blastoise |
+| T | HP | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|81/100` | `\|-damage\|p2a: Blastoise\|84/100` | same | M1 | own | USED | 0: 0–0 · 32: 14–32 | Snorlax's Poison Fang hit Blastoise; tox on Blastoise |
 | T | HP | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|75/100 tox\|[from] psn` | `\|-damage\|p2a: Blastoise\|78/100 tox\|[from] psn` | same | M4 | modified | 〃 |  |  |
 | T | HP | quiet | hidden % | 2 | `\|-damage\|p2a: Blastoise\|63/100 tox\|[from] psn` | `\|-damage\|p2a: Blastoise\|66/100 tox\|[from] psn` | same | M4 | modified | 〃 |  |  |
 | T | HP | quiet | … | | 2 more changed line(s) | | | | | | | |
-| T | Def | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|81/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | own | USED (own event) | 0: 0–2 (partial) · 32: 0–32 (partial) | Snorlax's Poison Fang hit Blastoise |
-| T | Def | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|81/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | own | USED | 0: 0–6 (partial) · 32: 0–32 (partial) | Snorlax's Poison Fang hit Blastoise |
-| T | Def | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|81/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | own | USED | 0: 0–6 (partial) · 32: 0–32 (partial) | Snorlax's Poison Fang hit Blastoise |
-| T | Def | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|81/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | own | USED | 0: 0–6 (partial) · 32: 0–32 (partial) | Snorlax's Poison Fang hit Blastoise |
+| T | Def | after | hidden % | 1 | `\|-damage\|p2a: Blastoise\|81/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | own | USED (own event) | 0: 0–0 · 32: 0–32 | Snorlax's Poison Fang hit Blastoise |
+| T | Def | before | hidden % | 2 | `\|-damage\|p2a: Blastoise\|81/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | own | USED | 0: 0–6 · 32: 0–32 | Snorlax's Poison Fang hit Blastoise |
+| T | Def | pivot | hidden % | 1 | `\|-damage\|p2a: Blastoise\|81/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | own | USED | 0: 0–2 · 32: 0–32 | Snorlax's Poison Fang hit Blastoise; tox on Blastoise |
+| T | Def | quiet | hidden % | 1 | `\|-damage\|p2a: Blastoise\|81/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | own | USED | 0: 0–6 · 32: 0–32 | Snorlax's Poison Fang hit Blastoise |
 | U | Atk | after | known exact | 1 | `\|-damage\|p1a: Snorlax\|221/255` | `\|-damage\|p1a: Snorlax\|213/255` | as % | M2 | own | USED (own event) | 0: 0–29 · 32: 32–32 | Tyrantrum's Poison Fang hit Snorlax |
 | U | Atk | after | known exact | 4 | `\|-damage\|p1a: Snorlax\|17/255 tox\|[from] psn` | `\|-damage\|p1a: Snorlax\|0 fnt\|[from] psn` | as % | M5 | modified | 〃 |  |  |
 | U | Atk | after | presence | 4 | — | `\|faint\|p1a: Snorlax` | same | M6 | modified | 〃 |  |  |
@@ -4752,19 +4660,19 @@ Scan flag: reads SpA and no battle here changed a line with it.
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| target hidden | (‼ M1) | (‼ M8) | (‼ M1) | · | · | · |
-| user hidden | (‼ M1) | (‼ M8) | (‼ M1) | · | · | · |
+| target hidden | (↻ M1) | (↻ M8) | (↻ M1) | · | · | · |
+| user hidden | (↻ M1) | (↻ M8) | (↻ M1) | · | · | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| T | HP | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|62/100` | `\|-damage\|p2a: Blastoise\|69/100` | same | M1 | modified | UNSOUND | 0: 0–0 LOST · 32: 1–32 LOST | Snorlax's Strength hit Blastoise |
-| T | Atk | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|63/100` | `\|-damage\|p2a: Blastoise\|59/100` | same | M8 | modified | UNSOUND | 0: 22–32 LOST · 32: none (partial) LOST | Snorlax's Strength hit Blastoise; Blastoise's Strength hit Snorlax |
+| T | HP | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|62/100` | `\|-damage\|p2a: Blastoise\|69/100` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
+| T | Atk | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|63/100` | `\|-damage\|p2a: Blastoise\|59/100` | same | M8 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | T | Atk | after | known exact | 3 | `\|-damage\|p1a: Snorlax\|207/255` | `\|-damage\|p1a: Snorlax\|201/255` | as % | M8 | modified | 〃 |  |  |
-| T | Def | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|62/100` | `\|-damage\|p2a: Blastoise\|70/100` | same | M1 | modified | UNSOUND | 0: 0–3 LOST · 32: 0–32 LOST | Snorlax's Strength hit Blastoise |
-| U | HP | after | hidden % | 2 | `\|-damage\|p2a: Mr. Rime\|53/100` | `\|-damage\|p2a: Mr. Rime\|61/100` | same | M1 | modified | UNSOUND | 0: 0–3 LOST · 32: 0–32 LOST | Snorlax's Strength hit Mr. Rime |
-| U | Atk | after | hidden % | 2 | `\|-damage\|p2a: Mr. Rime\|54/100` | `\|-damage\|p2a: Mr. Rime\|49/100` | same | M8 | modified | UNSOUND | 0: 22–32 LOST · 32: none (partial) LOST | Snorlax's Strength hit Mr. Rime; Mr. Rime's Strength hit Snorlax |
+| T | Def | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|62/100` | `\|-damage\|p2a: Blastoise\|70/100` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
+| U | HP | after | hidden % | 2 | `\|-damage\|p2a: Mr. Rime\|53/100` | `\|-damage\|p2a: Mr. Rime\|61/100` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
+| U | Atk | after | hidden % | 2 | `\|-damage\|p2a: Mr. Rime\|54/100` | `\|-damage\|p2a: Mr. Rime\|49/100` | same | M8 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | U | Atk | after | known exact | 3 | `\|-damage\|p1a: Snorlax\|206/255` | `\|-damage\|p1a: Snorlax\|201/255` | as % | M8 | modified | 〃 |  |  |
-| U | Def | after | hidden % | 2 | `\|-damage\|p2a: Mr. Rime\|53/100` | `\|-damage\|p2a: Mr. Rime\|64/100` | same | M1 | modified | UNSOUND | 0: 0–2 LOST · 32: 0–32 LOST | Snorlax's Strength hit Mr. Rime |
+| U | Def | after | hidden % | 2 | `\|-damage\|p2a: Mr. Rime\|53/100` | `\|-damage\|p2a: Mr. Rime\|64/100` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
 
 #### Power Trick · `move:powertrick`
 
@@ -4773,13 +4681,13 @@ Scan: reads `storedStats:atk`, `storedStats:def`; moves Atk, Def between Pokemon
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| user hidden | (‼ M1) | (‼ M8) | (‼ M8) | · | · | · |
+| user hidden | (↻ M1) | (↻ M8) | (↻ M8) | · | · | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| U | HP | after | hidden % | 2 | `\|-damage\|p2a: Forretress\|76/100` | `\|-damage\|p2a: Forretress\|80/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | Snorlax's Strength hit Forretress |
-| U | Atk | after | hidden % | 2 | `\|-damage\|p2a: Forretress\|75/100` | `\|-damage\|p2a: Forretress\|80/100` | same | M8 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | Snorlax's Strength hit Forretress |
-| U | Def | after | known exact | 3 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|182/255` | as % | M8 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | — |
+| U | HP | after | hidden % | 2 | `\|-damage\|p2a: Forretress\|76/100` | `\|-damage\|p2a: Forretress\|80/100` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
+| U | Atk | after | hidden % | 2 | `\|-damage\|p2a: Forretress\|75/100` | `\|-damage\|p2a: Forretress\|80/100` | same | M8 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
+| U | Def | after | known exact | 3 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|182/255` | as % | M8 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 
 #### Psyshield Bash · `move:psyshieldbash`
 
@@ -6630,16 +6538,16 @@ Status · Poison · 31 users · weight 31 · outcome CHANNEL
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| target hidden | (↻ M4) | · | (○ M5) | · | · | · |
+| target hidden | (✓ M4) | · | (✓ M5) | · | · | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| T | HP | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|38/100 tox\|[from] psn` | `\|-damage\|p2a: Blastoise\|46/100 tox\|[from] psn` | same | M4 | modified | MASKED | 0: 0–5 · 32: 0–32 (partial) | — |
+| T | HP | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|38/100 tox\|[from] psn` | `\|-damage\|p2a: Blastoise\|46/100 tox\|[from] psn` | same | M4 | modified | USED (own event) | 0: 0–3 · 32: 13–32 | tox on Blastoise |
 | T | HP | after | hidden % | 3 | `\|-damage\|p2a: Blastoise\|21/100 tox\|[from] psn` | `\|-damage\|p2a: Blastoise\|28/100 tox\|[from] psn` | same | M4 | modified | 〃 |  |  |
 | T | HP | after | hidden % | 4 | `\|-damage\|p2a: Blastoise\|0 fnt\|[from] psn` | `\|-damage\|p2a: Blastoise\|4/100 tox\|[from] psn` | same | M4 | modified | 〃 |  |  |
 | T | HP | after | … | | 1 more changed line(s) | | | | | | | |
-| T | HP | quiet | hidden % | 4 | `\|-damage\|p2a: Blastoise\|41/100 tox\|[from] psn` | `\|-damage\|p2a: Blastoise\|40/100 tox\|[from] psn` | same | M4 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
-| T | Def | after | hidden % | 4 | `\|-damage\|p2a: Blastoise\|0 fnt\|[from] psn` | `\|-damage\|p2a: Blastoise\|7/100 tox\|[from] psn` | same | M5 | modified | MASKED | 0: 0–0 · 32: 0–32 (partial) | — |
+| T | HP | quiet | hidden % | 4 | `\|-damage\|p2a: Blastoise\|41/100 tox\|[from] psn` | `\|-damage\|p2a: Blastoise\|40/100 tox\|[from] psn` | same | M4 | modified | USED | 0: 0–17 · 32: 13–32 | tox on Blastoise |
+| T | Def | after | hidden % | 4 | `\|-damage\|p2a: Blastoise\|0 fnt\|[from] psn` | `\|-damage\|p2a: Blastoise\|7/100 tox\|[from] psn` | same | M5 | modified | USED (own event) | 0: 0–0 · 32: 6–32 | tox on Blastoise |
 | T | Def | after | presence | 4 | `\|faint\|p2a: Blastoise` | — | same | M6 | modified | 〃 |  |  |
 
 #### Toxic Thread · `move:toxicthread`
@@ -6706,27 +6614,27 @@ Status · Normal · 1 users · weight 1 · outcome CHANNEL
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| target hidden | (‼ M1) | (‼ M8) | (‼ M8) | · | · | ‼ M7 |
-| user hidden | (‼ M1) | · | · | · | · | ‼ M7 |
+| target hidden | (↻ M1) | (↻ M8) | (↻ M8) | · | · | ↻ M7 |
+| user hidden | (↻ M1) | · | · | · | · | ↻ M7 |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| T | HP | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|79/100` | `\|-damage\|p2a: Blastoise\|82/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: none LOST | Blastoise's Strength hit Blastoise |
-| T | Atk | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|80/100` | `\|-damage\|p2a: Blastoise\|74/100` | same | M8 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | Blastoise's Strength hit Blastoise |
+| T | HP | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|79/100` | `\|-damage\|p2a: Blastoise\|82/100` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
+| T | Atk | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|80/100` | `\|-damage\|p2a: Blastoise\|74/100` | same | M8 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | T | Atk | after | known exact | 3 | `\|-damage\|p1a: Snorlax\|224/255` | `\|-damage\|p1a: Snorlax\|215/255` | as % | M8 | modified | 〃 |  |  |
-| T | Def | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|79/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M8 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | Blastoise's Strength hit Blastoise |
+| T | Def | after | hidden % | 2 | `\|-damage\|p2a: Blastoise\|79/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M8 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | T | Def | after | known exact | 3 | `\|-damage\|p1a: Snorlax\|223/255` | `\|-damage\|p1a: Snorlax\|229/255` | as % | M8 | modified | 〃 |  |  |
-| T | Spe | after | order | 2 | `p2a: Blastoise before p1a: Snorlax` | `p1a: Snorlax before p2a: Blastoise` | same | M7 | own | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | — |
+| T | Spe | after | order | 2 | `p2a: Blastoise before p1a: Snorlax` | `p1a: Snorlax before p2a: Blastoise` | same | M7 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | T | Spe | after | order | 3 | `p2a: Blastoise before p1a: Snorlax` | `p1a: Snorlax before p2a: Blastoise` | same | M7 | own | 〃 |  |  |
 | T | Spe | after | order | 4 | `p1a: Snorlax before p2a: Blastoise` | `p2a: Blastoise before p1a: Snorlax` | same | M7 | own | 〃 |  |  |
-| T | Spe | before | order | 3 | `p2a: Blastoise before p1a: Snorlax` | `p1a: Snorlax before p2a: Blastoise` | same | M7 | own | UNSOUND | 0: none LOST · 32: none LOST | every turn at once - recoil, attacker HP and later displays checked against earlier hits |
-| T | Spe | pace | order | 2 | `p2a: Blastoise before p1a: Ampharos` | `p1a: Ampharos before p2a: Blastoise` | same | M7 | modified | UNSOUND | 0: none LOST · 32: none (partial) LOST | Blastoise acted before Blastoise |
-| T | Spe | quiet | order | 2 | `p2a: Blastoise before p1a: Snorlax` | `p1a: Snorlax before p2a: Blastoise` | same | M7 | own | UNSOUND | 0: none LOST · 32: none LOST | Blastoise acted before Blastoise |
+| T | Spe | before | order | 3 | `p2a: Blastoise before p1a: Snorlax` | `p1a: Snorlax before p2a: Blastoise` | same | M7 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
+| T | Spe | pace | order | 2 | `p2a: Blastoise before p1a: Ampharos` | `p1a: Ampharos before p2a: Blastoise` | same | M7 | modified | MASKED | 0: 0–3 · 32: 3–32 | — |
+| T | Spe | quiet | order | 2 | `p2a: Blastoise before p1a: Snorlax` | `p1a: Snorlax before p2a: Blastoise` | same | M7 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
 | T | Spe | quiet | order | 3 | `p1a: Snorlax before p2a: Blastoise` | `p2a: Blastoise before p1a: Snorlax` | same | M7 | own | 〃 |  |  |
-| U | HP | after | hidden % | 2 | `\|-damage\|p2a: Ditto\|30/100` | `\|-damage\|p2a: Ditto\|45/100` | same | M1 | modified | UNSOUND | 0: 8–32 (partial) LOST · 32: none LOST | Snorlax's Strength hit Snorlax |
-| U | Spe | after | order | 3 | `p1a: Snorlax before p2a: Ditto` | `p2a: Ditto before p1a: Snorlax` | same | M7 | own | UNSOUND | 0: 0–22 (partial) LOST · 32: 0–22 (partial) LOST | — |
-| U | Spe | before | order | 3 | `p2a: Ditto before p1a: Snorlax` | `p1a: Snorlax before p2a: Ditto` | same | M7 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
-| U | Spe | quiet | order | 3 | `p2a: Ditto before p1a: Snorlax` | `p1a: Snorlax before p2a: Ditto` | same | M7 | own | UNSOUND | 0: 0–32 · 32: 0–0 LOST | Snorlax acted before Snorlax |
+| U | HP | after | hidden % | 2 | `\|-damage\|p2a: Ditto\|30/100` | `\|-damage\|p2a: Ditto\|45/100` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
+| U | Spe | after | order | 3 | `p1a: Snorlax before p2a: Ditto` | `p2a: Ditto before p1a: Snorlax` | same | M7 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
+| U | Spe | before | order | 3 | `p2a: Ditto before p1a: Snorlax` | `p1a: Snorlax before p2a: Ditto` | same | M7 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
+| U | Spe | quiet | order | 3 | `p2a: Ditto before p1a: Snorlax` | `p1a: Snorlax before p2a: Ditto` | same | M7 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
 
 #### Trick Room · `move:trickroom`
 
@@ -7378,14 +7286,16 @@ Templates: user-hidden/quiet · user-hidden/before · user-hidden/after · user-
 | Contrary | 2 | NOT SHOWN | — |
 | Corrosion | 2 | NOT SHOWN | — |
 | Cud Chew | 4 | NOT SHOWN | hp |
+| Curious Medicine | 1 | NO CHANNEL | — |
 | Cursed Body | 6 | NOT SHOWN | — |
 | Cute Charm | 5 | NOT SHOWN | — |
 | Damp | 3 | NOT SHOWN | — |
-| Defiant | 5 | NO CHANNEL | — |
+| Defiant | 5 | NOT SHOWN | — |
 | Drizzle | 2 | NO CHANNEL | — |
 | Drought | 2 | NO CHANNEL | — |
 | Earth Eater | 1 | NO CHANNEL | maxhp |
 | Electromorphosis | 1 | NO CHANNEL | — |
+| Filter | 1 | NOT SHOWN | — |
 | Flame Body | 3 | NOT SHOWN | — |
 | Flash Fire | 9 | NO CHANNEL | — |
 | Flower Veil | 2 | NOT SHOWN | — |
@@ -7398,7 +7308,7 @@ Templates: user-hidden/quiet · user-hidden/before · user-hidden/after · user-
 | Guard Dog | 1 | NOT SHOWN | — |
 | Harvest | 2 | NOT SHOWN | hp |
 | Healer | 3 | NOT SHOWN | — |
-| Heavy Metal | 1 | NO CHANNEL | — |
+| Heavy Metal | 1 | NOT SHOWN | — |
 | Hospitality | 2 | NOT SHOWN | maxhp |
 | Hunger Switch | 1 | NO CHANNEL | — |
 | Hydration | 2 | NOT SHOWN | — |
@@ -7410,7 +7320,7 @@ Templates: user-hidden/quiet · user-hidden/before · user-hidden/after · user-
 | Inner Focus | 11 | NOT SHOWN | — |
 | Iron Fist | 6 | NOT SHOWN | — |
 | Justified | 4 | NO CHANNEL | — |
-| Keen Eye | 11 | NO CHANNEL | — |
+| Keen Eye | 11 | NOT SHOWN | — |
 | Klutz | 3 | NOT SHOWN | — |
 | Leaf Guard | 3 | NOT SHOWN | — |
 | Levitate | 9 | NOT SHOWN | — |
@@ -7424,24 +7334,28 @@ Templates: user-hidden/quiet · user-hidden/before · user-hidden/after · user-
 | Magma Armor | 1 | NOT SHOWN | — |
 | Marvel Scale | 1 | NOT SHOWN | — |
 | Mega Launcher | 1 | NOT SHOWN | — |
+| Merciless | 1 | NOT SHOWN | — |
 | Mimicry | 1 | NOT SHOWN | — |
 | Minus | 2 | NOT SHOWN | — |
-| Mirror Armor | 1 | NO CHANNEL | hp |
+| Mirror Armor | 1 | NOT SHOWN | hp |
+| Mold Breaker | 8 | NO CHANNEL | — |
 | Motor Drive | 1 | NO CHANNEL | — |
 | Moxie | 8 | NO CHANNEL | — |
 | Mummy | 1 | NO CHANNEL | — |
 | Natural Cure | 5 | NOT SHOWN | — |
 | Oblivious | 4 | NO CHANNEL | — |
 | Opportunist | 1 | NOT SHOWN | — |
+| Overcoat | 3 | NOT SHOWN | — |
 | Overgrow | 11 | NOT SHOWN | hp, maxhp |
 | Pickpocket | 4 | NO CHANNEL | — |
-| Pickup | 6 | NO CHANNEL | — |
+| Pickup | 6 | NOT SHOWN | — |
 | Plus | 3 | NOT SHOWN | — |
 | Poison Heal | 1 | NO CHANNEL | maxhp |
 | Poison Point | 5 | NOT SHOWN | — |
 | Poison Touch | 3 | NOT SHOWN | — |
 | Prankster | 6 | NOT SHOWN | — |
 | Pressure | 7 | NO CHANNEL | — |
+| Psychic Surge | 2 | NO CHANNEL | — |
 | Queenly Majesty | 1 | NO CHANNEL | — |
 | Quick Feet | 1 | NOT SHOWN | — |
 | Rain Dish | 2 | NOT SHOWN | maxhp |
@@ -7449,7 +7363,7 @@ Templates: user-hidden/quiet · user-hidden/before · user-hidden/after · user-
 | Receiver | 1 | NOT SHOWN | hp |
 | Reckless | 3 | NOT SHOWN | — |
 | Ripen | 2 | NOT SHOWN | — |
-| Rock Head | 5 | NO CHANNEL | — |
+| Rock Head | 5 | NOT SHOWN | — |
 | Run Away | 1 | NOT SHOWN | — |
 | Sand Force | 2 | NOT SHOWN | — |
 | Sand Rush | 3 | NOT SHOWN | — |
@@ -7470,7 +7384,7 @@ Templates: user-hidden/quiet · user-hidden/before · user-hidden/after · user-
 | Soundproof | 4 | NO CHANNEL | — |
 | Speed Boost | 4 | NO CHANNEL | — |
 | Stakeout | 2 | NOT SHOWN | — |
-| Stalwart | 1 | NO CHANNEL | — |
+| Stalwart | 1 | NOT SHOWN | — |
 | Static | 7 | NOT SHOWN | — |
 | Steadfast | 5 | NOT SHOWN | — |
 | Stench | 1 | NOT SHOWN | — |
@@ -7478,7 +7392,7 @@ Templates: user-hidden/quiet · user-hidden/before · user-hidden/after · user-
 | Strong Jaw | 2 | NOT SHOWN | — |
 | Sturdy | 9 | NO CHANNEL | hp, maxhp |
 | Suction Cups | 1 | NOT SHOWN | — |
-| Super Luck | 1 | NO CHANNEL | — |
+| Super Luck | 1 | NOT SHOWN | — |
 | Supersweet Syrup | 1 | NO CHANNEL | — |
 | Supreme Overlord | 1 | NO CHANNEL | — |
 | Surge Surfer | 1 | NOT SHOWN | — |
@@ -7491,7 +7405,7 @@ Templates: user-hidden/quiet · user-hidden/before · user-hidden/after · user-
 | Toxic Debris | 1 | NO CHANNEL | — |
 | Trace | 1 | NO CHANNEL | — |
 | Unaware | 2 | NOT SHOWN | — |
-| Unburden | 6 | NO CHANNEL | — |
+| Unburden | 6 | NOT SHOWN | — |
 | Unnerve | 7 | NO CHANNEL | — |
 | Volt Absorb | 2 | NO CHANNEL | maxhp |
 | Wandering Spirit | 1 | NO CHANNEL | — |
@@ -7526,32 +7440,6 @@ Scan: reads `hp`, `maxhp`.
 | H | SpD | W-spec-taken | … | | 1 more changed line(s) | | | | | | | |
 
 Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-dealt changed nothing · holder-hidden/W-phys-taken · holder-hidden/W-spec-taken · holder-hidden/W-order-up changed nothing · holder-hidden/W-order-down changed nothing · holder-hidden/W-pace changed nothing · holder-hidden/W-trade · holder-hidden/W-burn changed nothing · holder-hidden/W-paralysis changed nothing · holder-hidden/W-toxic changed nothing · holder-hidden/W-sleep changed nothing · holder-hidden/W-confusion changed nothing · holder-hidden/W-taunt changed nothing · holder-hidden/W-lethal changed nothing · holder-hidden/W-pivot changed nothing · holder-hidden/W-two-moves changed nothing · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade changed nothing
-
-#### Curious Medicine · `ability:curiousmedicine`
-
-1 holders · weight 1 · outcome CHANNEL
-
-| | HP | Atk | Def | SpA | SpD | Spe |
-|---|---|---|---|---|---|---|
-| holder hidden | (↻ M1) | (✓ M2) | (↻ M1) | · | · | (~ M6) |
-
-| Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H | HP | W-confusion | hidden % | 2 | `\|-damage\|p2a: Slowking\|90/100\|[from] confusion` | `\|-damage\|p2a: Slowking\|91/100\|[from] confusion` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
-| H | HP | W-confusion | hidden % | 3 | `\|-damage\|p2a: Slowking\|80/100\|[from] confusion` | `\|-damage\|p2a: Slowking\|83/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
-| H | HP | W-confusion | hidden % | 4 | `\|-damage\|p2a: Slowking\|70/100\|[from] confusion` | `\|-damage\|p2a: Slowking\|74/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
-| H | Atk | W-confusion | hidden % | 2 | `\|-damage\|p2a: Slowking\|90/100\|[from] confusion` | `\|-damage\|p2a: Slowking\|87/100\|[from] confusion` | same | M2 | modified | USED (own event) | 0: 0–32 · 32: 23–32 | Slowking-Galar hurt itself in its confusion |
-| H | Atk | W-confusion | hidden % | 3 | `\|-damage\|p2a: Slowking\|81/100\|[from] confusion` | `\|-damage\|p2a: Slowking\|74/100\|[from] confusion` | same | M2 | modified | 〃 |  |  |
-| H | Atk | W-confusion | hidden % | 4 | `\|-damage\|p2a: Slowking\|72/100\|[from] confusion` | `\|-damage\|p2a: Slowking\|61/100\|[from] confusion` | same | M2 | modified | 〃 |  |  |
-| H | Def | W-confusion | hidden % | 2 | `\|-damage\|p2a: Slowking\|90/100\|[from] confusion` | `\|-damage\|p2a: Slowking\|92/100\|[from] confusion` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
-| H | Def | W-confusion | hidden % | 3 | `\|-damage\|p2a: Slowking\|80/100\|[from] confusion` | `\|-damage\|p2a: Slowking\|84/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
-| H | Def | W-confusion | hidden % | 4 | `\|-damage\|p2a: Slowking\|70/100\|[from] confusion` | `\|-damage\|p2a: Slowking\|77/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
-| H | Spe | W-confusion | presence | 1 | `\|-activate\|p2a: Slowking\|confusion` | — | same | M6 | modified | UNSTABLE | — | — |
-| H | Spe | W-confusion | presence | 1 | `\|-damage\|p2a: Slowking\|90/100\|[from] confusion` | — | same | M6 | modified | 〃 |  |  |
-| H | Spe | W-confusion | presence | 1 | — | `\|move\|p2a: Slowking\|Splash\|p2a: Slowking` | same | M6 | modified | 〃 |  |  |
-| H | Spe | W-confusion | … | | 14 more changed line(s) | | | | | | | |
-
-Templates: holder-hidden/W-phys-dealt · dice differ for spe · holder-hidden/W-spec-dealt · dice differ for spe · holder-hidden/W-phys-taken · dice differ for spe · holder-hidden/W-spec-taken · dice differ for spe · holder-hidden/W-order-up · holder-hidden/W-order-down · holder-hidden/W-pace · holder-hidden/W-trade · dice differ for spe · holder-hidden/W-burn · dice differ for spe · holder-hidden/W-paralysis · dice differ for spe · holder-hidden/W-toxic · dice differ for spe · holder-hidden/W-sleep · dice differ for spe · holder-hidden/W-confusion · dice differ for spe · holder-hidden/W-taunt · dice differ for spe · holder-hidden/W-lethal · dice differ for spe · holder-hidden/W-pivot · dice differ for spe · holder-hidden/W-two-moves · dice differ for spe · other-hidden/W-phys-dealt · other-hidden/W-spec-dealt · other-hidden/W-phys-taken · other-hidden/W-spec-taken · other-hidden/W-trade
 
 #### Disguise · `ability:disguise`
 
@@ -7589,7 +7477,7 @@ Scan: reads `maxhp`.
 | H | Def | W-Fire-taken | hidden % | 2 | `\|-damage\|p2a: Toxicroak\|7/100` | `\|-damage\|p2a: Toxicroak\|31/100` | same | M1 | modified | 〃 |  |  |
 | O | Atk | W-Fire-dealt | known exact | 1 | `\|-damage\|p1a: Toxicroak\|132/178` | `\|-damage\|p1a: Toxicroak\|118/178` | as % | M2 | modified | USED (own event) | 0: 0–21 · 32: 31–32 | Blastoise's Fire Punch hit Toxicroak |
 
-Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-dealt changed nothing · holder-hidden/W-phys-taken changed nothing · holder-hidden/W-spec-taken changed nothing · holder-hidden/W-order-up changed nothing · holder-hidden/W-order-down changed nothing · holder-hidden/W-pace changed nothing · holder-hidden/W-trade changed nothing · holder-hidden/W-Fire-dealt changed nothing · holder-hidden/W-Fire-taken · holder-hidden/W-Water-dealt changed nothing · holder-hidden/W-Water-taken · holder-hidden/W-burn changed nothing · holder-hidden/W-paralysis changed nothing · holder-hidden/W-toxic changed nothing · holder-hidden/W-sleep changed nothing · holder-hidden/W-confusion changed nothing · holder-hidden/W-taunt changed nothing · holder-hidden/W-lethal · holder-hidden/W-pivot changed nothing · holder-hidden/W-two-moves changed nothing · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade changed nothing · other-hidden/W-Fire-dealt · other-hidden/W-Fire-taken changed nothing · other-hidden/W-Water-dealt · other-hidden/W-Water-taken changed nothing
+Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-dealt changed nothing · holder-hidden/W-phys-taken changed nothing · holder-hidden/W-spec-taken changed nothing · holder-hidden/W-order-up changed nothing · holder-hidden/W-order-down changed nothing · holder-hidden/W-pace changed nothing · holder-hidden/W-trade changed nothing · holder-hidden/W-Fire-dealt changed nothing · holder-hidden/W-Fire-taken · holder-hidden/W-Water-dealt changed nothing · holder-hidden/W-Water-taken · holder-hidden/W-burn changed nothing · holder-hidden/W-paralysis changed nothing · holder-hidden/W-toxic changed nothing · holder-hidden/W-sleep changed nothing · holder-hidden/W-confusion changed nothing · holder-hidden/W-taunt changed nothing · holder-hidden/W-lethal changed nothing · holder-hidden/W-pivot changed nothing · holder-hidden/W-two-moves changed nothing · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade changed nothing · other-hidden/W-Fire-dealt · other-hidden/W-Fire-taken changed nothing · other-hidden/W-Water-dealt · other-hidden/W-Water-taken changed nothing
 
 #### Early Bird · `ability:earlybird`
 
@@ -7650,29 +7538,6 @@ Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt · holder-hi
 | H | SpD | W-spec-taken | … | | 8 more changed line(s) | | | | | | | |
 
 Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-dealt changed nothing · holder-hidden/W-phys-taken · holder-hidden/W-spec-taken · holder-hidden/W-order-up changed nothing · holder-hidden/W-order-down changed nothing · holder-hidden/W-pace changed nothing · holder-hidden/W-trade changed nothing · holder-hidden/W-burn changed nothing · holder-hidden/W-paralysis changed nothing · holder-hidden/W-toxic · holder-hidden/W-sleep changed nothing · holder-hidden/W-confusion changed nothing · holder-hidden/W-taunt changed nothing · holder-hidden/W-lethal changed nothing · holder-hidden/W-pivot changed nothing · holder-hidden/W-two-moves changed nothing · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade changed nothing
-
-#### Filter · `ability:filter`
-
-1 holders · weight 1 · outcome CHANNEL
-
-| | HP | Atk | Def | SpA | SpD | Spe |
-|---|---|---|---|---|---|---|
-| holder hidden | (✓ M1) | · | · | · | (✓ M1) | · |
-| other hidden | · | · | · | (✓ M2) | · | · |
-
-| Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H | HP | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Mr. Mime\|78/100` | `\|-damage\|p2a: Mr. Mime\|82/100` | same | M1 | modified | USED | 0: 0–8 · 32: 7–32 | Snorlax's Round hit Mr. Mime |
-| H | HP | W-spec-taken | hidden % | 2 | `\|-damage\|p2a: Mr. Mime\|56/100` | `\|-damage\|p2a: Mr. Mime\|65/100` | same | M1 | modified | 〃 |  |  |
-| H | HP | W-spec-taken | hidden % | 3 | `\|-damage\|p2a: Mr. Mime\|34/100` | `\|-damage\|p2a: Mr. Mime\|48/100` | same | M1 | modified | 〃 |  |  |
-| H | HP | W-spec-taken | … | | 1 more changed line(s) | | | | | | | |
-| H | SpD | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Mr. Mime\|76/100` | `\|-damage\|p2a: Mr. Mime\|81/100` | same | M1 | modified | USED | 0: 0–0 · 32: 0–32 | Snorlax's Round hit Mr. Mime |
-| H | SpD | W-spec-taken | hidden % | 2 | `\|-damage\|p2a: Mr. Mime\|53/100` | `\|-damage\|p2a: Mr. Mime\|62/100` | same | M1 | modified | 〃 |  |  |
-| H | SpD | W-spec-taken | hidden % | 3 | `\|-damage\|p2a: Mr. Mime\|30/100` | `\|-damage\|p2a: Mr. Mime\|43/100` | same | M1 | modified | 〃 |  |  |
-| H | SpD | W-spec-taken | … | | 1 more changed line(s) | | | | | | | |
-| O | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Mr. Mime\|116/135` | `\|-damage\|p1a: Mr. Mime\|110/135` | as % | M2 | modified | USED | 0: 0–24 · 32: 31–32 | Blastoise's Round hit Mr. Mime |
-
-Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-dealt changed nothing · holder-hidden/W-phys-taken changed nothing · holder-hidden/W-spec-taken · holder-hidden/W-order-up changed nothing · holder-hidden/W-order-down changed nothing · holder-hidden/W-pace changed nothing · holder-hidden/W-trade changed nothing · holder-hidden/W-burn changed nothing · holder-hidden/W-paralysis changed nothing · holder-hidden/W-toxic changed nothing · holder-hidden/W-sleep changed nothing · holder-hidden/W-confusion changed nothing · holder-hidden/W-taunt changed nothing · holder-hidden/W-lethal changed nothing · holder-hidden/W-pivot changed nothing · holder-hidden/W-two-moves changed nothing · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade changed nothing
 
 #### Fluffy · `ability:fluffy`
 
@@ -7851,7 +7716,7 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 | H | Atk | W-burn | known exact | 3 | `\|-damage\|p1a: Snorlax\|75/255` | `\|-damage\|p1a: Snorlax\|39/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-paralysis | known exact | 2 | `\|-damage\|p1a: Snorlax\|165/255` | `\|-damage\|p1a: Snorlax\|147/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Conkeldurr's Strength hit Snorlax |
 | H | Atk | W-paralysis | known exact | 3 | `\|-damage\|p1a: Snorlax\|75/255` | `\|-damage\|p1a: Snorlax\|39/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|165/255` | `\|-damage\|p1a: Snorlax\|147/255` | as % | M2 | modified | USED (own event) | 0: 0–31 (partial) · 32: 32–32 (partial) | Conkeldurr's Strength hit Snorlax |
+| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|165/255` | `\|-damage\|p1a: Snorlax\|147/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Conkeldurr's Strength hit Snorlax |
 | H | Atk | W-toxic | known exact | 3 | `\|-damage\|p1a: Snorlax\|75/255` | `\|-damage\|p1a: Snorlax\|39/255` | as % | M2 | modified | 〃 |  |  |
 
 Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-dealt changed nothing · holder-hidden/W-phys-taken changed nothing · holder-hidden/W-spec-taken changed nothing · holder-hidden/W-order-up changed nothing · holder-hidden/W-order-down changed nothing · holder-hidden/W-pace changed nothing · holder-hidden/W-trade changed nothing · holder-hidden/W-burn · holder-hidden/W-paralysis · holder-hidden/W-toxic · holder-hidden/W-sleep changed nothing · holder-hidden/W-confusion changed nothing · holder-hidden/W-taunt changed nothing · holder-hidden/W-lethal changed nothing · holder-hidden/W-pivot changed nothing · holder-hidden/W-two-moves changed nothing · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade changed nothing
@@ -7898,7 +7763,7 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 | H | Atk | W-taunt | known exact | 2 | `\|-damage\|p1a: Snorlax\|202/255` | `\|-damage\|p1a: Snorlax\|178/255` | as % | M2 | modified | USED (own event) | 0: 0–13 · 32: 32–32 | Azumarill's Strength hit Snorlax |
 | H | Atk | W-taunt | known exact | 3 | `\|-damage\|p1a: Snorlax\|149/255` | `\|-damage\|p1a: Snorlax\|101/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | known exact | 4 | `\|-damage\|p1a: Snorlax\|96/255` | `\|-damage\|p1a: Snorlax\|24/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|202/255` | `\|-damage\|p1a: Snorlax\|178/255` | as % | M2 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
+| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|202/255` | `\|-damage\|p1a: Snorlax\|178/255` | as % | M2 | modified | USED (own event) | 0: 0–13 · 32: 32–32 | Azumarill's Strength hit Snorlax |
 | H | Atk | W-toxic | known exact | 3 | `\|-damage\|p1a: Snorlax\|149/255` | `\|-damage\|p1a: Snorlax\|101/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|96/255` | `\|-damage\|p1a: Snorlax\|24/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|202/255` | `\|-damage\|p1a: Snorlax\|178/255` | as % | M2 | modified | USED (own event) | 0: 0–13 · 32: 32–32 | Azumarill's Strength hit Snorlax |
@@ -7943,7 +7808,7 @@ Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt changed noth
 | H | Atk | W-taunt | known exact | 3 | `\|-damage\|p1a: Snorlax\|107/255` | `\|-damage\|p1a: Snorlax\|71/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | known exact | 4 | `\|-damage\|p1a: Snorlax\|33/255` | `\|-damage\|p1a: Snorlax\|0 fnt` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | … | | 1 more changed line(s) | | | | | | | |
-| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|181/255` | `\|-damage\|p1a: Snorlax\|163/255` | as % | M2 | modified | USED (own event) | 0: 0–26 (partial) · 32: 32–32 (partial) | Flapple's Strength hit Snorlax |
+| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|181/255` | `\|-damage\|p1a: Snorlax\|163/255` | as % | M2 | modified | USED (own event) | 0: 0–26 · 32: 32–32 | Flapple's Strength hit Snorlax; tox on Flapple |
 | H | Atk | W-toxic | known exact | 3 | `\|-damage\|p1a: Snorlax\|107/255` | `\|-damage\|p1a: Snorlax\|71/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|33/255` | `\|-damage\|p1a: Snorlax\|0 fnt` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-toxic | … | | 1 more changed line(s) | | | | | | | |
@@ -7967,19 +7832,19 @@ Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt changed noth
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| holder hidden | (‼ M1) | (↻ M2) | (‼ M1) | (↻ M2) | (↻ M1) | ↻ M7 |
-| other hidden | (✓ M1) | (‼ M2) | (✓ M1) | (‼ M2) | (↻ M1) | (↻ M6) ↻ M7 |
+| holder hidden | (✓ M1) | (↻ M2) | (✓ M1) | (↻ M2) | (✓ M1) | ↻ M7 |
+| other hidden | (✓ M1) | (✓ M2) | (✓ M1) | (✓ M2) | (↻ M1) | (✓ M6) ↻ M7 |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | H | HP | W-confusion | hidden % | 2 | `\|-damage\|p2a: Slowking\|78/100\|[from] confusion` | `\|-damage\|p2a: Slowking\|82/100\|[from] confusion` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | H | HP | W-confusion | hidden % | 3 | `\|-damage\|p2a: Slowking\|57/100\|[from] confusion` | `\|-damage\|p2a: Slowking\|65/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
 | H | HP | W-confusion | hidden % | 4 | `\|-damage\|p2a: Slowking\|35/100\|[from] confusion` | `\|-damage\|p2a: Slowking\|47/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
-| H | HP | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Slowking\|26/100` | `\|-damage\|p2a: Slowking\|40/100` | same | M1 | modified | UNSOUND | 0: 0–32 (partial) · 32: none LOST | — |
-| H | HP | W-pivot | hidden % | 1 | `\|-damage\|p2a: Slowking\|26/100` | `\|-damage\|p2a: Slowking\|40/100` | same | M1 | modified | UNSOUND | 0: 0–32 (partial) · 32: none (partial) LOST | — |
+| H | HP | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Slowking\|26/100` | `\|-damage\|p2a: Slowking\|40/100` | same | M1 | modified | USED (own event) | 0: 0–4 · 32: 0–32 | Snorlax's Strength hit Zoroark |
+| H | HP | W-pivot | hidden % | 1 | `\|-damage\|p2a: Slowking\|26/100` | `\|-damage\|p2a: Slowking\|40/100` | same | M1 | modified | USED (own event) | 0: 0–4 (partial) · 32: 0–32 (partial) | Snorlax's Strength hit Zoroark |
 | H | HP | W-pivot | hidden % | 3 | `\|switch\|p2a: Slowking\|Slowking, L50, F\|26/100` | `\|switch\|p2a: Slowking\|Slowking, L50, F\|40/100` | same | M4 | modified | 〃 |  |  |
-| H | HP | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Slowking\|68/100` | `\|-damage\|p2a: Slowking\|74/100` | same | M1 | modified | UNSOUND | 0: 0–32 (partial) · 32: none LOST | — |
-| H | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Slowking\|62/100` | `\|-damage\|p2a: Slowking\|69/100` | same | M1 | modified | UNSOUND | 0: 0–32 (partial) · 32: none (partial) LOST | — |
+| H | HP | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Slowking\|68/100` | `\|-damage\|p2a: Slowking\|74/100` | same | M1 | modified | USED (own event) | 0: 0–7 · 32: 0–32 | Snorlax's Round hit Zoroark |
+| H | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Slowking\|62/100` | `\|-damage\|p2a: Slowking\|69/100` | same | M1 | modified | USED (own event) | 0: 0–3 · 32: 1–32 | Snorlax's Quick Attack hit Zoroark |
 | H | Atk | W-burn | known exact | 2 | `\|-damage\|p1a: Snorlax\|231/255` | `\|-damage\|p1a: Snorlax\|225/255` | as % | M2 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | H | Atk | W-burn | known exact | 3 | `\|-damage\|p1a: Snorlax\|207/255` | `\|-damage\|p1a: Snorlax\|195/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-burn | known exact | 4 | `\|-damage\|p1a: Snorlax\|183/255` | `\|-damage\|p1a: Snorlax\|165/255` | as % | M2 | modified | 〃 |  |  |
@@ -8001,13 +7866,13 @@ Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt changed noth
 | H | Def | W-confusion | hidden % | 2 | `\|-damage\|p2a: Slowking\|78/100\|[from] confusion` | `\|-damage\|p2a: Slowking\|84/100\|[from] confusion` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | H | Def | W-confusion | hidden % | 3 | `\|-damage\|p2a: Slowking\|57/100\|[from] confusion` | `\|-damage\|p2a: Slowking\|69/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
 | H | Def | W-confusion | hidden % | 4 | `\|-damage\|p2a: Slowking\|36/100\|[from] confusion` | `\|-damage\|p2a: Slowking\|54/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
-| H | Def | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Slowking\|25/100` | `\|-damage\|p2a: Slowking\|46/100` | same | M1 | modified | UNSOUND | 0: 0–32 (partial) · 32: none LOST | — |
-| H | Def | W-pivot | hidden % | 1 | `\|-damage\|p2a: Slowking\|25/100` | `\|-damage\|p2a: Slowking\|46/100` | same | M1 | modified | UNSOUND | 0: 0–32 (partial) · 32: none (partial) LOST | — |
+| H | Def | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Slowking\|25/100` | `\|-damage\|p2a: Slowking\|46/100` | same | M1 | modified | USED (own event) | 0: 0–1 · 32: 0–32 | Snorlax's Strength hit Zoroark |
+| H | Def | W-pivot | hidden % | 1 | `\|-damage\|p2a: Slowking\|25/100` | `\|-damage\|p2a: Slowking\|46/100` | same | M1 | modified | USED (own event) | 0: 0–1 (partial) · 32: 0–32 (partial) | Snorlax's Strength hit Zoroark |
 | H | Def | W-pivot | hidden % | 3 | `\|switch\|p2a: Slowking\|Slowking, L50, F\|25/100` | `\|switch\|p2a: Slowking\|Slowking, L50, F\|46/100` | same | M5 | modified | 〃 |  |  |
-| H | Def | W-trade | hidden % | 1 | `\|-damage\|p2a: Slowking\|62/100` | `\|-damage\|p2a: Slowking\|72/100` | same | M1 | modified | UNSOUND | 0: 0–32 (partial) · 32: none (partial) LOST | — |
+| H | Def | W-trade | hidden % | 1 | `\|-damage\|p2a: Slowking\|62/100` | `\|-damage\|p2a: Slowking\|72/100` | same | M1 | modified | USED (own event) | 0: 0–2 · 32: 0–32 | Snorlax's Quick Attack hit Zoroark |
 | H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|228/255` | `\|-damage\|p1a: Snorlax\|222/255` | as % | M2 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|179/255` | `\|-damage\|p1a: Snorlax\|173/255` | as % | M2 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
-| H | SpD | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Slowking\|67/100` | `\|-damage\|p2a: Slowking\|75/100` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
+| H | SpD | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Slowking\|67/100` | `\|-damage\|p2a: Slowking\|75/100` | same | M1 | modified | USED (own event) | 0: 0–0 · 32: 0–32 | Snorlax's Round hit Zoroark |
 | H | Spe | W-order-down | order | 1 | `p1a: Goodra before p2a: Slowking` | `p2a: Slowking before p1a: Goodra` | same | M7 | own | REBUILD-FAILED | 0: 0–32 · 32: 0–32 (partial) | — |
 | H | Spe | W-order-down | order | 2 | `p1a: Goodra before p2a: Slowking` | `p2a: Slowking before p1a: Goodra` | same | M7 | own | 〃 |  |  |
 | H | Spe | W-order-up | order | 1 | `p1a: Goodra before p2a: Slowking` | `p2a: Slowking before p1a: Goodra` | same | M7 | own | REBUILD-FAILED | 0: 0–32 · 32: 0–32 (partial) | — |
@@ -8022,27 +7887,27 @@ Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt changed noth
 | O | HP | W-spec-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|59/100` | `\|-damage\|p2a: Blastoise\|66/100` | same | M1 | modified | 〃 |  |  |
 | O | HP | W-spec-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|39/100` | `\|-damage\|p2a: Blastoise\|50/100y` | same | M1 | modified | 〃 |  |  |
 | O | HP | W-spec-taken | … | | 1 more changed line(s) | | | | | | | |
-| O | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Blastoise\|85/100` | `\|-damage\|p2a: Blastoise\|88/100` | same | M1 | modified | USED (own event) | 0: 0–10 (partial) · 32: 0–32 (partial) | Zoroark's Quick Attack hit Blastoise |
-| O | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Mudsdale\|113/155` | `\|-damage\|p1a: Mudsdale\|101/155` | as % | M2 | modified | UNSOUND | 0: none LOST · 32: 0–32 (partial) | — |
-| O | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Mudsdale\|113/155` | `\|-damage\|p1a: Mudsdale\|101/155` | as % | M2 | modified | UNSOUND | 0: none LOST · 32: 0–32 (partial) | — |
+| O | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Blastoise\|85/100` | `\|-damage\|p2a: Blastoise\|88/100` | same | M1 | modified | USED (own event) | 0: 0–10 · 32: 0–32 | Zoroark's Quick Attack hit Blastoise |
+| O | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Mudsdale\|113/155` | `\|-damage\|p1a: Mudsdale\|101/155` | as % | M2 | modified | USED (own event) | 0: 0–22 · 32: 30–32 | Blastoise's Strength hit Zoroark |
+| O | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Mudsdale\|113/155` | `\|-damage\|p1a: Mudsdale\|101/155` | as % | M2 | modified | USED (own event) | 0: 0–22 · 32: 30–32 | Blastoise's Strength hit Zoroark |
 | O | Def | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|71/100` | `\|-damage\|p2a: Blastoise\|77/100` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | O | Def | W-phys-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|43/100` | `\|-damage\|p2a: Blastoise\|55/100` | same | M1 | modified | 〃 |  |  |
 | O | Def | W-phys-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|15/100` | `\|-damage\|p2a: Blastoise\|32/100` | same | M1 | modified | 〃 |  |  |
 | O | Def | W-phys-taken | … | | 2 more changed line(s) | | | | | | | |
-| O | Def | W-trade | hidden % | 1 | `\|-damage\|p2a: Blastoise\|85/100` | `\|-damage\|p2a: Blastoise\|88/100` | same | M1 | modified | USED (own event) | 0: 0–7 (partial) · 32: 0–32 (partial) | Zoroark's Quick Attack hit Blastoise |
-| O | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Mudsdale\|125/155` | `\|-damage\|p1a: Mudsdale\|116/155` | as % | M2 | modified | UNSOUND | 0: 0–32 (partial) · 32: none LOST | — |
+| O | Def | W-trade | hidden % | 1 | `\|-damage\|p2a: Blastoise\|85/100` | `\|-damage\|p2a: Blastoise\|88/100` | same | M1 | modified | USED (own event) | 0: 0–1 · 32: 0–32 | Zoroark's Quick Attack hit Blastoise |
+| O | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Mudsdale\|125/155` | `\|-damage\|p1a: Mudsdale\|116/155` | as % | M2 | modified | USED (own event) | 0: 0–22 · 32: 30–32 | Blastoise's Round hit Zoroark |
 | O | SpD | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|80/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | O | SpD | W-spec-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|60/100` | `\|-damage\|p2a: Blastoise\|67/100` | same | M1 | modified | 〃 |  |  |
 | O | SpD | W-spec-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|40/100` | `\|-damage\|p2a: Blastoise\|51/100` | same | M1 | modified | 〃 |  |  |
 | O | SpD | W-spec-taken | … | | 1 more changed line(s) | | | | | | | |
-| O | Spe | W-phys-dealt | presence | 1 | `\|move\|p1a: Mudsdale\|Splash\|p1a: Mudsdale` | — | same | M6 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
+| O | Spe | W-phys-dealt | presence | 1 | `\|move\|p1a: Mudsdale\|Splash\|p1a: Mudsdale` | — | same | M6 | modified | USED (own event) | 0: 0–27 · 32: 0–32 (partial) | Blastoise's Strength hit Zoroark |
 | O | Spe | W-phys-dealt | presence | 1 | `\|-nothing` | — | same | M6 | modified | 〃 |  |  |
 | O | Spe | W-phys-dealt | presence | 1 | — | `\|move\|p1a: Zoroark\|Splash\|p1a: Zoroark` | same | M6 | modified | 〃 |  |  |
 | O | Spe | W-phys-dealt | … | | 1 more changed line(s) | | | | | | | |
 | O | Spe | W-phys-taken | order | 1 | `p1a: Mudsdale before p2a: Blastoise` | `p2a: Blastoise before p1a: Mudsdale` | same | M7 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | O | Spe | W-phys-taken | order | 2 | `p1a: Mudsdale before p2a: Blastoise` | `p2a: Blastoise before p1a: Mudsdale` | same | M7 | own | 〃 |  |  |
 | O | Spe | W-phys-taken | order | 3 | `p1a: Mudsdale before p2a: Blastoise` | `p2a: Blastoise before p1a: Mudsdale` | same | M7 | own | 〃 |  |  |
-| O | Spe | W-spec-dealt | presence | 1 | `\|move\|p1a: Mudsdale\|Splash\|p1a: Mudsdale` | — | same | M6 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
+| O | Spe | W-spec-dealt | presence | 1 | `\|move\|p1a: Mudsdale\|Splash\|p1a: Mudsdale` | — | same | M6 | modified | USED (own event) | 0: 0–27 · 32: 0–32 (partial) | Blastoise's Round hit Zoroark |
 | O | Spe | W-spec-dealt | presence | 1 | `\|-nothing` | — | same | M6 | modified | 〃 |  |  |
 | O | Spe | W-spec-dealt | presence | 1 | — | `\|move\|p1a: Zoroark\|Splash\|p1a: Zoroark` | same | M6 | modified | 〃 |  |  |
 | O | Spe | W-spec-dealt | … | | 1 more changed line(s) | | | | | | | |
@@ -8057,63 +7922,63 @@ Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt changed noth
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| holder hidden | (‼ M1) | · | · | · | · | (~ M6) ‼ M7 |
-| other hidden | · | (‼ M2) | · | (‼ M2) | · | · |
+| holder hidden | (↻ M1) | · | · | · | · | (~ M6) ↻ M7 |
+| other hidden | · | (↻ M2) | · | (↻ M2) | · | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H | HP | W-confusion | hidden % | 1 | `\|-damage\|p2a: Ditto\|91/100\|[from] confusion` | `\|-damage\|p2a: Ditto\|92/100\|[from] confusion` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | Torkoal hurt itself in its confusion |
+| H | HP | W-confusion | hidden % | 1 | `\|-damage\|p2a: Ditto\|91/100\|[from] confusion` | `\|-damage\|p2a: Ditto\|92/100\|[from] confusion` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
 | H | HP | W-confusion | hidden % | 2 | `\|-damage\|p2a: Ditto\|82/100\|[from] confusion` | `\|-damage\|p2a: Ditto\|85/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
 | H | HP | W-confusion | hidden % | 3 | `\|-damage\|p2a: Ditto\|73/100\|[from] confusion` | `\|-damage\|p2a: Ditto\|78/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
-| H | HP | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Ditto\|65/100` | `\|-damage\|p2a: Ditto\|72/100` | same | M1 | modified | UNSOUND | 0: 21–32 (partial) LOST · 32: none (partial) LOST | Snorlax's Strength hit Torkoal |
+| H | HP | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Ditto\|65/100` | `\|-damage\|p2a: Ditto\|72/100` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | H | HP | W-phys-taken | hidden % | 2 | `\|-damage\|p2a: Ditto\|30/100` | `\|-damage\|p2a: Ditto\|44/100` | same | M1 | modified | 〃 |  |  |
 | H | HP | W-phys-taken | hidden % | 3 | `\|-damage\|p2a: Ditto\|0 fnt` | `\|-damage\|p2a: Ditto\|16/100` | same | M1 | modified | 〃 |  |  |
 | H | HP | W-phys-taken | … | | 3 more changed line(s) | | | | | | | |
-| H | HP | W-pivot | hidden % | 1 | `\|-damage\|p2a: Ditto\|65/100` | `\|-damage\|p2a: Ditto\|72/100` | same | M1 | modified | UNSOUND | 0: 21–32 (partial) LOST · 32: none LOST | Snorlax's Strength hit Torkoal |
-| H | HP | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Ditto\|68/100` | `\|-damage\|p2a: Ditto\|74/100` | same | M1 | modified | UNSOUND | 0: 2–32 (partial) LOST · 32: none LOST | Snorlax's Round hit Torkoal |
+| H | HP | W-pivot | hidden % | 1 | `\|-damage\|p2a: Ditto\|65/100` | `\|-damage\|p2a: Ditto\|72/100` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
+| H | HP | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Ditto\|68/100` | `\|-damage\|p2a: Ditto\|74/100` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
 | H | HP | W-spec-taken | hidden % | 2 | `\|-damage\|p2a: Ditto\|36/100` | `\|-damage\|p2a: Ditto\|49/100` | same | M1 | modified | 〃 |  |  |
 | H | HP | W-spec-taken | hidden % | 3 | `\|-damage\|p2a: Ditto\|4/100` | `\|-damage\|p2a: Ditto\|24/100` | same | M1 | modified | 〃 |  |  |
-| H | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Ditto\|82/100` | `\|-damage\|p2a: Ditto\|85/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: none LOST | Snorlax's Quick Attack hit Torkoal |
+| H | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Ditto\|82/100` | `\|-damage\|p2a: Ditto\|85/100` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
 | H | HP | W-trade | hidden % | 2 | `\|-damage\|p2a: Ditto\|64/100` | `\|-damage\|p2a: Ditto\|71/100` | same | M1 | modified | 〃 |  |  |
-| H | Spe | W-burn | order | 1 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | UNSOUND | 0: 0–0 · 32: 0–0 LOST | Snorlax acted before Torkoal; Torkoal acted before Torkoal |
+| H | Spe | W-burn | order | 1 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
 | H | Spe | W-burn | order | 4 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | 〃 |  |  |
 | H | Spe | W-confusion | presence | 4 | `\|-activate\|p2a: Ditto\|confusion` | — | same | M6 | modified | UNSTABLE | — | — |
 | H | Spe | W-confusion | presence | 4 | `\|-damage\|p2a: Ditto\|64/100\|[from] confusion` | — | same | M6 | modified | 〃 |  |  |
 | H | Spe | W-confusion | presence | 4 | — | `\|-end\|p2a: Ditto\|confusion` | same | M6 | modified | 〃 |  |  |
 | H | Spe | W-confusion | … | | 2 more changed line(s) | | | | | | | |
-| H | Spe | W-order-down | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | UNSOUND | 0: 0–0 · 32: 0–0 LOST | Snorlax acted before Torkoal; Torkoal acted before Torkoal |
+| H | Spe | W-order-down | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
 | H | Spe | W-order-down | order | 2 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | 〃 |  |  |
-| H | Spe | W-order-up | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | UNSOUND | 0: 0–0 · 32: 0–0 LOST | Snorlax acted before Torkoal; Torkoal acted before Torkoal |
+| H | Spe | W-order-up | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
 | H | Spe | W-order-up | order | 2 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | 〃 |  |  |
-| H | Spe | W-pace | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | UNSOUND | 0: 0–0 · 32: 0–0 LOST | Shuckle acted before Torkoal; Torkoal acted before Torkoal |
+| H | Spe | W-pace | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
 | H | Spe | W-pace | order | 2 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | 〃 |  |  |
-| H | Spe | W-phys-dealt | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | UNSOUND | 0: 0–0 · 32: 0–0 LOST | Snorlax acted before Torkoal; Torkoal acted before Torkoal |
+| H | Spe | W-phys-dealt | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
 | H | Spe | W-phys-dealt | order | 2 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | 〃 |  |  |
-| H | Spe | W-phys-taken | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | UNSOUND | 0: 0–19 (partial) LOST · 32: 0–19 (partial) LOST | Snorlax's Strength hit Torkoal |
+| H | Spe | W-phys-taken | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | H | Spe | W-phys-taken | order | 2 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | 〃 |  |  |
-| H | Spe | W-pivot | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | UNSOUND | 0: 0–19 (partial) LOST · 32: 0–19 (partial) LOST | Snorlax's Strength hit Torkoal |
+| H | Spe | W-pivot | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | H | Spe | W-pivot | order | 4 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | 〃 |  |  |
-| H | Spe | W-sleep | order | 2 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | UNSOUND | 0: 0–0 · 32: 0–0 LOST | Snorlax acted before Torkoal; Torkoal acted before Torkoal |
+| H | Spe | W-sleep | order | 2 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
 | H | Spe | W-sleep | order | 4 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | 〃 |  |  |
-| H | Spe | W-spec-dealt | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | UNSOUND | 0: 0–0 · 32: 0–0 LOST | Snorlax acted before Torkoal; Torkoal acted before Torkoal |
+| H | Spe | W-spec-dealt | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
 | H | Spe | W-spec-dealt | order | 2 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | 〃 |  |  |
-| H | Spe | W-spec-taken | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | UNSOUND | 0: 0–32 (partial) LOST · 32: 0–32 (partial) LOST | — |
+| H | Spe | W-spec-taken | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | H | Spe | W-spec-taken | order | 2 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | 〃 |  |  |
 | H | Spe | W-taunt | order | 1 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | UNSTABLE | — | — |
 | H | Spe | W-taunt | order | 3 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | 〃 |  |  |
 | H | Spe | W-taunt | order | 4 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | 〃 |  |  |
 | H | Spe | W-taunt | … | | 8 more changed line(s) | | | | | | | |
-| H | Spe | W-toxic | order | 1 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | tox on Torkoal |
+| H | Spe | W-toxic | order | 1 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
 | H | Spe | W-toxic | order | 3 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | 〃 |  |  |
-| H | Spe | W-trade | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | Snorlax's Quick Attack hit Torkoal |
+| H | Spe | W-trade | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
 | H | Spe | W-trade | order | 2 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | 〃 |  |  |
 | H | Spe | W-trade | order | 3 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | 〃 |  |  |
-| H | Spe | W-two-moves | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | UNSOUND | 0: 0–0 · 32: 0–0 LOST | Snorlax acted before Torkoal; Torkoal acted before Torkoal |
+| H | Spe | W-two-moves | order | 1 | `p1b: Torkoal before p2a: Ditto` | `p2a: Ditto before p1b: Torkoal` | same | M7 | own | UNUSED | 0: 0–32 · 32: 0–32 | — |
 | H | Spe | W-two-moves | order | 2 | `p2a: Ditto before p1b: Torkoal` | `p1b: Torkoal before p2a: Ditto` | same | M7 | own | 〃 |  |  |
-| O | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Ditto\|126/143` | `\|-damage\|p1a: Ditto\|121/143` | as % | M2 | modified | UNSOUND | 0: none LOST · 32: none (partial) LOST | Blastoise's Strength hit Avalugg |
-| O | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Ditto\|126/143` | `\|-damage\|p1a: Ditto\|121/143` | as % | M2 | modified | UNSOUND | 0: none LOST · 32: none (partial) LOST | Blastoise's Strength hit Avalugg |
+| O | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Ditto\|126/143` | `\|-damage\|p1a: Ditto\|121/143` | as % | M2 | modified | REBUILD-FAILED | 0: 0–32 · 32: 0–32 (partial) | — |
+| O | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Ditto\|126/143` | `\|-damage\|p1a: Ditto\|121/143` | as % | M2 | modified | REBUILD-FAILED | 0: 0–32 · 32: 0–32 (partial) | — |
 | O | Atk | W-trade | known exact | 2 | `\|-damage\|p1a: Ditto\|109/143` | `\|-damage\|p1a: Ditto\|99/143` | as % | M8 | modified | 〃 |  |  |
-| O | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Ditto\|99/143` | `\|-damage\|p1a: Ditto\|87/143` | as % | M2 | modified | UNSOUND | 0: none (partial) LOST · 32: none LOST | Blastoise's Round hit Avalugg |
+| O | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Ditto\|99/143` | `\|-damage\|p1a: Ditto\|87/143` | as % | M2 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
 
 Templates: holder-hidden/W-phys-dealt · refused T1 p2: Can't move: Your Ditto doesn't have a move matching strength · holder-hidden/W-spec-dealt · refused T1 p2: Can't move: Your Ditto doesn't have a move matching round · holder-hidden/W-phys-taken · holder-hidden/W-spec-taken · holder-hidden/W-order-up · holder-hidden/W-order-down · holder-hidden/W-pace · holder-hidden/W-trade · refused T1 p2: Can't move: Your Ditto doesn't have a move matching strength; T2 p2: Can't move: Your Ditto doesn't have a move matching strength · holder-hidden/W-burn · refused T2 p2: Can't move: Your Ditto doesn't have a move matching strength; T3 p2: Can't move: Your Ditto doesn't have a move matching strength; T4 p2: Can't move: Your Ditto doesn't have a move matching strength · holder-hidden/W-paralysis · refused T2 p2: Can't move: Your Ditto doesn't have a move matching strength; T3 p2: Can't move: Your Ditto doesn't have a move matching strength; T4 p2: Can't move: Your Ditto doesn't have a move matching strength · holder-hidden/W-toxic · refused T2 p2: Can't move: Your Ditto doesn't have a move matching strength; T3 p2: Can't move: Your Ditto doesn't have a move matching strength; T4 p2: Can't move: Your Ditto doesn't have a move matching strength · holder-hidden/W-sleep · refused T2 p2: Can't move: Your Ditto doesn't have a move matching strength; T3 p2: Can't move: Your Ditto doesn't have a move matching strength; T4 p2: Can't move: Your Ditto doesn't have a move matching strength · holder-hidden/W-confusion · refused T2 p2: Can't move: Your Ditto doesn't have a move matching strength; T3 p2: Can't move: Your Ditto doesn't have a move matching strength; T4 p2: Can't move: Your Ditto doesn't have a move matching strength · dice differ for spe · holder-hidden/W-taunt · refused T2 p2: Can't move: Your Ditto doesn't have a move matching strength; T3 p2: Can't move: Your Ditto doesn't have a move matching strength; T4 p2: Can't move: Your Ditto doesn't have a move matching strength · dice differ for spe · holder-hidden/W-lethal · holder-hidden/W-pivot · holder-hidden/W-two-moves · refused T1 p2: Can't move: Your Ditto doesn't have a move matching strength; T2 p2: Can't move: Your Ditto doesn't have a move matching round · other-hidden/W-phys-dealt · other-hidden/W-spec-dealt · other-hidden/W-phys-taken · refused T1 p1: Can't move: Your Ditto doesn't have a move matching strength; T2 p1: Can't move: Your Ditto doesn't have a move matching strength; T3 p1: Can't move: Your Ditto doesn't have a move matching strength; T4 p1: Can't move: Your Ditto doesn't have a move matching strength · other-hidden/W-spec-taken · refused T1 p1: Can't move: Your Ditto doesn't have a move matching round; T2 p1: Can't move: Your Ditto doesn't have a move matching round; T3 p1: Can't move: Your Ditto doesn't have a move matching round; T4 p1: Can't move: Your Ditto doesn't have a move matching round · other-hidden/W-trade · refused T1 p1: Can't move: Your Ditto doesn't have a move matching quickattack; T2 p1: Can't move: Your Ditto doesn't have a move matching quickattack
 
@@ -8185,7 +8050,7 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 | H | Atk | W-taunt | known exact | 3 | `\|-damage\|p1a: Snorlax\|99/255` | `\|-damage\|p1a: Snorlax\|63/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | known exact | 4 | `\|-damage\|p1a: Snorlax\|21/255` | `\|-damage\|p1a: Snorlax\|0 fnt` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | … | | 1 more changed line(s) | | | | | | | |
-| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|177/255` | `\|-damage\|p1a: Snorlax\|159/255` | as % | M2 | modified | USED (own event) | 0: 0–28 (partial) · 32: 32–32 (partial) | Cinderace's Strength hit Snorlax |
+| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|177/255` | `\|-damage\|p1a: Snorlax\|159/255` | as % | M2 | modified | USED (own event) | 0: 0–28 · 32: 32–32 | Cinderace's Strength hit Snorlax; tox on Cinderace |
 | H | Atk | W-toxic | known exact | 3 | `\|-damage\|p1a: Snorlax\|99/255` | `\|-damage\|p1a: Snorlax\|63/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|21/255` | `\|-damage\|p1a: Snorlax\|0 fnt` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-toxic | … | | 1 more changed line(s) | | | | | | | |
@@ -8261,42 +8126,6 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 
 Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-dealt changed nothing · holder-hidden/W-phys-taken changed nothing · holder-hidden/W-spec-taken changed nothing · holder-hidden/W-order-up changed nothing · holder-hidden/W-order-down changed nothing · holder-hidden/W-pace changed nothing · holder-hidden/W-trade changed nothing · holder-hidden/W-burn · holder-hidden/W-paralysis · holder-hidden/W-toxic · holder-hidden/W-sleep · holder-hidden/W-confusion · holder-hidden/W-taunt · refused T2 p1: Can't move: Your Snorlax doesn't have a move matching splash; T3 p1: Can't move: Your Snorlax doesn't have a move matching splash; T4 p1: Can't move: Your Snorlax doesn't have a move matching splash · dice differ for atk · holder-hidden/W-lethal changed nothing · holder-hidden/W-pivot changed nothing · holder-hidden/W-two-moves changed nothing · other-hidden/W-phys-dealt changed nothing · dice differ for spe · other-hidden/W-spec-dealt changed nothing · dice differ for spe · other-hidden/W-phys-taken changed nothing · dice differ for spe · other-hidden/W-spec-taken changed nothing · dice differ for spe · other-hidden/W-trade changed nothing · dice differ for spe
 
-#### Merciless · `ability:merciless`
-
-1 holders · weight 1 · outcome CHANNEL
-
-| | HP | Atk | Def | SpA | SpD | Spe |
-|---|---|---|---|---|---|---|
-| holder hidden | · | · | · | · | · | ✓ M7 |
-
-| Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H | Spe | W-paralysis | order | 2 | `p1b: Torkoal before p2a: Toxapex` | `p2a: Toxapex before p1b: Torkoal` | same | M7 | own | USED | 0: 0–26 · 32: 25–32 | Torkoal acted before Toxapex; Toxapex acted before Torkoal |
-| H | Spe | W-paralysis | order | 3 | `p1b: Torkoal before p2a: Toxapex` | `p2a: Toxapex before p1b: Torkoal` | same | M7 | own | 〃 |  |  |
-| H | Spe | W-paralysis | order | 4 | `p1b: Torkoal before p2a: Toxapex` | `p2a: Toxapex before p1b: Torkoal` | same | M7 | own | 〃 |  |  |
-
-Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-dealt changed nothing · holder-hidden/W-phys-taken changed nothing · holder-hidden/W-spec-taken changed nothing · holder-hidden/W-order-up changed nothing · holder-hidden/W-order-down changed nothing · holder-hidden/W-pace changed nothing · holder-hidden/W-trade changed nothing · holder-hidden/W-burn changed nothing · holder-hidden/W-paralysis · holder-hidden/W-toxic changed nothing · holder-hidden/W-sleep changed nothing · holder-hidden/W-confusion changed nothing · holder-hidden/W-taunt changed nothing · holder-hidden/W-lethal changed nothing · holder-hidden/W-pivot changed nothing · holder-hidden/W-two-moves changed nothing · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade changed nothing
-
-#### Mold Breaker · `ability:moldbreaker`
-
-8 holders · weight 8 · outcome CHANNEL
-
-| | HP | Atk | Def | SpA | SpD | Spe |
-|---|---|---|---|---|---|---|
-| holder hidden | (✗ M1) | (✓ M2) | (✓ M1) | · | · | · |
-
-| Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H | HP | W-confusion | hidden % | 2 | `\|-damage\|p2a: Tinkaton\|88/100\|[from] confusion` | `\|-damage\|p2a: Tinkaton\|90/100\|[from] confusion` | same | M1 | modified | UNUSED | 0: 0–32 · 32: 0–32 | — |
-| H | HP | W-confusion | hidden % | 3 | `\|-damage\|p2a: Tinkaton\|76/100\|[from] confusion` | `\|-damage\|p2a: Tinkaton\|80/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
-| H | HP | W-confusion | hidden % | 4 | `\|-damage\|p2a: Tinkaton\|64/100\|[from] confusion` | `\|-damage\|p2a: Tinkaton\|70/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
-| H | Atk | W-confusion | hidden % | 2 | `\|-damage\|p2a: Tinkaton\|88/100\|[from] confusion` | `\|-damage\|p2a: Tinkaton\|85/100\|[from] confusion` | same | M2 | modified | USED (own event) | 0: 0–32 · 32: 21–32 | Tinkaton hurt itself in its confusion |
-| H | Atk | W-confusion | hidden % | 3 | `\|-damage\|p2a: Tinkaton\|77/100\|[from] confusion` | `\|-damage\|p2a: Tinkaton\|70/100\|[from] confusion` | same | M2 | modified | 〃 |  |  |
-| H | Atk | W-confusion | hidden % | 4 | `\|-damage\|p2a: Tinkaton\|66/100\|[from] confusion` | `\|-damage\|p2a: Tinkaton\|55/100\|[from] confusion` | same | M2 | modified | 〃 |  |  |
-| H | Def | W-confusion | hidden % | 2 | `\|-damage\|p2a: Tinkaton\|88/100\|[from] confusion` | `\|-damage\|p2a: Tinkaton\|90/100\|[from] confusion` | same | M1 | modified | USED | 0: 0–32 · 32: 0–32 (partial) | — |
-| H | Def | W-confusion | hidden % | 3 | `\|-damage\|p2a: Tinkaton\|76/100\|[from] confusion` | `\|-damage\|p2a: Tinkaton\|81/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
-| H | Def | W-confusion | hidden % | 4 | `\|-damage\|p2a: Tinkaton\|64/100\|[from] confusion` | `\|-damage\|p2a: Tinkaton\|72/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
-
 #### Moody · `ability:moody`
 
 2 holders · weight 2 · outcome CHANNEL
@@ -8318,7 +8147,7 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 | H | Atk | W-confusion | hidden % | 4 | `\|-damage\|p2a: Glalie\|45/100\|[from] confusion` | `\|-damage\|p2a: Glalie\|29/100\|[from] confusion` | same | M2 | modified | 〃 |  |  |
 | H | Atk | W-sleep | known exact | 4 | `\|-damage\|p1a: Snorlax\|229/255` | `\|-damage\|p1a: Snorlax\|221/255` | as % | M2 | modified | USED (own event) | 0: 0–21 · 32: 31–32 | Glalie's Strength hit Snorlax |
 | H | Atk | W-taunt | known exact | 4 | `\|-damage\|p1a: Snorlax\|151/255` | `\|-damage\|p1a: Snorlax\|121/255` | as % | M2 | modified | USED (own event) | 0: 0–21 · 32: 31–32 | Glalie's Strength hit Snorlax |
-| H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|151/255` | `\|-damage\|p1a: Snorlax\|121/255` | as % | M2 | modified | MASKED | 0: 0–24 (partial) · 32: 30–32 (partial) | — |
+| H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|151/255` | `\|-damage\|p1a: Snorlax\|121/255` | as % | M2 | modified | USED (own event) | 0: 0–21 · 32: 31–32 | Glalie's Strength hit Snorlax |
 | H | Def | W-confusion | hidden % | 2 | `\|-damage\|p2a: Glalie\|91/100\|[from] confusion` | `\|-damage\|p2a: Glalie\|92/100\|[from] confusion` | same | M1 | modified | USED (own event) | 0: 0–30 · 32: 0–32 | Glalie hurt itself in its confusion |
 | H | Def | W-confusion | hidden % | 3 | `\|-damage\|p2a: Glalie\|78/100\|[from] confusion` | `\|-damage\|p2a: Glalie\|83/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
 | H | Def | W-confusion | hidden % | 4 | `\|-damage\|p2a: Glalie\|43/100\|[from] confusion` | `\|-damage\|p2a: Glalie\|56/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
@@ -8401,29 +8230,6 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 
 Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-dealt changed nothing · holder-hidden/W-phys-taken changed nothing · holder-hidden/W-spec-taken changed nothing · holder-hidden/W-order-up changed nothing · holder-hidden/W-order-down changed nothing · holder-hidden/W-pace changed nothing · holder-hidden/W-trade changed nothing · holder-hidden/W-burn changed nothing · holder-hidden/W-paralysis changed nothing · holder-hidden/W-toxic changed nothing · holder-hidden/W-sleep changed nothing · holder-hidden/W-confusion · holder-hidden/W-taunt changed nothing · holder-hidden/W-lethal changed nothing · holder-hidden/W-pivot changed nothing · holder-hidden/W-two-moves changed nothing · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade changed nothing
 
-#### Overcoat · `ability:overcoat`
-
-3 holders · weight 3 · outcome CHANNEL
-
-| | HP | Atk | Def | SpA | SpD | Spe |
-|---|---|---|---|---|---|---|
-| holder hidden | (✓ M1) | · | · | · | (✓ M1) | · |
-| other hidden | · | · | · | (✓ M2) | · | · |
-
-| Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H | HP | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Kommo-o\|81/100` | `\|-damage\|p2a: Kommo-o\|84/100` | same | M1 | modified | USED | 0: 0–1 · 32: 0–32 | Snorlax's Round hit Kommo-o |
-| H | HP | W-spec-taken | hidden % | 2 | `\|-damage\|p2a: Kommo-o\|62/100` | `\|-damage\|p2a: Kommo-o\|69/100` | same | M1 | modified | 〃 |  |  |
-| H | HP | W-spec-taken | hidden % | 3 | `\|-damage\|p2a: Kommo-o\|44/100` | `\|-damage\|p2a: Kommo-o\|53/100` | same | M1 | modified | 〃 |  |  |
-| H | HP | W-spec-taken | … | | 1 more changed line(s) | | | | | | | |
-| H | SpD | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Kommo-o\|81/100` | `\|-damage\|p2a: Kommo-o\|84/100` | same | M1 | modified | USED | 0: 0–7 · 32: 0–32 | Snorlax's Round hit Kommo-o |
-| H | SpD | W-spec-taken | hidden % | 2 | `\|-damage\|p2a: Kommo-o\|63/100` | `\|-damage\|p2a: Kommo-o\|68/100` | same | M1 | modified | 〃 |  |  |
-| H | SpD | W-spec-taken | hidden % | 3 | `\|-damage\|p2a: Kommo-o\|44/100` | `\|-damage\|p2a: Kommo-o\|52/100` | same | M1 | modified | 〃 |  |  |
-| H | SpD | W-spec-taken | … | | 1 more changed line(s) | | | | | | | |
-| O | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Kommo-o\|149/170` | `\|-damage\|p1a: Kommo-o\|143/170` | as % | M2 | modified | USED | 0: 0–23 · 32: 29–32 | Blastoise's Round hit Kommo-o |
-
-Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-dealt changed nothing · holder-hidden/W-phys-taken changed nothing · holder-hidden/W-spec-taken · holder-hidden/W-order-up changed nothing · holder-hidden/W-order-down changed nothing · holder-hidden/W-pace changed nothing · holder-hidden/W-trade changed nothing · holder-hidden/W-burn changed nothing · holder-hidden/W-paralysis changed nothing · holder-hidden/W-toxic changed nothing · holder-hidden/W-sleep changed nothing · holder-hidden/W-confusion changed nothing · holder-hidden/W-taunt changed nothing · holder-hidden/W-lethal changed nothing · holder-hidden/W-pivot changed nothing · holder-hidden/W-two-moves changed nothing · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade changed nothing
-
 #### Own Tempo · `ability:owntempo`
 
 8 holders · weight 8 · outcome CHANNEL
@@ -8446,51 +8252,51 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| holder hidden | · | (‼ M2) | · | (‼ M2) | · | · |
-| other hidden | (‼ M1) | · | (‼ M1) | · | (‼ M1) | · |
+| holder hidden | · | (✓ M2) | · | (✓ M2) | · | · |
+| other hidden | (✓ M1) | · | (✓ M1) | · | (✓ M1) | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H | Atk | W-burn | known exact | 2 | `\|-damage\|p1a: Snorlax\|226/255` | `\|-damage\|p1a: Snorlax\|215/255` | as % | M2 | modified | UNSOUND | 0: 15–32 (partial) LOST · 32: none (partial) LOST | Sylveon's Strength hit Snorlax |
+| H | Atk | W-burn | known exact | 2 | `\|-damage\|p1a: Snorlax\|226/255` | `\|-damage\|p1a: Snorlax\|215/255` | as % | M2 | modified | USED (own event) | 0: 0–18 · 32: 32–32 | Sylveon's Strength hit Snorlax |
 | H | Atk | W-burn | known exact | 3 | `\|-damage\|p1a: Snorlax\|197/255` | `\|-damage\|p1a: Snorlax\|175/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-burn | known exact | 4 | `\|-damage\|p1a: Snorlax\|168/255` | `\|-damage\|p1a: Snorlax\|135/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-Normal-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|197/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | UNSOUND | 0: 15–32 (partial) LOST · 32: none (partial) LOST | Sylveon's Strength hit Snorlax |
-| H | Atk | W-paralysis | known exact | 2 | `\|-damage\|p1a: Snorlax\|197/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | UNSOUND | 0: 15–32 (partial) LOST · 32: none (partial) LOST | Sylveon's Strength hit Snorlax |
+| H | Atk | W-Normal-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|197/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | USED (own event) | 0: 0–18 · 32: 32–32 | Sylveon's Strength hit Snorlax |
+| H | Atk | W-paralysis | known exact | 2 | `\|-damage\|p1a: Snorlax\|197/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | USED (own event) | 0: 0–18 · 32: 32–32 | Sylveon's Strength hit Snorlax |
 | H | Atk | W-paralysis | known exact | 3 | `\|-damage\|p1a: Snorlax\|139/255` | `\|-damage\|p1a: Snorlax\|93/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-paralysis | known exact | 4 | `\|-damage\|p1a: Snorlax\|81/255` | `\|-damage\|p1a: Snorlax\|12/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|197/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | UNSOUND | 0: 15–32 (partial) LOST · 32: none (partial) LOST | Sylveon's Strength hit Snorlax |
-| H | Atk | W-sleep | known exact | 4 | `\|-damage\|p1a: Snorlax\|197/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | UNSOUND | 0: 15–32 (partial) LOST · 32: none (partial) LOST | Sylveon's Strength hit Snorlax |
-| H | Atk | W-taunt | known exact | 2 | `\|-damage\|p1a: Snorlax\|197/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | UNSOUND | 0: 15–32 (partial) LOST · 32: none (partial) LOST | Sylveon's Strength hit Snorlax |
+| H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|197/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | USED (own event) | 0: 0–18 · 32: 32–32 | Sylveon's Strength hit Snorlax |
+| H | Atk | W-sleep | known exact | 4 | `\|-damage\|p1a: Snorlax\|197/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | USED (own event) | 0: 0–18 · 32: 32–32 | Sylveon's Strength hit Snorlax |
+| H | Atk | W-taunt | known exact | 2 | `\|-damage\|p1a: Snorlax\|197/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | USED (own event) | 0: 0–18 · 32: 32–32 | Sylveon's Strength hit Snorlax |
 | H | Atk | W-taunt | known exact | 3 | `\|-damage\|p1a: Snorlax\|139/255` | `\|-damage\|p1a: Snorlax\|93/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | known exact | 4 | `\|-damage\|p1a: Snorlax\|81/255` | `\|-damage\|p1a: Snorlax\|12/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|197/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | UNSOUND | 0: 15–32 (partial) LOST · 32: none (partial) LOST | Sylveon's Strength hit Snorlax |
+| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|197/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | USED (own event) | 0: 0–18 · 32: 32–32 | Sylveon's Strength hit Snorlax |
 | H | Atk | W-toxic | known exact | 3 | `\|-damage\|p1a: Snorlax\|139/255` | `\|-damage\|p1a: Snorlax\|93/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|81/255` | `\|-damage\|p1a: Snorlax\|12/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|197/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | UNSOUND | 0: 15–32 (partial) LOST · 32: none (partial) LOST | Sylveon's Strength hit Snorlax |
+| H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|197/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | USED (own event) | 0: 0–18 · 32: 32–32 | Sylveon's Strength hit Snorlax |
 | H | Atk | W-trade | known exact | 2 | `\|-damage\|p1a: Snorlax\|139/255` | `\|-damage\|p1a: Snorlax\|93/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|197/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | UNSOUND | 0: 15–32 (partial) LOST · 32: none (partial) LOST | Sylveon's Strength hit Snorlax |
-| H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|210/255` | `\|-damage\|p1a: Snorlax\|200/255` | as % | M2 | modified | UNSOUND | 0: 25–32 (partial) LOST · 32: none LOST | Sylveon's Round hit Snorlax |
-| H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|150/255` | `\|-damage\|p1a: Snorlax\|140/255` | as % | M2 | modified | UNSOUND | 0: 0–32 (partial) LOST · 32: 0–32 (partial) LOST | — |
-| O | HP | W-Normal-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|62/100` | `\|-damage\|p2a: Blastoise\|69/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: 1–3 LOST | Sylveon's Strength hit Blastoise |
+| H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|197/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | USED (own event) | 0: 0–18 · 32: 32–32 | Sylveon's Strength hit Snorlax |
+| H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|210/255` | `\|-damage\|p1a: Snorlax\|200/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Sylveon's Round hit Snorlax |
+| H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|150/255` | `\|-damage\|p1a: Snorlax\|140/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Sylveon's Round hit Snorlax |
+| O | HP | W-Normal-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|62/100` | `\|-damage\|p2a: Blastoise\|69/100` | same | M1 | modified | USED (own event) | 0: 0–0 · 32: 1–32 | Sylveon's Strength hit Blastoise |
 | O | HP | W-Normal-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|25/100` | `\|-damage\|p2a: Blastoise\|38/100` | same | M1 | modified | 〃 |  |  |
-| O | HP | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|62/100` | `\|-damage\|p2a: Blastoise\|69/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: 1–3 (partial) LOST | Sylveon's Strength hit Blastoise |
+| O | HP | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|62/100` | `\|-damage\|p2a: Blastoise\|69/100` | same | M1 | modified | USED (own event) | 0: 0–0 · 32: 1–32 | Sylveon's Strength hit Blastoise |
 | O | HP | W-phys-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|25/100` | `\|-damage\|p2a: Blastoise\|38/100` | same | M1 | modified | 〃 |  |  |
 | O | HP | W-phys-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|0 fnt` | `\|-damage\|p2a: Blastoise\|8/100` | same | M1 | modified | 〃 |  |  |
 | O | HP | W-phys-taken | … | | 3 more changed line(s) | | | | | | | |
-| O | HP | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|66/100` | `\|-damage\|p2a: Blastoise\|72/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: 0–3 (partial) LOST | Sylveon's Round hit Blastoise |
+| O | HP | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|66/100` | `\|-damage\|p2a: Blastoise\|72/100` | same | M1 | modified | USED (own event) | 0: 0–0 · 32: 0–32 | Sylveon's Round hit Blastoise |
 | O | HP | W-spec-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|33/100` | `\|-damage\|p2a: Blastoise\|45/100` | same | M1 | modified | 〃 |  |  |
 | O | HP | W-spec-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|1/100` | `\|-damage\|p2a: Blastoise\|17/100` | same | M1 | modified | 〃 |  |  |
-| O | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Blastoise\|80/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: 0–2 (partial) LOST | Sylveon's Quick Attack hit Blastoise |
+| O | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Blastoise\|80/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M1 | modified | USED (own event) | 0: 0–3 · 32: 0–32 | Sylveon's Quick Attack hit Blastoise |
 | O | HP | W-trade | hidden % | 2 | `\|-damage\|p2a: Blastoise\|61/100` | `\|-damage\|p2a: Blastoise\|67/100` | same | M1 | modified | 〃 |  |  |
-| O | Def | W-Normal-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|63/100` | `\|-damage\|p2a: Blastoise\|70/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: 0–12 (partial) LOST | Sylveon's Strength hit Blastoise |
+| O | Def | W-Normal-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|63/100` | `\|-damage\|p2a: Blastoise\|70/100` | same | M1 | modified | USED (own event) | 0: 0–3 · 32: 0–32 | Sylveon's Strength hit Blastoise |
 | O | Def | W-Normal-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|26/100` | `\|-damage\|p2a: Blastoise\|41/100` | same | M1 | modified | 〃 |  |  |
-| O | Def | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|63/100` | `\|-damage\|p2a: Blastoise\|70/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: 0–12 (partial) LOST | Sylveon's Strength hit Blastoise |
+| O | Def | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|63/100` | `\|-damage\|p2a: Blastoise\|70/100` | same | M1 | modified | USED (own event) | 0: 0–3 · 32: 0–32 | Sylveon's Strength hit Blastoise |
 | O | Def | W-phys-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|26/100` | `\|-damage\|p2a: Blastoise\|41/100` | same | M1 | modified | 〃 |  |  |
 | O | Def | W-phys-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|0 fnt` | `\|-damage\|p2a: Blastoise\|11/100` | same | M1 | modified | 〃 |  |  |
 | O | Def | W-phys-taken | … | | 3 more changed line(s) | | | | | | | |
-| O | Def | W-trade | hidden % | 1 | `\|-damage\|p2a: Blastoise\|80/100` | `\|-damage\|p2a: Blastoise\|84/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: 0–12 LOST | Sylveon's Quick Attack hit Blastoise |
+| O | Def | W-trade | hidden % | 1 | `\|-damage\|p2a: Blastoise\|80/100` | `\|-damage\|p2a: Blastoise\|84/100` | same | M1 | modified | USED (own event) | 0: 0–3 · 32: 0–32 | Sylveon's Quick Attack hit Blastoise |
 | O | Def | W-trade | hidden % | 2 | `\|-damage\|p2a: Blastoise\|61/100` | `\|-damage\|p2a: Blastoise\|69/100` | same | M1 | modified | 〃 |  |  |
-| O | SpD | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|67/100` | `\|-damage\|p2a: Blastoise\|73/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: 0–7 (partial) LOST | Sylveon's Round hit Blastoise |
+| O | SpD | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|67/100` | `\|-damage\|p2a: Blastoise\|73/100` | same | M1 | modified | USED (own event) | 0: 0–3 · 32: 0–32 | Sylveon's Round hit Blastoise |
 | O | SpD | W-spec-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|34/100` | `\|-damage\|p2a: Blastoise\|46/100` | same | M1 | modified | 〃 |  |  |
 | O | SpD | W-spec-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|1/100` | `\|-damage\|p2a: Blastoise\|19/100` | same | M1 | modified | 〃 |  |  |
 
@@ -8520,7 +8326,7 @@ Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt · holder-hi
 | H | Atk | W-taunt | known exact | 3 | `\|-damage\|p1a: Snorlax\|105/255` | `\|-damage\|p1a: Snorlax\|69/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | known exact | 4 | `\|-damage\|p1a: Snorlax\|30/255` | `\|-damage\|p1a: Snorlax\|0 fnt` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | … | | 1 more changed line(s) | | | | | | | |
-| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|180/255` | `\|-damage\|p1a: Snorlax\|162/255` | as % | M2 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
+| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|180/255` | `\|-damage\|p1a: Snorlax\|162/255` | as % | M2 | modified | USED (own event) | 0: 0–26 · 32: 32–32 | Meowscarada's Strength hit Snorlax; tox on Meowscarada |
 | H | Atk | W-toxic | known exact | 3 | `\|-damage\|p1a: Snorlax\|105/255` | `\|-damage\|p1a: Snorlax\|69/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|30/255` | `\|-damage\|p1a: Snorlax\|0 fnt` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-toxic | … | | 1 more changed line(s) | | | | | | | |
@@ -8545,26 +8351,6 @@ Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt · holder-hi
 | O | SpD | W-spec-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|56/100` | `\|-damage\|p2a: Blastoise\|65/100` | same | M1 | modified | 〃 |  |  |
 | O | SpD | W-spec-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|34/100` | `\|-damage\|p2a: Blastoise\|48/100` | same | M1 | modified | 〃 |  |  |
 | O | SpD | W-spec-taken | … | | 1 more changed line(s) | | | | | | | |
-
-#### Psychic Surge · `ability:psychicsurge`
-
-2 holders · weight 2 · outcome CHANNEL
-
-| | HP | Atk | Def | SpA | SpD | Spe |
-|---|---|---|---|---|---|---|
-| holder hidden | (↻ M1) | (✓ M2) | (✓ M1) | · | · | · |
-
-| Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H | HP | W-confusion | hidden % | 2 | `\|-damage\|p2a: Indeedee\|88/100\|[from] confusion` | `\|-damage\|p2a: Indeedee\|90/100\|[from] confusion` | same | M1 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
-| H | HP | W-confusion | hidden % | 3 | `\|-damage\|p2a: Indeedee\|76/100\|[from] confusion` | `\|-damage\|p2a: Indeedee\|80/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
-| H | HP | W-confusion | hidden % | 4 | `\|-damage\|p2a: Indeedee\|64/100\|[from] confusion` | `\|-damage\|p2a: Indeedee\|71/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
-| H | Atk | W-confusion | hidden % | 2 | `\|-damage\|p2a: Indeedee\|88/100\|[from] confusion` | `\|-damage\|p2a: Indeedee\|84/100\|[from] confusion` | same | M2 | modified | USED (own event) | 0: 0–32 (partial) · 32: 22–32 | Indeedee-F hurt itself in its confusion |
-| H | Atk | W-confusion | hidden % | 3 | `\|-damage\|p2a: Indeedee\|76/100\|[from] confusion` | `\|-damage\|p2a: Indeedee\|68/100\|[from] confusion` | same | M2 | modified | 〃 |  |  |
-| H | Atk | W-confusion | hidden % | 4 | `\|-damage\|p2a: Indeedee\|65/100\|[from] confusion` | `\|-damage\|p2a: Indeedee\|53/100\|[from] confusion` | same | M2 | modified | 〃 |  |  |
-| H | Def | W-confusion | hidden % | 2 | `\|-damage\|p2a: Indeedee\|88/100\|[from] confusion` | `\|-damage\|p2a: Indeedee\|91/100\|[from] confusion` | same | M1 | modified | USED | 0: 0–32 (partial) · 32: 0–32 | — |
-| H | Def | W-confusion | hidden % | 3 | `\|-damage\|p2a: Indeedee\|76/100\|[from] confusion` | `\|-damage\|p2a: Indeedee\|82/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
-| H | Def | W-confusion | hidden % | 4 | `\|-damage\|p2a: Indeedee\|65/100\|[from] confusion` | `\|-damage\|p2a: Indeedee\|73/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
 
 #### Punk Rock · `ability:punkrock`
 
@@ -8621,7 +8407,7 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 | H | Atk | W-taunt | known exact | 2 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|171/255` | as % | M2 | modified | USED (own event) | 0: 0–15 · 32: 31–32 | Medicham's Strength hit Snorlax |
 | H | Atk | W-taunt | known exact | 3 | `\|-damage\|p1a: Snorlax\|133/255` | `\|-damage\|p1a: Snorlax\|87/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | known exact | 4 | `\|-damage\|p1a: Snorlax\|72/255` | `\|-damage\|p1a: Snorlax\|3/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|171/255` | as % | M2 | modified | USED (own event) | 0: 0–15 (partial) · 32: 31–32 (partial) | Medicham's Strength hit Snorlax |
+| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|171/255` | as % | M2 | modified | USED (own event) | 0: 0–15 · 32: 31–32 | Medicham's Strength hit Snorlax |
 | H | Atk | W-toxic | known exact | 3 | `\|-damage\|p1a: Snorlax\|133/255` | `\|-damage\|p1a: Snorlax\|87/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|72/255` | `\|-damage\|p1a: Snorlax\|3/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|171/255` | as % | M2 | modified | USED (own event) | 0: 0–15 · 32: 31–32 | Medicham's Strength hit Snorlax |
@@ -8666,7 +8452,7 @@ Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt changed noth
 | H | Def | W-Ghost-taken | hidden % | 2 | `\|-damage\|p2a: Garganacl\|80/100` | `\|-damage\|p2a: Garganacl\|84/100` | same | M1 | modified | 〃 |  |  |
 | O | Atk | W-Ghost-dealt | known exact | 1 | `\|-damage\|p1a: Garganacl\|184/195` | `\|-damage\|p1a: Garganacl\|181/195` | as % | M2 | modified | USED (own event) | 0: 0–32 · 32: 23–32 | Blastoise's Shadow Claw hit Garganacl |
 
-Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-dealt changed nothing · holder-hidden/W-phys-taken changed nothing · holder-hidden/W-spec-taken changed nothing · holder-hidden/W-order-up changed nothing · holder-hidden/W-order-down changed nothing · holder-hidden/W-pace changed nothing · holder-hidden/W-trade changed nothing · holder-hidden/W-Ghost-dealt changed nothing · holder-hidden/W-Ghost-taken · holder-hidden/W-burn · holder-hidden/W-paralysis · holder-hidden/W-toxic · holder-hidden/W-sleep · holder-hidden/W-confusion changed nothing · holder-hidden/W-taunt changed nothing · holder-hidden/W-lethal · holder-hidden/W-pivot changed nothing · holder-hidden/W-two-moves changed nothing · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade changed nothing · other-hidden/W-Ghost-dealt · other-hidden/W-Ghost-taken changed nothing
+Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-dealt changed nothing · holder-hidden/W-phys-taken changed nothing · holder-hidden/W-spec-taken changed nothing · holder-hidden/W-order-up changed nothing · holder-hidden/W-order-down changed nothing · holder-hidden/W-pace changed nothing · holder-hidden/W-trade changed nothing · holder-hidden/W-Ghost-dealt changed nothing · holder-hidden/W-Ghost-taken · holder-hidden/W-burn · holder-hidden/W-paralysis · holder-hidden/W-toxic · holder-hidden/W-sleep · holder-hidden/W-confusion changed nothing · holder-hidden/W-taunt changed nothing · holder-hidden/W-lethal changed nothing · holder-hidden/W-pivot changed nothing · holder-hidden/W-two-moves changed nothing · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade changed nothing · other-hidden/W-Ghost-dealt · other-hidden/W-Ghost-taken changed nothing
 
 #### Quick Draw · `ability:quickdraw`
 
@@ -8674,23 +8460,13 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| holder hidden | (✗ M1) | (✓ M2) | (✓ M1) | · | · | ~ M6 ~ M7 |
+| holder hidden | · | · | · | · | · | ~ M6 ~ M7 |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H | HP | W-confusion | hidden % | 2 | `\|-damage\|p2a: Slowbro\|88/100\|[from] confusion` | `\|-damage\|p2a: Slowbro\|90/100\|[from] confusion` | same | M1 | modified | UNUSED | 0: 0–32 · 32: 0–32 | — |
-| H | HP | W-confusion | hidden % | 3 | `\|-damage\|p2a: Slowbro\|76/100\|[from] confusion` | `\|-damage\|p2a: Slowbro\|80/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
-| H | HP | W-confusion | hidden % | 4 | `\|-damage\|p2a: Slowbro\|64/100\|[from] confusion` | `\|-damage\|p2a: Slowbro\|70/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
-| H | Atk | W-confusion | hidden % | 2 | `\|-damage\|p2a: Slowbro\|88/100\|[from] confusion` | `\|-damage\|p2a: Slowbro\|86/100\|[from] confusion` | same | M2 | modified | USED (own event) | 0: 0–32 · 32: 18–32 | Slowbro-Galar hurt itself in its confusion |
-| H | Atk | W-confusion | hidden % | 3 | `\|-damage\|p2a: Slowbro\|76/100\|[from] confusion` | `\|-damage\|p2a: Slowbro\|72/100\|[from] confusion` | same | M2 | modified | 〃 |  |  |
-| H | Atk | W-confusion | hidden % | 4 | `\|-damage\|p2a: Slowbro\|65/100\|[from] confusion` | `\|-damage\|p2a: Slowbro\|58/100\|[from] confusion` | same | M2 | modified | 〃 |  |  |
-| H | Def | W-confusion | hidden % | 2 | `\|-damage\|p2a: Slowbro\|88/100\|[from] confusion` | `\|-damage\|p2a: Slowbro\|90/100\|[from] confusion` | same | M1 | modified | USED | 0: 0–32 · 32: 0–32 (partial) | — |
-| H | Def | W-confusion | hidden % | 3 | `\|-damage\|p2a: Slowbro\|76/100\|[from] confusion` | `\|-damage\|p2a: Slowbro\|81/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
-| H | Def | W-confusion | hidden % | 4 | `\|-damage\|p2a: Slowbro\|65/100\|[from] confusion` | `\|-damage\|p2a: Slowbro\|72/100\|[from] confusion` | same | M1 | modified | 〃 |  |  |
 | H | Spe | W-confusion | presence | 3 | `\|-end\|p2a: Slowbro\|confusion` | — | same | M6 | own | UNSTABLE | — | — |
 | H | Spe | W-confusion | presence | 3 | — | `\|-activate\|p2a: Slowbro\|confusion` | same | M6 | own | 〃 |  |  |
 | H | Spe | W-confusion | presence | 4 | — | `\|-activate\|p2a: Slowbro\|confusion` | same | M6 | own | 〃 |  |  |
-| H | Spe | W-confusion | … | | 6 more changed line(s) | | | | | | | |
 | H | Spe | W-two-moves | order | 3 | `p1a: Snorlax before p2a: Slowbro` | `p2a: Slowbro before p1a: Snorlax` | same | M7 | own | UNSTABLE | — | — |
 
 Templates: holder-hidden/W-phys-dealt · dice differ for spe · holder-hidden/W-spec-dealt · dice differ for spe · holder-hidden/W-phys-taken changed nothing · dice differ for spe · holder-hidden/W-spec-taken changed nothing · dice differ for spe · holder-hidden/W-order-up changed nothing · holder-hidden/W-order-down changed nothing · holder-hidden/W-pace changed nothing · holder-hidden/W-trade · dice differ for spe · holder-hidden/W-burn · dice differ for spe · holder-hidden/W-paralysis · dice differ for spe · holder-hidden/W-toxic · dice differ for spe · holder-hidden/W-sleep · dice differ for spe · holder-hidden/W-confusion · dice differ for spe · holder-hidden/W-taunt · dice differ for spe · holder-hidden/W-lethal changed nothing · dice differ for spe · holder-hidden/W-pivot changed nothing · dice differ for spe · holder-hidden/W-two-moves · dice differ for spe · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken · other-hidden/W-spec-taken · other-hidden/W-trade
@@ -8701,55 +8477,55 @@ Templates: holder-hidden/W-phys-dealt · dice differ for spe · holder-hidden/W-
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| holder hidden | · | (‼ M2) | · | (‼ M2) | · | · |
-| other hidden | (‼ M1) | · | (‼ M1) | · | (‼ M1) | · |
+| holder hidden | · | (✓ M2) | · | (✓ M2) | · | · |
+| other hidden | (✓ M1) | · | (✓ M1) | · | (✓ M1) | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H | Atk | W-burn | known exact | 2 | `\|-damage\|p1a: Snorlax\|222/255` | `\|-damage\|p1a: Snorlax\|211/255` | as % | M2 | modified | UNSOUND | 0: 17–32 (partial) LOST · 32: none (partial) LOST | Aurorus's Strength hit Snorlax |
+| H | Atk | W-burn | known exact | 2 | `\|-damage\|p1a: Snorlax\|222/255` | `\|-damage\|p1a: Snorlax\|211/255` | as % | M2 | modified | USED (own event) | 0: 0–22 · 32: 32–32 | Aurorus's Strength hit Snorlax |
 | H | Atk | W-burn | known exact | 3 | `\|-damage\|p1a: Snorlax\|189/255` | `\|-damage\|p1a: Snorlax\|167/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-burn | known exact | 4 | `\|-damage\|p1a: Snorlax\|156/255` | `\|-damage\|p1a: Snorlax\|123/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-Normal-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|188/255` | `\|-damage\|p1a: Snorlax\|167/255` | as % | M2 | modified | UNSOUND | 0: 20–32 (partial) LOST · 32: none (partial) LOST | Aurorus's Strength hit Snorlax |
-| H | Atk | W-paralysis | known exact | 2 | `\|-damage\|p1a: Snorlax\|188/255` | `\|-damage\|p1a: Snorlax\|167/255` | as % | M2 | modified | UNSOUND | 0: 20–32 (partial) LOST · 32: none (partial) LOST | Aurorus's Strength hit Snorlax |
+| H | Atk | W-Normal-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|188/255` | `\|-damage\|p1a: Snorlax\|167/255` | as % | M2 | modified | USED (own event) | 0: 0–22 · 32: 32–32 | Aurorus's Strength hit Snorlax |
+| H | Atk | W-paralysis | known exact | 2 | `\|-damage\|p1a: Snorlax\|188/255` | `\|-damage\|p1a: Snorlax\|167/255` | as % | M2 | modified | USED (own event) | 0: 0–22 · 32: 32–32 | Aurorus's Strength hit Snorlax |
 | H | Atk | W-paralysis | known exact | 3 | `\|-damage\|p1a: Snorlax\|121/255` | `\|-damage\|p1a: Snorlax\|79/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-paralysis | known exact | 4 | `\|-damage\|p1a: Snorlax\|54/255` | `\|-damage\|p1a: Snorlax\|0 fnt` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-paralysis | … | | 1 more changed line(s) | | | | | | | |
-| H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|188/255` | `\|-damage\|p1a: Snorlax\|167/255` | as % | M2 | modified | UNSOUND | 0: 20–32 (partial) LOST · 32: none (partial) LOST | Aurorus's Strength hit Snorlax |
-| H | Atk | W-sleep | known exact | 4 | `\|-damage\|p1a: Snorlax\|188/255` | `\|-damage\|p1a: Snorlax\|167/255` | as % | M2 | modified | UNSOUND | 0: 20–32 (partial) LOST · 32: none (partial) LOST | Aurorus's Strength hit Snorlax |
-| H | Atk | W-taunt | known exact | 2 | `\|-damage\|p1a: Snorlax\|188/255` | `\|-damage\|p1a: Snorlax\|167/255` | as % | M2 | modified | UNSOUND | 0: 20–32 (partial) LOST · 32: none (partial) LOST | Aurorus's Strength hit Snorlax |
+| H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|188/255` | `\|-damage\|p1a: Snorlax\|167/255` | as % | M2 | modified | USED (own event) | 0: 0–22 · 32: 32–32 | Aurorus's Strength hit Snorlax |
+| H | Atk | W-sleep | known exact | 4 | `\|-damage\|p1a: Snorlax\|188/255` | `\|-damage\|p1a: Snorlax\|167/255` | as % | M2 | modified | USED (own event) | 0: 0–22 · 32: 32–32 | Aurorus's Strength hit Snorlax |
+| H | Atk | W-taunt | known exact | 2 | `\|-damage\|p1a: Snorlax\|188/255` | `\|-damage\|p1a: Snorlax\|167/255` | as % | M2 | modified | USED (own event) | 0: 0–22 · 32: 32–32 | Aurorus's Strength hit Snorlax |
 | H | Atk | W-taunt | known exact | 3 | `\|-damage\|p1a: Snorlax\|121/255` | `\|-damage\|p1a: Snorlax\|79/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | known exact | 4 | `\|-damage\|p1a: Snorlax\|54/255` | `\|-damage\|p1a: Snorlax\|0 fnt` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | … | | 1 more changed line(s) | | | | | | | |
-| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|188/255` | `\|-damage\|p1a: Snorlax\|167/255` | as % | M2 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
+| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|188/255` | `\|-damage\|p1a: Snorlax\|167/255` | as % | M2 | modified | USED (own event) | 0: 0–22 · 32: 32–32 | Aurorus's Strength hit Snorlax; tox on Aurorus |
 | H | Atk | W-toxic | known exact | 3 | `\|-damage\|p1a: Snorlax\|121/255` | `\|-damage\|p1a: Snorlax\|79/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|54/255` | `\|-damage\|p1a: Snorlax\|0 fnt` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-toxic | … | | 1 more changed line(s) | | | | | | | |
-| H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|188/255` | `\|-damage\|p1a: Snorlax\|167/255` | as % | M2 | modified | UNSOUND | 0: 20–32 (partial) LOST · 32: none (partial) LOST | Aurorus's Strength hit Snorlax |
+| H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|188/255` | `\|-damage\|p1a: Snorlax\|167/255` | as % | M2 | modified | USED (own event) | 0: 0–22 · 32: 32–32 | Aurorus's Strength hit Snorlax |
 | H | Atk | W-trade | known exact | 2 | `\|-damage\|p1a: Snorlax\|121/255` | `\|-damage\|p1a: Snorlax\|79/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|188/255` | `\|-damage\|p1a: Snorlax\|167/255` | as % | M2 | modified | UNSOUND | 0: 20–32 (partial) LOST · 32: none (partial) LOST | Aurorus's Strength hit Snorlax |
-| H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|215/255` | `\|-damage\|p1a: Snorlax\|204/255` | as % | M2 | modified | UNSOUND | 0: 20–32 (partial) LOST · 32: none LOST | Aurorus's Round hit Snorlax |
-| H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|146/255` | `\|-damage\|p1a: Snorlax\|135/255` | as % | M2 | modified | UNSOUND | 0: 0–32 (partial) LOST · 32: 0–32 (partial) LOST | — |
-| O | HP | W-Normal-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|79/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: 0–9 LOST | Aurorus's Strength hit Blastoise |
+| H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|188/255` | `\|-damage\|p1a: Snorlax\|167/255` | as % | M2 | modified | USED (own event) | 0: 0–22 · 32: 32–32 | Aurorus's Strength hit Snorlax |
+| H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|215/255` | `\|-damage\|p1a: Snorlax\|204/255` | as % | M2 | modified | USED (own event) | 0: 0–23 · 32: 29–32 | Aurorus's Round hit Snorlax |
+| H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|146/255` | `\|-damage\|p1a: Snorlax\|135/255` | as % | M2 | modified | USED (own event) | 0: 0–23 · 32: 29–32 | Aurorus's Round hit Snorlax |
+| O | HP | W-Normal-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|79/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M1 | modified | USED (own event) | 0: 0–5 · 32: 0–32 | Aurorus's Strength hit Blastoise |
 | O | HP | W-Normal-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|59/100` | `\|-damage\|p2a: Blastoise\|66/100` | same | M1 | modified | 〃 |  |  |
-| O | HP | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|79/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: 0–8 (partial) LOST | Aurorus's Strength hit Blastoise |
+| O | HP | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|79/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M1 | modified | USED (own event) | 0: 0–5 · 32: 0–32 | Aurorus's Strength hit Blastoise |
 | O | HP | W-phys-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|59/100` | `\|-damage\|p2a: Blastoise\|66/100` | same | M1 | modified | 〃 |  |  |
 | O | HP | W-phys-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|39/100` | `\|-damage\|p2a: Blastoise\|50/100y` | same | M1 | modified | 〃 |  |  |
 | O | HP | W-phys-taken | … | | 1 more changed line(s) | | | | | | | |
-| O | HP | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|85/100` | `\|-damage\|p2a: Blastoise\|87/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: 0–8 (partial) LOST | Aurorus's Round hit Blastoise |
+| O | HP | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|85/100` | `\|-damage\|p2a: Blastoise\|87/100` | same | M1 | modified | USED (own event) | 0: 0–8 · 32: 0–32 | Aurorus's Round hit Blastoise |
 | O | HP | W-spec-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|70/100` | `\|-damage\|p2a: Blastoise\|75/100` | same | M1 | modified | 〃 |  |  |
 | O | HP | W-spec-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|55/100` | `\|-damage\|p2a: Blastoise\|62/100` | same | M1 | modified | 〃 |  |  |
 | O | HP | W-spec-taken | … | | 1 more changed line(s) | | | | | | | |
-| O | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Blastoise\|89/100` | `\|-damage\|p2a: Blastoise\|91/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: 0–10 (partial) LOST | Aurorus's Quick Attack hit Blastoise |
+| O | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Blastoise\|89/100` | `\|-damage\|p2a: Blastoise\|91/100` | same | M1 | modified | USED (own event) | 0: 0–5 · 32: 0–32 | Aurorus's Quick Attack hit Blastoise |
 | O | HP | W-trade | hidden % | 2 | `\|-damage\|p2a: Blastoise\|79/100` | `\|-damage\|p2a: Blastoise\|82/100` | same | M1 | modified | 〃 |  |  |
-| O | Def | W-Normal-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|79/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: 0–8 LOST | Aurorus's Strength hit Blastoise |
+| O | Def | W-Normal-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|79/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M1 | modified | USED (own event) | 0: 0–0 · 32: 0–32 | Aurorus's Strength hit Blastoise |
 | O | Def | W-Normal-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|58/100` | `\|-damage\|p2a: Blastoise\|67/100` | same | M1 | modified | 〃 |  |  |
-| O | Def | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|79/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: 0–8 (partial) LOST | Aurorus's Strength hit Blastoise |
+| O | Def | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|79/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M1 | modified | USED (own event) | 0: 0–0 · 32: 0–32 | Aurorus's Strength hit Blastoise |
 | O | Def | W-phys-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|58/100` | `\|-damage\|p2a: Blastoise\|67/100` | same | M1 | modified | 〃 |  |  |
 | O | Def | W-phys-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|38/100` | `\|-damage\|p2a: Blastoise\|51/100` | same | M1 | modified | 〃 |  |  |
 | O | Def | W-phys-taken | … | | 1 more changed line(s) | | | | | | | |
-| O | Def | W-trade | hidden % | 1 | `\|-damage\|p2a: Blastoise\|89/100` | `\|-damage\|p2a: Blastoise\|91/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: 0–8 LOST | Aurorus's Quick Attack hit Blastoise |
+| O | Def | W-trade | hidden % | 1 | `\|-damage\|p2a: Blastoise\|89/100` | `\|-damage\|p2a: Blastoise\|91/100` | same | M1 | modified | USED (own event) | 0: 0–3 · 32: 0–32 | Aurorus's Quick Attack hit Blastoise |
 | O | Def | W-trade | hidden % | 2 | `\|-damage\|p2a: Blastoise\|79/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M1 | modified | 〃 |  |  |
-| O | SpD | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|84/100` | `\|-damage\|p2a: Blastoise\|87/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: 0–5 (partial) LOST | Aurorus's Round hit Blastoise |
+| O | SpD | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|84/100` | `\|-damage\|p2a: Blastoise\|87/100` | same | M1 | modified | USED (own event) | 0: 0–0 · 32: 0–32 | Aurorus's Round hit Blastoise |
 | O | SpD | W-spec-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|69/100` | `\|-damage\|p2a: Blastoise\|75/100` | same | M1 | modified | 〃 |  |  |
 | O | SpD | W-spec-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|53/100` | `\|-damage\|p2a: Blastoise\|63/100` | same | M1 | modified | 〃 |  |  |
 | O | SpD | W-spec-taken | … | | 1 more changed line(s) | | | | | | | |
@@ -8794,7 +8570,7 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 | H | Atk | W-taunt | known exact | 2 | `\|-damage\|p1a: Snorlax\|215/255` | `\|-damage\|p1a: Snorlax\|206/255` | as % | M2 | modified | USED (own event) | 0: 0–29 · 32: 30–32 | Luxray's Strength hit Snorlax |
 | H | Atk | W-taunt | known exact | 3 | `\|-damage\|p1a: Snorlax\|175/255` | `\|-damage\|p1a: Snorlax\|157/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | known exact | 4 | `\|-damage\|p1a: Snorlax\|135/255` | `\|-damage\|p1a: Snorlax\|108/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|215/255` | `\|-damage\|p1a: Snorlax\|206/255` | as % | M2 | modified | USED (own event) | 0: 0–29 (partial) · 32: 30–32 (partial) | Luxray's Strength hit Snorlax |
+| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|215/255` | `\|-damage\|p1a: Snorlax\|206/255` | as % | M2 | modified | USED (own event) | 0: 0–29 · 32: 30–32 | Luxray's Strength hit Snorlax |
 | H | Atk | W-toxic | known exact | 3 | `\|-damage\|p1a: Snorlax\|175/255` | `\|-damage\|p1a: Snorlax\|157/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|135/255` | `\|-damage\|p1a: Snorlax\|108/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|215/255` | `\|-damage\|p1a: Snorlax\|206/255` | as % | M2 | modified | USED (own event) | 0: 0–29 · 32: 30–32 | Luxray's Strength hit Snorlax |
@@ -8863,7 +8639,7 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| holder hidden | (✓ M1) | (↻ M6) | · | · | (✓ M1) | · |
+| holder hidden | (✓ M1) | (✓ M6) | · | · | (✓ M1) | · |
 | other hidden | ✓ M4 | · | (✓ M1) | (✓ M2) | · | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
@@ -8874,7 +8650,7 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 | H | HP | W-spec-taken | … | | 1 more changed line(s) | | | | | | | |
 | H | Atk | W-paralysis | presence | 4 | — | `\|faint\|p1a: Snorlax` | same | M6 | modified | MASKED | 0: 0–32 · 32: 30–32 | — |
 | H | Atk | W-taunt | presence | 4 | — | `\|faint\|p1a: Snorlax` | same | M6 | modified | MASKED | 0: 0–32 · 32: 30–32 | — |
-| H | Atk | W-toxic | presence | 4 | — | `\|faint\|p1a: Snorlax` | same | M6 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
+| H | Atk | W-toxic | presence | 4 | — | `\|faint\|p1a: Snorlax` | same | M6 | modified | USED (own event) | 0: 0–32 · 32: 30–32 | tox on Tyranitar |
 | H | SpD | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Tyranitar\|94/100` | `\|-damage\|p2a: Tyranitar\|95/100` | same | M1 | modified | USED (own event) | 0: 0–5 · 32: 0–32 | Snorlax's Round hit Tyranitar |
 | H | SpD | W-spec-taken | hidden % | 2 | `\|-damage\|p2a: Tyranitar\|88/100` | `\|-damage\|p2a: Tyranitar\|90/100` | same | M1 | modified | 〃 |  |  |
 | H | SpD | W-spec-taken | hidden % | 3 | `\|-damage\|p2a: Tyranitar\|83/100` | `\|-damage\|p2a: Tyranitar\|86/100` | same | M1 | modified | 〃 |  |  |
@@ -9009,7 +8785,7 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 | H | Def | W-trade | hidden % | 2 | `\|-damage\|p2a: Archaludon\|86/100` | `\|-damage\|p2a: Archaludon\|88/100` | same | M1 | modified | USED (own event) | 0: 0–5 · 32: 0–32 | Snorlax's Quick Attack hit Archaludon |
 | O | Atk | W-trade | known exact | 2 | `\|-damage\|p1a: Archaludon\|165/185` | `\|-damage\|p1a: Archaludon\|160/185` | as % | M2 | modified | MASKED | 0: 0–28 · 32: 25–32 | — |
 
-Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-dealt changed nothing · holder-hidden/W-phys-taken · holder-hidden/W-spec-taken · holder-hidden/W-order-up changed nothing · holder-hidden/W-order-down changed nothing · holder-hidden/W-pace changed nothing · holder-hidden/W-trade · holder-hidden/W-burn changed nothing · holder-hidden/W-paralysis changed nothing · holder-hidden/W-toxic changed nothing · holder-hidden/W-sleep changed nothing · holder-hidden/W-confusion changed nothing · holder-hidden/W-taunt changed nothing · holder-hidden/W-lethal · holder-hidden/W-pivot · holder-hidden/W-two-moves changed nothing · other-hidden/W-phys-dealt · other-hidden/W-spec-dealt · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade
+Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-dealt changed nothing · holder-hidden/W-phys-taken · holder-hidden/W-spec-taken · holder-hidden/W-order-up changed nothing · holder-hidden/W-order-down changed nothing · holder-hidden/W-pace changed nothing · holder-hidden/W-trade · holder-hidden/W-burn changed nothing · holder-hidden/W-paralysis changed nothing · holder-hidden/W-toxic changed nothing · holder-hidden/W-sleep changed nothing · holder-hidden/W-confusion changed nothing · holder-hidden/W-taunt changed nothing · holder-hidden/W-lethal changed nothing · holder-hidden/W-pivot · holder-hidden/W-two-moves changed nothing · other-hidden/W-phys-dealt · other-hidden/W-spec-dealt · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade
 
 #### Stance Change · `ability:stancechange`
 
@@ -9022,46 +8798,46 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H | Atk | W-burn | known exact | 2 | `\|-damage\|p1a: Snorlax\|225/255` | `\|-damage\|p1a: Snorlax\|219/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 29–32 | Aegislash-Blade's Strength hit Snorlax |
+| H | Atk | W-burn | known exact | 2 | `\|-damage\|p1a: Snorlax\|225/255` | `\|-damage\|p1a: Snorlax\|219/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 29–32 | Aegislash's Strength hit Snorlax |
 | H | Atk | W-burn | known exact | 3 | `\|-damage\|p1a: Snorlax\|195/255` | `\|-damage\|p1a: Snorlax\|183/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-burn | known exact | 4 | `\|-damage\|p1a: Snorlax\|165/255` | `\|-damage\|p1a: Snorlax\|147/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-paralysis | known exact | 2 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|182/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Aegislash-Blade's Strength hit Snorlax |
+| H | Atk | W-paralysis | known exact | 2 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|182/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Aegislash's Strength hit Snorlax |
 | H | Atk | W-paralysis | known exact | 3 | `\|-damage\|p1a: Snorlax\|133/255` | `\|-damage\|p1a: Snorlax\|109/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-paralysis | known exact | 4 | `\|-damage\|p1a: Snorlax\|72/255` | `\|-damage\|p1a: Snorlax\|36/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|182/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Aegislash-Blade's Strength hit Snorlax |
-| H | Atk | W-sleep | known exact | 4 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|182/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Aegislash-Blade's Strength hit Snorlax |
-| H | Atk | W-taunt | known exact | 2 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|182/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Aegislash-Blade's Strength hit Snorlax |
+| H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|182/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Aegislash's Strength hit Snorlax |
+| H | Atk | W-sleep | known exact | 4 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|182/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Aegislash's Strength hit Snorlax |
+| H | Atk | W-taunt | known exact | 2 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|182/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Aegislash's Strength hit Snorlax |
 | H | Atk | W-taunt | known exact | 3 | `\|-damage\|p1a: Snorlax\|133/255` | `\|-damage\|p1a: Snorlax\|109/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | known exact | 4 | `\|-damage\|p1a: Snorlax\|72/255` | `\|-damage\|p1a: Snorlax\|36/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|182/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Aegislash-Blade's Strength hit Snorlax |
+| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|182/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Aegislash's Strength hit Snorlax |
 | H | Atk | W-toxic | known exact | 3 | `\|-damage\|p1a: Snorlax\|133/255` | `\|-damage\|p1a: Snorlax\|109/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|72/255` | `\|-damage\|p1a: Snorlax\|36/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|182/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Aegislash-Blade's Strength hit Snorlax |
+| H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|182/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Aegislash's Strength hit Snorlax |
 | H | Atk | W-trade | known exact | 2 | `\|-damage\|p1a: Snorlax\|133/255` | `\|-damage\|p1a: Snorlax\|109/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|182/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Aegislash-Blade's Strength hit Snorlax |
-| H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|225/255` | `\|-damage\|p1a: Snorlax\|219/255` | as % | M2 | modified | USED (own event) | 0: 0–32 · 32: 29–32 | Aegislash-Blade's Round hit Snorlax |
-| H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|163/255` | `\|-damage\|p1a: Snorlax\|157/255` | as % | M2 | modified | USED (own event) | 0: 0–32 · 32: 29–32 | Aegislash-Blade's Round hit Snorlax |
-| H | Spe | W-paralysis | presence | 2 | `\|-formechange\|p2a: Aegislash\|Aegislash-Blade\|` | — | same | M6 | modified | USED (own event) | 0: 0–1 · 32: 0–32 (partial) | Aegislash-Blade's Strength hit Snorlax; Snorlax acted before Aegislash-Blade |
+| H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|194/255` | `\|-damage\|p1a: Snorlax\|182/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Aegislash's Strength hit Snorlax |
+| H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|225/255` | `\|-damage\|p1a: Snorlax\|219/255` | as % | M2 | modified | USED (own event) | 0: 0–32 · 32: 29–32 | Aegislash's Round hit Snorlax |
+| H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|163/255` | `\|-damage\|p1a: Snorlax\|157/255` | as % | M2 | modified | USED (own event) | 0: 0–32 · 32: 29–32 | Aegislash's Round hit Snorlax |
+| H | Spe | W-paralysis | presence | 2 | `\|-formechange\|p2a: Aegislash\|Aegislash-Blade\|` | — | same | M6 | modified | USED (own event) | 0: 0–1 · 32: 0–32 (partial) | Aegislash's Strength hit Snorlax; Snorlax acted before Aegislash |
 | H | Spe | W-paralysis | presence | 2 | — | `\|-formechange\|p2a: Aegislash\|Aegislash-Blade\|` | same | M6 | modified | 〃 |  |  |
-| O | HP | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|65/100` | `\|-damage\|p2a: Blastoise\|71/100` | same | M1 | modified | USED (own event) | 0: 0–4 · 32: 0–32 | Aegislash-Blade's Strength hit Blastoise |
+| O | HP | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|65/100` | `\|-damage\|p2a: Blastoise\|71/100` | same | M1 | modified | USED (own event) | 0: 0–4 · 32: 0–32 | Aegislash's Strength hit Blastoise |
 | O | HP | W-phys-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|31/100` | `\|-damage\|p2a: Blastoise\|43/100` | same | M1 | modified | 〃 |  |  |
 | O | HP | W-phys-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|0 fnt` | `\|-damage\|p2a: Blastoise\|14/100` | same | M1 | modified | 〃 |  |  |
 | O | HP | W-phys-taken | … | | 3 more changed line(s) | | | | | | | |
-| O | HP | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|77/100` | `\|-damage\|p2a: Blastoise\|81/100` | same | M1 | modified | USED (own event) | 0: 0–0 · 32: 0–32 | Aegislash-Blade's Round hit Blastoise |
+| O | HP | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|77/100` | `\|-damage\|p2a: Blastoise\|81/100` | same | M1 | modified | USED (own event) | 0: 0–0 · 32: 0–32 | Aegislash's Round hit Blastoise |
 | O | HP | W-spec-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|54/100` | `\|-damage\|p2a: Blastoise\|62/100` | same | M1 | modified | 〃 |  |  |
 | O | HP | W-spec-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|31/100` | `\|-damage\|p2a: Blastoise\|43/100` | same | M1 | modified | 〃 |  |  |
 | O | HP | W-spec-taken | … | | 1 more changed line(s) | | | | | | | |
-| O | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Blastoise\|82/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | modified | USED (own event) | 0: 0–5 · 32: 0–32 | Aegislash-Blade's Quick Attack hit Blastoise |
+| O | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Blastoise\|82/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | modified | USED (own event) | 0: 0–5 · 32: 0–32 | Aegislash's Quick Attack hit Blastoise |
 | O | HP | W-trade | hidden % | 2 | `\|-damage\|p2a: Blastoise\|64/100` | `\|-damage\|p2a: Blastoise\|70/100` | same | M1 | modified | 〃 |  |  |
-| O | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Aegislash\|132/155` | `\|-damage\|p1a: Aegislash\|125/155` | as % | M2 | modified | USED (own event) | 0: 0–21 · 32: 29–32 | Blastoise's Dragon Claw hit Aegislash-Blade |
+| O | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Aegislash\|132/155` | `\|-damage\|p1a: Aegislash\|125/155` | as % | M2 | modified | USED (own event) | 0: 0–21 · 32: 29–32 | Blastoise's Dragon Claw hit Aegislash |
 | O | Atk | W-trade | known exact | 2 | `\|-damage\|p1a: Aegislash\|109/155` | `\|-damage\|p1a: Aegislash\|95/155` | as % | M2 | modified | 〃 |  |  |
-| O | Def | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|65/100` | `\|-damage\|p2a: Blastoise\|72/100` | same | M1 | modified | USED (own event) | 0: 0–1 · 32: 0–32 | Aegislash-Blade's Strength hit Blastoise |
+| O | Def | W-phys-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|65/100` | `\|-damage\|p2a: Blastoise\|72/100` | same | M1 | modified | USED (own event) | 0: 0–1 · 32: 0–32 | Aegislash's Strength hit Blastoise |
 | O | Def | W-phys-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|30/100` | `\|-damage\|p2a: Blastoise\|44/100` | same | M1 | modified | 〃 |  |  |
 | O | Def | W-phys-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|0 fnt` | `\|-damage\|p2a: Blastoise\|17/100` | same | M1 | modified | 〃 |  |  |
 | O | Def | W-phys-taken | … | | 3 more changed line(s) | | | | | | | |
-| O | Def | W-trade | hidden % | 1 | `\|-damage\|p2a: Blastoise\|82/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | modified | USED (own event) | 0: 0–6 · 32: 0–32 | Aegislash-Blade's Quick Attack hit Blastoise |
+| O | Def | W-trade | hidden % | 1 | `\|-damage\|p2a: Blastoise\|82/100` | `\|-damage\|p2a: Blastoise\|85/100` | same | M1 | modified | USED (own event) | 0: 0–6 · 32: 0–32 | Aegislash's Quick Attack hit Blastoise |
 | O | Def | W-trade | hidden % | 2 | `\|-damage\|p2a: Blastoise\|64/100` | `\|-damage\|p2a: Blastoise\|71/100` | same | M1 | modified | 〃 |  |  |
-| O | SpD | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|77/100` | `\|-damage\|p2a: Blastoise\|82/100` | same | M1 | modified | USED (own event) | 0: 0–3 · 32: 0–32 | Aegislash-Blade's Round hit Blastoise |
+| O | SpD | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|77/100` | `\|-damage\|p2a: Blastoise\|82/100` | same | M1 | modified | USED (own event) | 0: 0–3 · 32: 0–32 | Aegislash's Round hit Blastoise |
 | O | SpD | W-spec-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|55/100` | `\|-damage\|p2a: Blastoise\|64/100` | same | M1 | modified | 〃 |  |  |
 | O | SpD | W-spec-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|32/100` | `\|-damage\|p2a: Blastoise\|46/100` | same | M1 | modified | 〃 |  |  |
 | O | SpD | W-spec-taken | … | | 1 more changed line(s) | | | | | | | |
@@ -9108,11 +8884,11 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| holder hidden | · | (○ M5) | · | · | · | · |
+| holder hidden | · | (✓ M5) | · | · | · | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|6/255 tox\|[from] psn` | `\|-damage\|p1a: Snorlax\|0 fnt\|[from] psn` | as % | M5 | modified | MASKED | 0: 0–17 (partial) · 32: 32–32 (partial) | — |
+| H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|6/255 tox\|[from] psn` | `\|-damage\|p1a: Snorlax\|0 fnt\|[from] psn` | as % | M5 | modified | USED (own event) | 0: 0–17 · 32: 32–32 | tox on Umbreon |
 | H | Atk | W-toxic | presence | 4 | — | `\|faint\|p1a: Snorlax` | same | M6 | modified | 〃 |  |  |
 
 Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-dealt changed nothing · holder-hidden/W-phys-taken changed nothing · holder-hidden/W-spec-taken changed nothing · holder-hidden/W-order-up changed nothing · holder-hidden/W-order-down changed nothing · holder-hidden/W-pace changed nothing · holder-hidden/W-trade changed nothing · holder-hidden/W-burn · holder-hidden/W-paralysis · holder-hidden/W-toxic · holder-hidden/W-sleep changed nothing · holder-hidden/W-confusion changed nothing · holder-hidden/W-taunt changed nothing · holder-hidden/W-lethal changed nothing · holder-hidden/W-pivot changed nothing · holder-hidden/W-two-moves changed nothing · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade changed nothing
@@ -9123,16 +8899,13 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| holder hidden | · | · | · | (✓ M2) | · | ✓ M7 |
+| holder hidden | · | · | · | (✓ M2) | · | · |
 | other hidden | (✓ M1) | · | (✓ M1) | · | (✓ M1) | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|229/255` | `\|-damage\|p1a: Snorlax\|220/255` | as % | M2 | modified | USED (own event) | 0: 0–20 · 32: 32–32 | Grapploct's Round hit Snorlax |
 | H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|176/255` | `\|-damage\|p1a: Snorlax\|167/255` | as % | M2 | modified | USED (own event) | 0: 0–20 · 32: 32–32 | Grapploct's Round hit Snorlax |
-| H | Spe | W-paralysis | order | 2 | `p1b: Torkoal before p2a: Grapploct` | `p2a: Grapploct before p1b: Torkoal` | same | M7 | own | USED | 0: 0–19 · 32: 18–32 | Torkoal acted before Grapploct; Grapploct acted before Torkoal |
-| H | Spe | W-paralysis | order | 3 | `p1b: Torkoal before p2a: Grapploct` | `p2a: Grapploct before p1b: Torkoal` | same | M7 | own | 〃 |  |  |
-| H | Spe | W-paralysis | order | 4 | `p1b: Torkoal before p2a: Grapploct` | `p2a: Grapploct before p1b: Torkoal` | same | M7 | own | 〃 |  |  |
 | O | HP | W-spec-taken | hidden % | 1 | `\|-damage\|p2a: Blastoise\|80/100` | `\|-damage\|p2a: Blastoise\|83/100` | same | M1 | modified | USED (own event) | 0: 0–1 · 32: 0–32 | Grapploct's Round hit Blastoise |
 | O | HP | W-spec-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|61/100` | `\|-damage\|p2a: Blastoise\|67/100` | same | M1 | modified | 〃 |  |  |
 | O | HP | W-spec-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|41/100` | `\|-damage\|p2a: Blastoise\|51/100` | same | M1 | modified | 〃 |  |  |
@@ -9146,7 +8919,7 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 | O | SpD | W-spec-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|42/100` | `\|-damage\|p2a: Blastoise\|53/100` | same | M1 | modified | 〃 |  |  |
 | O | SpD | W-spec-taken | … | | 1 more changed line(s) | | | | | | | |
 
-Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-dealt · holder-hidden/W-phys-taken changed nothing · holder-hidden/W-spec-taken changed nothing · holder-hidden/W-order-up changed nothing · holder-hidden/W-order-down changed nothing · holder-hidden/W-pace changed nothing · holder-hidden/W-trade changed nothing · holder-hidden/W-burn changed nothing · holder-hidden/W-paralysis · holder-hidden/W-toxic changed nothing · holder-hidden/W-sleep changed nothing · holder-hidden/W-confusion changed nothing · holder-hidden/W-taunt changed nothing · holder-hidden/W-lethal changed nothing · holder-hidden/W-pivot changed nothing · holder-hidden/W-two-moves · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken · other-hidden/W-trade
+Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-dealt · holder-hidden/W-phys-taken changed nothing · holder-hidden/W-spec-taken changed nothing · holder-hidden/W-order-up changed nothing · holder-hidden/W-order-down changed nothing · holder-hidden/W-pace changed nothing · holder-hidden/W-trade changed nothing · holder-hidden/W-burn changed nothing · holder-hidden/W-paralysis changed nothing · holder-hidden/W-toxic changed nothing · holder-hidden/W-sleep changed nothing · holder-hidden/W-confusion changed nothing · holder-hidden/W-taunt changed nothing · holder-hidden/W-lethal changed nothing · holder-hidden/W-pivot changed nothing · holder-hidden/W-two-moves · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken · other-hidden/W-trade
 
 #### Thermal Exchange · `ability:thermalexchange`
 
@@ -9210,7 +8983,7 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 | H | Atk | W-taunt | known exact | 2 | `\|-damage\|p1a: Snorlax\|193/255` | `\|-damage\|p1a: Snorlax\|178/255` | as % | M2 | modified | USED (own event) | 0: 0–26 · 32: 31–32 | Barbaracle's Strength hit Snorlax |
 | H | Atk | W-taunt | known exact | 3 | `\|-damage\|p1a: Snorlax\|131/255` | `\|-damage\|p1a: Snorlax\|101/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | known exact | 4 | `\|-damage\|p1a: Snorlax\|69/255` | `\|-damage\|p1a: Snorlax\|24/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|193/255` | `\|-damage\|p1a: Snorlax\|178/255` | as % | M2 | modified | USED (own event) | 0: 0–26 (partial) · 32: 31–32 (partial) | Barbaracle's Strength hit Snorlax |
+| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|193/255` | `\|-damage\|p1a: Snorlax\|178/255` | as % | M2 | modified | USED (own event) | 0: 0–26 · 32: 31–32 | Barbaracle's Strength hit Snorlax |
 | H | Atk | W-toxic | known exact | 3 | `\|-damage\|p1a: Snorlax\|131/255` | `\|-damage\|p1a: Snorlax\|101/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|69/255` | `\|-damage\|p1a: Snorlax\|24/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|193/255` | `\|-damage\|p1a: Snorlax\|178/255` | as % | M2 | modified | USED (own event) | 0: 0–26 · 32: 31–32 | Barbaracle's Strength hit Snorlax |
@@ -9464,20 +9237,20 @@ Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt · holder-hi
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| holder hidden | (‼ M1) | (‼ M2) | (‼ M1) | (‼ M2) | · | · |
+| holder hidden | (✓ M1) | (✓ M2) | (✓ M1) | (✓ M2) | · | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Altaria\|78/100` | `\|-damage\|p2a: Altaria\|81/100` | same | M1 | modified | UNSOUND | 0: 0–7 (partial) LOST · 32: 0–32 (partial) LOST | Snorlax's Quick Attack hit Altaria-Mega |
+| H | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Altaria\|78/100` | `\|-damage\|p2a: Altaria\|81/100` | same | M1 | modified | USED (own event) | 0: 0–3 · 32: 0–32 | Snorlax's Quick Attack hit Altaria-Mega |
 | H | HP | W-trade | hidden % | 2 | `\|-damage\|p2a: Altaria\|56/100` | `\|-damage\|p2a: Altaria\|63/100` | same | M1 | modified | 〃 |  |  |
-| H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|167/255` | `\|-damage\|p1a: Snorlax\|144/255` | as % | M2 | modified | UNSOUND | 0: 24–32 (partial) LOST · 32: none (partial) LOST | Altaria-Mega's Strength hit Snorlax |
-| H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|167/255` | `\|-damage\|p1a: Snorlax\|144/255` | as % | M2 | modified | UNSOUND | 0: 24–32 (partial) LOST · 32: none (partial) LOST | Altaria-Mega's Strength hit Snorlax |
+| H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|167/255` | `\|-damage\|p1a: Snorlax\|144/255` | as % | M2 | modified | USED (own event) | 0: 0–25 · 32: 32–32 | Altaria-Mega's Strength hit Snorlax |
+| H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|167/255` | `\|-damage\|p1a: Snorlax\|144/255` | as % | M2 | modified | USED (own event) | 0: 0–25 · 32: 32–32 | Altaria-Mega's Strength hit Snorlax |
 | H | Atk | W-trade | known exact | 2 | `\|-damage\|p1a: Snorlax\|79/255` | `\|-damage\|p1a: Snorlax\|33/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|167/255` | `\|-damage\|p1a: Snorlax\|144/255` | as % | M2 | modified | UNSOUND | 0: 24–32 (partial) LOST · 32: none (partial) LOST | Altaria-Mega's Strength hit Snorlax |
-| H | Def | W-trade | hidden % | 1 | `\|-damage\|p2a: Altaria\|78/100` | `\|-damage\|p2a: Altaria\|82/100` | same | M1 | modified | UNSOUND | 0: 0–2 (partial) LOST · 32: 0–32 (partial) LOST | Snorlax's Quick Attack hit Altaria-Mega |
+| H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|167/255` | `\|-damage\|p1a: Snorlax\|144/255` | as % | M2 | modified | USED (own event) | 0: 0–25 · 32: 32–32 | Altaria-Mega's Strength hit Snorlax |
+| H | Def | W-trade | hidden % | 1 | `\|-damage\|p2a: Altaria\|78/100` | `\|-damage\|p2a: Altaria\|82/100` | same | M1 | modified | USED (own event) | 0: 0–2 · 32: 0–32 | Snorlax's Quick Attack hit Altaria-Mega |
 | H | Def | W-trade | hidden % | 2 | `\|-damage\|p2a: Altaria\|56/100` | `\|-damage\|p2a: Altaria\|64/100` | same | M1 | modified | 〃 |  |  |
-| H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|210/255` | `\|-damage\|p1a: Snorlax\|200/255` | as % | M2 | modified | UNSOUND | 0: 25–32 LOST · 32: none (partial) LOST | Altaria-Mega's Round hit Snorlax |
-| H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|120/255` | `\|-damage\|p1a: Snorlax\|110/255` | as % | M2 | modified | UNSOUND | 0: 0–32 (partial) LOST · 32: 0–32 (partial) LOST | — |
+| H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|210/255` | `\|-damage\|p1a: Snorlax\|200/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Altaria-Mega's Round hit Snorlax |
+| H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|120/255` | `\|-damage\|p1a: Snorlax\|110/255` | as % | M2 | modified | USED (own event) | 0: 0–31 · 32: 32–32 | Altaria-Mega's Round hit Snorlax |
 
 Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt · holder-hidden/W-phys-taken changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-spec-taken changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-order-up changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-order-down changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-pace changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-trade · holder-hidden/W-burn changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-paralysis changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-toxic changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-sleep changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-confusion changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-taunt changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-lethal changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-pivot changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-two-moves · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade changed nothing
 
@@ -10292,21 +10065,21 @@ Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt · holder-hi
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| holder hidden | (‼ M1) | (‼ M2) | (‼ M1) | (‼ M2) | · | · |
+| holder hidden | (✓ M1) | (✓ M2) | (✓ M1) | (✓ M2) | · | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Feraligatr\|82/100` | `\|-damage\|p2a: Feraligatr\|85/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | Snorlax's Quick Attack hit Feraligatr-Mega |
+| H | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Feraligatr\|82/100` | `\|-damage\|p2a: Feraligatr\|85/100` | same | M1 | modified | USED (own event) | 0: 0–16 · 32: 0–32 | Snorlax's Quick Attack hit Feraligatr-Mega |
 | H | HP | W-trade | hidden % | 2 | `\|-damage\|p2a: Feraligatr\|65/100` | `\|-damage\|p2a: Feraligatr\|70/100` | same | M1 | modified | 〃 |  |  |
-| H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|132/255` | `\|-damage\|p1a: Snorlax\|111/255` | as % | M2 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | Feraligatr-Mega's Strength hit Snorlax |
-| H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|132/255` | `\|-damage\|p1a: Snorlax\|111/255` | as % | M2 | modified | UNSOUND | 0: none (partial) LOST · 32: none LOST | Feraligatr-Mega's Strength hit Snorlax |
+| H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|132/255` | `\|-damage\|p1a: Snorlax\|111/255` | as % | M2 | modified | USED (own event) | 0: 0–32 · 32: 32–32 | Feraligatr-Mega's Strength hit Snorlax |
+| H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|132/255` | `\|-damage\|p1a: Snorlax\|111/255` | as % | M2 | modified | USED (own event) | 0: 0–32 · 32: 32–32 | Snorlax's Quick Attack hit Feraligatr-Mega; Feraligatr-Mega's Strength hit Snorlax |
 | H | Atk | W-trade | known exact | 2 | `\|-damage\|p1a: Snorlax\|9/255` | `\|-damage\|p1a: Snorlax\|0 fnt` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-trade | presence | 2 | — | `\|faint\|p1a: Snorlax` | same | M6 | modified | 〃 |  |  |
-| H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|132/255` | `\|-damage\|p1a: Snorlax\|111/255` | as % | M2 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | Feraligatr-Mega's Strength hit Snorlax |
-| H | Def | W-trade | hidden % | 1 | `\|-damage\|p2a: Feraligatr\|81/100` | `\|-damage\|p2a: Feraligatr\|85/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | Snorlax's Quick Attack hit Feraligatr-Mega |
+| H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|132/255` | `\|-damage\|p1a: Snorlax\|111/255` | as % | M2 | modified | USED (own event) | 0: 0–32 · 32: 32–32 | Feraligatr-Mega's Strength hit Snorlax |
+| H | Def | W-trade | hidden % | 1 | `\|-damage\|p2a: Feraligatr\|81/100` | `\|-damage\|p2a: Feraligatr\|85/100` | same | M1 | modified | USED (own event) | 0: 0–1 · 32: 0–32 | Snorlax's Quick Attack hit Feraligatr-Mega |
 | H | Def | W-trade | hidden % | 2 | `\|-damage\|p2a: Feraligatr\|62/100` | `\|-damage\|p2a: Feraligatr\|70/100` | same | M1 | modified | 〃 |  |  |
-| H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|218/255` | `\|-damage\|p1a: Snorlax\|207/255` | as % | M2 | modified | UNSOUND | 0: 19–32 (partial) LOST · 32: none (partial) LOST | Feraligatr-Mega's Round hit Snorlax |
-| H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|95/255` | `\|-damage\|p1a: Snorlax\|84/255` | as % | M2 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | — |
+| H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|218/255` | `\|-damage\|p1a: Snorlax\|207/255` | as % | M2 | modified | USED (own event) | 0: 0–24 · 32: 30–32 | Feraligatr-Mega's Round hit Snorlax |
+| H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|95/255` | `\|-damage\|p1a: Snorlax\|84/255` | as % | M2 | modified | USED (own event) | 0: 0–24 · 32: 30–32 | Feraligatr-Mega's Round hit Snorlax |
 
 Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt · holder-hidden/W-phys-taken changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-spec-taken changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-order-up changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-order-down changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-pace changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-trade · holder-hidden/W-burn changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-paralysis changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-toxic changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-sleep changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-confusion changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-taunt changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-lethal changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-pivot changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-two-moves · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade changed nothing
 
@@ -10437,16 +10210,16 @@ Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt · holder-hi
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| holder hidden | · | (‼ M2) | · | (‼ M2) | · | · |
+| holder hidden | · | (✓ M2) | · | (✓ M2) | · | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|183/255` | `\|-damage\|p1a: Snorlax\|162/255` | as % | M2 | modified | UNSOUND | 0: 20–32 (partial) LOST · 32: none (partial) LOST | Gardevoir-Mega's Strength hit Snorlax |
-| H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|183/255` | `\|-damage\|p1a: Snorlax\|162/255` | as % | M2 | modified | UNSOUND | 0: 20–32 (partial) LOST · 32: none (partial) LOST | Gardevoir-Mega's Strength hit Snorlax |
+| H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|183/255` | `\|-damage\|p1a: Snorlax\|162/255` | as % | M2 | modified | USED (own event) | 0: 0–20 · 32: 30–32 | Gardevoir-Mega's Strength hit Snorlax |
+| H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|183/255` | `\|-damage\|p1a: Snorlax\|162/255` | as % | M2 | modified | USED (own event) | 0: 0–20 · 32: 30–32 | Gardevoir-Mega's Strength hit Snorlax |
 | H | Atk | W-trade | known exact | 2 | `\|-damage\|p1a: Snorlax\|111/255` | `\|-damage\|p1a: Snorlax\|69/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|183/255` | `\|-damage\|p1a: Snorlax\|162/255` | as % | M2 | modified | UNSOUND | 0: 20–32 (partial) LOST · 32: none (partial) LOST | Gardevoir-Mega's Strength hit Snorlax |
-| H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|192/255` | `\|-damage\|p1a: Snorlax\|182/255` | as % | M2 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | Gardevoir-Mega's Round hit Snorlax |
-| H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|119/255` | `\|-damage\|p1a: Snorlax\|109/255` | as % | M2 | modified | UNSOUND | 0: 0–32 (partial) LOST · 32: 0–32 (partial) LOST | — |
+| H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|183/255` | `\|-damage\|p1a: Snorlax\|162/255` | as % | M2 | modified | USED (own event) | 0: 0–20 · 32: 30–32 | Gardevoir-Mega's Strength hit Snorlax |
+| H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|192/255` | `\|-damage\|p1a: Snorlax\|182/255` | as % | M2 | modified | USED (own event) | 0: 0–32 · 32: 32–32 | Gardevoir-Mega's Round hit Snorlax |
+| H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|119/255` | `\|-damage\|p1a: Snorlax\|109/255` | as % | M2 | modified | USED (own event) | 0: 0–32 · 32: 32–32 | Gardevoir-Mega's Round hit Snorlax |
 
 Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt · holder-hidden/W-phys-taken changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-spec-taken changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-order-up changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-order-down changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-pace changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-trade · holder-hidden/W-burn changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-paralysis changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-toxic changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-sleep changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-confusion changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-taunt changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-lethal changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-pivot changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-two-moves · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade changed nothing
 
@@ -10471,16 +10244,16 @@ Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt · holder-hi
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| holder hidden | · | (‼ M2) | · | (‼ M2) | · | · |
+| holder hidden | · | (✓ M2) | · | (✓ M2) | · | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|159/255` | `\|-damage\|p1a: Snorlax\|138/255` | as % | M2 | modified | UNSOUND | 0: 28–32 (partial) LOST · 32: none (partial) LOST | Glalie-Mega's Strength hit Snorlax |
-| H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|159/255` | `\|-damage\|p1a: Snorlax\|138/255` | as % | M2 | modified | UNSOUND | 0: 28–32 (partial) LOST · 32: none (partial) LOST | Glalie-Mega's Strength hit Snorlax |
+| H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|159/255` | `\|-damage\|p1a: Snorlax\|138/255` | as % | M2 | modified | USED (own event) | 0: 0–28 · 32: 31–32 | Glalie-Mega's Strength hit Snorlax |
+| H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|159/255` | `\|-damage\|p1a: Snorlax\|138/255` | as % | M2 | modified | USED (own event) | 0: 0–28 · 32: 31–32 | Glalie-Mega's Strength hit Snorlax |
 | H | Atk | W-trade | known exact | 2 | `\|-damage\|p1a: Snorlax\|63/255` | `\|-damage\|p1a: Snorlax\|21/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|159/255` | `\|-damage\|p1a: Snorlax\|138/255` | as % | M2 | modified | UNSOUND | 0: 28–32 (partial) LOST · 32: none (partial) LOST | Glalie-Mega's Strength hit Snorlax |
-| H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|207/255` | `\|-damage\|p1a: Snorlax\|197/255` | as % | M2 | modified | UNSOUND | 0: 26–32 LOST · 32: none (partial) LOST | Glalie-Mega's Round hit Snorlax |
-| H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|110/255` | `\|-damage\|p1a: Snorlax\|100/255` | as % | M2 | modified | UNSOUND | 0: 0–32 (partial) LOST · 32: 0–32 (partial) LOST | — |
+| H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|159/255` | `\|-damage\|p1a: Snorlax\|138/255` | as % | M2 | modified | USED (own event) | 0: 0–28 · 32: 31–32 | Glalie-Mega's Strength hit Snorlax |
+| H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|207/255` | `\|-damage\|p1a: Snorlax\|197/255` | as % | M2 | modified | USED (own event) | 0: 0–30 · 32: 31–32 | Glalie-Mega's Round hit Snorlax |
+| H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|110/255` | `\|-damage\|p1a: Snorlax\|100/255` | as % | M2 | modified | USED (own event) | 0: 0–30 · 32: 31–32 | Glalie-Mega's Round hit Snorlax |
 
 Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt · holder-hidden/W-phys-taken changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-spec-taken changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-order-up changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-order-down changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-pace changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-trade · holder-hidden/W-burn changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-paralysis changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-toxic changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-sleep changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-confusion changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-taunt changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-lethal changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-pivot changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-two-moves · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade changed nothing
 
@@ -10902,7 +10675,7 @@ Scan: reads `maxhp`.
 | H | Atk | W-taunt | known exact | 2 | `\|-damage\|p1a: Snorlax\|203/255` | `\|-damage\|p1a: Snorlax\|187/255` | as % | M2 | modified | USED (own event) | 0: 0–23 · 32: 32–32 | Blastoise's Strength hit Snorlax; Life Orb on Blastoise |
 | H | Atk | W-taunt | known exact | 3 | `\|-damage\|p1a: Snorlax\|151/255` | `\|-damage\|p1a: Snorlax\|119/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | known exact | 4 | `\|-damage\|p1a: Snorlax\|99/255` | `\|-damage\|p1a: Snorlax\|51/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|203/255` | `\|-damage\|p1a: Snorlax\|187/255` | as % | M2 | modified | USED (own event) | 0: 0–23 (partial) · 32: 32–32 (partial) | Blastoise's Strength hit Snorlax |
+| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|203/255` | `\|-damage\|p1a: Snorlax\|187/255` | as % | M2 | modified | USED (own event) | 0: 0–23 · 32: 32–32 | Blastoise's Strength hit Snorlax; Life Orb on Blastoise |
 | H | Atk | W-toxic | known exact | 3 | `\|-damage\|p1a: Snorlax\|151/255` | `\|-damage\|p1a: Snorlax\|119/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|99/255` | `\|-damage\|p1a: Snorlax\|51/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|203/255` | `\|-damage\|p1a: Snorlax\|187/255` | as % | M2 | modified | USED (own event) | 0: 0–23 · 32: 32–32 | Blastoise's Strength hit Snorlax; Life Orb on Blastoise |
@@ -10954,7 +10727,7 @@ Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt · holder-hi
 | H | Atk | W-taunt | known exact | 2 | `\|-damage\|p1a: Snorlax\|198/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | USED (own event) | 0: 0–15 · 32: 32–32 | Pikachu's Strength hit Snorlax |
 | H | Atk | W-taunt | known exact | 3 | `\|-damage\|p1a: Snorlax\|141/255` | `\|-damage\|p1a: Snorlax\|93/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | known exact | 4 | `\|-damage\|p1a: Snorlax\|84/255` | `\|-damage\|p1a: Snorlax\|12/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|198/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 (partial) | — |
+| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|198/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | USED (own event) | 0: 0–15 · 32: 32–32 | Pikachu's Strength hit Snorlax |
 | H | Atk | W-toxic | known exact | 3 | `\|-damage\|p1a: Snorlax\|141/255` | `\|-damage\|p1a: Snorlax\|93/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|84/255` | `\|-damage\|p1a: Snorlax\|12/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|198/255` | `\|-damage\|p1a: Snorlax\|174/255` | as % | M2 | modified | USED (own event) | 0: 0–15 · 32: 32–32 | Pikachu's Strength hit Snorlax |
@@ -11247,7 +11020,7 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 | H | Atk | W-paralysis | known exact | 4 | `\|-damage\|p1a: Snorlax\|111/255` | `\|-damage\|p1a: Snorlax\|68/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | known exact | 3 | `\|-damage\|p1a: Snorlax\|167/255` | `\|-damage\|p1a: Snorlax\|141/255` | as % | M2 | modified | MASKED | 0: 0–23 · 32: 32–32 | — |
 | H | Atk | W-taunt | known exact | 4 | `\|-damage\|p1a: Snorlax\|111/255` | `\|-damage\|p1a: Snorlax\|68/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-toxic | known exact | 3 | `\|-damage\|p1a: Snorlax\|167/255` | `\|-damage\|p1a: Snorlax\|141/255` | as % | M2 | modified | MASKED | 0: 0–23 · 32: 32–32 (partial) | — |
+| H | Atk | W-toxic | known exact | 3 | `\|-damage\|p1a: Snorlax\|167/255` | `\|-damage\|p1a: Snorlax\|141/255` | as % | M2 | modified | MASKED | 0: 0–23 · 32: 32–32 | — |
 | H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|111/255` | `\|-damage\|p1a: Snorlax\|68/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-trade | known exact | 2 | `\|-damage\|p1a: Snorlax\|167/255` | `\|-damage\|p1a: Snorlax\|141/255` | as % | M2 | modified | MASKED | 0: 0–23 · 32: 32–32 | — |
 | O | HP | W-phys-taken | hidden % | 2 | `\|-damage\|p2a: Blastoise\|4/100` | `\|-damage\|p2a: Blastoise\|20/100y` | same | M1 | modified | USED (own event) | 0: 0–5 · 32: 1–32 | Snorlax's Strength hit Blastoise |
@@ -11302,7 +11075,7 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 | H | Atk | W-taunt | known exact | 2 | `\|-damage\|p1a: Snorlax\|212/255` | `\|-damage\|p1a: Snorlax\|198/255` | as % | M2 | modified | USED (own event) | 0: 0–19 · 32: 32–32 | Blastoise's Strength hit Snorlax |
 | H | Atk | W-taunt | known exact | 3 | `\|-damage\|p1a: Snorlax\|169/255` | `\|-damage\|p1a: Snorlax\|141/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | known exact | 4 | `\|-damage\|p1a: Snorlax\|126/255` | `\|-damage\|p1a: Snorlax\|84/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|212/255` | `\|-damage\|p1a: Snorlax\|198/255` | as % | M2 | modified | USED (own event) | 0: 0–19 (partial) · 32: 32–32 (partial) | Blastoise's Strength hit Snorlax |
+| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|212/255` | `\|-damage\|p1a: Snorlax\|198/255` | as % | M2 | modified | USED (own event) | 0: 0–19 · 32: 32–32 | Blastoise's Strength hit Snorlax |
 | H | Atk | W-toxic | known exact | 3 | `\|-damage\|p1a: Snorlax\|169/255` | `\|-damage\|p1a: Snorlax\|141/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|126/255` | `\|-damage\|p1a: Snorlax\|84/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|212/255` | `\|-damage\|p1a: Snorlax\|198/255` | as % | M2 | modified | USED (own event) | 0: 0–19 · 32: 32–32 | Blastoise's Strength hit Snorlax |
@@ -11374,7 +11147,7 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 | H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|204/255` | `\|-damage\|p1a: Snorlax\|188/255` | as % | M2 | modified | USED (own event) | 0: 0–21 · 32: 32–32 | Blastoise's Strength hit Snorlax |
 | H | Atk | W-sleep | known exact | 4 | `\|-damage\|p1a: Snorlax\|204/255` | `\|-damage\|p1a: Snorlax\|188/255` | as % | M2 | modified | USED (own event) | 0: 0–21 · 32: 32–32 | Blastoise's Strength hit Snorlax |
 | H | Atk | W-taunt | known exact | 2 | `\|-damage\|p1a: Snorlax\|204/255` | `\|-damage\|p1a: Snorlax\|188/255` | as % | M2 | modified | USED (own event) | 0: 0–21 · 32: 32–32 | Blastoise's Strength hit Snorlax |
-| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|204/255` | `\|-damage\|p1a: Snorlax\|188/255` | as % | M2 | modified | USED (own event) | 0: 0–21 · 32: 32–32 (partial) | Blastoise's Strength hit Snorlax |
+| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|204/255` | `\|-damage\|p1a: Snorlax\|188/255` | as % | M2 | modified | USED (own event) | 0: 0–21 · 32: 32–32 | Blastoise's Strength hit Snorlax |
 | H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|204/255` | `\|-damage\|p1a: Snorlax\|188/255` | as % | M2 | modified | USED (own event) | 0: 0–21 · 32: 32–32 | Blastoise's Strength hit Snorlax |
 | H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|204/255` | `\|-damage\|p1a: Snorlax\|188/255` | as % | M2 | modified | USED (own event) | 0: 0–21 · 32: 32–32 | Blastoise's Strength hit Snorlax |
 | H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|229/255` | `\|-damage\|p1a: Snorlax\|221/255` | as % | M2 | modified | USED (own event) | 0: 0–22 · 32: 32–32 | Blastoise's Round hit Snorlax |
@@ -11420,7 +11193,7 @@ Scan: reads `hp`, `maxhp`.
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| holder hidden | ↻ M4 ✓ M6 | · | (○ M1) | · | ✓ M6 | · |
+| holder hidden | ○ M4 ✓ M6 | · | (○ M1) | · | ✓ M6 | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -11429,7 +11202,7 @@ Scan: reads `hp`, `maxhp`.
 | H | HP | W-spec-taken | presence | 3 | `\|-heal\|p2a: Blastoise\|51/100\|[from] item: Oran Berry` | — | same | M6 | own | 〃 |  |  |
 | H | HP | W-spec-taken | presence | 4 | — | `\|-enditem\|p2a: Blastoise\|Oran Berry\|[eat]` | same | M6 | own | 〃 |  |  |
 | H | HP | W-spec-taken | … | | 1 more changed line(s) | | | | | | | |
-| H | HP | W-toxic | hidden % | 4 | `\|-heal\|p2a: Blastoise\|48/100 tox\|[from] item: Oran Berry` | `\|-heal\|p2a: Blastoise\|46/100 tox\|[from] item: Oran Berry` | same | M4 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
+| H | HP | W-toxic | hidden % | 4 | `\|-heal\|p2a: Blastoise\|48/100 tox\|[from] item: Oran Berry` | `\|-heal\|p2a: Blastoise\|46/100 tox\|[from] item: Oran Berry` | same | M4 | own | MASKED | 0: 0–17 (partial) · 32: 13–32 | — |
 | H | Def | W-phys-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|0 fnt` | `\|-damage\|p2a: Blastoise\|2/100` | same | M1 | modified | MASKED | 0: 0–0 · 32: 0–32 (partial) | — |
 | H | Def | W-phys-taken | presence | 3 | `\|faint\|p2a: Blastoise` | — | same | M6 | modified | 〃 |  |  |
 | H | Def | W-phys-taken | names | 4 | `\|move\|p1a: Snorlax\|Strength\|p2a: Slowking` | `\|move\|p1a: Snorlax\|Strength\|p2a: Blastoise` | same | M9 | modified | 〃 |  |  |
@@ -11511,21 +11284,21 @@ Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt · holder-hi
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| holder hidden | (‼ M1) | (‼ M2) | (‼ M1) | (‼ M2) | · | · |
+| holder hidden | (✓ M1) | (✓ M2) | (✓ M1) | (✓ M2) | · | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Pinsir\|78/100` | `\|-damage\|p2a: Pinsir\|82/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | Snorlax's Quick Attack hit Pinsir-Mega |
+| H | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Pinsir\|78/100` | `\|-damage\|p2a: Pinsir\|82/100` | same | M1 | modified | USED (own event) | 0: 0–2 · 32: 0–32 | Snorlax's Quick Attack hit Pinsir-Mega |
 | H | HP | W-trade | hidden % | 2 | `\|-damage\|p2a: Pinsir\|57/100` | `\|-damage\|p2a: Pinsir\|65/100` | same | M1 | modified | 〃 |  |  |
-| H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|137/255` | `\|-damage\|p1a: Snorlax\|114/255` | as % | M2 | modified | UNSOUND | 0: none LOST · 32: none (partial) LOST | Pinsir-Mega's Strength hit Snorlax |
-| H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|137/255` | `\|-damage\|p1a: Snorlax\|114/255` | as % | M2 | modified | UNSOUND | 0: none (partial) LOST · 32: none LOST | Pinsir-Mega's Strength hit Snorlax |
+| H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|137/255` | `\|-damage\|p1a: Snorlax\|114/255` | as % | M2 | modified | USED (own event) | 0: 0–32 · 32: 32–32 | Pinsir-Mega's Strength hit Snorlax |
+| H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|137/255` | `\|-damage\|p1a: Snorlax\|114/255` | as % | M2 | modified | USED (own event) | 0: 0–32 · 32: 32–32 | Pinsir-Mega's Strength hit Snorlax |
 | H | Atk | W-trade | known exact | 2 | `\|-damage\|p1a: Snorlax\|19/255` | `\|-damage\|p1a: Snorlax\|0 fnt` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-trade | presence | 2 | — | `\|faint\|p1a: Snorlax` | same | M6 | modified | 〃 |  |  |
-| H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|137/255` | `\|-damage\|p1a: Snorlax\|114/255` | as % | M2 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | Pinsir-Mega's Strength hit Snorlax |
-| H | Def | W-trade | hidden % | 1 | `\|-damage\|p2a: Pinsir\|78/100` | `\|-damage\|p2a: Pinsir\|82/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | Snorlax's Quick Attack hit Pinsir-Mega |
+| H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|137/255` | `\|-damage\|p1a: Snorlax\|114/255` | as % | M2 | modified | USED (own event) | 0: 0–32 · 32: 32–32 | Pinsir-Mega's Strength hit Snorlax |
+| H | Def | W-trade | hidden % | 1 | `\|-damage\|p2a: Pinsir\|78/100` | `\|-damage\|p2a: Pinsir\|82/100` | same | M1 | modified | USED (own event) | 0: 0–6 · 32: 0–32 | Snorlax's Quick Attack hit Pinsir-Mega |
 | H | Def | W-trade | hidden % | 2 | `\|-damage\|p2a: Pinsir\|57/100` | `\|-damage\|p2a: Pinsir\|64/100` | same | M1 | modified | 〃 |  |  |
-| H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|225/255` | `\|-damage\|p1a: Snorlax\|215/255` | as % | M2 | modified | UNSOUND | 0: 15–32 (partial) LOST · 32: none (partial) LOST | Pinsir-Mega's Round hit Snorlax |
-| H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|105/255` | `\|-damage\|p1a: Snorlax\|95/255` | as % | M2 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | — |
+| H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|225/255` | `\|-damage\|p1a: Snorlax\|215/255` | as % | M2 | modified | USED (own event) | 0: 0–20 · 32: 31–32 | Pinsir-Mega's Round hit Snorlax |
+| H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|105/255` | `\|-damage\|p1a: Snorlax\|95/255` | as % | M2 | modified | USED (own event) | 0: 0–20 · 32: 31–32 | Pinsir-Mega's Round hit Snorlax |
 
 Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt · holder-hidden/W-phys-taken changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-spec-taken changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-order-up changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-order-down changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-pace changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-trade · holder-hidden/W-burn changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-paralysis changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-toxic changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-sleep changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-confusion changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-taunt changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-lethal changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-pivot changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-two-moves · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade changed nothing
 
@@ -11733,21 +11506,21 @@ Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt · holder-hi
 
 | | HP | Atk | Def | SpA | SpD | Spe |
 |---|---|---|---|---|---|---|
-| holder hidden | (‼ M1) | (‼ M2) | (‼ M1) | (‼ M2) | · | · |
+| holder hidden | (✓ M1) | (✓ M2) | (✓ M1) | (✓ M2) | · | · |
 
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Salamence\|83/100` | `\|-damage\|p2a: Salamence\|86/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | Snorlax's Quick Attack hit Salamence-Mega |
+| H | HP | W-trade | hidden % | 1 | `\|-damage\|p2a: Salamence\|83/100` | `\|-damage\|p2a: Salamence\|86/100` | same | M1 | modified | USED (own event) | 0: 0–4 · 32: 2–32 | Snorlax's Quick Attack hit Salamence-Mega |
 | H | HP | W-trade | hidden % | 2 | `\|-damage\|p2a: Salamence\|67/100` | `\|-damage\|p2a: Salamence\|72/100` | same | M1 | modified | 〃 |  |  |
-| H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|143/255` | `\|-damage\|p1a: Snorlax\|122/255` | as % | M2 | modified | UNSOUND | 0: none LOST · 32: none (partial) LOST | Salamence-Mega's Strength hit Snorlax |
-| H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|143/255` | `\|-damage\|p1a: Snorlax\|122/255` | as % | M2 | modified | UNSOUND | 0: none (partial) LOST · 32: none LOST | Salamence-Mega's Strength hit Snorlax |
+| H | Atk | W-phys-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|143/255` | `\|-damage\|p1a: Snorlax\|122/255` | as % | M2 | modified | USED (own event) | 0: 0–32 · 32: 31–32 | Salamence-Mega's Strength hit Snorlax |
+| H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|143/255` | `\|-damage\|p1a: Snorlax\|122/255` | as % | M2 | modified | USED (own event) | 0: 0–32 · 32: 31–32 | Salamence-Mega's Strength hit Snorlax |
 | H | Atk | W-trade | known exact | 2 | `\|-damage\|p1a: Snorlax\|31/255` | `\|-damage\|p1a: Snorlax\|0 fnt` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-trade | presence | 2 | — | `\|faint\|p1a: Snorlax` | same | M6 | modified | 〃 |  |  |
-| H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|143/255` | `\|-damage\|p1a: Snorlax\|122/255` | as % | M2 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | Salamence-Mega's Strength hit Snorlax |
-| H | Def | W-trade | hidden % | 1 | `\|-damage\|p2a: Salamence\|83/100` | `\|-damage\|p2a: Salamence\|86/100` | same | M1 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | Snorlax's Quick Attack hit Salamence-Mega |
+| H | Atk | W-two-moves | known exact | 1 | `\|-damage\|p1a: Snorlax\|143/255` | `\|-damage\|p1a: Snorlax\|122/255` | as % | M2 | modified | USED (own event) | 0: 0–32 · 32: 31–32 | Salamence-Mega's Strength hit Snorlax |
+| H | Def | W-trade | hidden % | 1 | `\|-damage\|p2a: Salamence\|83/100` | `\|-damage\|p2a: Salamence\|86/100` | same | M1 | modified | USED (own event) | 0: 0–5 · 32: 0–32 | Snorlax's Quick Attack hit Salamence-Mega |
 | H | Def | W-trade | hidden % | 2 | `\|-damage\|p2a: Salamence\|67/100` | `\|-damage\|p2a: Salamence\|72/100` | same | M1 | modified | 〃 |  |  |
-| H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|207/255` | `\|-damage\|p1a: Snorlax\|197/255` | as % | M2 | modified | UNSOUND | 0: 26–32 LOST · 32: none (partial) LOST | Salamence-Mega's Round hit Snorlax |
-| H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|93/255` | `\|-damage\|p1a: Snorlax\|83/255` | as % | M2 | modified | UNSOUND | 0: none (partial) LOST · 32: none (partial) LOST | — |
+| H | SpA | W-spec-dealt | known exact | 1 | `\|-damage\|p1a: Snorlax\|207/255` | `\|-damage\|p1a: Snorlax\|197/255` | as % | M2 | modified | USED (own event) | 0: 0–30 · 32: 31–32 | Salamence-Mega's Round hit Snorlax |
+| H | SpA | W-two-moves | known exact | 2 | `\|-damage\|p1a: Snorlax\|93/255` | `\|-damage\|p1a: Snorlax\|83/255` | as % | M2 | modified | USED (own event) | 0: 0–30 · 32: 31–32 | Salamence-Mega's Round hit Snorlax |
 
 Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt · holder-hidden/W-phys-taken changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-spec-taken changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-order-up changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-order-down changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-pace changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-trade · holder-hidden/W-burn changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-paralysis changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-toxic changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-sleep changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-confusion changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-taunt changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-lethal changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-pivot changed nothing · refused T1 p2: Unrecognized choice:  mega move splash · holder-hidden/W-two-moves · other-hidden/W-phys-dealt changed nothing · other-hidden/W-spec-dealt changed nothing · other-hidden/W-phys-taken changed nothing · other-hidden/W-spec-taken changed nothing · other-hidden/W-trade changed nothing
 
@@ -11920,7 +11693,7 @@ Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt · holder-hi
 | Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | H | HP | W-burn | hidden % | 4 | `\|-heal\|p2a: Blastoise\|86/100 brn\|[from] item: Shell Bell\|[of] p1a: Snorlax` | `\|-heal\|p2a: Blastoise\|85/100 brn\|[from] item: Shell Bell\|[of] p1a: Snorlax` | same | M4 | own | USED | 0: 0–21 · 32: 13–32 | brn on Blastoise |
-| H | HP | W-toxic | hidden % | 2 | `\|-heal\|p2a: Blastoise\|97/100 tox\|[from] item: Shell Bell\|[of] p1a: Snorlax` | `\|-heal\|p2a: Blastoise\|96/100 tox\|[from] item: Shell Bell\|[of] p1a: Snorlax` | same | M4 | own | USED (own event) | 0: 0–32 · 32: 30–32 | Shell Bell on Blastoise |
+| H | HP | W-toxic | hidden % | 2 | `\|-heal\|p2a: Blastoise\|97/100 tox\|[from] item: Shell Bell\|[of] p1a: Snorlax` | `\|-heal\|p2a: Blastoise\|96/100 tox\|[from] item: Shell Bell\|[of] p1a: Snorlax` | same | M4 | own | USED (own event) | 0: 0–21 · 32: 30–32 | Shell Bell on Blastoise |
 | H | HP | W-toxic | hidden % | 3 | `\|-heal\|p2a: Blastoise\|88/100 tox\|[from] item: Shell Bell\|[of] p1a: Snorlax` | `\|-heal\|p2a: Blastoise\|87/100 tox\|[from] item: Shell Bell\|[of] p1a: Snorlax` | same | M4 | own | 〃 |  |  |
 | H | HP | W-toxic | hidden % | 4 | `\|-heal\|p2a: Blastoise\|74/100 tox\|[from] item: Shell Bell\|[of] p1a: Snorlax` | `\|-heal\|p2a: Blastoise\|72/100 tox\|[from] item: Shell Bell\|[of] p1a: Snorlax` | same | M4 | own | 〃 |  |  |
 | H | HP | W-trade | hidden % | 1 | `\|-heal\|p2a: Blastoise\|81/100\|[from] item: Shell Bell\|[of] p1a: Snorlax` | `\|-heal\|p2a: Blastoise\|84/100\|[from] item: Shell Bell\|[of] p1a: Snorlax` | same | M4 | own | USED (own event) | 0: 0–0 · 32: 26–32 | Shell Bell on Blastoise |
@@ -11928,7 +11701,7 @@ Templates: holder-hidden/W-phys-dealt · holder-hidden/W-spec-dealt · holder-hi
 | H | Atk | W-burn | hidden % | 2 | `\|-heal\|p2a: Blastoise\|95/100 brn\|[from] item: Shell Bell\|[of] p1a: Snorlax` | `\|-heal\|p2a: Blastoise\|96/100 brn\|[from] item: Shell Bell\|[of] p1a: Snorlax` | same | M5 | own | USED (own event) | 0: 0–26 · 32: 32–32 | Shell Bell on Blastoise |
 | H | Atk | W-burn | hidden % | 3 | `\|-heal\|p2a: Blastoise\|91/100 brn\|[from] item: Shell Bell\|[of] p1a: Snorlax` | `\|-heal\|p2a: Blastoise\|92/100 brn\|[from] item: Shell Bell\|[of] p1a: Snorlax` | same | M5 | own | 〃 |  |  |
 | H | Atk | W-burn | hidden % | 4 | `\|-heal\|p2a: Blastoise\|86/100 brn\|[from] item: Shell Bell\|[of] p1a: Snorlax` | `\|-heal\|p2a: Blastoise\|88/100 brn\|[from] item: Shell Bell\|[of] p1a: Snorlax` | same | M5 | own | 〃 |  |  |
-| H | Atk | W-toxic | hidden % | 2 | `\|-heal\|p2a: Blastoise\|97/100 tox\|[from] item: Shell Bell\|[of] p1a: Snorlax` | `\|-heal\|p2a: Blastoise\|98/100 tox\|[from] item: Shell Bell\|[of] p1a: Snorlax` | same | M5 | own | USED (own event) | 0: 0–23 (partial) · 32: 32–32 (partial) | Shell Bell on Blastoise |
+| H | Atk | W-toxic | hidden % | 2 | `\|-heal\|p2a: Blastoise\|97/100 tox\|[from] item: Shell Bell\|[of] p1a: Snorlax` | `\|-heal\|p2a: Blastoise\|98/100 tox\|[from] item: Shell Bell\|[of] p1a: Snorlax` | same | M5 | own | USED (own event) | 0: 0–23 · 32: 32–32 | Shell Bell on Blastoise |
 | H | Atk | W-toxic | hidden % | 3 | `\|-heal\|p2a: Blastoise\|89/100 tox\|[from] item: Shell Bell\|[of] p1a: Snorlax` | `\|-heal\|p2a: Blastoise\|90/100 tox\|[from] item: Shell Bell\|[of] p1a: Snorlax` | same | M5 | own | 〃 |  |  |
 | H | Atk | W-toxic | hidden % | 4 | `\|-heal\|p2a: Blastoise\|75/100 tox\|[from] item: Shell Bell\|[of] p1a: Snorlax` | `\|-heal\|p2a: Blastoise\|76/100 tox\|[from] item: Shell Bell\|[of] p1a: Snorlax` | same | M5 | own | 〃 |  |  |
 | H | Atk | W-trade | hidden % | 1 | `\|-heal\|p2a: Blastoise\|81/100\|[from] item: Shell Bell\|[of] p1a: Snorlax` | `\|-heal\|p2a: Blastoise\|82/100\|[from] item: Shell Bell\|[of] p1a: Snorlax` | same | M5 | own | USED (own event) | 0: 0–23 · 32: 32–32 | Shell Bell on Blastoise |
@@ -11975,7 +11748,7 @@ Templates: holder-hidden/W-phys-dealt changed nothing · holder-hidden/W-spec-de
 | H | Atk | W-taunt | known exact | 2 | `\|-damage\|p1a: Snorlax\|208/255` | `\|-damage\|p1a: Snorlax\|193/255` | as % | M2 | modified | USED (own event) | 0: 0–20 · 32: 32–32 | Blastoise's Strength hit Snorlax |
 | H | Atk | W-taunt | known exact | 3 | `\|-damage\|p1a: Snorlax\|161/255` | `\|-damage\|p1a: Snorlax\|131/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-taunt | known exact | 4 | `\|-damage\|p1a: Snorlax\|114/255` | `\|-damage\|p1a: Snorlax\|69/255` | as % | M2 | modified | 〃 |  |  |
-| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|208/255` | `\|-damage\|p1a: Snorlax\|193/255` | as % | M2 | modified | USED (own event) | 0: 0–20 (partial) · 32: 32–32 (partial) | Blastoise's Strength hit Snorlax |
+| H | Atk | W-toxic | known exact | 2 | `\|-damage\|p1a: Snorlax\|208/255` | `\|-damage\|p1a: Snorlax\|193/255` | as % | M2 | modified | USED (own event) | 0: 0–20 · 32: 32–32 | Blastoise's Strength hit Snorlax |
 | H | Atk | W-toxic | known exact | 3 | `\|-damage\|p1a: Snorlax\|161/255` | `\|-damage\|p1a: Snorlax\|131/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-toxic | known exact | 4 | `\|-damage\|p1a: Snorlax\|114/255` | `\|-damage\|p1a: Snorlax\|69/255` | as % | M2 | modified | 〃 |  |  |
 | H | Atk | W-trade | known exact | 1 | `\|-damage\|p1a: Snorlax\|208/255` | `\|-damage\|p1a: Snorlax\|193/255` | as % | M2 | modified | USED (own event) | 0: 0–20 · 32: 32–32 | Blastoise's Strength hit Snorlax |
@@ -12050,7 +11823,7 @@ Scan: reads `hp`, `maxhp`.
 | H | HP | W-spec-taken | presence | 3 | `\|-heal\|p2a: Blastoise\|70/100\|[from] item: Sitrus Berry` | — | same | M6 | own | 〃 |  |  |
 | H | HP | W-spec-taken | presence | 4 | — | `\|-enditem\|p2a: Blastoise\|Sitrus Berry\|[eat]` | same | M6 | own | 〃 |  |  |
 | H | HP | W-spec-taken | … | | 1 more changed line(s) | | | | | | | |
-| H | HP | W-toxic | hidden % | 4 | `\|-heal\|p2a: Blastoise\|66/100 tox\|[from] item: Sitrus Berry` | `\|-heal\|p2a: Blastoise\|65/100 tox\|[from] item: Sitrus Berry` | same | M4 | own | REBUILD-FAILED | 0: 0–32 (partial) · 32: 0–32 | — |
+| H | HP | W-toxic | hidden % | 4 | `\|-heal\|p2a: Blastoise\|66/100 tox\|[from] item: Sitrus Berry` | `\|-heal\|p2a: Blastoise\|65/100 tox\|[from] item: Sitrus Berry` | same | M4 | own | USED (own event) | 0: 0–17 · 32: 14–32 | Sitrus Berry on Blastoise |
 | H | Def | W-phys-taken | hidden % | 3 | `\|-damage\|p2a: Blastoise\|0 fnt` | `\|-damage\|p2a: Blastoise\|21/100` | same | M1 | modified | USED (own event) | 0: 0–0 · 32: 0–32 | Snorlax's Strength hit Blastoise |
 | H | Def | W-phys-taken | presence | 3 | `\|faint\|p2a: Blastoise` | — | same | M6 | modified | 〃 |  |  |
 | H | Def | W-phys-taken | names | 4 | `\|move\|p1a: Snorlax\|Strength\|p2a: Slowking` | `\|move\|p1a: Snorlax\|Strength\|p2a: Blastoise` | same | M9 | modified | 〃 |  |  |

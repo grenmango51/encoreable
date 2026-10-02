@@ -36,8 +36,8 @@ its handlers name. A control's own rebuild is shown when it is not SAFE, since t
 | Kind | Effects | READ | MISSED | MISREAD | FALSE | Silent (no line names it) | SILENT-SINK witnesses | HAZARD-UNSOUND | HAZARD-REBUILD | TRUE-SET-FAILS |
 |---|---|---|---|---|---|---|---|---|---|---|
 | move | 510 | 1389 | 18 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| ability | 203 | 109 | 17 | 6 | 0 | 131 | 172 | 42 | 14 | 37 |
-| item | 166 | 130 | 2 | 4 | 2 | 48 | 74 | 63 | 0 | 4 |
+| ability | 203 | 109 | 17 | 6 | 0 | 131 | 158 | 55 | 7 | 5 |
+| item | 166 | 130 | 2 | 4 | 2 | 48 | 74 | 64 | 0 | 2 |
 | condition | 94 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | nature | 25 | 0 | 0 | 0 | 0 | 25 | 44 | 28 | 0 | 0 |
 
@@ -133,7 +133,7 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `item:metronome` | 293 | W-burn | known exact | HAZARD-UNSOUND | turn 4: Blastoise's Strength hit Snorlax |
 | `item:metronome` | 293 | W-paralysis | known exact | HAZARD-UNSOUND | turn 4: Blastoise's Strength hit Snorlax |
 | `item:metronome` | 293 | W-taunt | known exact | HAZARD-UNSOUND | turn 4: Blastoise's Strength hit Snorlax |
-| `item:metronome` | 293 | W-toxic | known exact | HAZARD-UNSOUND | — |
+| `item:metronome` | 293 | W-toxic | known exact | HAZARD-UNSOUND | turn 4: Blastoise's Strength hit Snorlax |
 | `item:metronome` | 293 | W-trade | known exact | HAZARD-UNSOUND | turn 2: Blastoise's Strength hit Snorlax |
 | `item:miracleseed` | 293 | W-Grass-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Leaf Blade hit Snorlax |
 | `item:muscleband` | 293 | W-burn | known exact | HAZARD-UNSOUND | turn 4: brn on Blastoise |
@@ -141,7 +141,7 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `item:muscleband` | 293 | W-phys-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Strength hit Snorlax |
 | `item:muscleband` | 293 | W-sleep | known exact | HAZARD-UNSOUND | turn 4: Blastoise's Strength hit Snorlax |
 | `item:muscleband` | 293 | W-taunt | known exact | HAZARD-UNSOUND | turn 2: Blastoise's Strength hit Snorlax |
-| `item:muscleband` | 293 | W-toxic | known exact | HAZARD-UNSOUND | — |
+| `item:muscleband` | 293 | W-toxic | known exact | HAZARD-UNSOUND | turn 4: tox on Blastoise |
 | `item:muscleband` | 293 | W-trade | known exact | HAZARD-UNSOUND | turn 2: Snorlax's Quick Attack hit Blastoise |
 | `item:muscleband` | 293 | W-two-moves | known exact | HAZARD-UNSOUND | turn 2: Blastoise's Round hit Snorlax |
 | `item:mysticwater` | 293 | W-Water-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Waterfall hit Snorlax |
@@ -155,7 +155,7 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `item:silkscarf` | 293 | W-sleep | known exact | HAZARD-UNSOUND | turn 4: Blastoise's Strength hit Snorlax |
 | `item:silkscarf` | 293 | W-spec-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Round hit Snorlax |
 | `item:silkscarf` | 293 | W-taunt | known exact | HAZARD-UNSOUND | turn 2: Blastoise's Strength hit Snorlax |
-| `item:silkscarf` | 293 | W-toxic | known exact | HAZARD-UNSOUND | turn 2: Blastoise's Strength hit Snorlax |
+| `item:silkscarf` | 293 | W-toxic | known exact | HAZARD-UNSOUND | turn 4: tox on Blastoise |
 | `item:silkscarf` | 293 | W-trade | known exact | HAZARD-UNSOUND | turn 2: Snorlax's Quick Attack hit Blastoise |
 | `item:silkscarf` | 293 | W-two-moves | known exact | HAZARD-UNSOUND | turn 2: Blastoise's Round hit Snorlax |
 | `item:silverpowder` | 293 | W-Bug-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's X-Scissor hit Snorlax |
@@ -163,19 +163,16 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `item:twistedspoon` | 293 | W-Psychic-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Zen Headbutt hit Snorlax |
 | `item:wiseglasses` | 293 | W-spec-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Round hit Snorlax |
 | `item:wiseglasses` | 293 | W-two-moves | known exact | HAZARD-UNSOUND | turn 2: Blastoise's Round hit Snorlax |
-| `ability:technician` | 10 | W-paralysis | order, presence | HAZARD-REBUILD | turn 1: wanted \|-status\|p2a: Grapploct\|par, got \|-immune\|p2a: Grapploct\|[from] ability: Limber |
 | `ability:technician` | 10 | W-spec-dealt | known exact | HAZARD-UNSOUND | turn 1: Grapploct's Round hit Snorlax |
 | `ability:technician` | 10 | W-two-moves | known exact | HAZARD-UNSOUND | turn 2: Grapploct's Round hit Snorlax |
-| `ability:aromaveil` | 9 | W-sleep | known exact, presence | HAZARD-REBUILD | turn 1: wanted \|-status\|p2a: Alcremie\|slp\|[from] move: Hypnosis, got \|-block\|p2a: Alcremie\|ability: Sweet Veil\|[of] p2a: Alcremie |
-| `ability:unburden` | 6 | W-sleep | known exact, presence | HAZARD-REBUILD | turn 1: wanted \|-status\|p2a: Slurpuff\|slp\|[from] move: Hypnosis, got \|-block\|p2a: Slurpuff\|ability: Sweet Veil\|[of] p2a: Slurpuff |
 | `ability:hustle` | 5 | W-burn | known exact | HAZARD-UNSOUND | turn 2: Flapple's Strength hit Snorlax |
 | `ability:hustle` | 5 | W-paralysis | known exact | HAZARD-UNSOUND | turn 2: Flapple's Strength hit Snorlax |
 | `ability:hustle` | 5 | W-phys-dealt | known exact | HAZARD-UNSOUND | turn 1: Flapple's Strength hit Snorlax |
 | `ability:hustle` | 5 | W-sleep | known exact | HAZARD-UNSOUND | turn 4: Flapple's Strength hit Snorlax |
 | `ability:hustle` | 5 | W-taunt | known exact | HAZARD-UNSOUND | turn 2: Flapple's Strength hit Snorlax |
+| `ability:hustle` | 5 | W-toxic | known exact | HAZARD-UNSOUND | turn 2: Flapple's Strength hit Snorlax |
 | `ability:hustle` | 5 | W-trade | known exact | HAZARD-UNSOUND | turn 1: Flapple's Strength hit Snorlax |
 | `ability:hustle` | 5 | W-two-moves | known exact | HAZARD-UNSOUND | turn 1: Flapple's Strength hit Snorlax |
-| `ability:rockhead` | 5 | W-lethal | presence | HAZARD-REBUILD | turn 1: wanted \|-damage\|p2a: Aggron\|0 fnt, got \|-immune\|p2a: Aggron\|[from] ability: Sturdy |
 | `ability:magicguard` | 3 | W-burn | presence | HAZARD-REBUILD | turn 1: wanted \|upkeep, got \|-damage\|p2a: Clefable\|94/100 brn\|[from] brn |
 | `ability:magicguard` | 3 | W-toxic | presence | HAZARD-REBUILD | turn 1: wanted \|upkeep, got \|-damage\|p2a: Clefable\|94/100 tox\|[from] psn |
 | `ability:dryskin` | 2 | W-Fire-taken | hidden % | HAZARD-UNSOUND | turn 1: Snorlax's Fire Punch hit Toxicroak |
@@ -186,19 +183,28 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `ability:hugepower` | 2 | W-phys-dealt | known exact | HAZARD-UNSOUND | turn 1: Azumarill's Strength hit Snorlax |
 | `ability:hugepower` | 2 | W-sleep | known exact | HAZARD-UNSOUND | turn 4: Azumarill's Strength hit Snorlax |
 | `ability:hugepower` | 2 | W-taunt | known exact | HAZARD-UNSOUND | turn 2: Azumarill's Strength hit Snorlax |
+| `ability:hugepower` | 2 | W-toxic | known exact | HAZARD-UNSOUND | turn 2: Azumarill's Strength hit Snorlax |
 | `ability:hugepower` | 2 | W-trade | known exact | HAZARD-UNSOUND | turn 1: Azumarill's Strength hit Snorlax |
 | `ability:hugepower` | 2 | W-two-moves | known exact | HAZARD-UNSOUND | turn 1: Azumarill's Strength hit Snorlax |
-| `ability:filter` | 1 | W-spec-taken | presence | HAZARD-REBUILD | turn 1: wanted \|-damage\|p2a: Mr. Mime\|78/100, got \|-immune\|p2a: Mr. Mime\|[from] ability: Soundproof |
 | `ability:fluffy` | 1 | W-phys-taken | hidden %, presence | HAZARD-UNSOUND | turn 1: Snorlax's Dragon Claw hit Houndstone |
 | `ability:fluffy` | 1 | W-pivot | hidden % | HAZARD-UNSOUND | turn 1: Snorlax's Dragon Claw hit Houndstone |
-| `ability:heavymetal` | 1 | W-lethal | presence | HAZARD-REBUILD | turn 1: wanted \|-damage\|p2a: Aggron\|0 fnt, got \|-immune\|p2a: Aggron\|[from] ability: Sturdy |
 | `ability:liquidvoice` | 1 | W-spec-dealt | known exact | HAZARD-UNSOUND | turn 1: Primarina's Round hit Snorlax |
 | `ability:liquidvoice` | 1 | W-two-moves | known exact | HAZARD-UNSOUND | turn 2: Primarina's Round hit Snorlax |
 | `ability:multiscale` | 1 | W-phys-taken | hidden % | HAZARD-UNSOUND | turn 1: Snorlax's Strength hit Dragonite |
 | `ability:multiscale` | 1 | W-pivot | hidden % | HAZARD-UNSOUND | turn 1: Snorlax's Strength hit Dragonite |
 | `ability:multiscale` | 1 | W-spec-taken | hidden % | HAZARD-UNSOUND | turn 1: Snorlax's Round hit Dragonite |
 | `ability:multiscale` | 1 | W-trade | hidden % | HAZARD-UNSOUND | turn 1: Snorlax's Quick Attack hit Dragonite |
-| `ability:quickdraw` | 1 | W-confusion | presence | HAZARD-REBUILD | turn 2: wanted \|-activate\|p2a: Slowbro\|ability: Quick Draw, got \|-activate\|p2a: Slowbro\|confusion |
+| `ability:pixilate` | 1 | W-burn | known exact | HAZARD-UNSOUND | turn 2: Sylveon's Strength hit Snorlax |
+| `ability:pixilate` | 1 | W-Normal-dealt | known exact | HAZARD-UNSOUND | turn 1: Sylveon's Strength hit Snorlax |
+| `ability:pixilate` | 1 | W-paralysis | known exact | HAZARD-UNSOUND | turn 2: Sylveon's Strength hit Snorlax |
+| `ability:pixilate` | 1 | W-phys-dealt | known exact | HAZARD-UNSOUND | turn 1: Sylveon's Strength hit Snorlax |
+| `ability:pixilate` | 1 | W-sleep | known exact | HAZARD-UNSOUND | turn 4: Sylveon's Strength hit Snorlax |
+| `ability:pixilate` | 1 | W-spec-dealt | known exact | HAZARD-UNSOUND | turn 1: Sylveon's Round hit Snorlax |
+| `ability:pixilate` | 1 | W-taunt | known exact | HAZARD-UNSOUND | turn 2: Sylveon's Strength hit Snorlax |
+| `ability:pixilate` | 1 | W-toxic | known exact | HAZARD-UNSOUND | turn 2: Sylveon's Strength hit Snorlax |
+| `ability:pixilate` | 1 | W-trade | known exact | HAZARD-UNSOUND | turn 1: Sylveon's Strength hit Snorlax |
+| `ability:pixilate` | 1 | W-two-moves | known exact | HAZARD-UNSOUND | turn 1: Sylveon's Strength hit Snorlax |
+| `ability:poisonheal` | 1 | W-toxic | presence | HAZARD-REBUILD | turn 1: wanted \|upkeep, got \|-damage\|p2a: Gliscor\|93/100 tox\|[from] psn |
 | `ability:stall` | 1 | W-burn | order | HAZARD-UNSOUND | turn 1: Snorlax acted before Sableye |
 | `ability:stall` | 1 | W-confusion | hidden %, presence | HAZARD-REBUILD | turn 1: wanted \|move\|p1a: Snorlax\|Confuse Ray\|p2a: Sableye, got \|-activate\|p2a: Sableye\|move: Struggle |
 | `ability:stall` | 1 | W-lethal | presence | HAZARD-REBUILD | turn 1: wanted \|move\|p1a: Snorlax\|Sheer Cold\|p2a: Sableye, got \|-activate\|p2a: Sableye\|move: Struggle |
@@ -213,6 +219,7 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `ability:stall` | 1 | W-spec-dealt | order | HAZARD-UNSOUND | turn 1: Snorlax acted before Sableye |
 | `ability:stall` | 1 | W-spec-taken | order, presence | HAZARD-UNSOUND | turn 1: Snorlax acted before Sableye |
 | `ability:stall` | 1 | W-taunt | order, presence | HAZARD-UNSOUND | turn 1: Snorlax acted before Sableye |
+| `ability:stall` | 1 | W-toxic | order | HAZARD-UNSOUND | turn 1: Snorlax acted before Sableye |
 | `ability:stall` | 1 | W-trade | order | HAZARD-UNSOUND | turn 1: Torkoal acted before Sableye |
 | `ability:stall` | 1 | W-two-moves | order | HAZARD-UNSOUND | turn 1: Snorlax acted before Sableye |
 | `ability:steelyspirit` | 1 | W-Steel-dealt | known exact | HAZARD-UNSOUND | turn 1: Perrserker's Iron Head hit Snorlax |
@@ -224,6 +231,7 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `item:lightball` | 1 | W-sleep | known exact | HAZARD-UNSOUND | turn 4: Pikachu's Strength hit Snorlax |
 | `item:lightball` | 1 | W-spec-dealt | known exact | HAZARD-UNSOUND | turn 1: Pikachu's Round hit Snorlax |
 | `item:lightball` | 1 | W-taunt | known exact | HAZARD-UNSOUND | turn 2: Pikachu's Strength hit Snorlax |
+| `item:lightball` | 1 | W-toxic | known exact | HAZARD-UNSOUND | turn 2: Pikachu's Strength hit Snorlax |
 | `item:lightball` | 1 | W-trade | known exact | HAZARD-UNSOUND | turn 1: Pikachu's Strength hit Snorlax |
 | `item:lightball` | 1 | W-two-moves | known exact | HAZARD-UNSOUND | turn 1: Pikachu's Strength hit Snorlax |
 | `nature:adamant` | 1 | W-phys-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Strength hit Snorlax |
@@ -255,14 +263,6 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `nature:sassy` | 1 | W-pace | order | HAZARD-UNSOUND | turn 1: Ampharos acted before Blastoise |
 | `nature:timid` | 1 | W-order-up | order | HAZARD-UNSOUND | turn 1: Blastoise acted before Ampharos |
 
-Witness battles whose control, without the effect, does not rebuild SAFE either — a defect of the battle or of the rebuild, not of the effect:
-
-| Effect | Witness | Effect's rebuild | Control's rebuild | Control: last event, or where it broke |
-|---|---|---|---|---|
-| `ability:poisonheal` | W-toxic | HAZARD-REBUILD | HAZARD-REBUILD | turn 1: wanted \|-damage\|p2a: Gliscor\|172/182 tox\|[from] psn, got \|-damage\|p2a: Gliscor\|171/182 tox\|[from] psn |
-| `ability:stall` | W-toxic | TRUE-SET-FAILS | HAZARD-REBUILD | turn 2: wanted \|-damage\|p2a: Sableye\|131/157 tox\|[from] psn, got \|-damage\|p2a: Sableye\|130/157 tox\|[from] psn |
-| `item:lightball` | W-toxic | TRUE-SET-FAILS | HAZARD-REBUILD | turn 1: wanted \|-damage\|p2a: Pikachu\|133/142 tox\|[from] psn, got \|-damage\|p2a: Pikachu\|134/142 tox\|[from] psn |
-
 ### 2.4 SILENT-SINK, by weight — candidate dimensions for closed-sheet inference
 
 | Effect | Weight | Named by a line | Witnesses with a silent change |
@@ -289,19 +289,13 @@ Witness battles whose control, without the effect, does not rebuild SAFE either 
 | `item:softsand` | 293 | never | W-Ground-dealt (known exact) |
 | `item:twistedspoon` | 293 | never | W-Psychic-dealt (known exact) |
 | `item:wiseglasses` | 293 | never | W-spec-dealt (known exact); W-two-moves (known exact) |
-| `ability:keeneye` | 11 | never | W-lethal (presence) |
-| `ability:technician` | 10 | never | W-spec-dealt (known exact); W-paralysis (order, presence); W-two-moves (known exact) |
-| `ability:aromaveil` | 9 | yes | W-sleep (known exact, presence) |
+| `ability:technician` | 10 | never | W-spec-dealt (known exact); W-two-moves (known exact) |
 | `ability:guts` | 7 | never | W-burn (known exact, presence); W-paralysis (known exact, presence); W-toxic (known exact, presence) |
-| `ability:pickup` | 6 | never | W-sleep (known exact, presence) |
 | `ability:prankster` | 6 | never | W-order-up (order); W-pace (order) |
-| `ability:unburden` | 6 | never | W-sleep (known exact, presence) |
 | `ability:hustle` | 5 | never | W-phys-dealt (known exact); W-trade (known exact); W-burn (known exact); W-paralysis (known exact); W-toxic (known exact); W-sleep (known exact); W-taunt (known exact); W-two-moves (known exact) |
-| `ability:rockhead` | 5 | never | W-lethal (presence) |
 | `ability:thickfat` | 4 | never | W-Fire-taken (hidden %); W-Ice-taken (hidden %) |
 | `ability:magicguard` | 3 | never | W-burn (presence); W-toxic (presence) |
 | `ability:noguard` | 3 | never | W-confusion (presence) |
-| `ability:overcoat` | 3 | never | W-spec-taken (presence) |
 | `ability:toughclaws` | 3 | never | W-phys-dealt (known exact); W-trade (known exact); W-burn (known exact); W-paralysis (known exact); W-toxic (known exact); W-sleep (known exact); W-taunt (known exact); W-two-moves (known exact) |
 | `ability:dryskin` | 2 | yes | W-Fire-taken (hidden %) |
 | `ability:earlybird` | 2 | never | W-sleep (known exact, presence) |
@@ -311,22 +305,16 @@ Witness battles whose control, without the effect, does not rebuild SAFE either 
 | `ability:illusion` | 2 | yes | W-phys-dealt (presence); W-spec-dealt (presence); W-phys-taken (presence); W-spec-taken (presence); W-order-up (presence); W-order-down (presence); W-pace (presence); W-trade (presence); W-burn (names, presence); W-paralysis (names, presence); W-toxic (names, presence); W-sleep (names, presence); W-confusion (names, presence); W-taunt (names, presence); W-lethal (presence); W-pivot (presence); W-two-moves (presence) |
 | `ability:punkrock` | 2 | never | W-spec-dealt (known exact); W-spec-taken (hidden %, presence); W-two-moves (known exact) |
 | `ability:rivalry` | 2 | never | W-phys-dealt (known exact); W-spec-dealt (known exact); W-trade (known exact); W-burn (known exact); W-paralysis (known exact); W-toxic (known exact); W-sleep (known exact); W-taunt (known exact); W-two-moves (known exact) |
-| `ability:stamina` | 2 | yes | W-lethal (presence) |
-| `ability:filter` | 1 | never | W-spec-taken (presence) |
 | `ability:fluffy` | 1 | never | W-phys-taken (hidden %, presence); W-pivot (hidden %) |
-| `ability:heavymetal` | 1 | never | W-lethal (presence) |
 | `ability:hungerswitch` | 1 | never | W-phys-dealt (presence); W-spec-dealt (presence); W-phys-taken (presence); W-spec-taken (presence); W-order-up (presence); W-order-down (presence); W-pace (presence); W-trade (presence); W-burn (presence); W-paralysis (presence); W-toxic (presence); W-sleep (presence); W-confusion (presence); W-taunt (presence); W-pivot (presence); W-two-moves (presence) |
 | `ability:liquidvoice` | 1 | never | W-spec-dealt (known exact); W-two-moves (known exact) |
-| `ability:merciless` | 1 | never | W-paralysis (order, presence) |
 | `ability:multiscale` | 1 | never | W-phys-taken (hidden %); W-spec-taken (hidden %); W-trade (hidden %); W-pivot (hidden %) |
 | `ability:pixilate` | 1 | never | W-phys-dealt (known exact); W-spec-dealt (known exact); W-trade (known exact); W-Normal-dealt (known exact); W-burn (known exact); W-paralysis (known exact); W-toxic (known exact); W-sleep (known exact); W-taunt (known exact); W-two-moves (known exact) |
 | `ability:poisonheal` | 1 | never | W-toxic (presence) |
 | `ability:purepower` | 1 | never | W-phys-dealt (known exact); W-trade (known exact); W-burn (known exact); W-paralysis (known exact); W-toxic (known exact); W-sleep (known exact); W-taunt (known exact); W-two-moves (known exact) |
-| `ability:purifyingsalt` | 1 | yes | W-Ghost-taken (hidden %); W-lethal (presence) |
-| `ability:quickdraw` | 1 | yes | W-confusion (presence) |
+| `ability:purifyingsalt` | 1 | yes | W-Ghost-taken (hidden %) |
 | `ability:refrigerate` | 1 | never | W-phys-dealt (known exact); W-spec-dealt (known exact); W-trade (known exact); W-Normal-dealt (known exact); W-burn (known exact); W-paralysis (known exact); W-toxic (known exact); W-sleep (known exact); W-taunt (known exact); W-two-moves (known exact) |
 | `ability:stall` | 1 | never | W-phys-dealt (order); W-spec-dealt (order); W-phys-taken (order, presence); W-spec-taken (order, presence); W-order-up (order); W-order-down (order); W-pace (order); W-trade (order); W-burn (order); W-paralysis (order); W-toxic (order); W-sleep (known exact, order, presence); W-confusion (hidden %, presence); W-taunt (order, presence); W-lethal (presence); W-pivot (order); W-two-moves (order) |
-| `ability:stalwart` | 1 | never | W-lethal (presence) |
 | `ability:stancechange` | 1 | never | W-phys-dealt (known exact, presence); W-spec-dealt (known exact, presence); W-trade (known exact, presence); W-burn (known exact, presence); W-paralysis (known exact, presence); W-toxic (known exact, presence); W-sleep (known exact, presence); W-taunt (known exact, presence); W-two-moves (known exact, presence) |
 | `ability:steelyspirit` | 1 | never | W-Steel-dealt (known exact) |
 | `ability:supremeoverlord` | 1 | never | W-lethal (presence); W-pivot (presence) |
@@ -1037,9 +1025,7 @@ No witness changed the log before it was named.
 9 holders · weight 9. Named by: `\|-block\|p2a: Alcremie\|ability: Aroma Veil\|[of] p2a: Alcremie` (W-taunt, turn 1).
 Box: MISSED (p2 holder-hidden).
 
-| Witness | Sinks | Without → with | Named? | Hazard | Control |
-|---|---|---|---|---|---|
-| W-sleep | known exact, presence | `\|move\|p2a: Alcremie\|Strength\|p1a: Snorlax` → — | no | HAZARD-REBUILD |  |
+No witness changed the log before it was named.
 
 #### Battle Armor · `ability:battlearmor`
 
@@ -1239,9 +1225,7 @@ No witness changed the log before it was named.
 
 1 holders · weight 1. Named by: no line, in any witness.
 
-| Witness | Sinks | Without → with | Named? | Hazard | Control |
-|---|---|---|---|---|---|
-| W-spec-taken | presence | — → `\|-damage\|p2a: Mr. Mime\|78/100` | no | HAZARD-REBUILD |  |
+No witness changed the log before it was named.
 
 #### Flame Body · `ability:flamebody`
 
@@ -1359,7 +1343,7 @@ No witness changed the log before it was named.
 |---|---|---|---|---|---|
 | W-burn | known exact, presence | `\|-damage\|p1a: Snorlax\|224/255` → `\|-damage\|p1a: Snorlax\|163/255` | no | SAFE |  |
 | W-paralysis | known exact, presence | `\|-damage\|p1a: Snorlax\|193/255` → `\|-damage\|p1a: Snorlax\|163/255` | no | SAFE |  |
-| W-toxic | known exact, presence | `\|-damage\|p1a: Snorlax\|193/255` → `\|-damage\|p1a: Snorlax\|163/255` | no | TRUE-SET-FAILS |  |
+| W-toxic | known exact, presence | `\|-damage\|p1a: Snorlax\|193/255` → `\|-damage\|p1a: Snorlax\|163/255` | no | SAFE |  |
 
 #### Harvest · `ability:harvest`
 
@@ -1386,9 +1370,7 @@ No witness changed the log before it was named.
 
 1 holders · weight 1. Named by: no line, in any witness.
 
-| Witness | Sinks | Without → with | Named? | Hazard | Control |
-|---|---|---|---|---|---|
-| W-lethal | presence | — → `\|faint\|p2a: Aggron` | no | HAZARD-REBUILD |  |
+No witness changed the log before it was named.
 
 #### Hospitality · `ability:hospitality`
 
@@ -1406,7 +1388,7 @@ No witness changed the log before it was named.
 | W-trade | known exact | `\|-damage\|p1a: Snorlax\|227/255` → `\|-damage\|p1a: Snorlax\|200/255` | no | HAZARD-UNSOUND |  |
 | W-burn | known exact | `\|-damage\|p1a: Snorlax\|241/255` → `\|-damage\|p1a: Snorlax\|228/255` | no | HAZARD-UNSOUND |  |
 | W-paralysis | known exact | `\|-damage\|p1a: Snorlax\|227/255` → `\|-damage\|p1a: Snorlax\|200/255` | no | HAZARD-UNSOUND |  |
-| W-toxic | known exact | `\|-damage\|p1a: Snorlax\|227/255` → `\|-damage\|p1a: Snorlax\|200/255` | no | TRUE-SET-FAILS |  |
+| W-toxic | known exact | `\|-damage\|p1a: Snorlax\|227/255` → `\|-damage\|p1a: Snorlax\|200/255` | no | HAZARD-UNSOUND |  |
 | W-sleep | known exact | `\|-damage\|p1a: Snorlax\|227/255` → `\|-damage\|p1a: Snorlax\|200/255` | no | HAZARD-UNSOUND |  |
 | W-taunt | known exact | `\|-damage\|p1a: Snorlax\|227/255` → `\|-damage\|p1a: Snorlax\|200/255` | no | HAZARD-UNSOUND |  |
 | W-two-moves | known exact | `\|-damage\|p1a: Snorlax\|227/255` → `\|-damage\|p1a: Snorlax\|200/255` | no | HAZARD-UNSOUND |  |
@@ -1427,7 +1409,7 @@ No witness changed the log before it was named.
 | W-trade | presence | — → `\|-formechange\|p2a: Morpeko\|Morpeko-Hangry\|` | no | SAFE |  |
 | W-burn | presence | — → `\|-formechange\|p2a: Morpeko\|Morpeko-Hangry\|` | no | SAFE |  |
 | W-paralysis | presence | — → `\|-formechange\|p2a: Morpeko\|Morpeko-Hangry\|` | no | SAFE |  |
-| W-toxic | presence | — → `\|-formechange\|p2a: Morpeko\|Morpeko-Hangry\|` | no | TRUE-SET-FAILS |  |
+| W-toxic | presence | — → `\|-formechange\|p2a: Morpeko\|Morpeko-Hangry\|` | no | SAFE |  |
 | W-sleep | presence | — → `\|-formechange\|p2a: Morpeko\|Morpeko-Hangry\|` | no | SAFE |  |
 | W-confusion | presence | — → `\|-formechange\|p2a: Morpeko\|Morpeko-Hangry\|` | no | SAFE |  |
 | W-taunt | presence | — → `\|-formechange\|p2a: Morpeko\|Morpeko-Hangry\|` | no | SAFE |  |
@@ -1444,7 +1426,7 @@ No witness changed the log before it was named.
 | W-trade | known exact | `\|-damage\|p1a: Snorlax\|205/255` → `\|-damage\|p1a: Snorlax\|180/255` | no | HAZARD-UNSOUND |  |
 | W-burn | known exact | `\|-damage\|p1a: Snorlax\|230/255` → `\|-damage\|p1a: Snorlax\|218/255` | no | HAZARD-UNSOUND |  |
 | W-paralysis | known exact | `\|-damage\|p1a: Snorlax\|205/255` → `\|-damage\|p1a: Snorlax\|180/255` | no | HAZARD-UNSOUND |  |
-| W-toxic | known exact | `\|-damage\|p1a: Snorlax\|205/255` → `\|-damage\|p1a: Snorlax\|180/255` | no | TRUE-SET-FAILS |  |
+| W-toxic | known exact | `\|-damage\|p1a: Snorlax\|205/255` → `\|-damage\|p1a: Snorlax\|180/255` | no | HAZARD-UNSOUND |  |
 | W-sleep | known exact | `\|-damage\|p1a: Snorlax\|205/255` → `\|-damage\|p1a: Snorlax\|180/255` | no | HAZARD-UNSOUND |  |
 | W-taunt | known exact | `\|-damage\|p1a: Snorlax\|205/255` → `\|-damage\|p1a: Snorlax\|180/255` | no | HAZARD-UNSOUND |  |
 | W-two-moves | known exact | `\|-damage\|p1a: Snorlax\|205/255` → `\|-damage\|p1a: Snorlax\|180/255` | no | HAZARD-UNSOUND |  |
@@ -1482,19 +1464,19 @@ Other boxes: MISREAD p2 Slowking move Strength; MISREAD p2 Slowking move Round; 
 |---|---|---|---|---|---|
 | W-phys-dealt | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
 | W-spec-dealt | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
-| W-phys-taken | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | TRUE-SET-FAILS |  |
-| W-spec-taken | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | TRUE-SET-FAILS |  |
+| W-phys-taken | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | SAFE |  |
+| W-spec-taken | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | SAFE |  |
 | W-order-up | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
 | W-order-down | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | TRUE-SET-FAILS |  |
 | W-pace | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
-| W-trade | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | TRUE-SET-FAILS |  |
+| W-trade | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | SAFE |  |
 | W-burn | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
 | W-paralysis | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | TRUE-SET-FAILS |  |
 | W-toxic | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
 | W-sleep | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
 | W-confusion | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | TRUE-SET-FAILS |  |
 | W-taunt | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | TRUE-SET-FAILS |  |
-| W-lethal | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | TRUE-SET-FAILS |  |
+| W-lethal | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | SAFE |  |
 | W-pivot | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | TRUE-SET-FAILS |  |
 | W-two-moves | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
 
@@ -1555,9 +1537,7 @@ No witness changed the log before it was named.
 
 11 holders · weight 11. Named by: no line, in any witness.
 
-| Witness | Sinks | Without → with | Named? | Hazard | Control |
-|---|---|---|---|---|---|
-| W-lethal | presence | — → `\|faint\|p2a: Skarmory` | no | SAFE |  |
+No witness changed the log before it was named.
 
 #### Klutz · `ability:klutz`
 
@@ -1671,9 +1651,7 @@ No witness changed the log before it was named.
 
 1 holders · weight 1. Named by: no line, in any witness.
 
-| Witness | Sinks | Without → with | Named? | Hazard | Control |
-|---|---|---|---|---|---|
-| W-paralysis | order, presence | — → `\|-status\|p2a: Toxapex\|par` | no | SAFE |  |
+No witness changed the log before it was named.
 
 #### Mimicry · `ability:mimicry`
 
@@ -1770,9 +1748,7 @@ No witness changed the log before it was named.
 
 3 holders · weight 3. Named by: no line, in any witness.
 
-| Witness | Sinks | Without → with | Named? | Hazard | Control |
-|---|---|---|---|---|---|
-| W-spec-taken | presence | — → `\|-damage\|p2a: Kommo-o\|81/100` | no | SAFE |  |
+No witness changed the log before it was named.
 
 #### Overgrow · `ability:overgrow`
 
@@ -1798,9 +1774,7 @@ No witness changed the log before it was named.
 
 6 holders · weight 6. Named by: no line, in any witness.
 
-| Witness | Sinks | Without → with | Named? | Hazard | Control |
-|---|---|---|---|---|---|
-| W-sleep | known exact, presence | `\|move\|p2a: Gourgeist\|Strength\|p1a: Snorlax` → — | no | SAFE |  |
+No witness changed the log before it was named.
 
 #### Pixilate · `ability:pixilate`
 
@@ -1808,16 +1782,16 @@ No witness changed the log before it was named.
 
 | Witness | Sinks | Without → with | Named? | Hazard | Control |
 |---|---|---|---|---|---|
-| W-phys-dealt | known exact | `\|-damage\|p1a: Snorlax\|221/255` → `\|-damage\|p1a: Snorlax\|195/255` | no | TRUE-SET-FAILS |  |
-| W-spec-dealt | known exact | `\|-damage\|p1a: Snorlax\|230/255` → `\|-damage\|p1a: Snorlax\|210/255` | no | TRUE-SET-FAILS |  |
-| W-trade | known exact | `\|-damage\|p1a: Snorlax\|221/255` → `\|-damage\|p1a: Snorlax\|195/255` | no | TRUE-SET-FAILS |  |
-| W-Normal-dealt | known exact | `\|-damage\|p1a: Snorlax\|221/255` → `\|-damage\|p1a: Snorlax\|195/255` | no | TRUE-SET-FAILS |  |
-| W-burn | known exact | `\|-damage\|p1a: Snorlax\|238/255` → `\|-damage\|p1a: Snorlax\|225/255` | no | TRUE-SET-FAILS |  |
-| W-paralysis | known exact | `\|-damage\|p1a: Snorlax\|221/255` → `\|-damage\|p1a: Snorlax\|195/255` | no | TRUE-SET-FAILS |  |
-| W-toxic | known exact | `\|-damage\|p1a: Snorlax\|221/255` → `\|-damage\|p1a: Snorlax\|195/255` | no | TRUE-SET-FAILS |  |
-| W-sleep | known exact | `\|-damage\|p1a: Snorlax\|221/255` → `\|-damage\|p1a: Snorlax\|195/255` | no | TRUE-SET-FAILS |  |
-| W-taunt | known exact | `\|-damage\|p1a: Snorlax\|221/255` → `\|-damage\|p1a: Snorlax\|195/255` | no | TRUE-SET-FAILS |  |
-| W-two-moves | known exact | `\|-damage\|p1a: Snorlax\|221/255` → `\|-damage\|p1a: Snorlax\|195/255` | no | TRUE-SET-FAILS |  |
+| W-phys-dealt | known exact | `\|-damage\|p1a: Snorlax\|221/255` → `\|-damage\|p1a: Snorlax\|195/255` | no | HAZARD-UNSOUND |  |
+| W-spec-dealt | known exact | `\|-damage\|p1a: Snorlax\|230/255` → `\|-damage\|p1a: Snorlax\|210/255` | no | HAZARD-UNSOUND |  |
+| W-trade | known exact | `\|-damage\|p1a: Snorlax\|221/255` → `\|-damage\|p1a: Snorlax\|195/255` | no | HAZARD-UNSOUND |  |
+| W-Normal-dealt | known exact | `\|-damage\|p1a: Snorlax\|221/255` → `\|-damage\|p1a: Snorlax\|195/255` | no | HAZARD-UNSOUND |  |
+| W-burn | known exact | `\|-damage\|p1a: Snorlax\|238/255` → `\|-damage\|p1a: Snorlax\|225/255` | no | HAZARD-UNSOUND |  |
+| W-paralysis | known exact | `\|-damage\|p1a: Snorlax\|221/255` → `\|-damage\|p1a: Snorlax\|195/255` | no | HAZARD-UNSOUND |  |
+| W-toxic | known exact | `\|-damage\|p1a: Snorlax\|221/255` → `\|-damage\|p1a: Snorlax\|195/255` | no | HAZARD-UNSOUND |  |
+| W-sleep | known exact | `\|-damage\|p1a: Snorlax\|221/255` → `\|-damage\|p1a: Snorlax\|195/255` | no | HAZARD-UNSOUND |  |
+| W-taunt | known exact | `\|-damage\|p1a: Snorlax\|221/255` → `\|-damage\|p1a: Snorlax\|195/255` | no | HAZARD-UNSOUND |  |
+| W-two-moves | known exact | `\|-damage\|p1a: Snorlax\|221/255` → `\|-damage\|p1a: Snorlax\|195/255` | no | HAZARD-UNSOUND |  |
 
 #### Plus · `ability:plus`
 
@@ -1831,7 +1805,7 @@ No witness changed the log before it was named.
 
 | Witness | Sinks | Without → with | Named? | Hazard | Control |
 |---|---|---|---|---|---|
-| W-toxic | presence | `\|-damage\|p2a: Gliscor\|94/100 tox\|[from] psn` → — | no | HAZARD-REBUILD | HAZARD-REBUILD |
+| W-toxic | presence | `\|-damage\|p2a: Gliscor\|94/100 tox\|[from] psn` → — | no | HAZARD-REBUILD |  |
 
 #### Poison Point · `ability:poisonpoint`
 
@@ -1895,7 +1869,7 @@ No witness changed the log before it was named.
 | W-trade | known exact | `\|-damage\|p1a: Snorlax\|223/255` → `\|-damage\|p1a: Snorlax\|193/255` | no | SAFE |  |
 | W-burn | known exact | `\|-damage\|p1a: Snorlax\|239/255` → `\|-damage\|p1a: Snorlax\|224/255` | no | SAFE |  |
 | W-paralysis | known exact | `\|-damage\|p1a: Snorlax\|223/255` → `\|-damage\|p1a: Snorlax\|193/255` | no | SAFE |  |
-| W-toxic | known exact | `\|-damage\|p1a: Snorlax\|223/255` → `\|-damage\|p1a: Snorlax\|193/255` | no | TRUE-SET-FAILS |  |
+| W-toxic | known exact | `\|-damage\|p1a: Snorlax\|223/255` → `\|-damage\|p1a: Snorlax\|193/255` | no | SAFE |  |
 | W-sleep | known exact | `\|-damage\|p1a: Snorlax\|223/255` → `\|-damage\|p1a: Snorlax\|193/255` | no | SAFE |  |
 | W-taunt | known exact | `\|-damage\|p1a: Snorlax\|223/255` → `\|-damage\|p1a: Snorlax\|193/255` | no | SAFE |  |
 | W-two-moves | known exact | `\|-damage\|p1a: Snorlax\|223/255` → `\|-damage\|p1a: Snorlax\|193/255` | no | SAFE |  |
@@ -1908,7 +1882,6 @@ Box: READ (p2 holder-hidden).
 | Witness | Sinks | Without → with | Named? | Hazard | Control |
 |---|---|---|---|---|---|
 | W-Ghost-taken | hidden % | `\|-damage\|p2a: Garganacl\|81/100` → `\|-damage\|p2a: Garganacl\|90/100` | no | SAFE |  |
-| W-lethal | presence | — → `\|faint\|p2a: Garganacl` | no | SAFE |  |
 
 #### Queenly Majesty · `ability:queenlymajesty`
 
@@ -1923,9 +1896,7 @@ No witness changed the log before it was named.
 1 holders · weight 1. Named by: `\|-activate\|p2a: Slowbro\|ability: Quick Draw` (W-phys-dealt, turn 1).
 Box: READ (p2 holder-hidden), READ (p1 other-hidden).
 
-| Witness | Sinks | Without → with | Named? | Hazard | Control |
-|---|---|---|---|---|---|
-| W-confusion | presence | — → `\|-start\|p2a: Slowbro\|confusion` | turn 2 | HAZARD-REBUILD |  |
+No witness changed the log before it was named.
 
 #### Quick Feet · `ability:quickfeet`
 
@@ -1963,16 +1934,16 @@ No witness changed the log before it was named.
 
 | Witness | Sinks | Without → with | Named? | Hazard | Control |
 |---|---|---|---|---|---|
-| W-phys-dealt | known exact | `\|-damage\|p1a: Snorlax\|217/255` → `\|-damage\|p1a: Snorlax\|186/255` | no | TRUE-SET-FAILS |  |
-| W-spec-dealt | known exact | `\|-damage\|p1a: Snorlax\|232/255` → `\|-damage\|p1a: Snorlax\|213/255` | no | TRUE-SET-FAILS |  |
-| W-trade | known exact | `\|-damage\|p1a: Snorlax\|217/255` → `\|-damage\|p1a: Snorlax\|186/255` | no | TRUE-SET-FAILS |  |
-| W-Normal-dealt | known exact | `\|-damage\|p1a: Snorlax\|217/255` → `\|-damage\|p1a: Snorlax\|186/255` | no | TRUE-SET-FAILS |  |
-| W-burn | known exact | `\|-damage\|p1a: Snorlax\|236/255` → `\|-damage\|p1a: Snorlax\|221/255` | no | TRUE-SET-FAILS |  |
-| W-paralysis | known exact | `\|-damage\|p1a: Snorlax\|217/255` → `\|-damage\|p1a: Snorlax\|186/255` | no | TRUE-SET-FAILS |  |
-| W-toxic | known exact | `\|-damage\|p1a: Snorlax\|217/255` → `\|-damage\|p1a: Snorlax\|186/255` | no | TRUE-SET-FAILS |  |
-| W-sleep | known exact | `\|-damage\|p1a: Snorlax\|217/255` → `\|-damage\|p1a: Snorlax\|186/255` | no | TRUE-SET-FAILS |  |
-| W-taunt | known exact | `\|-damage\|p1a: Snorlax\|217/255` → `\|-damage\|p1a: Snorlax\|186/255` | no | TRUE-SET-FAILS |  |
-| W-two-moves | known exact | `\|-damage\|p1a: Snorlax\|217/255` → `\|-damage\|p1a: Snorlax\|186/255` | no | TRUE-SET-FAILS |  |
+| W-phys-dealt | known exact | `\|-damage\|p1a: Snorlax\|217/255` → `\|-damage\|p1a: Snorlax\|186/255` | no | SAFE |  |
+| W-spec-dealt | known exact | `\|-damage\|p1a: Snorlax\|232/255` → `\|-damage\|p1a: Snorlax\|213/255` | no | SAFE |  |
+| W-trade | known exact | `\|-damage\|p1a: Snorlax\|217/255` → `\|-damage\|p1a: Snorlax\|186/255` | no | SAFE |  |
+| W-Normal-dealt | known exact | `\|-damage\|p1a: Snorlax\|217/255` → `\|-damage\|p1a: Snorlax\|186/255` | no | SAFE |  |
+| W-burn | known exact | `\|-damage\|p1a: Snorlax\|236/255` → `\|-damage\|p1a: Snorlax\|221/255` | no | SAFE |  |
+| W-paralysis | known exact | `\|-damage\|p1a: Snorlax\|217/255` → `\|-damage\|p1a: Snorlax\|186/255` | no | SAFE |  |
+| W-toxic | known exact | `\|-damage\|p1a: Snorlax\|217/255` → `\|-damage\|p1a: Snorlax\|186/255` | no | SAFE |  |
+| W-sleep | known exact | `\|-damage\|p1a: Snorlax\|217/255` → `\|-damage\|p1a: Snorlax\|186/255` | no | SAFE |  |
+| W-taunt | known exact | `\|-damage\|p1a: Snorlax\|217/255` → `\|-damage\|p1a: Snorlax\|186/255` | no | SAFE |  |
+| W-two-moves | known exact | `\|-damage\|p1a: Snorlax\|217/255` → `\|-damage\|p1a: Snorlax\|186/255` | no | SAFE |  |
 
 #### Regenerator · `ability:regenerator`
 
@@ -1998,7 +1969,7 @@ No witness changed the log before it was named.
 | W-trade | known exact | `\|-damage\|p1a: Snorlax\|201/255` → `\|-damage\|p1a: Snorlax\|214/255` | no | SAFE |  |
 | W-burn | known exact | `\|-damage\|p1a: Snorlax\|228/255` → `\|-damage\|p1a: Snorlax\|235/255` | no | SAFE |  |
 | W-paralysis | known exact | `\|-damage\|p1a: Snorlax\|201/255` → `\|-damage\|p1a: Snorlax\|214/255` | no | SAFE |  |
-| W-toxic | known exact | `\|-damage\|p1a: Snorlax\|201/255` → `\|-damage\|p1a: Snorlax\|214/255` | no | TRUE-SET-FAILS |  |
+| W-toxic | known exact | `\|-damage\|p1a: Snorlax\|201/255` → `\|-damage\|p1a: Snorlax\|214/255` | no | SAFE |  |
 | W-sleep | known exact | `\|-damage\|p1a: Snorlax\|201/255` → `\|-damage\|p1a: Snorlax\|214/255` | no | SAFE |  |
 | W-taunt | known exact | `\|-damage\|p1a: Snorlax\|201/255` → `\|-damage\|p1a: Snorlax\|214/255` | no | SAFE |  |
 | W-two-moves | known exact | `\|-damage\|p1a: Snorlax\|201/255` → `\|-damage\|p1a: Snorlax\|214/255` | no | SAFE |  |
@@ -2007,9 +1978,7 @@ No witness changed the log before it was named.
 
 5 holders · weight 5. Named by: no line, in any witness.
 
-| Witness | Sinks | Without → with | Named? | Hazard | Control |
-|---|---|---|---|---|---|
-| W-lethal | presence | — → `\|faint\|p2a: Aggron` | no | HAZARD-REBUILD |  |
+No witness changed the log before it was named.
 
 #### Rough Skin · `ability:roughskin`
 
@@ -2192,7 +2161,7 @@ No witness changed the log before it was named.
 | W-trade | order | `p2a: Sableye before p2b: Avalugg` → `p2b: Avalugg before p2a: Sableye` | no | HAZARD-UNSOUND |  |
 | W-burn | order | `p2a: Sableye before p1a: Snorlax` → `p1a: Snorlax before p2a: Sableye` | no | HAZARD-UNSOUND |  |
 | W-paralysis | order | `p2a: Sableye before p1a: Snorlax` → `p1a: Snorlax before p2a: Sableye` | no | HAZARD-UNSOUND |  |
-| W-toxic | order | `p2a: Sableye before p1a: Snorlax` → `p1a: Snorlax before p2a: Sableye` | no | TRUE-SET-FAILS | HAZARD-REBUILD |
+| W-toxic | order | `p2a: Sableye before p1a: Snorlax` → `p1a: Snorlax before p2a: Sableye` | no | HAZARD-UNSOUND |  |
 | W-sleep | known exact, order, presence | `\|move\|p2a: Sableye\|Splash\|p2a: Sableye` → — | no | HAZARD-UNSOUND |  |
 | W-confusion | hidden %, presence | `\|move\|p2a: Sableye\|Splash\|p2a: Sableye` → — | no | HAZARD-REBUILD |  |
 | W-taunt | order, presence | `\|move\|p2a: Sableye\|Splash\|p2a: Sableye` → — | no | HAZARD-UNSOUND |  |
@@ -2204,18 +2173,14 @@ No witness changed the log before it was named.
 
 1 holders · weight 1. Named by: no line, in any witness.
 
-| Witness | Sinks | Without → with | Named? | Hazard | Control |
-|---|---|---|---|---|---|
-| W-lethal | presence | — → `\|faint\|p2a: Archaludon` | no | SAFE |  |
+No witness changed the log before it was named.
 
 #### Stamina · `ability:stamina`
 
 2 holders · weight 2. Named by: `\|-ability\|p2a: Archaludon\|Stamina\|boost` (W-phys-taken, turn 1).
 Box: READ (p2 holder-hidden), READ (p1 other-hidden).
 
-| Witness | Sinks | Without → with | Named? | Hazard | Control |
-|---|---|---|---|---|---|
-| W-lethal | presence | — → `\|faint\|p2a: Archaludon` | no | SAFE |  |
+No witness changed the log before it was named.
 
 #### Stance Change · `ability:stancechange`
 
@@ -2357,7 +2322,6 @@ No witness changed the log before it was named.
 | Witness | Sinks | Without → with | Named? | Hazard | Control |
 |---|---|---|---|---|---|
 | W-spec-dealt | known exact | `\|-damage\|p1a: Snorlax\|237/255` → `\|-damage\|p1a: Snorlax\|229/255` | no | HAZARD-UNSOUND |  |
-| W-paralysis | order, presence | — → `\|-status\|p2a: Grapploct\|par` | no | HAZARD-REBUILD |  |
 | W-two-moves | known exact | `\|-damage\|p1a: Snorlax\|184/255` → `\|-damage\|p1a: Snorlax\|176/255` | no | HAZARD-UNSOUND |  |
 
 #### Telepathy · `ability:telepathy`
@@ -2398,7 +2362,7 @@ No witness changed the log before it was named.
 | W-trade | known exact | `\|-damage\|p1a: Snorlax\|206/255` → `\|-damage\|p1a: Snorlax\|192/255` | no | SAFE |  |
 | W-burn | known exact | `\|-damage\|p1a: Snorlax\|231/255` → `\|-damage\|p1a: Snorlax\|224/255` | no | SAFE |  |
 | W-paralysis | known exact | `\|-damage\|p1a: Snorlax\|206/255` → `\|-damage\|p1a: Snorlax\|192/255` | no | SAFE |  |
-| W-toxic | known exact | `\|-damage\|p1a: Snorlax\|206/255` → `\|-damage\|p1a: Snorlax\|192/255` | no | TRUE-SET-FAILS |  |
+| W-toxic | known exact | `\|-damage\|p1a: Snorlax\|206/255` → `\|-damage\|p1a: Snorlax\|192/255` | no | SAFE |  |
 | W-sleep | known exact | `\|-damage\|p1a: Snorlax\|206/255` → `\|-damage\|p1a: Snorlax\|192/255` | no | SAFE |  |
 | W-taunt | known exact | `\|-damage\|p1a: Snorlax\|206/255` → `\|-damage\|p1a: Snorlax\|192/255` | no | SAFE |  |
 | W-two-moves | known exact | `\|-damage\|p1a: Snorlax\|206/255` → `\|-damage\|p1a: Snorlax\|192/255` | no | SAFE |  |
@@ -2428,9 +2392,7 @@ No witness changed the log before it was named.
 
 6 holders · weight 6. Named by: no line, in any witness.
 
-| Witness | Sinks | Without → with | Named? | Hazard | Control |
-|---|---|---|---|---|---|
-| W-sleep | known exact, presence | `\|move\|p2a: Slurpuff\|Strength\|p1a: Snorlax` → — | no | HAZARD-REBUILD |  |
+No witness changed the log before it was named.
 
 #### Unnerve · `ability:unnerve`
 
@@ -2752,7 +2714,7 @@ No witness changed the log before it was named.
 | W-trade | presence | `\|move\|p2a: Blastoise\|Splash\|p2a: Blastoise` → — | no | SAFE |  |
 | W-burn | presence | `\|move\|p2a: Blastoise\|Strength\|p1a: Snorlax` → — | no | SAFE |  |
 | W-paralysis | order, presence | `\|move\|p2a: Blastoise\|Strength\|p1a: Snorlax` → — | no | SAFE |  |
-| W-toxic | presence | `\|move\|p2a: Blastoise\|Strength\|p1a: Snorlax` → — | no | TRUE-SET-FAILS |  |
+| W-toxic | presence | `\|move\|p2a: Blastoise\|Strength\|p1a: Snorlax` → — | no | SAFE |  |
 | W-sleep | presence | `\|move\|p2a: Blastoise\|Strength\|p1a: Snorlax` → — | no | SAFE |  |
 | W-taunt | presence | `\|move\|p2a: Blastoise\|Strength\|p1a: Snorlax` → — | no | TRUE-SET-FAILS |  |
 | W-two-moves | presence | `\|move\|p2a: Blastoise\|Round\|p1a: Snorlax` → — | no | SAFE |  |
@@ -3140,7 +3102,7 @@ No witness changed the log before it was named.
 | W-trade | known exact | `\|-damage\|p1a: Snorlax\|225/255` → `\|-damage\|p1a: Snorlax\|196/255` | no | HAZARD-UNSOUND |  |
 | W-burn | known exact | `\|-damage\|p1a: Snorlax\|240/255` → `\|-damage\|p1a: Snorlax\|226/255` | no | HAZARD-UNSOUND |  |
 | W-paralysis | known exact | `\|-damage\|p1a: Snorlax\|225/255` → `\|-damage\|p1a: Snorlax\|196/255` | no | HAZARD-UNSOUND |  |
-| W-toxic | known exact | `\|-damage\|p1a: Snorlax\|225/255` → `\|-damage\|p1a: Snorlax\|196/255` | no | TRUE-SET-FAILS | HAZARD-REBUILD |
+| W-toxic | known exact | `\|-damage\|p1a: Snorlax\|225/255` → `\|-damage\|p1a: Snorlax\|196/255` | no | HAZARD-UNSOUND |  |
 | W-sleep | known exact | `\|-damage\|p1a: Snorlax\|225/255` → `\|-damage\|p1a: Snorlax\|196/255` | no | HAZARD-UNSOUND |  |
 | W-taunt | known exact | `\|-damage\|p1a: Snorlax\|225/255` → `\|-damage\|p1a: Snorlax\|196/255` | no | HAZARD-UNSOUND |  |
 | W-two-moves | known exact | `\|-damage\|p1a: Snorlax\|225/255` → `\|-damage\|p1a: Snorlax\|196/255` | no | HAZARD-UNSOUND |  |
