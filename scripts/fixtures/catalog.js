@@ -411,6 +411,18 @@ const entries = {
       ],
       control: { p1: [{ item: 'Heat Rock' }] },
       why: 'Halved first, the known holder heals by an eighth of what its spread move dealt both hidden Pokemon together, which its exact HP shows.',
+    }, {
+      name: 'two-hits',
+      role: 'other-hidden',
+      p1: [{ ...withMoves('known', ['Double Hit', 'Splash']), item: 'Shell Bell' }, withMoves('knownAlly', ['Super Fang', 'Splash']), 'knownBench'],
+      p2: ['hidden', 'hiddenAlly', 'hiddenBench'],
+      turns: [
+        { p1: 'move splash, move superfang -1', p2: 'move splash, move splash' },
+        { p1: 'move doublehit 1, move splash', p2: 'move splash, move splash' },
+        QUIET,
+      ],
+      control: { p1: [{ item: 'Heat Rock' }] },
+      why: 'Halved first, the known holder heals by an eighth of what both hits dealt the hidden Pokemon together, which its exact HP shows.',
     }],
   },
   'move:substitute': {

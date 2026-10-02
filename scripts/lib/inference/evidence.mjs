@@ -1177,11 +1177,14 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       // One of them shown as a percentage: the others' damage is exact, and the
       // amounts its hit could have dealt come on top.
       const hidden = hurt.filter(r => !r.exact);
-      // More of them, with the holder's own HP exact: its heal is the handler's
-      // share of the total. Its line keeps the totals that print it, and each of
-      // them keeps the amounts some amounts of the others complete to one.
-      const lasts = hidden.map(r => T.dealtTo?.get(r));
-      if (hidden.length > 1 && T.exact && lasts.every(l => l?.byA.size && l.move === battle.activeMove && l.hitsOn === 1)) {
+      // More hits than one on them - a spread move on two, a move that hits
+      // twice - with the holder's own HP exact: its heal is the handler's share
+      // of the total. Its line keeps the totals that print it, and each hit
+      // keeps the amounts some amounts of the others complete to one.
+      const hitsOf = r => (T.dealtHits || []).filter(l => l.victim === r && l.move === battle.activeMove);
+      const lasts = hidden.flatMap(hitsOf);
+      const whole = hidden.every(r => hitsOf(r).length === T.hitsOn?.get(r)) && lasts.every(l => l.byA.size);
+      if (lasts.length > 1 && T.exact && whole) {
         const rest = hurt.filter(r => r.exact).reduce((sum, r) => sum + (T.dealtEach?.get(r) || 0), 0);
         const amounts = lasts.map(l => [...new Set([...l.byA.values()].flatMap(set => [...set]))]);
         const sumOf = (lists) => {
@@ -1212,7 +1215,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
               for (const d of set) if ([...sums].some(t => fits.has(t + d))) ok.add(v * HP_BITS + d);
             }
             l.change.dealtOk = ok;
-            narrowDealt(hidden[i], l.change, ok, { what, turn: battle.turn });
+            narrowDealt(l.victim, l.change, ok, { what, turn: battle.turn });
           }
         };
         return { dim: null, table, via: null, after, what };
@@ -1459,8 +1462,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     rec.history.push({ change, token, survived, pre: rec.chain, seq: seq++ });
     rec.chain = next;
     if (dealt) {
-      change.dealtBy.lastDealt = { move: change.move, off: change.off, hits: change.hits, hitsOn: change.hitsOn, byA: dealt, change, victim: rec, turn: change.turn };
-      (change.dealtBy.dealtTo ||= new Map()).set(rec, change.dealtBy.lastDealt);
+      const S = change.dealtBy;
+      S.lastDealt = { move: change.move, off: change.off, hits: change.hits, hitsOn: change.hitsOn, byA: dealt, change, victim: rec, turn: change.turn };
+      (S.dealtTo ||= new Map()).set(rec, S.lastDealt);
+      if (S.dealtHitsMove !== change.move) { S.dealtHitsMove = change.move; S.dealtHits = []; }
+      S.dealtHits.push(S.lastDealt);
     }
     if (supported && token !== null) narrowVia(change.via, supported);
     // The victim's display also says which HP the attacker could have been on,
