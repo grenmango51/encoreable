@@ -441,6 +441,8 @@ function hook(st, p) {
 					to: to === undefined ? -1 : to,
 					value: out,
 					mark: st.mark,
+					// A chance - `random(d) < n` - has two outcomes whatever d is.
+					chance: st.n !== undefined && st.n !== null,
 				});
 			}
 			return out;

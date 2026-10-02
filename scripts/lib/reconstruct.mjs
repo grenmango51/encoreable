@@ -426,6 +426,9 @@ function choiceFor(side, plan, state, notes) {
     }
 
     const at = slot.moves.findIndex(m => m.id === action.moveid);
+    // Imprison disables a foe's moves without telling its player: the request
+    // still offers them, and choosing one makes the Pokemon Struggle.
+    if (at < 0 && action.moveid === 'struggle' && slot.moves.length) return `move 1${mega}`;
     if (at < 0) {
       // The simulator is not offering the move the log says was used. That is a
       // real divergence, not something to paper over.
@@ -470,6 +473,9 @@ function onChannel(raw, channel) {
 }
 
 // ------------------------------------------------- HP displays and dry runs
+
+/** Backtracks to a die that brings a failing non-HP line closer, per rebuild. */
+const DIE_BACKTRACKS = 4;
 
 /** A damage roll has sixteen faces; face 0 is full damage. */
 export const ROLLS = 16;
@@ -601,12 +607,12 @@ export function override(obj, name, fn) {
  */
 function drawsOf(trace, seg) {
   const rows = [];
-  for (const { i, from, to, value, mark, at } of trace || []) {
+  for (const { i, from, to, value, mark, at, chance } of trace || []) {
     if (mark !== seg || from < 0) continue;
     const lo = to < 0 ? 0 : from;
     const hi = (to < 0 ? from : to) - 1;
     if (hi <= lo) continue;
-    rows.push({ i, lo, hi, value, at });
+    rows.push({ i, lo, hi, value, at, chance: !!chance });
   }
   return rows;
 }
@@ -624,11 +630,17 @@ function drawsOf(trace, seg) {
  * damage roll offers one roll per HP it could leave that prints the line its
  * hit is about to print, a crit only the face that makes it agree.
  */
-function candidates({ i, lo, hi, value }, steer = null) {
+function candidates({ i, lo, hi, value, chance }, steer = null, wide = false) {
   const fits = steer?.get(i);
   if (fits) return fits.reps;
   const span = hi - lo + 1;
-  const all = span <= 16 ? Array.from({ length: span }, (_, k) => lo + k) : [lo, hi];
+  // A wide die is tried at both ends, which settle a chance. Asked for `wide`,
+  // one that is no chance is tried at eighths between them too: a die cut into
+  // bands - Effect Spore's sleep, paralysis or poison out of a hundred - needs
+  // a face inside each band.
+  const all = span <= 16 ? Array.from({ length: span }, (_, k) => lo + k)
+    : !wide || chance ? [lo, hi]
+      : [...new Set([lo, hi, ...Array.from({ length: 7 }, (_, k) => lo + Math.round((span - 1) * (k + 1) / 8))])];
   return all.filter(v => v !== value);
 }
 
@@ -1057,6 +1069,18 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
     install(stream.battle);
   }
   const battle = stream.battle;
+  // A move a hidden disable turned into Struggle - Imprison's, in doubles - is
+  // recorded as `move struggle`, which the request it answered never offered,
+  // so that line would be refused on replay (docs/engineering.md 6.1). The
+  // choice that was written is recorded in its place.
+  const written = {};
+  const recordInput = battle.inputLog.push;
+  battle.inputLog.push = function (line, ...rest) {
+    const m = /^>(p[1-4]) (.*)$/.exec(String(line));
+    const raw = m && written[m[1]];
+    const fixed = raw && /\bmove struggle\b/.test(m[2]) && !/\bstruggle\b/.test(raw) ? `>${m[1]} ${raw}` : line;
+    return recordInput.call(this, fixed, ...rest);
+  };
   const trace = traceOn(battle);
   // Each draw also records how long the log was when it was thrown: a die
   // cannot change a line written before it.
@@ -1132,7 +1156,8 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
       }
       const before = `${battle.turn}:${battle.log.length}:${battle.sides.map(s => s.requestState).join('')}`;
       for (const side of waiting) {
-        await stream.write(`>${side.id} ${choiceFor(side, plans[k], state, notes)}`);
+        written[side.id] = choiceFor(side, plans[k], state, notes);
+        await stream.write(`>${side.id} ${written[side.id]}`);
       }
       const after = `${battle.turn}:${battle.log.length}:${battle.sides.map(s => s.requestState).join('')}`;
       if (before === after) {
@@ -1523,6 +1548,9 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     forced++;
   };
 
+  // Wide dice are tried between their ends only when nothing else moves the
+  // turn, so a search that never needs it takes the path it always took.
+  let wide = false;
   while (score[0] !== Infinity && score[0] !== -1 && probes < budget) {
     let committed = false;
     // A draw that only improves the *fields* tie-break is a guess: it is the way
@@ -1561,7 +1589,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     const planned = trial ? [trial] : [];
     for (const draw of order) {
       if (subs[draw.i] !== undefined || !reach(draw)) continue;
-      for (const v of candidates(draw, run.steer)) {
+      for (const v of candidates(draw, run.steer, wide)) {
         const rec = found.get(`${draw.i}|${v}`);
         if (!rec || !holds(rec)) planned.push({ ...subs, [draw.i]: v });
       }
@@ -1586,7 +1614,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
 
       let best = score;
       const winners = [];
-      for (const v of candidates(draw, run.steer)) {
+      for (const v of candidates(draw, run.steer, wide)) {
         const key = `${draw.i}|${v}`;
         let rec = found.get(key);
         if (!rec || !holds(rec)) {
@@ -1617,6 +1645,13 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
       break;
     }
 
+    // Before settling for a draw that only gets more of the line right, the
+    // wide dice are tried between their ends.
+    if (!committed && !wide) {
+      ask.cancel();
+      wide = true;
+      continue;
+    }
     if (!committed && fallback) {
       commit(fallback.i, fallback.value);
       committed = true;
@@ -1703,7 +1738,7 @@ function exactHp(rawLog, who) {
  * later turn inherits, and it is the same uniform draw over the same consistent
  * set that the forward pass makes.
  */
-async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict = false) {
+async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict = false, failing = null) {
   const run = await runTo(common, subs, t, t);
   if (scoreOf(run, t)[0] !== Infinity) return false;
   const was = who ? exactHp(run.rawLog, who) : null;
@@ -1729,6 +1764,17 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
     }
   }
   ask.cancel();
+  // A die whose face shows nowhere in its own turn - how long Thrash locks its
+  // user, how long a sleep or a Taunt lasts - decides a later one. When no
+  // die here moves the stuck Pokemon's HP, the ones that bring the failing
+  // turn closer to the observation are the ones worth a backtrack.
+  if (!moving.length && failing !== null && failing > t && options.length) {
+    const before = scoreOf(await runTo(common, subs, failing), failing);
+    for (const option of options) {
+      const after = scoreOf(await runTo(common, { ...subs, [option.i]: option.value }, failing), failing);
+      if (after[0] > before[0] || (after[0] === before[0] && after[1] > before[1])) moving.push(option);
+    }
+  }
   const pool = moving.length ? moving : strict ? [] : options;
   if (!pool.length) return false;
 
@@ -1831,6 +1877,9 @@ export async function reconstruct({
   };
   let attempts = 0;
   let backtracks = 0;
+  // A backtrack to a die proved to bring the failing turn closer costs a few
+  // probes, not a guess, so it has a budget of its own.
+  let dieBacktracks = 0;
   let forcedDraws = 0;
 
   let run = await playThrough({ ...common, subs });
@@ -1944,18 +1993,27 @@ export async function reconstruct({
     // so go back and draw an earlier turn's ambiguity again.
     // Every other backtrack blames the other Pokemon the line depends on, when
     // its HP is hidden and so could have been sampled differently.
+    // A line that is no HP figure - a lock, a sleep or a confusion ending a
+    // turn early or late - was decided by a die thrown when it began, which
+    // showed nothing then. So every earlier turn is tried, latest first, for a
+    // die that brings this turn closer, and only such a die is redrawn.
     const attacker = hiddenCulprit(segments[t], run.diffs[0]?.expected, channel);
     const onAttacker = attacker && backtracks % 2 === 1;
     const line = onAttacker ? `|-damage|${attacker}|` : run.diffs[0]?.expected;
     const stuck = identName(String(line || '').split('|')[2]);
-    let back = blameTurn(segments, t, line);
+    const hpFigure = /^\|-(damage|heal|sethp)\|/.test(String(line || ''));
+    let back = hpFigure ? blameTurn(segments, t, line) : t - 1;
     let moved = false;
     while (back >= 0 && !moved) {
-      forget(back + 1);
-      moved = await redrawTurn(back, common, subs, subTurn, sample, maxProbes, stuck, onAttacker);
+      // The later turns keep the dice they settled while a die is judged, so
+      // the failing turn gets as far as the line in question.
+      if (hpFigure) forget(back + 1);
+      moved = hpFigure
+        ? await redrawTurn(back, common, subs, subTurn, sample, maxProbes, stuck, onAttacker, t)
+        : await redrawTurn(back, common, subs, subTurn, sample, maxProbes, null, true, t);
       if (!moved) back--;
     }
-    if (!moved || ++backtracks > maxBacktracks) break;
+    if (!moved || (hpFigure ? ++backtracks > maxBacktracks : ++dieBacktracks > DIE_BACKTRACKS)) break;
     onProgress(`turn ${t}: unreachable, redrawing turn ${back}`);
     for (let i = back + 1; i < variants.length; i++) { variants[i] = 0; spent[i] = 0; }
     run = await playThrough({ ...common, subs });
