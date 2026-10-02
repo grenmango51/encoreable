@@ -452,6 +452,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   /** Everything a dry run may disturb on the battle itself. */
   function guarded(fn) {
     state.dry++;
+    // No dry run touches the generator: a die it throws takes the bottom of
+    // its range, unless a caller handed it the real run's (`withRoll`).
+    const dry = st.dry;
+    st.dry ||= { roll: 0, draws: null };
     const saved = {
       log: saveLog(battle),
       faints: battle.faintQueue.length,
@@ -469,6 +473,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       battle.activeTarget = saved.target;
       battle.activePokemon = saved.user;
       battle.lastDamage = saved.lastDamage;
+      st.dry = dry;
       state.dry--;
     }
   }
@@ -791,13 +796,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   }
 
   /** The simulator's own `Damage` event for one candidate: Focus Sash, Sturdy, Endure. */
-  function damageEvent(hit, ctx, T, M, h, x) {
-    return memo(`dmgev|${hit.ord}|${M}|${h}|${x}`, () => guarded(() => {
+  function damageEvent(hit, ctx, T, M, h, x, granted = false) {
+    return memo(`dmgev|${hit.ord}|${M}|${h}|${x}|${granted}`, () => guarded(() => {
       const undo = patchAll([{ pokemon: T.pokemon, maxhp: M, hp: h }]);
       const after = snapItems([T.pokemon]);
       try {
         restoreItems(ctx.items);
-        return battle.runEvent('Damage', T.pokemon, ctx.source, ctx.effect, x, true);
+        return withRoll(0, () => battle.runEvent('Damage', T.pokemon, ctx.source, ctx.effect, x, true), granted ? null : ctx.dice);
       } finally {
         restoreItems(after);
         undo();
@@ -814,8 +819,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const modified = clamp(hit.real) !== clamp(dealt);
     const table = new Map();
     const rolls = new Map();
-    // Which pairs were lethal before the `Damage` event, for a display that
-    // says the Pokemon survived one.
+    // Which pairs a display that says the Pokemon survived a lethal hit allows:
+    // lethal before the `Damage` event, and left standing by it with every
+    // chance in it granted - each die at the bottom of its range, where
+    // `randomChance` succeeds - since the line proves a Focus Band's came up
+    // whatever this replay's die did. Such a pair is left on 1 HP.
     const lethal = new Map();
     for (const [g, [hp, d, h]] of groupsOf(T, hit.def)) {
       const M = maxHp(T, hp);
@@ -830,7 +838,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           for (const [r, value] of row.entries()) {
             rs.push(r);
             let x = clamp(value);
-            fatal.push(typeof x === 'number' && x >= h ? 1 : 0);
+            fatal.push(typeof x === 'number' && x >= h && h - Math.trunc(clamp(damageEvent(hit, ctx, T, M, h, x, true))) >= 1 ? 1 : 0);
             if (typeof x !== 'number' || x <= 0) { pairs.push(v + h); continue; }
             if (modified || x >= h) x = clamp(damageEvent(hit, ctx, T, M, h, x));
             if (typeof x !== 'number' || x <= 0) { pairs.push(v + h); continue; }
@@ -902,11 +910,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const M = maxHp(T, hp);
       const out = new Set();
       for (const amount of amounts(M)) {
-        out.add(memo(`amt|${ord}|${M}|${h}|${amount}`, () => dryHp(T, M, h, ctx.source, () => {
+        out.add(memo(`amt|${ord}|${M}|${h}|${amount}`, () => dryHp(T, M, h, ctx.source, () => withRoll(0, () => {
           if (kind === 'heal') battle.heal(amount, T.pokemon, ctx.source, ctx.effect);
           else if (ctx.direct) battle.directDamage(amount, T.pokemon, ctx.source, ctx.effect);
           else battle.spreadDamage([amount], [T.pokemon], ctx.source, ctx.effect);
-        })));
+        }, ctx.dice))));
       }
       table.set(g, Int32Array.from(out));
     }
@@ -1010,10 +1018,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     if (U.exact && typeof ctx.raw === 'number') return amountChange(T, 'damage', () => [ctx.raw], ctx, what);
     const last = T.lastDealt;
     if (T.exact && last?.byA.size && last.victim === U && last.hits === 1 && last.turn === battle.turn) {
-      return dealtChange(T, last, what, 'ctr', d => asDealt(U.pokemon, d, () => {
+      return dealtChange(T, last, what, 'ctr', d => asDealt(U.pokemon, d, () => withRoll(0, () => {
         const amount = hit.clone.damageCallback.call(battle, U.pokemon, T.pokemon);
         battle.spreadDamage([amount], [T.pokemon], U.pokemon, ctx.effect);
-      }));
+      }, ctx.dice)));
     }
     note(what, 'its damage was carried over from an earlier hit, so it was not used');
     return band('down', what);
@@ -1049,15 +1057,16 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
 
   /**
    * `oozed` is the heal a Liquid Ooze damage replaced: the same amount, read
-   * the same way, through the simulator's own Liquid Ooze.
+   * the same way, through the simulator's own Liquid Ooze. `dice` are what the
+   * real `Damage` event threw.
    */
-  function effectChange(T, kind, raw, effect, other, direct = false, oozed = null) {
+  function effectChange(T, kind, raw, effect, other, direct = false, oozed = null, dice = null) {
     const asEffect = x => (typeof x === 'string' ? battle.dex.conditions.getByID(x) : x);
     const shown = asEffect(effect);
     const e = oozed ? asEffect(oozed) : shown;
     const id = e?.id || '';
     const healed = kind === 'heal' || !!oozed;
-    const ctx = { source: other || null, effect: shown, direct };
+    const ctx = { source: other || null, effect: shown, direct, dice };
     const what = `${shown?.name || id || kind} on ${label(T)}`;
     const dir = kind === 'heal' ? 'up' : 'down';
     if (typeof raw !== 'number' || !(raw > 0)) return band(dir, what);
@@ -1145,8 +1154,12 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     for (const change of rec.pending.splice(0)) apply(rec, change, null);
     let change;
     if (kind === 'damage') {
-      const ctx = damageContext.get(rec.pokemon) || { effect: info.effect, source: info.source, items: snapItems([rec.pokemon]) };
+      const ctx = {
+        ...(damageContext.get(rec.pokemon) || { effect: info.effect, source: info.source, items: snapItems([rec.pokemon]) }),
+        dice: damageDice.get(rec.pokemon) || null,
+      };
       damageContext.delete(rec.pokemon);
+      damageDice.delete(rec.pokemon);
       const effect = typeof ctx.effect === 'string' ? battle.dex.conditions.getByID(ctx.effect) : ctx.effect;
       const hit = pendingHits.get(rec.pokemon);
       pendingHits.delete(rec.pokemon);
@@ -1160,7 +1173,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           src.victims.add(rec);
         }
       } else {
-        change = effectChange(rec, 'damage', ctx.raw ?? info.d, effect, ctx.source, ctx.direct, ctx.oozed);
+        change = effectChange(rec, 'damage', ctx.raw ?? info.d, effect, ctx.source, ctx.direct, ctx.oozed, ctx.dice);
       }
     } else if (kind === 'heal') {
       const ctx = healContext.get(rec.pokemon);
@@ -1243,7 +1256,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             for (let j = 0; j < pairs.length; j++) {
               if (fatal && !fatal[j]) continue;
               const packed = pairs[j];
-              const h2 = packed % HP_BITS;
+              const h2 = fatal ? 1 : packed % HP_BITS;
               if (allow && (h2 < allow[0] || h2 > allow[1])) continue;
               const tag = Math.floor(packed / HP_BITS);
               const v = tag % SPAN;
@@ -1329,7 +1342,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         const pairs = vChange.table.get(g) || [];
         for (let j = 0; j < pairs.length; j++) {
           if (fatal && !fatal[j]) continue;
-          const h2 = pairs[j] % HP_BITS;
+          const h2 = fatal ? 1 : pairs[j] % HP_BITS;
           const v = Math.floor(pairs[j] / HP_BITS) % SPAN;
           if (left.has(h2) && ok.has(v * HP_BITS + h - h2)) out.add(h2);
         }
@@ -1448,13 +1461,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   };
 
   /**
-   * The Pokemon a line announces survived a lethal hit - a Focus Sash, Sturdy,
-   * Endure - as `side:name`, or null. Its next HP line is that hit's, and the
+   * The Pokemon a line announces survived a lethal hit - a Focus Sash, Focus
+   * Band, Sturdy, Endure - as `side:name`, or null. Its next HP line is that hit's, and the
    * simulator's own `Damage` event decides per candidate whether it survives.
    */
   // Only the announcement itself, which ends the line: a Traced Sturdy names
   // Sturdy too, and says nothing about a hit.
-  const SURVIVAL = /^\|(-enditem|-ability|-activate)\|(p[1-4])[a-d]: ([^|]+)\|(Focus Sash|Sturdy|ability: Sturdy|move: Endure)$/;
+  const SURVIVAL = /^\|(-enditem|-ability|-activate)\|(p[1-4])[a-d]: ([^|]+)\|(Focus Sash|item: Focus Band|Sturdy|ability: Sturdy|move: Endure)$/;
   const survivor = (line) => {
     const m = SURVIVAL.exec(String(line || ''));
     return m ? `${m[2]}:${m[3]}` : null;
@@ -1681,6 +1694,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (itemFires(rec, M, mid)) lo = mid; else hi = mid; }
     return lo;
   };
+  // The dice a real `Damage` event throws - Focus Band's - per Pokemon, for
+  // every dry re-run of it to throw alike.
+  const damageDice = new Map();
   let itemChecks = 0;
   const origUpdate = battle.runEvent;
   battle.runEvent = function (eventid, target, ...rest) {
@@ -1710,6 +1726,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       gate.fired = target.item !== held;
       gate.what = `${name} ${gate.fired ? 'fired' : 'did not fire'} on ${label(rec)}`;
     }
+  };
+  const runEventBefore = battle.runEvent;
+  battle.runEvent = function (eventid, target, ...rest) {
+    if (eventid !== 'Damage' || state.dry || state.ended || !byPokemon.has(target)) return runEventBefore.call(this, eventid, target, ...rest);
+    const { value, thrown } = withDice(st, () => runEventBefore.call(this, eventid, target, ...rest));
+    damageDice.set(target, thrown);
+    return value;
   };
 
   // Two moves whose effect reads a Pokemon's hidden side, asked as they hit.
@@ -1985,7 +2008,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
               const fatal = fatalOf?.get(g);
               for (const [j, packed] of (change.table.get(g) || []).entries()) {
                 if (fatal && !fatal[j]) continue;
-                const h2 = packed % HP_BITS;
+                const h2 = fatal ? 1 : packed % HP_BITS;
                 if (!later.includes(h2)) continue;
                 const v = Math.floor(packed / HP_BITS) % SPAN;
                 if (change.dealtOk && !change.dealtOk.has(v * HP_BITS + h - h2)) continue;
@@ -2080,7 +2103,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         for (let j = 0; j < packs.length; j++) {
           if (fatal && !fatal[j]) continue;
           const packed = packs[j];
-          const h2 = packed % HP_BITS;
+          const h2 = fatal ? 1 : packed % HP_BITS;
           if (!later.includes(h2)) continue;
           const tag = Math.floor(packed / HP_BITS);
           if (e.change.dealtOk && !e.change.dealtOk.has((tag % SPAN) * HP_BITS + h - h2)) continue;

@@ -965,7 +965,7 @@ function fixtureTemplate(effect, t) {
   const moves = [...p1, ...p2].flatMap(s => s.moves).filter(m => m !== 'Splash');
   const patch = (team, fix = []) => team.map((set, i) => ({ ...set, ...(fix[i] || {}) }));
   const turns = t.turns;
-  const dice = diceFor(moves.filter(m => toID(m) !== effect.id), p2[0].name);
+  const dice = [...(t.dice || []), ...diceFor(moves.filter(m => toID(m) !== effect.id), p2[0].name)];
   const control = t.control ? { p1: patch(p1, t.control.p1), p2: patch(p2, t.control.p2), turns: t.control.turns || turns, dice } : null;
   return {
     key: `${t.role}/${t.name}`, role: t.role, name: t.name, source: 'fixture', why: t.why || null, effectTurn: t.effectTurn || 1,

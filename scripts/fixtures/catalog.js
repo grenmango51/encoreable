@@ -152,6 +152,7 @@ const quietAbilities = [
  * hidden Pokemon, whose Stat Points the probe sets), each turn's choices, and
  * `control`: the same battle with the effect taken out, as a patch of the teams
  * and, where the effect is a choice, of the turns. `why` is quoted on the card.
+ * `dice`, if given, are `>rng force` rules tried before the battle's own.
  */
 const QUIET = { p1: 'move splash, move splash', p2: 'move splash, move splash' };
 const withMoves = (key, moves) => ({ ...cast[key], evs: { ...cast[key].evs }, moves });
@@ -391,6 +392,18 @@ const entries = {
       turns: [{ p1: 'move irontail 1, move splash', p2: 'move splash, move splash' }, QUIET, QUIET],
       control: { p2: [{ item: '' }] },
       why: 'A hit that knocks the holder out at some Stat Points and not at others, so whether the Sash is spent depends on them.',
+    }],
+  },
+  'item:focusband': {
+    templates: [{
+      name: 'lethal-at-the-edge',
+      role: 'holder-hidden',
+      p1: [{ ...member('Garchomp', 'M', 'Sand Veil', 'Heat Rock', { hp: 2, atk: 32, def: 32 }), moves: ['Iron Tail', 'Splash'] }, 'knownAlly', 'knownBench'],
+      p2: [{ ...member('Whimsicott', 'F', 'Infiltrator', 'Focus Band', {}), moves: ['Splash'] }, 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move irontail 1, move splash', p2: 'move splash, move splash' }, QUIET, QUIET],
+      dice: ['proc p2:whimsicott - -'],
+      control: { p2: [{ item: '' }] },
+      why: 'A hit that knocks the holder out at some Stat Points and not at others; with its chance granted, the Band then saves it only where the hit was lethal.',
     }],
   },
 };
