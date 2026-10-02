@@ -114,10 +114,21 @@ function planSegment(segment, dex) {
     forced: { p1: [], p2: [] },     // in log order
     megas: new Set(),
   };
+  // Ally Switch moves two Pokemon between slots mid-turn, and the lines after
+  // it name the new slots; a choice belongs to the slot its Pokemon chose from.
+  const startOf = { p1: [0, 1, 2], p2: [0, 1, 2] };
 
   for (const [i, line] of segment.entries()) {
     const parts = line.split('|');
     const kind = parts[1];
+
+    if (kind === 'swap') {
+      const side = identSide(parts[2]);
+      const from = identSlot(parts[2]);
+      const to = Number(parts[3]);
+      if (startOf[side] && from >= 0 && to >= 0) [startOf[side][from], startOf[side][to]] = [startOf[side][to], startOf[side][from]];
+      continue;
+    }
 
     if (kind === '-mega' || kind === 'detailschange') {
       // `-mega` is the reliable marker; `detailschange` alone also covers forme
@@ -143,7 +154,7 @@ function planSegment(segment, dex) {
       // move (sim/pokemon.ts:1084), so it does need a choice line.
       if (from && from !== 'lockedmove') continue;
       const side = identSide(parts[2]);
-      const slot = identSlot(parts[2]);
+      const slot = startOf[side]?.[identSlot(parts[2])] ?? identSlot(parts[2]);
       const moveid = toID(parts[3]);
       const target = parts[4] && parts[4].includes(': ') ? parts[4] : null;
       plan.actions[side][slot] = {

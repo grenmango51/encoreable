@@ -368,6 +368,21 @@ const entries = {
       why: 'The known user hands back twice what its exact HP shows it took, the same whatever the hidden spread, and the hidden Pokemon\'s percentage then shows its max HP.',
     }],
   },
+  'move:wish': {
+    templates: [{
+      name: 'partner-healed',
+      role: 'user-hidden',
+      p1: [withMoves('known', ['Super Fang', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [withMoves('hidden', ['Wish', 'Splash']), withMoves('hiddenAlly', ['Ally Switch', 'Splash']), 'hiddenBench'],
+      turns: [
+        { p1: 'move superfang 2, move splash', p2: 'move wish, move splash' },
+        { p1: 'move splash, move splash', p2: 'move splash, move allyswitch' },
+        QUIET,
+      ],
+      control: { turns: [{ p1: 'move superfang 2, move splash', p2: 'move splash, move splash' }, { p1: 'move splash, move splash', p2: 'move splash, move allyswitch' }, QUIET] },
+      why: 'The halved partner is switched into the wisher\'s slot and healed by half the wisher\'s max HP, which its percentage then shows.',
+    }],
+  },
   'move:substitute': {
     templates: [{
       name: 'broken-at-the-edge',

@@ -1122,10 +1122,20 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       return runChange(T, 'cost', () => actions.applyRecoilDamage(0, active, T.pokemon), `${active.name}'s cost to ${label(T)}`);
     }
     // Wish heals half its maker's max HP: the Pokemon's own share when it made
-    // it, a fixed amount when its maker's HP stat is known, and otherwise an
-    // amount that stands on another Pokemon's HP, not used.
+    // it, a fixed amount when its maker's HP stat is known, and otherwise one
+    // amount per HP Stat Point its maker could have, which the healed
+    // Pokemon's display narrows both ways.
     if (id === 'wish' && kind === 'heal' && wisher && wisher !== T.pokemon) {
-      return byPokemon.get(wisher)?.kn.known ? amountChange(T, kind, () => [raw], ctx, what) : band(dir, what);
+      const W = byPokemon.get(wisher);
+      if (!W) return band(dir, what);
+      if (W.kn.known) return amountChange(T, kind, () => [raw], ctx, what);
+      const hps = [...new Set([...(W.chain ? W.chain.keys() : W.knKeys)].map(k => KEY_HP[k]))];
+      const amounts = new Map(hps.map(v => [v, maxHp(W, v) / 2]));
+      if (amounts.get(fullEvs(wisher.set.evs).hp) !== raw) {
+        note(what, 'its maker\'s max HP at its own Stat Points did not give the amount healed, so it was not used');
+        return band(dir, what);
+      }
+      return statAmountChange(T, kind, amounts, { rec: W, dim: 'hp' }, ctx, `Wish from ${label(W)} on ${label(T)}`);
     }
 
     // Drain and recoil are a share of damage dealt. That share is exact when the
@@ -1160,11 +1170,15 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     if (id === 'shellbell' && healed) {
       const hurt = T.victimMove === battle.activeMove ? [...T.victims] : [];
       if (hurt.length && hurt.every(r => r.exact)) return amountChange(T, kind, () => [raw], ctx, what);
-      const last = T.lastDealt;
-      if (hurt.length === 1 && last?.byA.size && last.move === battle.activeMove && last.hits === 1 && last.victim === hurt[0]) {
+      // One of them shown as a percentage: the others' damage is exact, and the
+      // amounts its hit could have dealt come on top.
+      const hidden = hurt.filter(r => !r.exact);
+      const last = hidden.length === 1 ? T.dealtTo?.get(hidden[0]) : null;
+      if (last?.byA.size && last.move === battle.activeMove && last.hits === 1) {
         const V = last.victim.pokemon;
         const move = battle.activeMove;
-        return dealtChange(T, last, what, 'shb', d => battle.singleEvent('AfterMoveSecondarySelf', e, T.pokemon.itemState, T.pokemon, V, { ...move, totalDamage: d }));
+        const rest = hurt.filter(r => r.exact).reduce((sum, r) => sum + (T.dealtEach?.get(r) || 0), 0);
+        return dealtChange(T, last, what, 'shb', d => battle.singleEvent('AfterMoveSecondarySelf', e, T.pokemon.itemState, T.pokemon, V, { ...move, totalDamage: rest + d }));
       }
       return band(dir, what);
     }
@@ -1230,8 +1244,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             : band('down', `${effect.name} hit ${label(rec)}`);
         const src = ctx.source && ctx.source !== rec.pokemon ? byPokemon.get(ctx.source) : null;
         if (src) {
-          if (src.victimMove !== effect) { src.victimMove = effect; src.victims = new Set(); }
+          if (src.victimMove !== effect) { src.victimMove = effect; src.victims = new Set(); src.dealtEach = new Map(); }
           src.victims.add(rec);
+          src.dealtEach.set(rec, (src.dealtEach.get(rec) || 0) + info.d);
         }
       } else {
         change = effectChange(rec, 'damage', ctx.raw ?? info.d, effect, ctx.source, ctx.direct, ctx.oozed, ctx.dice);
@@ -1396,7 +1411,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
     rec.history.push({ change, token, survived, pre: rec.chain, seq: seq++ });
     rec.chain = next;
-    if (dealt) change.dealtBy.lastDealt = { move: change.move, off: change.off, hits: change.hits, byA: dealt, change, victim: rec, turn: change.turn };
+    if (dealt) {
+      change.dealtBy.lastDealt = { move: change.move, off: change.off, hits: change.hits, byA: dealt, change, victim: rec, turn: change.turn };
+      (change.dealtBy.dealtTo ||= new Map()).set(rec, change.dealtBy.lastDealt);
+    }
     if (supported && token !== null) narrowVia(change.via, supported);
     // The victim's display also says which HP the attacker could have been on,
     // and which value the one more candidate could have, when the hit depended
@@ -1507,8 +1525,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   function narrowVia(via, ok) {
     if (via.dim) {
       const A = via.rec;
+      const dim = via.dim === 'hp' ? KEY_HP : KEY_DIM[via.dim];
       if (!A.chain) initChain(A);
-      for (const k of [...A.chain.keys()]) if (!ok[KEY_DIM[via.dim][k]]) A.chain.delete(k);
+      for (const k of [...A.chain.keys()]) if (!ok[dim[k]]) A.chain.delete(k);
       return;
     }
     const dom = via.rec.flat[via.stat];

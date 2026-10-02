@@ -289,12 +289,25 @@ export function attachSpeed(battle, {
     const who = line => (OPENS_ACTION.test(String(line || '')) ? String(line).split('|')[2] : null);
     const was = who(prefix.observedLine);
     const got = who(cut?.line);
+    // The move P really chose this turn: its first own move line from here
+    // to the turn's end. A rebuild that chose another for it sorted another
+    // priority, and then the order says nothing about speed.
+    const chosen = () => {
+      for (const line of [prefix.observedLine, ...(prefix.observedAfter || [])]) {
+        const parts = String(line || '').split('|');
+        if (parts[1] === 'turn') return null;
+        if (parts[1] === 'move' && parts[2] === was && !String(line).includes('[from]')) return String(parts[3]).toLowerCase().replace(/[^a-z0-9]/g, '');
+      }
+      return null;
+    };
     if (was && got && was !== got && named(was)) {
       const ex = executed.find(e => e.start <= prefix.cutoffAt && prefix.cutoffAt < e.end);
       const P = named(was);
       const S = ex?.sort;
       const x = S?.list.find(item => item.action === ex.action);
-      const y = S?.list.find(item => item.pokemon === P?.pokemon && item.order === x?.order && item.priority === x?.priority);
+      const move = chosen();
+      const y = S?.list.find(item => item.pokemon === P?.pokemon && item.order === x?.order && item.priority === x?.priority
+        && !!move && item.action?.move?.id === move);
       const Q = x && byPokemon.get(x.pokemon);
       const rule = P && Q && y && !tainted.has(S.turn) ? ruleOf(P, Q, S.speeds, S.turn, `${label(P)} acted before ${label(Q)}`) : null;
       if (rule) rules.push(rule);
