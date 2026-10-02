@@ -128,12 +128,23 @@ export function illusionStays(lines, sheets) {
  * from another Pokemon's move and stood, with no `|replace|` after it - a hit
  * always breaks Illusion - used a move only its own sheet has, showed its own
  * exact max HP and not the Illusion user's, or came in while the Illusion user
- * was seen elsewhere or had fainted. One read as the Illusion user is not
- * listed. Any other could have been either, so what it showed is evidence for
- * neither.
+ * was seen elsewhere or had fainted. None is the Illusion user once as many
+ * other Pokemon have been shown on its side as the side brought: it copies only
+ * a Pokemon brought with it, so it was not brought. One read as the Illusion
+ * user is not listed. Any other could have been either, so what it showed is
+ * evidence for neither.
  */
 export function unsettledStays(lines, sheets) {
   const seen = unmaskIllusion(lines, sheets).lines.map(String);
+  const brought = {};
+  const others = { p1: new Set(), p2: new Set() };
+  for (const line of seen) {
+    const q = line.split('|');
+    if (q[1] === 'teamsize') brought[q[2]] = Number(q[3]);
+    const who = /^(p[1-4])[a-d]: (.+)$/.exec(q[2] || '');
+    const zoroark = who && sheets[who[1]]?.members.find(p => p.illusion);
+    if ((q[1] === 'switch' || q[1] === 'drag') && zoroark && who[2] !== zoroark.name) others[who[1]]?.add(who[2]);
+  }
   const out = [];
   for (const stay of illusionStays(lines, sheets)) {
     const parts = seen[stay.at].split('|');
@@ -142,7 +153,7 @@ export function unsettledStays(lines, sheets) {
     const [, slot, side, name] = m;
     const zoroark = sheets[side].members.find(p => p.illusion);
     const shown = sheets[side].members.find(p => p.name === name);
-    if (!shown || name === zoroark.name) continue;
+    if (!shown || name === zoroark.name || others[side]?.size >= brought[side]) continue;
     const hp = /^\d+\/(\d+)/.exec(parts[4] || '');
     const zoroarkIs = (line) => {
       const who = /^(p[1-4])[a-d]: (.+)$/.exec(line.split('|')[2] || '');
