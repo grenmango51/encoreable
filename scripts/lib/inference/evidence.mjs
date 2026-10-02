@@ -963,7 +963,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       table.set(g, Int32Array.from(pairs));
       dealtOf.set(g, Int32Array.from(amounts));
     }
-    return { dim: null, table, dealtOf, victim: last.change, via: known ? null : { rec: S, stat: last.off }, what };
+    return { dim: null, table, dealtOf, victim: last.change, hurt: last.victim, via: known ? null : { rec: S, stat: last.off }, what };
   }
 
   /** Recoil: `applyRecoilDamage` computes and applies it in one call. */
@@ -996,11 +996,18 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
 
   const band = (dir, what) => ({ band: dir, what });
 
-  function effectChange(T, kind, raw, effect, other, direct = false) {
-    const e = typeof effect === 'string' ? battle.dex.conditions.getByID(effect) : effect;
+  /**
+   * `oozed` is the heal a Liquid Ooze damage replaced: the same amount, read
+   * the same way, through the simulator's own Liquid Ooze.
+   */
+  function effectChange(T, kind, raw, effect, other, direct = false, oozed = null) {
+    const asEffect = x => (typeof x === 'string' ? battle.dex.conditions.getByID(x) : x);
+    const shown = asEffect(effect);
+    const e = oozed ? asEffect(oozed) : shown;
     const id = e?.id || '';
-    const ctx = { source: other || null, effect: e, direct };
-    const what = `${e?.name || id || kind} on ${label(T)}`;
+    const healed = kind === 'heal' || !!oozed;
+    const ctx = { source: other || null, effect: shown, direct };
+    const what = `${shown?.name || id || kind} on ${label(T)}`;
     const dir = kind === 'heal' ? 'up' : 'down';
     if (typeof raw !== 'number' || !(raw > 0)) return band(dir, what);
 
@@ -1021,7 +1028,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     // any fraction below. What the seeder gets back is the amount it really
     // took: exact when the seeded Pokemon's HP is, and otherwise one of the
     // amounts its own line allowed - the seeder's line then says which.
-    if (id === 'leechseed' && kind === 'heal') {
+    if (id === 'leechseed' && healed) {
       const seeded = byPokemon.get(other);
       if (seeded?.exact) return amountChange(T, kind, () => [raw], ctx, what);
       const last = T.lastDealt;
@@ -1033,7 +1040,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     // Shell Bell gives back an eighth of everything the holder's move dealt:
     // exact when every Pokemon it hurt is shown exactly, and otherwise, for a
     // single hit on one Pokemon, one of the amounts that hit could have dealt.
-    if (id === 'shellbell' && kind === 'heal') {
+    if (id === 'shellbell' && healed) {
       const hurt = T.victimMove === battle.activeMove ? [...T.victims] : [];
       if (hurt.length && hurt.every(r => r.exact)) return amountChange(T, kind, () => [raw], ctx, what);
       const last = T.lastDealt;
@@ -1047,7 +1054,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     // Strength Sap heals by the target's Attack: a known amount when that
     // Attack is known, and otherwise one amount per Attack still possible,
     // taken before the move lowered it (`sapFor`).
-    if (id === 'strengthsap' && kind === 'heal') {
+    if (id === 'strengthsap' && healed) {
       const sapped = byPokemon.get(other);
       if (sapped?.kn.known) return amountChange(T, kind, () => [raw], ctx, what);
       const sap = sapFor.get(T.pokemon);
@@ -1101,7 +1108,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           src.victims.add(rec);
         }
       } else {
-        change = effectChange(rec, 'damage', ctx.raw ?? info.d, effect, ctx.source, ctx.direct);
+        change = effectChange(rec, 'damage', ctx.raw ?? info.d, effect, ctx.source, ctx.direct, ctx.oozed);
       }
     } else if (kind === 'heal') {
       const ctx = healContext.get(rec.pokemon);
@@ -1207,7 +1214,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
       if (out.size) next.set(k, [...out]);
     }
-    if (dealtOk) change.victim.dealtOk = dealtOk;
+    if (dealtOk) {
+      change.victim.dealtOk = dealtOk;
+      narrowDealt(change.hurt, change.victim, dealtOk, change);
+    }
     rec.history.push({ change, token, survived, pre: rec.chain, seq: seq++ });
     rec.chain = next;
     if (dealt) change.dealtBy.lastDealt = { move: change.move, off: change.off, hits: change.hits, byA: dealt, change, victim: rec, turn: change.turn };
@@ -1241,6 +1251,43 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const cuts = [...befores].map(([r, before]) => cutOf(r, before)).filter(Boolean);
       if (cuts.length) events.push({ turn: change.turn ?? battle.turn, what: change.what, ...(token !== null ? { shown: token } : {}), cuts });
     }
+  }
+
+  /**
+   * What a share of the damage dealt showed, put back on the Pokemon that took
+   * it while that hit is still the last thing that moved its HP: of the HP it
+   * was left on, only what some amount the share allows could leave survives.
+   * The backward walk checks the same thing over every turn at the end.
+   */
+  function narrowDealt(V, vChange, ok, by) {
+    const entry = V?.history.at(-1);
+    if (!entry || entry.change !== vChange || V.pending.length || !vChange.table) return;
+    const before = record ? measure(V) : null;
+    const next = new Map();
+    for (const [k, hs] of entry.pre) {
+      const now = V.chain.get(k);
+      if (!now) continue;
+      const left = new Set(now);
+      const hp = KEY_HP[k];
+      const d = vChange.dim ? KEY_DIM[vChange.dim][k] : 0;
+      const out = new Set();
+      for (const h of hs) {
+        const g = (hp * SPAN + d) * HP_BITS + h;
+        const fatal = entry.survived ? vChange.lethal?.get(g) : null;
+        const pairs = vChange.table.get(g) || [];
+        for (let j = 0; j < pairs.length; j++) {
+          if (fatal && !fatal[j]) continue;
+          const h2 = pairs[j] % HP_BITS;
+          const v = Math.floor(pairs[j] / HP_BITS) % SPAN;
+          if (left.has(h2) && ok.has(v * HP_BITS + h - h2)) out.add(h2);
+        }
+      }
+      if (out.size) next.set(k, [...out]);
+    }
+    V.chain = next;
+    if (!record) return;
+    const cut = cutOf(V, before);
+    if (cut) events.push({ turn: by.turn ?? battle.turn, what: by.what, cuts: [cut] });
   }
 
   /** Keep only the attacking-stat values a hit's display left reachable. */
@@ -1487,7 +1534,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   battle.spreadDamage = function (damage, targetArray, source, effect, instafaint) {
     if (!state.dry && !state.ended && targetArray) {
       for (const [i, t] of targetArray.entries()) {
-        if (t && byPokemon.has(t)) damageContext.set(t, { effect, source, raw: damage[i], items: snapItems([t]) });
+        if (!t || !byPokemon.has(t)) continue;
+        // Liquid Ooze deals what the heal it replaced would have given.
+        const oozed = effect?.id === 'liquidooze' ? healContext.get(t)?.effect : null;
+        damageContext.set(t, { effect, source, raw: damage[i], oozed, items: snapItems([t]) });
       }
     }
     return origSpread.call(this, damage, targetArray, source, effect, instafaint);
@@ -1514,7 +1564,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       let s = source;
       let e = effect;
       if (this.event) { t ||= this.event.target; s ||= this.event.source; e ||= this.effect; }
-      if (t && byPokemon.has(t)) healContext.set(t, { raw: damage, source: s, effect: e });
+      if (t && byPokemon.has(t)) {
+        const ctx = { raw: damage, source: s, effect: e };
+        healContext.set(t, ctx);
+        const healed = origHeal.call(this, damage, target, source, effect);
+        if (!healed && healContext.get(t) === ctx) healContext.delete(t);
+        return healed;
+      }
     }
     return origHeal.call(this, damage, target, source, effect);
   };

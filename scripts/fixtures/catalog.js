@@ -155,8 +155,192 @@ const quietAbilities = [
  */
 const QUIET = { p1: 'move splash, move splash', p2: 'move splash, move splash' };
 const withMoves = (key, moves) => ({ ...cast[key], evs: { ...cast[key].evs }, moves });
+const set = (species, gender, ability, item, evs, moves) => ({ ...member(species, gender, ability, item, evs), moves });
+
+/**
+ * A race under a condition: the known lead sets it, the hidden Pokemon and a
+ * known Pokemon fast enough to fall between its Speed at 0 and at 32 Stat
+ * Points under it all Splash, and the control is the same race without the
+ * ability.
+ */
+const race = (setter, holder, pacer, why) => ({
+  templates: [{
+    name: 'race-under-it',
+    role: 'holder-hidden',
+    p1: [setter, pacer, 'knownBench'],
+    p2: [holder, 'hiddenAlly', 'hiddenBench'],
+    turns: [QUIET, QUIET, QUIET],
+    control: { p2: [{ ability: 'Run Away' }] },
+    why,
+  }],
+});
 
 const entries = {
+  'ability:swiftswim': race(
+    set('Pelipper', 'M', 'Drizzle', 'Heat Rock', {}, ['Splash']),
+    set('Basculegion', 'M', 'Swift Swim', 'Smooth Rock', {}, ['Splash']),
+    set('Regieleki', '', 'Transistor', 'Heat Rock', { spe: 10 }, ['Splash']),
+    'Rain doubles the holder\'s Speed, 196 to 260, around a known 230: who moves first depends on its Speed Stat Points.',
+  ),
+  'ability:chlorophyll': race(
+    set('Torkoal', 'M', 'Drought', 'Heat Rock', { hp: 32, def: 32 }, ['Splash']),
+    set('Leafeon', 'F', 'Chlorophyll', 'Smooth Rock', {}, ['Splash']),
+    set('Regieleki', '', 'Transistor', 'Heat Rock', { spe: 32 }, ['Splash']),
+    'Sun doubles the holder\'s Speed, 230 to 294, around a known 252.',
+  ),
+  'ability:sandrush': race(
+    set('Tyranitar', 'M', 'Sand Stream', 'Heat Rock', {}, ['Splash']),
+    set('Excadrill', 'M', 'Sand Rush', 'Smooth Rock', {}, ['Splash']),
+    set('Regieleki', '', 'Transistor', 'Heat Rock', { spe: 20 }, ['Splash']),
+    'Sand doubles the holder\'s Speed, 216 to 280, around a known 240.',
+  ),
+  'ability:slushrush': race(
+    set('Abomasnow', 'M', 'Snow Warning', 'Heat Rock', {}, ['Splash']),
+    set('Beartic', 'M', 'Slush Rush', 'Smooth Rock', {}, ['Splash']),
+    set('Crobat', 'M', 'Inner Focus', 'Heat Rock', { spe: 20 }, ['Splash']),
+    'Snow doubles the holder\'s Speed, 140 to 204, around a known 170.',
+  ),
+  'ability:quickfeet': {
+    templates: [{
+      name: 'race-burned',
+      role: 'holder-hidden',
+      p1: [set('Snorlax', 'M', 'Gluttony', 'Heat Rock', {}, ['Will-O-Wisp', 'Splash']), set('Regieleki', '', 'Transistor', 'Heat Rock', { spe: 30 }, ['Splash']), 'knownBench'],
+      p2: [set('Jolteon', 'M', 'Quick Feet', 'Smooth Rock', {}, ['Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move willowisp 1, move splash', p2: 'move splash, move splash' }, QUIET, QUIET],
+      control: { p2: [{ ability: 'Run Away' }] },
+      why: 'Burned, the holder runs at one and a half times its Speed, 225 to 273, around a known 250.',
+    }],
+  },
+  'move:speedswap': {
+    templates: [{
+      name: 'swapped-race',
+      role: 'user-hidden',
+      p1: ['known', set('Arcanine', 'M', 'Justified', 'Heat Rock', {}, ['Splash']), 'knownBench'],
+      p2: [withMoves('hidden', ['Speed Swap', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move splash, move splash', p2: 'move speedswap 1, move splash' }, QUIET, QUIET],
+      control: { turns: [QUIET, QUIET, QUIET] },
+      why: 'Speed Swap hands Snorlax the hidden Pokemon\'s Speed, 98 to 130, and Snorlax then races a known 115: the known side\'s order carries the hidden Speed.',
+    }],
+  },
+  'move:healpulse': {
+    templates: [{
+      name: 'healed-from-a-quarter',
+      role: 'target-hidden',
+      p1: [withMoves('known', ['Super Fang', 'Heal Pulse', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: ['hidden', 'hiddenAlly', 'hiddenBench'],
+      turns: [
+        { p1: 'move superfang 1, move splash', p2: 'move splash, move splash' },
+        { p1: 'move superfang 1, move splash', p2: 'move splash, move splash' },
+        { p1: 'move healpulse 1, move splash', p2: 'move splash, move splash' },
+      ],
+      control: { turns: [{ p1: 'move superfang 1, move splash', p2: 'move splash, move splash' }, { p1: 'move superfang 1, move splash', p2: 'move splash, move splash' }, QUIET] },
+      why: 'Twice halved, so the heal is not capped, the hidden Pokemon is healed by half its max HP: a share of max HP, which a percentage shows the same whatever the max.',
+    }],
+  },
+  'move:sleeptalk': {
+    templates: [{
+      name: 'talks-in-its-sleep',
+      role: 'user-hidden',
+      p1: [withMoves('known', ['Hypnosis', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [withMoves('hidden', ['Sleep Talk', 'Strength']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move hypnosis 1, move splash', p2: 'move strength 1, move splash' }, { p1: 'move splash, move splash', p2: 'move sleeptalk, move splash' }, QUIET],
+      control: { p2: [{ moves: ['Strength', 'Splash'] }], turns: [{ p1: 'move hypnosis 1, move splash', p2: 'move strength 1, move splash' }, QUIET, QUIET] },
+      why: 'Put to sleep, the hidden Pokemon calls its other move through Sleep Talk, which hits like the move itself.',
+    }],
+  },
+  'move:steelroller': {
+    templates: [{
+      name: 'rolls-the-terrain',
+      role: 'user-hidden',
+      p1: [withMoves('known', ['Electric Terrain', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [withMoves('hidden', ['Steel Roller', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move electricterrain, move splash', p2: 'move splash, move splash' }, { p1: 'move splash, move splash', p2: 'move steelroller 1, move splash' }, QUIET],
+      control: { turns: [{ p1: 'move electricterrain, move splash', p2: 'move splash, move splash' }, QUIET, QUIET] },
+      why: 'Steel Roller only works on a terrain, which the known lead sets first.',
+    }],
+  },
+  'ability:liquidooze': {
+    templates: [{
+      name: 'drained',
+      role: 'holder-hidden',
+      p1: [withMoves('known', ['Giga Drain', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [set('Swalot', 'M', 'Liquid Ooze', 'Smooth Rock', {}, ['Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move gigadrain 1, move splash', p2: 'move splash, move splash' }, QUIET, QUIET],
+      control: { p2: [{ ability: 'Run Away' }] },
+      why: 'Liquid Ooze turns the drain into damage to the known drainer, whose exact HP then shows how much the hit dealt.',
+    }, {
+      name: 'seeded',
+      role: 'holder-hidden',
+      p1: [withMoves('known', ['Leech Seed', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [set('Swalot', 'M', 'Liquid Ooze', 'Smooth Rock', {}, ['Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move leechseed 1, move splash', p2: 'move splash, move splash' }, QUIET, QUIET],
+      control: { p2: [{ ability: 'Run Away' }] },
+      why: 'The known seeder takes, as damage, the eighth of the holder\'s max HP it would have healed.',
+    }, {
+      name: 'sapped',
+      role: 'holder-hidden',
+      p1: [withMoves('known', ['Strength Sap', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [set('Swalot', 'M', 'Liquid Ooze', 'Smooth Rock', {}, ['Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move strengthsap 1, move splash', p2: 'move splash, move splash' }, QUIET, QUIET],
+      control: { p2: [{ ability: 'Run Away' }] },
+      why: 'The known user takes, as damage, the holder\'s Attack it would have healed.',
+    }],
+  },
+  'item:bindingband': {
+    templates: [{
+      name: 'bound',
+      role: 'other-hidden',
+      p1: [{ ...withMoves('known', ['Fire Spin', 'Splash']), item: 'Binding Band' }, 'knownAlly', 'knownBench'],
+      p2: ['hidden', 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move firespin 1, move splash', p2: 'move splash, move splash' }, QUIET, QUIET],
+      control: { p1: [{ item: 'Heat Rock' }] },
+      why: 'Bound, the hidden Pokemon loses a sixth of its max HP each turn instead of an eighth.',
+    }],
+  },
+  'item:expertbelt': {
+    templates: [{
+      name: 'super-effective',
+      role: 'holder-hidden',
+      p1: ['known', 'knownAlly', 'knownBench'],
+      p2: [{ ...withMoves('hidden', ['Brick Break', 'Splash']), item: 'Expert Belt' }, 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move splash, move splash', p2: 'move brickbreak 1, move splash' }, QUIET, QUIET],
+      control: { p2: [{ item: '' }] },
+      why: 'A super-effective hit lands a fifth harder with Expert Belt.',
+    }],
+  },
+  'item:bigroot': {
+    templates: [{
+      name: 'drains',
+      role: 'holder-hidden',
+      p1: [withMoves('known', ['Super Fang', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [{ ...withMoves('hidden', ['Giga Drain', 'Splash']), item: 'Big Root' }, 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move superfang 1, move splash', p2: 'move splash, move splash' }, { p1: 'move splash, move splash', p2: 'move gigadrain 1, move splash' }, QUIET],
+      control: { p2: [{ item: '' }] },
+      why: 'Halved first so the heal is not capped, the hidden Pokemon drains a third more with Big Root.',
+    }],
+  },
+  'ability:blaze': {
+    templates: [{
+      name: 'in-a-pinch',
+      role: 'holder-hidden',
+      p1: [withMoves('known', ['Super Fang', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [set('Charizard', 'M', 'Blaze', 'Smooth Rock', {}, ['Flamethrower', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move superfang 1, move splash', p2: 'move splash, move splash' }, { p1: 'move superfang 1, move splash', p2: 'move splash, move splash' }, { p1: 'move splash, move splash', p2: 'move flamethrower 1, move splash' }],
+      control: { p2: [{ ability: 'Run Away' }] },
+      why: 'Twice halved, the holder is below a third of its HP and its Fire move lands half again as hard.',
+    }],
+  },
+  'ability:solarpower': {
+    templates: [{
+      name: 'in-the-sun',
+      role: 'holder-hidden',
+      p1: [set('Torkoal', 'M', 'Drought', 'Heat Rock', { hp: 32, def: 32 }, ['Splash']), 'knownAlly', 'knownBench'],
+      p2: [set('Charizard', 'M', 'Solar Power', 'Smooth Rock', {}, ['Flamethrower', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move splash, move splash', p2: 'move flamethrower 1, move splash' }, QUIET, QUIET],
+      control: { p2: [{ ability: 'Run Away' }] },
+      why: 'In the sun the holder\'s Special Attack is half again higher, and it loses an eighth of its max HP each turn.',
+    }],
+  },
   'move:strengthsap': {
     templates: [{
       name: 'known-user-hurt',
