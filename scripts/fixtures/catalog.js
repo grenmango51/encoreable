@@ -398,6 +398,21 @@ const entries = {
       why: 'Both shown as percentages, the hidden Pokemon and its halved partner are set to the average of their HP, which each percentage then shows.',
     }],
   },
+  'item:shellbell': {
+    templates: [{
+      name: 'spread-on-both',
+      role: 'other-hidden',
+      p1: [{ ...withMoves('known', ['Hyper Voice', 'Splash']), item: 'Shell Bell' }, withMoves('knownAlly', ['Super Fang', 'Splash']), 'knownBench'],
+      p2: ['hidden', 'hiddenAlly', 'hiddenBench'],
+      turns: [
+        { p1: 'move splash, move superfang -1', p2: 'move splash, move splash' },
+        { p1: 'move hypervoice, move splash', p2: 'move splash, move splash' },
+        QUIET,
+      ],
+      control: { p1: [{ item: 'Heat Rock' }] },
+      why: 'Halved first, the known holder heals by an eighth of what its spread move dealt both hidden Pokemon together, which its exact HP shows.',
+    }],
+  },
   'move:substitute': {
     templates: [{
       name: 'broken-at-the-edge',
