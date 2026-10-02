@@ -34,7 +34,7 @@ import {
   splitTurns, withDice,
 } from '../reconstruct.mjs';
 import {
-  FLAT, KEY_DIM, KEY_HP, SPAN, STAT_IDS, aliveOf, fullEvs, maskKeys, rangesOf, spreadCount,
+  FLAT, KEY_DIM, KEY_HP, SPAN, STAT_IDS, aliveOf, fullEvs, maskKeys, newTie, rangesOf, spreadCount, supported, tieHas, tieWords,
 } from './knowledge.mjs';
 import { attachSpeed } from './speed.mjs';
 
@@ -278,6 +278,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         exact: channel === -1 || side.id === `p${channel}`,
         chain: null,
         flat: { atk: kn.dom.atk.slice(), spa: kn.dom.spa.slice(), spe: kn.dom.spe.slice() },
+        ties: Object.fromEntries(Object.entries(kn.ties || {}).map(([x, t]) => [x, t.slice()])),
         pending: [],
         history: [],
         shown: [],
@@ -365,13 +366,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   // A Pokemon by the species it is, not one it has transformed into.
   const label = rec => rec.pokemon.baseSpecies.name;
   const countOf = (rec) => {
-    const count = spreadCount(rec.chain ? rec.chain.keys() : rec.knKeys, rec.flat);
+    const count = spreadCount(rec.chain ? rec.chain.keys() : rec.knKeys, rec.flat, rec.ties);
     return rec.kn.spent ? count.spent : count.total;
   };
 
   // What an event did to one Pokemon: the spread count before and after, each
   // stat's range after, and which of those ranges it moved.
-  const measure = rec => ({ count: countOf(rec), stats: rangesOf(rec.chain ? rec.chain.keys() : rec.knKeys, rec.flat, rec.kn.spent) });
+  const measure = rec => ({ count: countOf(rec), stats: rangesOf(rec.chain ? rec.chain.keys() : rec.knKeys, rec.flat, rec.kn.spent, rec.ties) });
   const sameRange = (a, b) => (a === null ? b === null : b !== null && a.min === b.min && a.max === b.max);
   function cutOf(rec, before) {
     const after = measure(rec);
@@ -1249,6 +1250,29 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   /** Whether a key survives a change that allows only some values of one key dimension. */
   const dimAllowed = (change, k) => !change.allowDims || change.allowDims.values.has(KEY_DIM[change.allowDims.dim][k]);
 
+  /**
+   * The flat stat a change reads of the very Pokemon it moves - its own Attack
+   * in its recoil, its drain, a Foul Play on it or its confusion self-hit - or
+   * null. Such a change says which values of that stat go with which key.
+   */
+  const tiedStat = (rec, change) => (change.table && change.via && change.via.rec === rec && !change.via.dim ? change.via.stat : null);
+
+  /** Keep, for each key in `byKey`, only the values of `stat` it lists. */
+  function tie(rec, stat, byKey) {
+    let t = rec.ties[stat];
+    if (!t) {
+      t = newTie();
+      rec.ties[stat] = t;
+      for (const [k, vs] of byKey) [t[2 * k], t[2 * k + 1]] = tieWords(vs);
+      return;
+    }
+    for (const [k, vs] of byKey) {
+      const [lo, hi] = tieWords(vs);
+      t[2 * k] &= lo;
+      t[2 * k + 1] &= hi;
+    }
+  }
+
   function apply(rec, change, token, survived = false) {
     const noted = record && (token !== null || change.gate);
     // Each Pokemon this event can move, measured before it moves it.
@@ -1263,6 +1287,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const sourceOk = change.sourceStates && token !== null ? new Set() : null;
     const done = new Map();
     const allowAt = new Map();
+    const tied = tiedStat(rec, change);
+    const held = tied ? rec.ties[tied] : null;
+    const byKey = tied && token !== null ? new Map() : null;
     for (const [k, hs] of rec.chain) {
       const hp = KEY_HP[k];
       const M = maxHp(rec, hp);
@@ -1275,6 +1302,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       if (!dimAllowed(change, k)) continue;
       const d = change.dim ? KEY_DIM[change.dim][k] : 0;
       const out = new Set();
+      const vs = byKey ? new Set() : null;
       for (const h of hs) {
         const g = (hp * SPAN + d) * HP_BITS + h;
         let res = done.get(g);
@@ -1294,6 +1322,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             const fatal = survived ? change.lethal?.get(g) : null;
             const hsSeen = new Set();
             const viaSeen = new Set();
+            const pv = [];
             for (let j = 0; j < pairs.length; j++) {
               if (fatal && !fatal[j]) continue;
               const packed = pairs[j];
@@ -1305,6 +1334,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
               if (sourceOk) sourceOk.add(Math.floor(tag / SPAN));
               hsSeen.add(h2);
               viaSeen.add(v);
+              if (tied) pv.push(h2, v);
               if (dealt) {
                 if (!dealt.has(v)) dealt.set(v, new Set());
                 dealt.get(v).add(h - h2);
@@ -1312,14 +1342,29 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             }
             res.hs = [...hsSeen];
             res.via = [...viaSeen];
+            res.pv = pv;
           }
           done.set(g, res);
+        }
+        if (tied && res.pv) {
+          for (let j = 0; j < res.pv.length; j += 2) {
+            const v = res.pv[j + 1];
+            if (held && !tieHas(held, k, v)) continue;
+            out.add(res.pv[j]);
+            if (vs) vs.add(v);
+            if (supported) supported[v] = 1;
+          }
+          continue;
         }
         for (const h2 of res.hs) out.add(h2);
         if (supported) for (const v of res.via) supported[v] = 1;
       }
-      if (out.size) next.set(k, [...out]);
+      if (out.size) {
+        next.set(k, [...out]);
+        if (byKey) byKey.set(k, vs);
+      }
     }
+    if (byKey) tie(rec, tied, byKey);
     if (dealtOk) {
       change.victim.dealtOk = dealtOk;
       narrowDealt(change.hurt, change.victim, dealtOk, change);
@@ -2019,6 +2064,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         rec.alive[i] = alive;
         const { change, token, survived, pre } = rec.history[i];
         const seen = change.via && token !== null ? new Uint8Array(SPAN) : null;
+        const tied = tiedStat(rec, change);
+        const held = tied ? rec.ties[tied] : null;
+        const byKey = tied && token !== null ? new Map() : null;
         const prev = new Map();
         const allowAt = new Map();
         for (const [k, hs] of pre) {
@@ -2035,6 +2083,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           const d = change.dim ? KEY_DIM[change.dim][k] : 0;
           const fatalOf = survived ? change.lethal : null;
           const keep = [];
+          const vs = byKey ? new Set() : null;
           for (const h of hs) {
             let ok = false;
             if (change.same) {
@@ -2052,16 +2101,22 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
                 const h2 = fatal ? 1 : packed % HP_BITS;
                 if (!later.includes(h2)) continue;
                 const v = Math.floor(packed / HP_BITS) % SPAN;
+                if (held && !tieHas(held, k, v)) continue;
                 if (change.dealtOk && !change.dealtOk.has(v * HP_BITS + h - h2)) continue;
                 ok = true;
-                if (!seen) break;
-                seen[v] = 1;
+                if (vs) vs.add(v);
+                if (!seen && !vs) break;
+                if (seen) seen[v] = 1;
               }
             }
             if (ok) keep.push(h);
           }
-          if (keep.length) prev.set(k, keep);
+          if (keep.length) {
+            prev.set(k, keep);
+            if (byKey) byKey.set(k, vs);
+          }
         }
+        if (byKey) tie(rec, tied, byKey);
         if (seen) narrowVia(change.via, seen);
         alive = prev;
       }
@@ -2194,6 +2249,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
       wholePaths();
       speed.apply(speed.rules());
+      for (const rec of recs) {
+        if (!rec.chain || !Object.keys(rec.ties).length) continue;
+        const sup = supported(rec.chain.keys(), rec.flat, rec.ties);
+        const keep = new Set(sup.keys);
+        for (const k of [...rec.chain.keys()]) if (!keep.has(k)) rec.chain.delete(k);
+        for (const x of FLAT) rec.flat[x] = sup.dom[x];
+      }
     },
     result() {
       return {
@@ -2201,6 +2263,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           id: rec.id,
           keys: rec.chain ? [...rec.chain.keys()] : rec.knKeys,
           flat: rec.flat,
+          ties: rec.ties,
           seen: !!rec.chain,
         })),
         // In the order they were applied: every HP event as the battle ran, then

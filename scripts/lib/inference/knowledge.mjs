@@ -3,7 +3,8 @@
  *
  * A spread is six numbers, 0-32 each, at most 66 together. HP, Defence and
  * Special Defence are one joint key, because they are what decides the HP a
- * Pokemon is left on; Attack, Special Attack and Speed are flat domains. This
+ * Pokemon is left on; Attack, Special Attack and Speed are flat domains, each
+ * tied to the key where a hit read it against the same Pokemon's key. This
  * file holds that model, the 66-point budget pushed through it, the count of
  * whole spreads it allows, and how the next guess is picked from it. Nothing
  * here runs the simulator.
@@ -41,6 +42,66 @@ export const aliveOf = (mask) => {
   return out;
 };
 
+// ------------------------------------------------------------ ties
+
+/**
+ * A tie: which values of one flat stat each key still allows, once a hit read
+ * that stat against the same Pokemon's key - its own Attack against its own HP
+ * and Defence, in recoil, drain, Foul Play or a confusion self-hit. Two 32-bit
+ * words per key: values 0-31 in the first, 32 in the second. A stat with no tie
+ * allows every value of its domain beside every key.
+ */
+export const newTie = () => new Uint32Array(KEYS * 2);
+export const tieHas = (tie, k, v) => (v < 32 ? (tie[2 * k] >>> v) & 1 : tie[2 * k + 1] & 1) === 1;
+export function tieWords(values) {
+  let lo = 0;
+  let hi = 0;
+  for (const v of values) {
+    if (v < 32) lo |= 1 << v;
+    else hi = 1;
+  }
+  return [lo >>> 0, hi];
+}
+const maskWords = mask => tieWords(aliveOf(mask));
+const cloneTies = ties => Object.fromEntries(Object.entries(ties || {}).map(([s, t]) => [s, t.slice()]));
+const wordValues = (lo, hi) => {
+  const out = [];
+  for (let v = 0; v < 32; v++) if ((lo >>> v) & 1) out.push(v);
+  if (hi & 1) out.push(32);
+  return out;
+};
+
+/**
+ * The keys and flat values that still make a whole spread together: a key
+ * needs a value each tie allows beside it, and a tied value needs a key that
+ * allows it.
+ */
+export function supported(keys, dom, ties = {}) {
+  const tied = FLAT.filter(s => ties?.[s]);
+  let list = [...keys];
+  if (!tied.length) return { keys: list, dom };
+  const out = { ...dom };
+  for (let round = 0; round < 8; round++) {
+    let changed = false;
+    const words = tied.map(s => maskWords(out[s]));
+    const next = list.filter(k => tied.every((s, j) => ((ties[s][2 * k] & words[j][0]) | (ties[s][2 * k + 1] & words[j][1])) !== 0));
+    if (next.length !== list.length) changed = true;
+    list = next;
+    for (const s of tied) {
+      let lo = 0;
+      let hi = 0;
+      for (const k of list) { lo |= ties[s][2 * k]; hi |= ties[s][2 * k + 1]; }
+      const mask = out[s].slice();
+      for (let v = 0; v < SPAN; v++) {
+        if (mask[v] && !(v < 32 ? (lo >>> v) & 1 : hi & 1)) { mask[v] = 0; changed = true; }
+      }
+      out[s] = mask;
+    }
+    if (!changed) break;
+  }
+  return { keys: list, dom: out };
+}
+
 // ------------------------------------------------------------ what is known
 
 export function freshKnowledge(set, known, spent = false) {
@@ -54,7 +115,7 @@ export function freshKnowledge(set, known, spent = false) {
     for (let k = 0; k < KEYS; k++) if (KEY_SUM[k] <= BUDGET) keys[k] = 1;
     for (const s of FLAT) dom[s].fill(1);
   }
-  return { known, spent: !known && spent, keys, dom };
+  return { known, spent: !known && spent, keys, dom, ties: {} };
 }
 
 export function cloneKnowledge(map) {
@@ -65,6 +126,7 @@ export function cloneKnowledge(map) {
       spent: kn.spent,
       keys: kn.keys.slice(),
       dom: { atk: kn.dom.atk.slice(), spa: kn.dom.spa.slice(), spe: kn.dom.spe.slice() },
+      ties: cloneTies(kn.ties),
     });
   }
   return out;
@@ -75,16 +137,28 @@ export function pinKnowledge(kn, evs) {
   kn.keys.fill(0);
   kn.keys[keyOf(e.hp, e.def, e.spd)] = 1;
   for (const s of FLAT) { kn.dom[s].fill(0); kn.dom[s][e[s]] = 1; }
+  kn.ties = {};
 }
 
 /** Narrow `kn` to what a pass left alive. Returns whether anything moved. */
-export function intersectKnowledge(kn, keys, flat) {
+export function intersectKnowledge(kn, keys, flat, ties = {}) {
   let moved = false;
   const keep = new Uint8Array(KEYS);
   for (const k of keys) keep[k] = 1;
   for (let k = 0; k < KEYS; k++) if (kn.keys[k] && !keep[k]) { kn.keys[k] = 0; moved = true; }
   for (const s of FLAT) {
     for (let v = 0; v < SPAN; v++) if (kn.dom[s][v] && !flat[s][v]) { kn.dom[s][v] = 0; moved = true; }
+  }
+  kn.ties ||= {};
+  for (const [s, tie] of Object.entries(ties || {})) {
+    const mine = kn.ties[s];
+    if (!mine) { kn.ties[s] = tie.slice(); moved = true; continue; }
+    for (let i = 0; i < mine.length; i++) {
+      const both = (mine[i] & tie[i]) >>> 0;
+      if (both === mine[i]) continue;
+      if (kn.keys[i >> 1]) moved = true;
+      mine[i] = both;
+    }
   }
   return moved;
 }
@@ -128,18 +202,35 @@ function budgetTest(keys, dom, spent) {
 }
 
 /**
- * The 66-point budget, pushed through every stat: a value that cannot fit beside
- * any surviving choice for everything else is gone.
- */
-/**
  * Every spread `other` leaves added to `kn`, a stat at a time: it holds every
- * spread either leaves, and can hold more.
+ * spread either leaves, and can hold more. A tie either holds is kept, as what
+ * each key allows in one or the other.
  */
 export function uniteKnowledge(kn, other) {
+  const tied = new Set([...Object.keys(kn.ties || {}), ...Object.keys(other.ties || {})]);
+  const ties = {};
+  for (const s of tied) {
+    const tie = newTie();
+    for (const src of [kn, other]) {
+      const [lo, hi] = maskWords(src.dom[s]);
+      const own = src.ties?.[s];
+      for (let k = 0; k < KEYS; k++) {
+        if (!src.keys[k]) continue;
+        tie[2 * k] |= own ? own[2 * k] & lo : lo;
+        tie[2 * k + 1] |= own ? own[2 * k + 1] & hi : hi;
+      }
+    }
+    ties[s] = tie;
+  }
   for (let k = 0; k < KEYS; k++) if (other.keys[k]) kn.keys[k] = 1;
   for (const s of FLAT) for (let v = 0; v < SPAN; v++) if (other.dom[s][v]) kn.dom[s][v] = 1;
+  kn.ties = ties;
 }
 
+/**
+ * The 66-point budget and the ties, pushed through every stat: a value that
+ * cannot fit beside any surviving choice for everything else is gone.
+ */
 export function tighten(kn) {
   let moved = false;
   for (let round = 0; round < 8; round++) {
@@ -149,8 +240,18 @@ export function tighten(kn) {
       for (const s of FLAT) kn.dom[s].fill(0);
       return moved || any;
     }
-    const fits = budgetTest(maskKeys(kn.keys), kn.dom, kn.spent);
     let changed = false;
+    if (Object.keys(kn.ties || {}).length) {
+      const sup = supported(maskKeys(kn.keys), kn.dom, kn.ties);
+      const keep = new Uint8Array(KEYS);
+      for (const k of sup.keys) keep[k] = 1;
+      for (let k = 0; k < KEYS; k++) if (kn.keys[k] && !keep[k]) { kn.keys[k] = 0; changed = true; }
+      for (const s of FLAT) {
+        for (let v = 0; v < SPAN; v++) if (kn.dom[s][v] && !sup.dom[s][v]) { kn.dom[s][v] = 0; changed = true; }
+      }
+      if (changed) { moved = true; continue; }
+    }
+    const fits = budgetTest(maskKeys(kn.keys), kn.dom, kn.spent);
     for (let k = 0; k < KEYS; k++) if (kn.keys[k] && !fits.key(k)) { kn.keys[k] = 0; changed = true; }
     for (const [j, s] of FLAT.entries()) {
       for (let v = 0; v < SPAN; v++) if (kn.dom[s][v] && !fits.flat[j](v)) { kn.dom[s][v] = 0; changed = true; }
@@ -161,28 +262,55 @@ export function tighten(kn) {
   return moved;
 }
 
+/** How many ways each total can be made, one value from each list. */
+function sums(lists) {
+  let out = Float64Array.of(1);
+  for (const list of lists) {
+    const next = new Float64Array(out.length + SPAN - 1);
+    for (let t = 0; t < out.length; t++) if (out[t]) for (const v of list) next[t + v] += out[t];
+    out = next;
+  }
+  return out;
+}
+
 /**
  * How many whole spreads survive: every alive (hp, def, spd) beside every alive
- * (atk, spa, spe) that fits the budget. `spent` counts the ones using all 66.
+ * (atk, spa, spe) that fits the budget and every tie. `spent` counts the ones
+ * using all 66.
  */
-export function spreadCount(keys, dom) {
-  const a = aliveOf(dom.atk);
-  const s = aliveOf(dom.spa);
-  const e = aliveOf(dom.spe);
-  const pair = new Float64Array(2 * (SPAN - 1) + 1);
-  for (const x of a) for (const y of s) pair[x + y]++;
-  const flat = new Float64Array(3 * (SPAN - 1) + 1);
-  for (let t = 0; t < pair.length; t++) if (pair[t]) for (const z of e) flat[t + z] += pair[t];
+export function spreadCount(keys, dom, ties = {}) {
+  const tied = FLAT.filter(s => ties?.[s]);
+  const flat = sums(FLAT.filter(s => !tied.includes(s)).map(s => aliveOf(dom[s])));
   const upTo = new Float64Array(flat.length);
   let run = 0;
   for (let t = 0; t < flat.length; t++) { run += flat[t]; upTo[t] = run; }
+  const words = tied.map(s => maskWords(dom[s]));
+  const memo = new Map();
   let total = 0;
   let spent = 0;
   for (const k of keys) {
     const room = BUDGET - KEY_SUM[k];
     if (room < 0) continue;
-    total += upTo[Math.min(room, flat.length - 1)];
-    if (room < flat.length) spent += flat[room];
+    if (!tied.length) {
+      total += upTo[Math.min(room, flat.length - 1)];
+      if (room < flat.length) spent += flat[room];
+      continue;
+    }
+    const allowed = tied.map((s, j) => [(ties[s][2 * k] & words[j][0]) >>> 0, ties[s][2 * k + 1] & words[j][1]]);
+    const sig = `${room}|${allowed.join('|')}`;
+    let got = memo.get(sig);
+    if (!got) {
+      const own = sums(allowed.map(([lo, hi]) => wordValues(lo, hi)));
+      got = [0, 0];
+      for (let x = 0; x < own.length; x++) {
+        if (!own[x] || x > room) continue;
+        got[0] += own[x] * upTo[Math.min(room - x, upTo.length - 1)];
+        if (room - x < flat.length) got[1] += own[x] * flat[room - x];
+      }
+      memo.set(sig, got);
+    }
+    total += got[0];
+    spent += got[1];
   }
   return { total, spent };
 }
@@ -195,7 +323,7 @@ export const maskKeys = (mask) => {
 
 /** The whole spreads left for one Pokemon, counted the way it is assumed to spend. */
 export function spreadsLeft(kn, keys = maskKeys(kn.keys), dom = kn.dom) {
-  const count = spreadCount(keys, dom);
+  const count = spreadCount(keys, dom, kn.ties);
   return kn.spent ? count.spent : count.total;
 }
 
@@ -205,9 +333,9 @@ export function spreadsLeft(kn, keys = maskKeys(kn.keys), dom = kn.dom) {
  * beside some surviving choice for everything else - the rule `tighten` pushes
  * through, read here without moving anything.
  */
-export function rangesOf(keys, flat, spent = false) {
+export function rangesOf(keys, dom, spent = false, ties = {}) {
   const out = Object.fromEntries(STAT_IDS.map(s => [s, null]));
-  const list = Array.isArray(keys) ? keys : [...keys];
+  const { keys: list, dom: flat } = supported(keys, dom, ties);
   if (!list.length || FLAT.some(s => !flat[s].includes(1))) return out;
   const fits = budgetTest(list, flat, spent);
   const lo = { hp: SPAN, def: SPAN, spd: SPAN };
@@ -229,13 +357,13 @@ export function rangesOf(keys, flat, spent = false) {
 
 /** What survives for one Pokemon, as a range per stat plus the spread count. */
 export function summarise(kn) {
-  const keys = maskKeys(kn.keys);
-  const count = spreadCount(keys, kn.dom);
+  const { keys, dom } = supported(maskKeys(kn.keys), kn.dom, kn.ties);
+  const count = spreadCount(keys, dom, kn.ties);
   const seen = { hp: new Uint8Array(SPAN), def: new Uint8Array(SPAN), spd: new Uint8Array(SPAN) };
   for (const k of keys) { seen.hp[KEY_HP[k]] = 1; seen.def[KEY_DEF[k]] = 1; seen.spd[KEY_SPD[k]] = 1; }
   const stats = {};
   for (const s of STAT_IDS) {
-    const values = aliveOf(FLAT.includes(s) ? kn.dom[s] : seen[s]);
+    const values = aliveOf(FLAT.includes(s) ? dom[s] : seen[s]);
     stats[s] = values.length ? { min: values[0], max: values[values.length - 1], count: values.length } : null;
   }
   return { spreads: kn.spent ? count.spent : count.total, allSpent: count.spent, stats };
@@ -257,6 +385,7 @@ export function defaultSpread(dex, set, hp) {
 
 /** The surviving spread nearest `prev`, counting Stat Points moved. */
 export function closestSpread(kn, prev) {
+  if (FLAT.some(s => kn.ties?.[s])) return closestTied(kn, prev);
   const A = aliveOf(kn.dom.atk);
   const S = aliveOf(kn.dom.spa);
   const E = aliveOf(kn.dom.spe);
@@ -289,6 +418,60 @@ export function closestSpread(kn, prev) {
   }
   if (!win) return null;
   return { hp: KEY_HP[win.k], atk: win.f.a, def: KEY_DEF[win.k], spa: win.f.s, spd: KEY_SPD[win.k], spe: win.f.e };
+}
+
+/** `closestSpread` where a tie lets each key keep its own values of a stat. */
+function closestTied(kn, prev) {
+  const tied = FLAT.filter(s => kn.ties[s]);
+  const free = FLAT.filter(s => !tied.includes(s));
+  // The cheapest values of the untied stats for each exact total, and for each
+  // total or less.
+  let best = [{ cost: 0, vals: {} }];
+  for (const s of free) {
+    const values = aliveOf(kn.dom[s]);
+    if (!values.length) return null;
+    const next = [];
+    best.forEach((b, t) => {
+      if (!b) return;
+      for (const v of values) {
+        const cost = b.cost + Math.abs(v - prev[s]);
+        if (!next[t + v] || cost < next[t + v].cost) next[t + v] = { cost, vals: { ...b.vals, [s]: v } };
+      }
+    });
+    best = next;
+  }
+  const upTo = [];
+  let run = null;
+  for (let r = 0; r <= 3 * (SPAN - 1); r++) {
+    if (best[r] && (!run || best[r].cost < run.cost)) run = best[r];
+    upTo[r] = run;
+  }
+  const words = tied.map(s => maskWords(kn.dom[s]));
+  let win = null;
+  for (let k = 0; k < KEYS; k++) {
+    if (!kn.keys[k]) continue;
+    const room = BUDGET - KEY_SUM[k];
+    if (room < 0) continue;
+    const keyCost = Math.abs(KEY_HP[k] - prev.hp) + Math.abs(KEY_DEF[k] - prev.def) + Math.abs(KEY_SPD[k] - prev.spd);
+    if (win && keyCost >= win.cost) continue;
+    const lists = tied.map((s, j) => wordValues((kn.ties[s][2 * k] & words[j][0]) >>> 0, kn.ties[s][2 * k + 1] & words[j][1]));
+    if (lists.some(l => !l.length)) continue;
+    const pick = (j, sum, cost, vals) => {
+      if (j === tied.length) {
+        const r = room - sum;
+        if (r < 0) return;
+        const f = kn.spent ? best[r] : upTo[Math.min(r, upTo.length - 1)];
+        if (!f) return;
+        const total = keyCost + cost + f.cost;
+        if (!win || total < win.cost) win = { cost: total, k, vals: { ...vals, ...f.vals } };
+        return;
+      }
+      for (const v of lists[j]) pick(j + 1, sum + v, cost + Math.abs(v - prev[tied[j]]), { ...vals, [tied[j]]: v });
+    };
+    pick(0, 0, 0, {});
+  }
+  if (!win) return null;
+  return { hp: KEY_HP[win.k], atk: win.vals.atk, def: KEY_DEF[win.k], spa: win.vals.spa, spd: KEY_SPD[win.k], spe: win.vals.spe };
 }
 
 export const sameSpread = (a, b) => STAT_IDS.every(s => a[s] === b[s]);

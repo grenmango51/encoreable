@@ -27,7 +27,7 @@ import { createRequire } from 'module';
 import { disguisableStays, identName, identSide, reconstruct, sampler, unsettledDisguises } from '../reconstruct.mjs';
 import {
   BUDGET, FLAT, STAT_IDS, aimFor, cloneKnowledge, closestSpread, defaultSpread, freshKnowledge, fullEvs,
-  intersectKnowledge, keyOf, maskKeys, pinKnowledge, sameSpread, spreadsLeft, summarise, tighten, uniteKnowledge,
+  intersectKnowledge, keyOf, maskKeys, pinKnowledge, sameSpread, spreadsLeft, summarise, tieHas, tighten, uniteKnowledge,
 } from './knowledge.mjs';
 import { evidencePass } from './evidence.mjs';
 
@@ -126,7 +126,7 @@ export async function inferSpreads({
       const pass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, record: record && !first });
       passes++;
       let moved = false;
-      for (const r of pass.recs) moved = intersectKnowledge(knowledge.get(r.id), r.keys, r.flat) || moved;
+      for (const r of pass.recs) moved = intersectKnowledge(knowledge.get(r.id), r.keys, r.flat, r.ties) || moved;
       for (const kn of knowledge.values()) moved = tighten(kn) || moved;
       if (!first) {
         first = pass;
@@ -287,7 +287,7 @@ export async function inferSpreads({
   const result = await settle(built.inputLog, final, new Map(), true);
   for (const [id, kn] of final) {
     const had = knowledge.get(id);
-    intersectKnowledge(kn, maskKeys(had.keys), had.dom);
+    intersectKnowledge(kn, maskKeys(had.keys), had.dom, had.ties);
     tighten(kn);
   }
 
@@ -309,7 +309,8 @@ export async function inferSpreads({
         contains: (evs) => {
           const e = fullEvs(evs);
           const sum = STAT_IDS.reduce((t, x) => t + e[x], 0);
-          return !!kn.keys[keyOf(e.hp, e.def, e.spd)] && FLAT.every(x => kn.dom[x][e[x]]) && (!kn.spent || sum === BUDGET);
+          const k = keyOf(e.hp, e.def, e.spd);
+          return !!kn.keys[k] && FLAT.every(x => kn.dom[x][e[x]] && (!kn.ties?.[x] || tieHas(kn.ties[x], k, e[x]))) && (!kn.spent || sum === BUDGET);
         },
       });
     }
