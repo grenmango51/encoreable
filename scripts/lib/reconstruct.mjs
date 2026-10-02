@@ -33,7 +33,7 @@ import os from 'os';
 import { createRequire } from 'module';
 import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 
-import { battleLines, firstDivergence, illusionStays, unmaskIllusion } from './protocol.mjs';
+import { battleLines, firstDivergence, illusionStays, unmaskIllusion, unsettledStays } from './protocol.mjs';
 import { install, traceOn, markDraws, atLine } from './rng-control.mjs';
 
 const require = createRequire(import.meta.url);
@@ -2106,6 +2106,11 @@ export async function reconstruct(options) {
 /** The switch-ins of a log that could be an Illusion user in disguise, as `illusionStays` gives them. */
 export function disguisableStays(formatid, packedTeams, channel, observed) {
   return illusionStays(observed.filter(l => typeof l === 'string'), sheetsOf(formatid, packedTeams, channel));
+}
+
+/** Those of them nothing settles, as `unsettledStays` gives them. */
+export function unsettledDisguises(formatid, packedTeams, channel, observed) {
+  return unsettledStays(observed.filter(l => typeof l === 'string'), sheetsOf(formatid, packedTeams, channel));
 }
 
 /** Both teams as set objects, the shape a `.log.json` carries them in. */

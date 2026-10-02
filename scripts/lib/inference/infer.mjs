@@ -24,15 +24,15 @@
 
 import { createRequire } from 'module';
 
-import { disguisableStays, identName, identSide, reconstruct, sampler } from '../reconstruct.mjs';
+import { disguisableStays, identName, identSide, reconstruct, sampler, unsettledDisguises } from '../reconstruct.mjs';
 import {
   BUDGET, FLAT, STAT_IDS, aimFor, cloneKnowledge, closestSpread, defaultSpread, freshKnowledge, fullEvs,
-  intersectKnowledge, keyOf, maskKeys, pinKnowledge, sameSpread, spreadsLeft, summarise, tighten,
+  intersectKnowledge, keyOf, maskKeys, pinKnowledge, sameSpread, spreadsLeft, summarise, tighten, uniteKnowledge,
 } from './knowledge.mjs';
 import { evidencePass } from './evidence.mjs';
 
 const require = createRequire(import.meta.url);
-const { Dex, Teams } = require('pokemon-showdown');
+const { Dex, Teams, toID } = require('pokemon-showdown');
 
 /**
  * The dice that rebuild a scaffold's verified turns under the next guess.
@@ -279,7 +279,7 @@ export async function inferSpreads({
       if (turn > failing || (built.forced || []).includes(at)) continue;
       onProgress(`reading the switch-in at line ${at} as the Illusion user`);
       const other = await inferSpreads({ ...options, forced: [at], readings: false });
-      if (other.complete) return other;
+      if (other.complete) return spareDisguises(other);
     }
   }
 
@@ -315,7 +315,7 @@ export async function inferSpreads({
     }
   }
 
-  return {
+  return spareDisguises({
     complete: built.report.complete,
     rounds,
     seconds: Number(((Date.now() - started) / 1000).toFixed(1)),
@@ -328,5 +328,60 @@ export async function inferSpreads({
     checks: result.checks,
     cutoff: result.cutoff,
     passes: result.passes,
-  };
+    knowledge: final,
+  });
+
+  /**
+   * A switch-in nothing settles could have been the Illusion user in disguise
+   * (`unsettledStays`), and then what it showed belongs to neither for
+   * certain. The reading `res` was built under gives it to the Pokemon shown,
+   * and none of it to the Illusion user. So each Pokemon shown in one is
+   * inferred again with all of its unsettled switch-ins read as the Illusion
+   * user, which gives it none of them, and every Pokemon of that side but the
+   * Illusion user keeps whatever either reading leaves it. A reading that does
+   * not rebuild when `res` does proves one of those switch-ins was the
+   * Pokemon shown: with only one, nothing is added; with more, each is read
+   * alone instead.
+   */
+  async function spareDisguises(res) {
+    if (!readings) return res;
+    const packed = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
+    const base = res.built.forced || [];
+    const groups = new Map();
+    for (const stay of unsettledDisguises(formatid, packed, channel, observed)) {
+      if (base.includes(stay.at)) continue;
+      const key = `${stay.side}|${stay.name}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(stay);
+    }
+    for (const [key, stays] of groups) {
+      const [side, name] = key.split('|');
+      const s = Number(side[1]) - 1;
+      onProgress(`reading ${name}'s unsettled switch-ins as the Illusion user`);
+      const read = ats => inferSpreads({ ...options, forced: [...base, ...ats], readings: false });
+      const all = await read(stays.map(x => x.at));
+      let taken = all.complete || !res.complete ? [all] : [];
+      if (!taken.length && stays.length > 1) {
+        for (const stay of stays) {
+          const one = await read([stay.at]);
+          if (one.complete) taken.push(one);
+        }
+      }
+      if (!taken.length) continue;
+      for (const [i, set] of sets[s].entries()) {
+        const id = `${side}:${i}`;
+        if (known[s] || toID(set.ability) === 'illusion') continue;
+        for (const other of taken) uniteKnowledge(res.knowledge.get(id), other.knowledge.get(id));
+        tighten(res.knowledge.get(id));
+        Object.assign(res.pokemon.find(p => p.id === id), summarise(res.knowledge.get(id)));
+      }
+      const from = [...new Set(stays.map(x => (x.turn ? `turn ${x.turn}` : 'the start')))].join(', ');
+      res.checks.push({
+        turn: stays[0].turn,
+        what: `${name}, shown from ${from}`,
+        reason: 'it could have been the Illusion user, so what it showed was not used on its side',
+      });
+    }
+    return res;
+  }
 }

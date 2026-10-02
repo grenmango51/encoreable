@@ -131,6 +131,15 @@ function budgetTest(keys, dom, spent) {
  * The 66-point budget, pushed through every stat: a value that cannot fit beside
  * any surviving choice for everything else is gone.
  */
+/**
+ * Every spread `other` leaves added to `kn`, a stat at a time: it holds every
+ * spread either leaves, and can hold more.
+ */
+export function uniteKnowledge(kn, other) {
+  for (let k = 0; k < KEYS; k++) if (other.keys[k]) kn.keys[k] = 1;
+  for (const s of FLAT) for (let v = 0; v < SPAN; v++) if (other.dom[s][v]) kn.dom[s][v] = 1;
+}
+
 export function tighten(kn) {
   let moved = false;
   for (let round = 0; round < 8; round++) {

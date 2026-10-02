@@ -122,6 +122,52 @@ export function illusionStays(lines, sheets) {
   return out;
 }
 
+/**
+ * The switch-ins `illusionStays` lists that nothing settles, as
+ * `{ at, turn, side, name }`. A stay is the Pokemon shown when it took a hit
+ * from another Pokemon's move and stood, with no `|replace|` after it - a hit
+ * always breaks Illusion - used a move only its own sheet has, showed its own
+ * exact max HP and not the Illusion user's, or came in while the Illusion user
+ * was seen elsewhere or had fainted. One read as the Illusion user is not
+ * listed. Any other could have been either, so what it showed is evidence for
+ * neither.
+ */
+export function unsettledStays(lines, sheets) {
+  const seen = unmaskIllusion(lines, sheets).lines.map(String);
+  const out = [];
+  for (const stay of illusionStays(lines, sheets)) {
+    const parts = seen[stay.at].split('|');
+    const m = /^((p[1-4])[a-d]): (.+)$/.exec(parts[2] || '');
+    if (!m) continue;
+    const [, slot, side, name] = m;
+    const zoroark = sheets[side].members.find(p => p.illusion);
+    const shown = sheets[side].members.find(p => p.name === name);
+    if (!shown || name === zoroark.name) continue;
+    const hp = /^\d+\/(\d+)/.exec(parts[4] || '');
+    const zoroarkIs = (line) => {
+      const who = /^(p[1-4])[a-d]: (.+)$/.exec(line.split('|')[2] || '');
+      return !!who && who[1] === side && who[2] === zoroark.name;
+    };
+    let settled = !!(sheets[side].exact && hp && Number(hp[1]) === shown.maxhp && shown.maxhp !== zoroark.maxhp)
+      || seen.slice(0, stay.at).some(line => line.startsWith('|faint|') && zoroarkIs(line));
+    let mover = null;
+    for (let j = stay.at + 1; j < seen.length && !settled; j++) {
+      const q = seen[j].split('|');
+      if (q[1] === 'move') mover = q[2];
+      if (zoroarkIs(seen[j])) settled = true;
+      if (!String(q[2] || '').startsWith(`${slot}: `)) continue;
+      if (['switch', 'drag', 'replace', 'faint'].includes(q[1])) break;
+      if (q[1] === '-damage' && !seen[j].includes('[from]') && !/^0\b/.test(q[3] || '') && mover && mover !== q[2]) settled = true;
+      if (q[1] === 'move' && !seen[j].includes('[from]')) {
+        const move = idOf(q[3]);
+        if (move !== 'struggle' && shown.moves.has(move) && !zoroark.moves.has(move)) settled = true;
+      }
+    }
+    if (!settled) out.push({ ...stay, side, name });
+  }
+  return out;
+}
+
 /** Name `who` as `as` in every field of lines `from` to `to`, exclusive. */
 function rename(out, slot, who, as, from, to) {
   const escaped = `${slot}: ${who}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
