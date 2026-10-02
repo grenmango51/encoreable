@@ -1029,6 +1029,21 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
 
   const band = (dir, what) => ({ band: dir, what });
 
+  /** The HP amounts an effect's handlers write as plain numbers, read off their source. */
+  const fixed = new Map();
+  function fixedAmounts(effect) {
+    if (!effect) return new Set();
+    if (!fixed.has(effect)) {
+      const out = new Set();
+      for (const value of Object.values(effect)) {
+        if (typeof value !== 'function') continue;
+        for (const m of String(value).matchAll(/\b(?:heal|damage|directDamage)\((\d+)\)/g)) out.add(Number(m[1]));
+      }
+      fixed.set(effect, out);
+    }
+    return fixed.get(effect);
+  }
+
   /**
    * A hit that hands back damage its user took: Counter and Mirror Coat twice
    * the last such hit, Metal Burst and Comeuppance half as much again. When the
@@ -1164,6 +1179,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       if (!sapped || sap?.rec !== sapped) return band(dir, what);
       return statAmountChange(T, kind, sap.amounts, { rec: sapped, stat: 'atk' }, ctx, `Strength Sap on ${label(sapped)}'s Attack`);
     }
+
+    // An amount the effect's own code writes as a number - Oran Berry's 10 HP -
+    // is the same whatever the spread.
+    if (Number.isInteger(raw) && fixedAmounts(e).has(raw)) return amountChange(T, kind, () => [raw], ctx, what);
 
     const M0 = T.pokemon.baseMaxhp;
     // Toxic's nth tick is n sixteenths of max HP with the sixteenth rounded

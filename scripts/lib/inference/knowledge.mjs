@@ -234,6 +234,84 @@ function budgetTest(keys, dom, spent) {
 }
 
 /**
+ * `budgetTest` where ties hold: a key fits if some choice of flat values it
+ * allows fits the budget beside it, and a flat value fits if some key allows
+ * it with the rest fitting. With one tie on a key this is read off the sums of
+ * the untied stats; with more, or a pair tie, every key's own choices are
+ * enumerated.
+ */
+function tiedBudget(keys, dom, ties, spent) {
+  const tied = FLAT.filter(s => ties[s]);
+  const pairs = pairsOf(ties);
+  const words = FLAT.map(s => maskWords(dom[s]));
+  const keyOk = new Set();
+  const flatOk = Object.fromEntries(FLAT.map(s => [s, new Uint8Array(SPAN)]));
+  const fit = (total, room) => (spent ? total === room : total <= room);
+  if (tied.length === 1 && !pairs.length) {
+    const t = tied[0];
+    const free = FLAT.filter(x => x !== t);
+    const vals = Object.fromEntries(free.map(x => [x, aliveOf(dom[x])]));
+    if (free.some(x => !vals[x].length)) return { key: () => false, flat: FLAT.map(() => () => false) };
+    // Every total the two untied stats reach, and each one's with the other's.
+    const both = reach(free.map(x => dom[x]));
+    const other = Object.fromEntries(free.map((x, i) => [x, reach([dom[free[1 - i]]])]));
+    for (const k of keys) {
+      const room = BUDGET - KEY_SUM[k];
+      if (room < 0) continue;
+      const j = FLAT.indexOf(t);
+      const list = wordValues((ties[t][2 * k] & words[j][0]) >>> 0, ties[t][2 * k + 1] & words[j][1]);
+      let any = false;
+      for (const v of list) {
+        let ok = false;
+        for (let u = 0; u < both.length && !ok; u++) ok = both[u] === 1 && fit(v + u, room);
+        if (!ok) continue;
+        any = true;
+        flatOk[t][v] = 1;
+        for (const x of free) {
+          for (const w of vals[x]) {
+            if (flatOk[x][w]) continue;
+            for (let u = 0; u < other[x].length; u++) if (other[x][u] && fit(v + w + u, room)) { flatOk[x][w] = 1; break; }
+          }
+        }
+      }
+      if (any) keyOk.add(k);
+    }
+  } else {
+    const memo = new Map();
+    for (const k of keys) {
+      const room = BUDGET - KEY_SUM[k];
+      if (room < 0) continue;
+      const { lists, sig } = listsFor(k, dom, ties, words);
+      let combos = memo.get(sig);
+      if (!combos) {
+        combos = [];
+        const vals = FLAT.map(x => lists[x] || aliveOf(dom[x]));
+        const v = {};
+        for (const a of vals[0]) {
+          v.atk = a;
+          for (const b of vals[1]) {
+            v.spa = b;
+            for (const c of vals[2]) {
+              v.spe = c;
+              if (pairsAllow(pairs, v)) combos.push([a, b, c]);
+            }
+          }
+        }
+        memo.set(sig, combos);
+      }
+      for (const [a, b, c] of combos) {
+        if (!fit(a + b + c, room)) continue;
+        keyOk.add(k);
+        flatOk.atk[a] = 1;
+        flatOk.spa[b] = 1;
+        flatOk.spe[c] = 1;
+      }
+    }
+  }
+  return { key: k => keyOk.has(k), flat: FLAT.map(x => v => flatOk[x][v] === 1) };
+}
+
+/**
  * Every spread `other` leaves added to `kn`, a stat at a time: it holds every
  * spread either leaves, and can hold more. A tie either holds is kept, as what
  * each key allows in one or the other.
@@ -294,7 +372,8 @@ export function tighten(kn) {
       }
       if (changed) { moved = true; continue; }
     }
-    const fits = budgetTest(maskKeys(kn.keys), kn.dom, kn.spent);
+    const fits = Object.keys(kn.ties || {}).length ? tiedBudget(maskKeys(kn.keys), kn.dom, kn.ties, kn.spent)
+      : budgetTest(maskKeys(kn.keys), kn.dom, kn.spent);
     for (let k = 0; k < KEYS; k++) if (kn.keys[k] && !fits.key(k)) { kn.keys[k] = 0; changed = true; }
     for (const [j, s] of FLAT.entries()) {
       for (let v = 0; v < SPAN; v++) if (kn.dom[s][v] && !fits.flat[j](v)) { kn.dom[s][v] = 0; changed = true; }
@@ -446,7 +525,7 @@ export function rangesOf(keys, dom, spent = false, ties = {}) {
   const out = Object.fromEntries(STAT_IDS.map(s => [s, null]));
   const { keys: list, dom: flat } = supported(keys, dom, ties);
   if (!list.length || FLAT.some(s => !flat[s].includes(1))) return out;
-  const fits = budgetTest(list, flat, spent);
+  const fits = Object.keys(ties || {}).length ? tiedBudget(list, flat, ties, spent) : budgetTest(list, flat, spent);
   const lo = { hp: SPAN, def: SPAN, spd: SPAN };
   const hi = { hp: -1, def: -1, spd: -1 };
   for (const k of list) {
