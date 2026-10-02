@@ -356,6 +356,17 @@ const entries = {
       why: 'The known user is first halved by its own ally, so the heal is not capped at full HP and equals the hidden target\'s Attack.',
     }],
   },
+  'move:counter': {
+    templates: [{
+      name: 'known-user-hit-first',
+      role: 'target-hidden',
+      p1: [withMoves('known', ['Counter', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [withMoves('hidden', ['Strength', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move counter, move splash', p2: 'move strength 1, move splash' }, QUIET, QUIET],
+      control: { turns: [{ p1: 'move splash, move splash', p2: 'move strength 1, move splash' }, QUIET, QUIET] },
+      why: 'The known user hands back twice what its exact HP shows it took, the same whatever the hidden spread, and the hidden Pokemon\'s percentage then shows its max HP.',
+    }],
+  },
   'move:substitute': {
     templates: [{
       name: 'broken-at-the-edge',

@@ -702,7 +702,6 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       };
     });
     Object.assign(hit, shape);
-    if (hit.carried) note(what, 'its damage was carried over from an earlier hit, so it was not used');
     if (hit.moved.length) note(what, `${hit.moved.join(' and ')} had a stat it read moved where no one candidate value says what it became, so it was not used`);
     if (!hit.supported) return hit;
 
@@ -997,6 +996,58 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   const band = (dir, what) => ({ band: dir, what });
 
   /**
+   * A hit that hands back damage its user took: Counter and Mirror Coat twice
+   * the last such hit, Metal Burst and Comeuppance half as much again. When the
+   * user's HP is shown exactly, what it took is the replay's own, the same for
+   * every spread. When it is shown as a percentage and the Pokemon it hits back
+   * is shown exactly, that one's line says what the user took from it: one of
+   * the amounts that one's own hit on it could have dealt, each handed to the
+   * move as the simulator keeps it (`asDealt`). Anything else is not used.
+   */
+  function carriedChange(T, hit, ctx) {
+    const U = hit.S;
+    const what = `${label(U)}'s ${hit.clone.name} hit ${label(T)}`;
+    if (U.exact && typeof ctx.raw === 'number') return amountChange(T, 'damage', () => [ctx.raw], ctx, what);
+    const last = T.lastDealt;
+    if (T.exact && last?.byA.size && last.victim === U && last.hits === 1 && last.turn === battle.turn) {
+      return dealtChange(T, last, what, 'ctr', d => asDealt(U.pokemon, d, () => {
+        const amount = hit.clone.damageCallback.call(battle, U.pokemon, T.pokemon);
+        battle.spreadDamage([amount], [T.pokemon], U.pokemon, ctx.effect);
+      }));
+    }
+    note(what, 'its damage was carried over from an earlier hit, so it was not used');
+    return band('down', what);
+  }
+
+  /**
+   * Run `run` as if the last hit `p` took from a foe had dealt `d`: the
+   * simulator's record of it (`attackedBy`) is rewritten, and every volatile
+   * that keeps its own record is told the hit again through its own
+   * `DamagingHit` handler - Counter's and Mirror Coat's. All of it is put back.
+   */
+  function asDealt(p, d, run) {
+    const entry = p.getLastDamagedBy(true);
+    if (!entry) return run();
+    const was = entry.damage;
+    const kept = Object.entries(p.volatiles)
+      .map(([id, st]) => [battle.dex.conditions.getByID(id), st])
+      .filter(([c]) => c?.onDamagingHit);
+    const saved = kept.map(([, st]) => ({ ...st }));
+    try {
+      entry.damage = d;
+      const move = battle.dex.moves.get(entry.move);
+      for (const [c, st] of kept) battle.singleEvent('DamagingHit', c, st, p, entry.source, move, d);
+      return run();
+    } finally {
+      entry.damage = was;
+      kept.forEach(([, st], i) => {
+        for (const k of Object.keys(st)) delete st[k];
+        Object.assign(st, saved[i]);
+      });
+    }
+  }
+
+  /**
    * `oozed` is the heal a Liquid Ooze damage replaced: the same amount, read
    * the same way, through the simulator's own Liquid Ooze.
    */
@@ -1101,7 +1152,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       pendingHits.delete(rec.pokemon);
       if (effect?.effectType === 'Move' && !ctx.direct) {
         change = hit?.supported ? moveChange(rec, hit, info.d, { ...ctx, effect })
-          : band('down', `${effect.name} hit ${label(rec)}`);
+          : hit?.carried ? carriedChange(rec, hit, { ...ctx, effect })
+            : band('down', `${effect.name} hit ${label(rec)}`);
         const src = ctx.source && ctx.source !== rec.pokemon ? byPokemon.get(ctx.source) : null;
         if (src) {
           if (src.victimMove !== effect) { src.victimMove = effect; src.victims = new Set(); }
