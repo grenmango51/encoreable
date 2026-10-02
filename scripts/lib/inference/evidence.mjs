@@ -47,7 +47,7 @@ const HP_BITS = 4096;
 const FRACTIONS = (() => {
   const seen = new Set();
   const out = [];
-  for (const d of [2, 3, 4, 6, 8, 10, 12, 16]) {
+  for (const d of [2, 3, 4, 6, 8, 10, 12, 16, 32]) {
     for (let n = 1; n < d; n++) {
       const f = n / d;
       if (!seen.has(f)) { seen.add(f); out.push(f); }
@@ -1178,13 +1178,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       // amounts its hit could have dealt come on top.
       const hidden = hurt.filter(r => !r.exact);
       // More hits than one on them - a spread move on two, a move that hits
-      // twice - with the holder's own HP exact: its heal is the handler's share
+      // twice: the holder's heal is the handler's share
       // of the total. Its line keeps the totals that print it, and each hit
       // keeps the amounts some amounts of the others complete to one.
       const hitsOf = r => (T.dealtHits || []).filter(l => l.victim === r && l.move === battle.activeMove);
       const lasts = hidden.flatMap(hitsOf);
       const whole = hidden.every(r => hitsOf(r).length === T.hitsOn?.get(r)) && lasts.every(l => l.byA.size);
-      if (lasts.length > 1 && T.exact && whole) {
+      if (lasts.length > 1 && whole) {
         const rest = hurt.filter(r => r.exact).reduce((sum, r) => sum + (T.dealtEach?.get(r) || 0), 0);
         const amounts = lasts.map(l => [...new Set([...l.byA.values()].flatMap(set => [...set]))]);
         const sumOf = (lists) => {
