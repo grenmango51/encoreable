@@ -273,12 +273,20 @@ export function attachSpeed(battle, {
     // the replay's line gives on that side says nobody for certain.
     const cut = view.find(e => e.at === prefix.cutoffAt);
     const disguisable = sideId => !!battle.sides.find(side => side.id === sideId)?.pokemon.some(p => p.baseAbility === 'illusion');
+    // Who a line names: the Pokemon in that slot when it shows that name, its
+    // own or the one it is disguised as; otherwise, on a side with no Illusion
+    // user, the Pokemon of that name.
+    const named = (ident) => {
+      const p = battle.sides.find(side => side.id === identSide(ident))?.active['abcd'.indexOf(String(ident)[2])];
+      if (p && (p.name === identName(ident) || p.illusion?.name === identName(ident))) return byPokemon.get(p) || null;
+      return disguisable(identSide(ident)) ? null : byIdent.get(`${identSide(ident)}:${identName(ident)}`) || null;
+    };
     const who = line => /^\|(move|cant)\|/.test(String(line || '')) ? String(line).split('|')[2] : null;
     const was = who(prefix.observedLine);
     const got = who(cut?.line);
-    if (was && got && was !== got && !disguisable(identSide(was))) {
+    if (was && got && was !== got && named(was)) {
       const ex = executed.find(e => e.start <= prefix.cutoffAt && prefix.cutoffAt < e.end);
-      const P = byIdent.get(`${identSide(was)}:${identName(was)}`);
+      const P = named(was);
       const S = ex?.sort;
       const x = S?.list.find(item => item.action === ex.action);
       const y = S?.list.find(item => item.pokemon === P?.pokemon && item.order === x?.order && item.priority === x?.priority);
@@ -295,7 +303,7 @@ export function attachSpeed(battle, {
     const whose = (line) => {
       const first = String(line).split('|')[2] || '';
       const ident = /^p[1-4][a-d]?: /.test(first) ? first : tagsOf(String(line)).of;
-      return ident ? byIdent.get(`${identSide(ident)}:${identName(ident)}`) : null;
+      return ident ? named(ident) : null;
     };
     const rebuilt = cut && battleLines([cut.line])[0];
     if (rebuilt && prefix.observedLine && !was) {
@@ -308,7 +316,7 @@ export function attachSpeed(battle, {
         // replay's line names; an each-Pokemon pass has one item per Pokemon
         // and no effect to name.
         const P = whose(prefix.observedLine);
-        const x = P && !disguisable(P.side) && entry.items.find(it => it.rec === P
+        const x = P && entry.items.find(it => it.rec === P
           && (entry.kind === 'eachEvent'
             || (it.effect && (it.effect === hit.item.effect || prefix.observedLine.includes(it.effect.name)))));
         let later = false;

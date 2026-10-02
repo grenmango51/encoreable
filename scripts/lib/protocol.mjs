@@ -67,9 +67,11 @@ export function battleLines(log) {
  * the log shows that side's HP `exact`), a disguise no hit broke is seen
  * through too, from its switch-in to its next one: when the Pokemon shown uses
  * a move its sheet does not have and the Illusion user's does, or shows the
- * Illusion user's exact max HP and not its own.
+ * Illusion user's exact max HP and not its own. `forced` names switch-ins, by
+ * line index, to read as the Illusion user without that proof - a guess the
+ * rebuild tests by whether the battle then plays out as the log shows.
  */
-export function unmaskIllusion(lines, sheets = null) {
+export function unmaskIllusion(lines, sheets = null, forced = null) {
   const out = lines.slice();
   const shownAt = new Map();
   const disguises = { p1: [], p2: [] };
@@ -94,11 +96,31 @@ export function unmaskIllusion(lines, sheets = null) {
     head[3] = parts[3];
     out[shown.at] = head.join('|');
   }
-  if (sheets) for (const side of ['p1', 'p2']) unmaskBySheet(out, side, sheets[side], disguises);
+  if (sheets) for (const side of ['p1', 'p2']) unmaskBySheet(out, side, sheets[side], disguises, forced);
   return { lines: out, disguises };
 }
 
 const idOf = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/**
+ * Every switch-in that could be an Illusion user in disguise: on a side whose
+ * sheet has exactly one, a teammate of it shown coming in, as
+ * `{ at, turn }` - the line's index and the turn it is in.
+ */
+export function illusionStays(lines, sheets) {
+  const out = [];
+  let turn = 0;
+  for (const [at, line] of lines.entries()) {
+    const parts = String(line).split('|');
+    if (parts[1] === 'turn') turn = Number(parts[2]) || turn;
+    if (parts[1] !== 'switch' && parts[1] !== 'drag') continue;
+    const m = /^(p[1-4])[a-d]: (.+)$/.exec(parts[2] || '');
+    const sheet = m && sheets?.[m[1]];
+    const users = (sheet?.members || []).filter(p => p.illusion);
+    if (users.length === 1 && m[2] !== users[0].name && sheet.members.some(p => p.name === m[2])) out.push({ at, turn });
+  }
+  return out;
+}
 
 /** Name `who` as `as` in every field of lines `from` to `to`, exclusive. */
 function rename(out, slot, who, as, from, to) {
@@ -114,7 +136,7 @@ function rename(out, slot, who, as, from, to) {
  * sheet: Transform, Mimic, Sketch. Moves another effect called (`[from]`) and
  * Struggle prove nothing.
  */
-function unmaskBySheet(out, side, sheet, disguises) {
+function unmaskBySheet(out, side, sheet, disguises, forced) {
   const users = (sheet?.members || []).filter(m => m.illusion);
   if (users.length !== 1) return;
   const zoroark = users[0];
@@ -141,7 +163,7 @@ function unmaskBySheet(out, side, sheet, disguises) {
       const max = hp ? Number(hp[1]) : null;
       stays.set(slot, {
         at: i, name, spoiled: false,
-        proved: !!(sheet.exact && max && max !== shown.maxhp && max === zoroark.maxhp),
+        proved: !!forced?.has(i) || !!(sheet.exact && max && max !== shown.maxhp && max === zoroark.maxhp),
       });
       continue;
     }

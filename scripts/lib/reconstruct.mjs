@@ -33,7 +33,7 @@ import os from 'os';
 import { createRequire } from 'module';
 import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 
-import { battleLines, firstDivergence, unmaskIllusion } from './protocol.mjs';
+import { battleLines, firstDivergence, illusionStays, unmaskIllusion } from './protocol.mjs';
 import { install, traceOn, markDraws, atLine } from './rng-control.mjs';
 
 const require = createRequire(import.meta.url);
@@ -1809,11 +1809,12 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
  *                     the machine's own count by default. The answer is the same
  *                     for any count.
  */
-export async function reconstruct({
+async function reconstructOnce({
   formatid,
   packedTeams,
   playerNames,
   observed,
+  forced = null,
   channel = -1,
   seed = null,
   seedPlan = null,
@@ -1833,7 +1834,7 @@ export async function reconstruct({
 
   // Who was really sent in, and who really acted, is planned from the log with
   // every Illusion seen through; the turns are still compared as shown.
-  const unmasked = unmaskIllusion(lines, sheetsOf(formatid, packedTeams, channel));
+  const unmasked = unmaskIllusion(lines, sheetsOf(formatid, packedTeams, channel), forced);
   const plans = splitTurns(unmasked.lines).map(s => planSegment(s, dex));
   recoverChargeTargets(plans);
 
@@ -2058,6 +2059,53 @@ export async function reconstruct({
       winner: run.winner,
     },
   };
+}
+
+/**
+ * Rebuild an input log from an observed protocol log (parameters as above).
+ *
+ * A side whose sheet has an Illusion user can send it in disguised as any
+ * teammate, and a disguise no line gives away is read as the teammate. When
+ * the rebuild then fails, each earlier switch-in of that side is tried as the
+ * Illusion user, one more at a time, and the reading that reproduces the
+ * furthest is kept. One that reproduces no further than the plain reading is
+ * not taken: a disguise nothing tells apart stays the teammate. A trial runs
+ * without the exact turns and dice it was handed, which were proved under the
+ * other reading. The reading kept is handed back as `forced`, to start from
+ * next time.
+ */
+export async function reconstruct(options) {
+  const forced = new Set(options.forced || []);
+  let best = await reconstructOnce({ ...options, forced });
+  if (best.report.complete) return { ...best, forced: [...forced] };
+  const lines = options.observed.filter(l => typeof l === 'string');
+  const stays = illusionStays(lines, sheetsOf(options.formatid, options.packedTeams, options.channel ?? -1));
+  const further = (a, b) => {
+    const at = r => [r.report.diffs[0]?.turn ?? Infinity, r.report.diffs[0]?.index ?? Infinity];
+    const [x, y] = [at(a), at(b)];
+    return a.report.complete !== b.report.complete ? a.report.complete : x[0] !== y[0] ? x[0] > y[0] : x[1] > y[1];
+  };
+  let moved = true;
+  while (moved && !best.report.complete) {
+    moved = false;
+    const failing = (best.report.diffs[0]?.turn ?? Infinity);
+    for (const { at, turn } of stays) {
+      if (forced.has(at) || turn > failing) continue;
+      const tried = await reconstructOnce({ ...options, exact: null, pins: null, forced: new Set([...forced, at]) });
+      if (further(tried, best)) {
+        best = tried;
+        forced.add(at);
+        moved = true;
+        break;
+      }
+    }
+  }
+  return { ...best, forced: [...forced] };
+}
+
+/** The switch-ins of a log that could be an Illusion user in disguise, as `illusionStays` gives them. */
+export function disguisableStays(formatid, packedTeams, channel, observed) {
+  return illusionStays(observed.filter(l => typeof l === 'string'), sheetsOf(formatid, packedTeams, channel));
 }
 
 /** Both teams as set objects, the shape a `.log.json` carries them in. */

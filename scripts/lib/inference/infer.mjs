@@ -24,7 +24,7 @@
 
 import { createRequire } from 'module';
 
-import { identName, identSide, reconstruct, sampler } from '../reconstruct.mjs';
+import { disguisableStays, identName, identSide, reconstruct, sampler } from '../reconstruct.mjs';
 import {
   BUDGET, FLAT, STAT_IDS, aimFor, cloneKnowledge, closestSpread, defaultSpread, freshKnowledge, fullEvs,
   intersectKnowledge, keyOf, maskKeys, pinKnowledge, sameSpread, spreadsLeft, summarise, tighten,
@@ -84,7 +84,10 @@ export async function inferSpreads({
   allSpent = false,
   threads,
   onProgress = () => {},
+  forced = null,
+  readings = true,
 }) {
+  const options = arguments[0];
   const dex = Dex.forFormat(formatid);
   const lines = observed.filter(l => typeof l === 'string');
 
@@ -171,7 +174,7 @@ export async function inferSpreads({
     const searchStart = Date.now();
     const resample = budgets[level].resample || 0;
     built = await reconstruct({
-      formatid, packedTeams, playerNames, observed, channel, exact,
+      formatid, packedTeams, playerNames, observed, channel, exact, forced: built?.forced ?? forced,
       seed: resample ? null : seed,
       pins: resample ? null : pins,
       sampleSeed: sampleSeed + resample,
@@ -261,6 +264,23 @@ export async function inferSpreads({
       level = 0;
     }
     picks = next;
+  }
+
+  // A side with an Illusion user can have sent it in disguised as a teammate,
+  // and the line that gives it away can be one only its own Stat Points
+  // explain - a Speed no Stat Point of the teammate reaches. The rebuild alone
+  // cannot prefer that reading before its Stat Points are narrowed under it,
+  // so a battle that did not rebuild is inferred again under each reading of a
+  // switch-in as the Illusion user, and the first that rebuilds is kept.
+  if (!built.report.complete && readings) {
+    const packed = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
+    const failing = built.report.diffs[0]?.turn ?? Infinity;
+    for (const { at, turn } of disguisableStays(formatid, packed, channel, observed)) {
+      if (turn > failing || (built.forced || []).includes(at)) continue;
+      onProgress(`reading the switch-in at line ${at} as the Illusion user`);
+      const other = await inferSpreads({ ...options, forced: [at], readings: false });
+      if (other.complete) return other;
+    }
   }
 
   const final = cloneKnowledge(blank);
