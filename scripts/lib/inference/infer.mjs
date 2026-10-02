@@ -26,7 +26,7 @@ import { createRequire } from 'module';
 
 import { disguisableStays, identName, identSide, reconstruct, sampler, unsettledDisguises } from '../reconstruct.mjs';
 import {
-  BUDGET, FLAT, SPAN, STAT_IDS, aimFor, cloneKnowledge, closestSpread, defaultSpread, freshKnowledge, fullEvs,
+  BUDGET, FLAT, KEY_DEF, KEY_HP, KEY_SPD, KEYS, SPAN, STAT_IDS, aimFor, cloneKnowledge, closestSpread, defaultSpread, freshKnowledge, fullEvs,
   intersectKnowledge, keyOf, maskKeys, pinKnowledge, sameSpread, spreadsLeft, summarise, tieHas, tighten, uniteKnowledge,
 } from './knowledge.mjs';
 import { evidencePass } from './evidence.mjs';
@@ -388,4 +388,72 @@ export async function inferSpreads({
     }
     return res;
   }
+}
+
+/**
+ * A surviving spread with `stat` at `value`, the rest as near `prev` as the
+ * knowledge allows - or null when none survives there.
+ */
+function spreadAt(kn, stat, value, prev) {
+  const at = cloneKnowledge(new Map([['x', kn]])).get('x');
+  if (FLAT.includes(stat)) {
+    at.dom[stat].fill(0);
+    at.dom[stat][value] = kn.dom[stat][value];
+  } else {
+    const of = { hp: KEY_HP, def: KEY_DEF, spd: KEY_SPD }[stat];
+    for (let k = 0; k < KEYS; k++) if (of[k] !== value) at.keys[k] = 0;
+  }
+  tighten(at);
+  return closestSpread(at, { ...prev, [stat]: value });
+}
+
+/**
+ * Which ends of each inferred range a rebuild proves: a spread at that end,
+ * every other Pokemon where the inference left it, that reproduces the whole
+ * log line for line. That rebuild is a witness anyone can replay. The search
+ * has a budget, so an end it does not prove is not shown impossible. The
+ * spreads the inference settled on are a witness already when they rebuilt.
+ *
+ * @returns per Pokemon id, per stat, `{ min, max }` as true (proved) or false.
+ */
+export async function certifyRanges(inf, {
+  formatid, sets, playerNames, observed, channel = 1, sampleSeed = 1, maxProbes = 600, threads, onProgress = () => {},
+}) {
+  const seed = sampler(sampleSeed ^ 0x5eed).seed();
+  const tried = new Map();
+  const signature = picks => JSON.stringify(picks.map(team => team.map(e => STAT_IDS.map(s => e[s]))));
+  if (inf.complete) tried.set(signature(inf.picks), true);
+  const witness = async (picks) => {
+    const sig = signature(picks);
+    if (!tried.has(sig)) {
+      const packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
+      const built = await reconstruct({
+        formatid, packedTeams, playerNames, observed, channel, forced: inf.built.forced, seed, sampleSeed, maxProbes, maxBacktracks: 2, threads,
+      });
+      tried.set(sig, built.report.complete);
+    }
+    return tried.get(sig);
+  };
+  const out = {};
+  for (const p of inf.pokemon) {
+    if (p.known || !p.seen || !p.spreads) continue;
+    const s = Number(p.side[1]) - 1;
+    const i = Number(p.id.split(':')[1]);
+    const kn = inf.knowledge.get(p.id);
+    out[p.id] = {};
+    for (const stat of STAT_IDS) {
+      const range = p.stats[stat];
+      if (!range) continue;
+      out[p.id][stat] = {};
+      for (const [end, value] of [['min', range.min], ['max', range.max]]) {
+        const pick = spreadAt(kn, stat, value, inf.picks[s][i]);
+        if (!pick) { out[p.id][stat][end] = false; continue; }
+        const picks = inf.picks.map(team => team.map(e => ({ ...e })));
+        picks[s][i] = pick;
+        onProgress(`certifying ${p.species}'s ${stat} ${end} (${value})`);
+        out[p.id][stat][end] = await witness(picks);
+      }
+    }
+  }
+  return out;
 }

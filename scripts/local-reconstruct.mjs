@@ -21,6 +21,10 @@
  * recording the real spreads stay available as the check; on a replay, the
  * fixture named by `--teams` is the check when it has that side.
  *
+ * `--certify` then rebuilds the replay once per end of each inferred range,
+ * with a spread at that end: a rebuild that reproduces the log proves the end
+ * possible, and the range prints `?` beside an end it could not prove.
+ *
  * Usage:
  *   node scripts/local-reconstruct.mjs --rung s1
  *   node scripts/local-reconstruct.mjs --rung s3 --from recordings/local/scripted/<x>.log.json
@@ -30,7 +34,7 @@
  *   node scripts/local-reconstruct.mjs --rung s3 --all --infer p2
  *
  * Flags: --from <file> --rung s1|s2|s3 --all --teams <fixture> --infer p1|p2|both
- *        --all-spent --sample <n> --max-probes <n> --threads <n> --out <file> --dry-run --verbose
+ *        --all-spent --certify --sample <n> --max-probes <n> --threads <n> --out <file> --dry-run --verbose
  */
 
 import fs from 'fs';
@@ -39,7 +43,7 @@ import { createRequire } from 'module';
 
 import { battleLines } from './lib/protocol.mjs';
 import { listLogFiles, newestLogFile, posix as toPosix } from './lib/recordings.mjs';
-import { inferSpreads } from './lib/inference/infer.mjs';
+import { certifyRanges, inferSpreads } from './lib/inference/infer.mjs';
 import { reconstruct, unpackTeams } from './lib/reconstruct.mjs';
 import {
   alignSpeciesToSheet, crossCheckLog, crossCheckSheet, loadSource, maxHpFromLog, setsFromLog, setsFromSheet,
@@ -155,7 +159,7 @@ function hpAccuracy(truthLines, builtLines, side) {
 
 // -------------------------------------------------------------- one run
 
-async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProbes, threads, write, outDir, infer, allSpent, showEvents }) {
+async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProbes, threads, write, outDir, infer, allSpent, showEvents, certify }) {
   let rung = requestedRung;
   const source = loadSource(file);
   const label = path.basename(file);
@@ -241,6 +245,8 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
   const started = Date.now();
   let built;
   let inference = null;
+  let inferSets = null;
+  let certified = null;
   let truthSets = [null, null];
   const readOffLog = [false, false];
   if (inferred.length) {
@@ -266,6 +272,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
       return Teams.unpack(packedTeams[i]).map(s => ({ ...s, evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 } }));
     });
     truthSets = [0, 1].map(i => (!supplied(i) && packedTeams[i] ? Teams.unpack(packedTeams[i]) : null));
+    inferSets = sets;
     inference = await inferSpreads({
       formatid: source.formatid,
       sets,
@@ -330,6 +337,11 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
   // Did every real spread survive? A spread the replay could have come from
   // must never be eliminated, so a miss here is a defect, not a hard replay.
   let truthKept = true;
+  if (inference && certify) {
+    certified = await certifyRanges(inference, {
+      formatid: source.formatid, sets: inferSets, playerNames: source.players, observed, channel, sampleSeed, threads, onProgress: chatty,
+    });
+  }
   if (inference) {
     say(`     Stat Points of ${inferred.join(' and ')} inferred in ${inference.rounds} round(s), ` +
         `${inference.events.length} events narrowed them`);
@@ -340,8 +352,10 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
         || toID(p.species).startsWith(toID(s.species || s.name)));
       const kept = real ? p.contains(real.evs) : null;
       if (kept === false) truthKept = false;
+      // With --certify, an end no rebuild proved carries a `?`.
+      const mark = (s, end) => (certified?.[p.id]?.[s] && !certified[p.id][s][end] ? '?' : '');
       const ranges = ['hp', 'atk', 'def', 'spa', 'spd', 'spe']
-        .map(s => (p.stats[s] ? `${s} ${p.stats[s].min}-${p.stats[s].max}` : `${s} -`)).join('  ');
+        .map(s => (p.stats[s] ? `${s} ${p.stats[s].min}${mark(s, 'min')}-${p.stats[s].max}${mark(s, 'max')}` : `${s} -`)).join('  ');
       say(`       ${p.side} ${p.species.padEnd(14)} ${p.spreads.toLocaleString('en')} of ${p.from.toLocaleString('en')} left  ${ranges}` +
           `${kept === null ? '' : kept ? '  (real spread survives)' : '  REAL SPREAD ELIMINATED'}`);
       if (!p.spreads) {
@@ -392,6 +406,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
         pokemon: inference.pokemon.filter(p => !p.known).map(({ contains, known, ...rest }) => rest),
         events: inference.events,
         checks: inference.checks,
+        ...(certified ? { certified } : {}),
       } : undefined,
       inputLog: built.inputLog,
       log: built.log,
@@ -446,6 +461,7 @@ async function main() {
         infer,
         allSpent: flag('--all-spent'),
         showEvents: !flag('--all'),
+        certify: !!infer && flag('--certify'),
       }));
     } catch (err) {
       say(`  ${path.basename(file)}: ERROR ${err.message}`);
