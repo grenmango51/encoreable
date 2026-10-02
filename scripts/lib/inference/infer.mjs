@@ -440,10 +440,28 @@ export async function certifyRanges(inf, {
     return tried.get(sig);
   };
   const out = {};
-  for (const p of inf.pokemon) {
-    if (p.known || !p.seen || !p.spreads) continue;
-    const s = Number(p.side[1]) - 1;
-    const i = Number(p.id.split(':')[1]);
+  const certifiable = inf.pokemon.filter(p => !p.known && p.seen && p.spreads);
+  const placeOf = p => [Number(p.side[1]) - 1, Number(p.id.split(':')[1])];
+  // First every Pokemon at the same end of one stat at once: one rebuild that
+  // reproduces the log proves all those ends.
+  const joint = new Map();
+  for (const stat of STAT_IDS) {
+    for (const end of ['min', 'max']) {
+      const picks = inf.picks.map(team => team.map(e => ({ ...e })));
+      let all = true;
+      for (const p of certifiable) {
+        const [s, i] = placeOf(p);
+        const pick = p.stats[stat] && spreadAt(inf.knowledge.get(p.id), stat, p.stats[stat][end], inf.picks[s][i]);
+        if (!pick) { all = false; break; }
+        picks[s][i] = pick;
+      }
+      if (!all || !certifiable.length) continue;
+      onProgress(`certifying every ${stat} ${end} at once`);
+      if (await witness(picks)) joint.set(`${stat}|${end}`, true);
+    }
+  }
+  for (const p of certifiable) {
+    const [s, i] = placeOf(p);
     const kn = inf.knowledge.get(p.id);
     out[p.id] = {};
     for (const stat of STAT_IDS) {
@@ -451,6 +469,7 @@ export async function certifyRanges(inf, {
       if (!range) continue;
       out[p.id][stat] = {};
       for (const [end, value] of [['min', range.min], ['max', range.max]]) {
+        if (joint.get(`${stat}|${end}`)) { out[p.id][stat][end] = true; continue; }
         const pick = spreadAt(kn, stat, value, inf.picks[s][i]);
         if (!pick) { out[p.id][stat][end] = false; continue; }
         const picks = inf.picks.map(team => team.map(e => ({ ...e })));

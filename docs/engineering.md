@@ -1304,33 +1304,32 @@ switch-in nothing settles.
 
 1. **The evidence still unused** (§7.5): every line the evidence pass sets aside — none in the
    S3 suite, and in the catalog only a switch-in Illusion could have made.
-2. **Certified ranges** (`--certify`). The inference keeps impossible spreads on purpose: an HP
-   change it cannot model lets a candidate move anywhere its next display allows, Attack, Special
-   Attack and Speed are separate lists that each only have to fit every hit on its own except
-   where a tie holds them to the key or to each other, two unknown Pokemon that constrain each
-   other are narrowed one at a time, and a speed tie counts both ways. So every range is an upper bound. A **witness** proves a spread possible: pin it,
-   rebuild the battle, and the input log that reproduces the replay line for line is a proof
-   anyone can check by replaying it. A stat's range is exact once its minimum and its maximum
-   each have a witness, because every value outside it was removed. `--certify` would build those
-   and mark each end *proven* or *not proven* — the search has a budget, so a missing witness
-   does not prove a value impossible.
+2. **Certified ranges** (`--certify`, `--outside`). The inference keeps impossible spreads on
+   purpose: an HP change it cannot model lets a candidate move anywhere its next display allows,
+   Attack, Special Attack and Speed are separate lists that each only have to fit every hit on its
+   own except where a tie holds them to the key or to each other, two unknown Pokemon that
+   constrain each other are narrowed one at a time, and a speed tie counts both ways. So every
+   range is an upper bound. `--certify` proves its ends: for each end, a spread there — every other
+   Pokemon where the inference left it — is rebuilt, and a rebuild that reproduces the replay line
+   for line is a witness anyone can check by replaying it. The range prints `?` beside an end no
+   rebuild proved; the search has a budget, so that does not prove the end impossible.
+   `--outside` also rebuilds one Stat Point beyond each end, which should never reproduce the log:
+   one that does is a possible spread removed, found without knowing anyone's spreads, so it works
+   on public replays. On recording 100 every end of Whimsicott's 75 spreads is proved, two of
+   Glalie's are not (its HP and Defence maxima), and nothing outside any range rebuilds; certifying
+   and probing outside took about five minutes beside a catalog run.
    - **Cost is per range end, not per spread.** At most twelve ends per Pokemon, and fewer
-     witnesses than that: one spread can sit at several ends (all zeros is every minimum at once;
-     three spreads reach every maximum), and one witness pins every unknown Pokemon at the same
-     time, so a battle needs about as many witnesses as one Pokemon does. A joint witness that
-     fails says nothing about which Pokemon's value was impossible; its ends are then tried one
-     Pokemon at a time. A Pokemon the log never touched is the cheap case, not the expensive one:
-     any spread fits, so its witnesses succeed on the first try. The expensive case is a witness
-     that fails, which spends its whole search budget before giving up; that budget caps it.
-   - **The same witnesses test soundness without ground truth.** A witness for a value just
-     outside a range means a possible spread was removed — the Leech Seed defect of §7.5 would
-     have shown up this way — and it works on public replays, where no one's spreads are known.
-     Those probes are expected to fail, so each costs a full budget: a test-suite tool, not a
-     step in every run.
+     rebuilds than that: the spreads the inference settled on are a witness already, and a spread
+     that sits at several ends is rebuilt once. A Pokemon the log never touched is not certified:
+     every spread fits. The expensive case is a witness that fails, which spends its whole search
+     budget (600 probes) before giving up.
+   - **Every Pokemon at once first.** One rebuild pins every unknown Pokemon at the same end of
+     one stat; when it reproduces the log, it proves all those ends, so a battle needs about as
+     many rebuilds as one Pokemon does. A joint witness that fails says nothing about which
+     Pokemon's value was impossible; its ends are then tried one Pokemon at a time.
    - **What stays unproven:** points inside a range, which can have gaps, and the spread count,
-     which would take a witness per spread. Sampling survivors could estimate how many are false,
-     as a statistic, never a proof. And "possible" is possible under the pinned simulator; a live
-     server with different mechanics would make both proofs about the wrong battle.
+     which would take a witness per spread. And "possible" is possible under the pinned simulator;
+     a live server with different mechanics would make both proofs about the wrong battle.
 
 ### Closed team sheets — what is still open (§7.6)
 
