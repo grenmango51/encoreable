@@ -12,6 +12,8 @@ import { battleLines } from '../protocol.mjs';
 import { ACTION_START, identName, identSide, override, tagsOf } from '../reconstruct.mjs';
 import { SPAN } from './knowledge.mjs';
 
+const OPENS_ACTION = /^\|(move|cant)\||^\|-activate\|[^|]+\|confusion$|^\|-curestatus\|[^|]+\|(slp|frz)\|\[msg\]$/;
+
 export function attachSpeed(battle, {
   state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label, measure, cutOf, note, depOf, ownValue,
 }) {
@@ -281,7 +283,10 @@ export function attachSpeed(battle, {
       if (p && (p.name === identName(ident) || p.illusion?.name === identName(ident))) return byPokemon.get(p) || null;
       return disguisable(identSide(ident)) ? null : byIdent.get(`${identSide(ident)}:${identName(ident)}`) || null;
     };
-    const who = line => /^\|(move|cant)\|/.test(String(line || '')) ? String(line).split('|')[2] : null;
+    // Who a line shows starting an action: its move, what stopped it, or what
+    // only its `onBeforeMove` prints first - the confusion check, waking up or
+    // thawing out.
+    const who = line => (OPENS_ACTION.test(String(line || '')) ? String(line).split('|')[2] : null);
     const was = who(prefix.observedLine);
     const got = who(cut?.line);
     if (was && got && was !== got && named(was)) {

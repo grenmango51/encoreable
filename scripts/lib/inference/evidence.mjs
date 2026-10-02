@@ -921,6 +921,17 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     return { dim: null, table, via: null, what };
   }
 
+  /** An HP change the simulator computes from the Pokemon's own max HP: `run` once per candidate. */
+  function runChange(T, tag, run, what) {
+    const ord = changeOrdinal;
+    const table = new Map();
+    for (const [g, [hp, , h]] of groupsOf(T, null)) {
+      const M = maxHp(T, hp);
+      table.set(g, Int32Array.of(memo(`${tag}|${ord}|${M}|${h}`, () => dryHp(T, M, h, T.pokemon, run))));
+    }
+    return { dim: null, table, via: null, what };
+  }
+
   /**
    * An HP change whose amount is another Pokemon's stat: `amounts` maps each
    * surviving value of that stat to the amount the simulator computed from it,
@@ -1058,9 +1069,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   /**
    * `oozed` is the heal a Liquid Ooze damage replaced: the same amount, read
    * the same way, through the simulator's own Liquid Ooze. `dice` are what the
-   * real `Damage` event threw.
+   * real `Damage` event threw; `wisher` made the Wish a heal came from.
    */
-  function effectChange(T, kind, raw, effect, other, direct = false, oozed = null, dice = null) {
+  function effectChange(T, kind, raw, effect, other, direct = false, oozed = null, dice = null, wisher = null) {
     const asEffect = x => (typeof x === 'string' ? battle.dex.conditions.getByID(x) : x);
     const shown = asEffect(effect);
     const e = oozed ? asEffect(oozed) : shown;
@@ -1070,6 +1081,22 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const what = `${shown?.name || id || kind} on ${label(T)}`;
     const dir = kind === 'heal' ? 'up' : 'down';
     if (typeof raw !== 'number' || !(raw > 0)) return band(dir, what);
+
+    // A move's cost to its own user, rounded from the user's max HP - Struggle's
+    // quarter, Mind Blown's, Chloroblast's and Steel Beam's half - is the
+    // simulator's own `applyRecoilDamage`, run for each candidate.
+    const active = battle.activeMove;
+    if (kind === 'damage' && active && T.pokemon === battle.activePokemon
+      && ((active.struggleRecoil && id === 'strugglerecoil') || (active.mindBlownRecoil && id === active.id)
+        || (active.chloroblastRecoil && id === 'recoil'))) {
+      return runChange(T, 'cost', () => actions.applyRecoilDamage(0, active, T.pokemon), `${active.name}'s cost to ${label(T)}`);
+    }
+    // Wish heals half its maker's max HP: the Pokemon's own share when it made
+    // it, a fixed amount when its maker's HP stat is known, and otherwise an
+    // amount that stands on another Pokemon's HP, not used.
+    if (id === 'wish' && kind === 'heal' && wisher && wisher !== T.pokemon) {
+      return byPokemon.get(wisher)?.kn.known ? amountChange(T, kind, () => [raw], ctx, what) : band(dir, what);
+    }
 
     // Drain and recoil are a share of damage dealt. That share is exact when the
     // Pokemon that took the damage is one whose HP the log shows exactly;
@@ -1178,7 +1205,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     } else if (kind === 'heal') {
       const ctx = healContext.get(rec.pokemon);
       healContext.delete(rec.pokemon);
-      change = effectChange(rec, 'heal', ctx?.raw ?? info.d, ctx?.effect ?? info.effect, ctx?.source ?? info.source);
+      change = effectChange(rec, 'heal', ctx?.raw ?? info.d, ctx?.effect ?? info.effect, ctx?.source ?? info.source, false, null, null, ctx?.wisher);
     } else if (rec.painSplit) {
       change = rec.painSplit;
       rec.painSplit = null;
@@ -1630,7 +1657,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       let e = effect;
       if (this.event) { t ||= this.event.target; s ||= this.event.source; e ||= this.effect; }
       if (t && byPokemon.has(t)) {
-        const ctx = { raw: damage, source: s, effect: e };
+        const ctx = { raw: damage, source: s, effect: e, wisher: this.effectState?.source ?? null };
         healContext.set(t, ctx);
         const healed = origHeal.call(this, damage, target, source, effect);
         if (!healed && healContext.get(t) === ctx) healContext.delete(t);
