@@ -1916,9 +1916,83 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   // where the scaffold first goes wrong on exactly that line. Its displays wait
   // until the move is done (`state.hold`), because that is when the exact one's
   // HP is known; and the link holds even when the hidden one's own display lies
-  // past the cutoff (`final`).
+  // past the cutoff (`final`). With both shown as percentages, `onHit` is run
+  // for every pair of HPs the two could be on, and each keeps the HPs some
+  // pair leaves it on that both displays allow (`jointPainSplit`).
   const sapFor = new Map();
   let painOrdinal = 0;
+
+  /** Pain Split between two Pokemon both shown as percentages: `real` runs it, `dry` again per pair. */
+  function jointPainSplit(A, B, real, dry) {
+    sync();
+    if (state.ended) return real();
+    for (const R of [A, B]) {
+      if (!R.chain) initChain(R);
+      for (const c of R.pending.splice(0)) apply(R, c, null);
+    }
+    const ord = painOrdinal++;
+    const ga = [...groupsOf(A, null)];
+    const gb = [...groupsOf(B, null)];
+    const what = `Pain Split between ${label(A)} and ${label(B)}`;
+    const changes = new Map([[A, { dim: null, table: new Map(), via: null, final: true, what }], [B, { dim: null, table: new Map(), via: null, final: true, what }]]);
+    if (ga.length * gb.length > 60000) {
+      note(what, 'the two could be on too many HPs together, so it was not used');
+      return real();
+    }
+    for (const [R, change] of changes) R.painSplit = change;
+    const start = battle.log.length;
+    state.hold++;
+    try {
+      return real();
+    } finally {
+      state.hold--;
+      // What each display says, where the replay shows it.
+      const tokenOf = (R) => {
+        const mine = line => line?.kind === '-sethp' && line.side === R.side && line.name === R.name;
+        const at = view.find(v => v.at >= start && v.at < battle.log.length && mine(hpLine(v.line)))?.at;
+        if (at === undefined) return null;
+        if (at < prefix.cutoffAt) return hpLine(view.find(v => v.at === at).line).token;
+        if (at === prefix.cutoffAt && mine(hpLine(prefix.observedLine))) return hpLine(prefix.observedLine).token;
+        return null;
+      };
+      const tokens = new Map([[A, tokenOf(A)], [B, tokenOf(B)]]);
+      const fits = (R, M, h) => {
+        const token = tokens.get(R);
+        if (token === null) return true;
+        const band = allowed(R, M, token, false);
+        return !!band && h >= band[0] && h <= band[1];
+      };
+      const sets = new Map([[A, new Map()], [B, new Map()]]);
+      for (const [g1, [hp1, , h1]] of ga) {
+        const M1 = maxHp(A, hp1);
+        for (const [g2, [hp2, , h2]] of gb) {
+          const M2 = maxHp(B, hp2);
+          const [x, y] = memo(`pain2|${ord}|${M1}|${h1}|${M2}|${h2}`, () => guarded(() => {
+            const undo = patchAll([{ pokemon: A.pokemon, maxhp: M1, hp: h1 }, { pokemon: B.pokemon, maxhp: M2, hp: h2 }]);
+            try {
+              dry();
+              return [A.pokemon.hp, B.pokemon.hp];
+            } finally {
+              undo();
+            }
+          }));
+          if (!fits(A, M1, x) || !fits(B, M2, y)) continue;
+          if (!sets.get(A).has(g1)) sets.get(A).set(g1, new Set());
+          if (!sets.get(B).has(g2)) sets.get(B).set(g2, new Set());
+          sets.get(A).get(g1).add(x);
+          sets.get(B).get(g2).add(y);
+        }
+      }
+      for (const [R, change] of changes) {
+        for (const [g] of (R === A ? ga : gb)) change.table.set(g, Int32Array.from(sets.get(R).get(g) || []));
+        if (R.painSplit) {
+          R.painSplit = null;
+          change.turn = battle.turn;
+          R.pending.push(change);
+        }
+      }
+    }
+  }
   const origSingle = battle.singleEvent;
   battle.singleEvent = function (eventid, effect, effectState, target, source, ...rest) {
     if (eventid !== 'Hit' || state.dry || state.ended || !effect || typeof target !== 'object' || typeof source !== 'object') {
@@ -1939,6 +2013,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       } else {
         note(`Strength Sap on ${label(T)}`, 'its Attack is not the one its Stat Points give, so the heal was not used');
       }
+    }
+    if (effect.id === 'painsplit' && T && S && T !== S && !T.exact && !S.exact) {
+      return jointPainSplit(T, S, () => origSingle.call(this, eventid, effect, effectState, target, source, ...rest),
+        () => origSingle.call(battle, eventid, effect, effectState, target, source, ...rest));
     }
     if (effect.id !== 'painsplit' || !T || !S || T === S || T.exact === S.exact) {
       return origSingle.call(this, eventid, effect, effectState, target, source, ...rest);

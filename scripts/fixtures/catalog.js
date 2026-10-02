@@ -383,6 +383,21 @@ const entries = {
       why: 'The halved partner is switched into the wisher\'s slot and healed by half the wisher\'s max HP, which its percentage then shows.',
     }],
   },
+  'move:painsplit': {
+    templates: [{
+      name: 'with-the-partner',
+      role: 'user-hidden',
+      p1: [withMoves('known', ['Super Fang', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [withMoves('hidden', ['Pain Split', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [
+        { p1: 'move superfang 2, move splash', p2: 'move splash, move splash' },
+        { p1: 'move splash, move splash', p2: 'move painsplit -2, move splash' },
+        QUIET,
+      ],
+      control: { turns: [{ p1: 'move superfang 2, move splash', p2: 'move splash, move splash' }, QUIET, QUIET] },
+      why: 'Both shown as percentages, the hidden Pokemon and its halved partner are set to the average of their HP, which each percentage then shows.',
+    }],
+  },
   'move:substitute': {
     templates: [{
       name: 'broken-at-the-edge',
