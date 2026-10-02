@@ -3,12 +3,12 @@
 **Read first:** `engineering.md` §7.5 (Stat Points by elimination), §7.6 (closed team sheets),
 §9 (open tasks).
 **Status:** Phases 0–3 and 5 built as `npm run catalog` (§4); its reports are
-`evidence-open-sheets.md` and `evidence-closed-sheets.md`, summarised in §5. Phase 4 under way: the
-inference checks its own shortcuts against the simulator, every open-sheet defect the first run
-found is fixed or set aside, and what is left is listed in §3 Phase 4.
+`evidence-open-sheets.md` and `evidence-closed-sheets.md`, summarised in §5. Phase 4 done for open
+sheets: the inference checks its own shortcuts against the simulator, and every open-sheet gap
+the runs found is read; what is left is listed in §3 Phase 4.
 **Target format:** `gen9championsvgc2026regmc`, Reg M-C, live on play.pokemonshowdown.com.
 **Verified against:** `pokemon-showdown` at upstream commit `a5df827` (2026-09-22), the commit
-`package.json` pins; `scripts/lib/inference/` as of 2026-10-02.
+`package.json` pins; `scripts/lib/inference/` as of 2026-10-03.
 
 ---
 
@@ -57,12 +57,12 @@ What is built and what the first catalog run (§5) found. "Unverified" means nei
 |---|---|---|---|---|
 | M1 | damage taken | hidden % line | `actions.getDamage` rows per (attacking stat, defending stat), each checked against the real hit (`engineering.md` §7.5) | built, the "-ate" abilities and their Megas included |
 | M2 | damage dealt | known exact line | the same rows, attacker side | built |
-| M3 | a hidden stat read inside a damage calculation, other than the attack/defence pair | either HP line | the one other flat stat a hit reads takes the attacking stat's place when no hidden attacking stat holds it | built for the target's Speed (Gyro Ball, Electro Ball on a hidden target); a hidden user of them carries two flat stats, is not used, and its rebuild can fail |
-| M4 | an HP change that is a fraction of max HP (chip, heal, weather, status) | hidden % line | `effectChange`, fractions scaled only when the amount proves them; Toxic's n × ⌊max HP/16⌋ | built; a move's HP cost (Substitute) is not read |
-| M5 | a hidden amount carried over to an exact line | known exact line | recoil, drain, Leech Seed, Shell Bell, Pain Split, Strength Sap | built; the Counter family (Counter, Mirror Coat, Metal Burst, Comeuppance) is set aside, its amount carried from an earlier hit |
-| M6 | an HP threshold crossed or not | a line present or absent | pinch Berries (`runEvent('Update')`), Focus Sash, Sturdy, Endure (`Damage` event) | built; Substitute breaking not read, and it breaks the rebuild |
+| M3 | a hidden stat read inside a damage calculation, other than the attack/defence pair | either HP line | the other stat takes the attacking stat's place when no hidden attacking stat holds it, and otherwise comes beside it as one more candidate value, carried like the attacker's HP | built: the target's Speed for Gyro Ball and Electro Ball, and a hidden user's Speed beside its Attack |
+| M4 | an HP change that is a fraction of max HP (chip, heal, weather, status) | hidden % line | `effectChange`, fractions scaled only when the amount proves them; Toxic's n × ⌊max HP/16⌋; a move's HP cost through `directDamage` | built |
+| M5 | a hidden amount carried over to an exact line | known exact line | recoil, drain, Leech Seed, Shell Bell, Pain Split, Strength Sap; Liquid Ooze read as the heal it replaced; the Counter family through the hit its user took | built |
+| M6 | an HP threshold crossed or not | a line present or absent | pinch Berries (`runEvent('Update')`), Focus Sash, Focus Band, Sturdy, Endure (`Damage` event), whether the first hit on a fresh Substitute broke it | built |
 | M7 | order | order of lines | `speed.mjs`, every sort by speed, each table checked at the Pokemon's own Stat Points | built; a Speed moved by Speed Swap or Transform is read through what moved it |
-| M8 | a stat moved between Pokemon | later damage and HP lines | a handler that writes `storedStats` is run dry per candidate before the real one, and `transformInto` copies what the original's stats stood on | built: Power Split, Guard Split, Power Trick, Speed Swap, Transform and Imposter; a hit standing on two hidden Pokemon at once is set aside |
+| M8 | a stat moved between Pokemon | later damage and HP lines | a handler that writes `storedStats` is run dry per candidate before the real one, and `transformInto` copies what the original's stats stood on | built: Power Split, Guard Split, Power Trick, Speed Swap, Transform and Imposter, a hit that stands on two hidden Pokemon included |
 | M9 | a stat named or compared in a message | what a line names | none | only Shell Side Arm has a legal user |
 
 A confusion self-hit, which the inference models (`actions.getConfusionDamage`), turns out to narrow
@@ -206,30 +206,33 @@ shortcut disagrees is set aside rather than trusted. A defect of that kind can n
 never the real spread, and the open-sheet report lists every line set aside (§2.7). Under it:
 
 - the "-ate" abilities and their Megas are read, the move's copy sharing the simulator's own data;
-- a carried amount (Counter, Mirror Coat, Metal Burst, Comeuppance) is set aside;
 - a moved stat is read through what moved it: after Power Split the hidden Attack is the average
   with yours, after Power Trick it is the hidden Defence, after Transform into one of yours it is
   yours, and a hit by the hidden Pokemon on yours after Guard Split carries its Attack and its
   Defence at once;
+- a hit carries one more candidate value beside its two: a hidden user of Gyro Ball or Electro Ball
+  brings its Speed beside its Attack, and your Imposter copying the opponent's other Pokemon makes a
+  hit stand on that one too;
+- a Substitute's cost is read as a fraction, and the first hit on a fresh one by whether it broke;
+- the Counter family is read through the hit its user took — a fixed amount when the user is shown
+  exactly, and otherwise the amounts that hit could have dealt, narrowed by the line of the Pokemon
+  it hits back; Liquid Ooze is read as the heal it replaced; and a drain or a carried share narrows
+  the Pokemon that took the hit at once, not only in the whole-path walk;
+- no dry run touches the generator, a re-run of a `Damage` event throws the dice the real one
+  threw, and Focus Band is read as a survived lethal hit with its chance granted — the battle that
+  set it off, hand-set with its own dice, removed the real spread before;
 - Illusion's lines are read through `|replace|`, and with team sheets through a move only the
-  Illusion user has or its exact max HP; Fickle Beam's dry run keeps the real die and the
-  log; Beat Up's dry runs no longer share one ally list; Toxic's ticks scale; Gyro Ball and Electro
-  Ball read a hidden target's Speed; Final Gambit is checked at the HP its user went in with.
+  Illusion user has or its exact max HP; a switch-in nothing settles gives no Pokemon what it
+  showed, which a disguised Zoroark's Speed showed to matter; Fickle Beam's dry run keeps the real
+  die and the log; Beat Up's dry runs no longer share one ally list; Toxic's ticks scale; Final
+  Gambit is checked at the HP its user went in with;
+- the rebuild redraws the die a failing lock or status line depends on (Thrash, Petal Dance,
+  Effect Spore), tries wide dice between their ends, and records Imprison's Struggle as the choice
+  it wrote; a move's own HP cost rounded from max HP (Struggle, Steel Beam) is the simulator's
+  `applyRecoilDamage`, and an action that opens with the confusion check or waking up says who
+  moved first.
 
-Still open, in order of weight:
-
-1. **M6, Substitute.** Whether a hit breaks a hidden Pokemon's Substitute ties the damage to a
-   quarter of its max HP; the inference does not read it, and the rebuild then fails.
-2. **The Counter family.** Its amount is the damage the user took on an earlier hit, which each
-   candidate was dealt differently, so it needs that hit's candidates carried forward; it is set
-   aside until then.
-3. **Two candidate values a hit cannot carry together.** A hidden user of Gyro Ball or Electro Ball
-   brings its attacking stat and its Speed, two flat stats; your Imposter copying the hidden
-   partner makes a hit stand on two hidden Pokemon.
-4. **The rebuild's dice and choices.** Thrash and Petal Dance's lock length, Effect Spore's choice
-   of status, Struggle's random target (Imprison's battle forces it), and an Illusion user that
-   only uses moves its disguise's sheet also has and shows its HP only as a percentage, where the
-   rebuild cannot tell which Pokemon acted.
+What is left on the open-sheet work list is in §5: no line there is one the inference skips.
 
 **Wish** can only land on its own side's slot, so a hidden Wish heals a hidden Pokemon and shows as
 a percentage (M4), never on a known Pokemon's exact line as this plan first had it.
@@ -312,46 +315,49 @@ No probe battle is kept in `recordings/`: every one is rebuilt from the fixture 
 
 ## 5. Coverage
 
-The run on `pokemon-showdown` `a5df827` and `scripts/lib/inference/` as of 2026-10-02. The reports
+The run on `pokemon-showdown` `a5df827` and `scripts/lib/inference/` as of 2026-10-03. The reports
 hold every card and the whole work list; this is their head.
 
-**Open sheets** (`evidence-open-sheets.md`). Of 510 moves, 418 showed a Stat Point in some line,
-77 acted with nothing stat-dependent, 15 never acted in any template; of 203 abilities, 56, 42 and
-105; of 166 items, 137, 5 and 24. Per effect, role, stat and mechanism:
+**Open sheets** (`evidence-open-sheets.md`). Of 510 moves, 421 showed a Stat Point in some line,
+77 acted with nothing stat-dependent, 12 never acted in any template; of 203 abilities, 64, 42 and
+97; of 166 items, 141, 5 and 20. Per effect, role, stat and mechanism:
 
 | Mechanism | Effects | USED | UNUSED | UNSOUND | REBUILD-FAILED | MASKED |
 |---|---|---|---|---|---|---|
-| M1 | 488 | 1051 | 1 | 0 | 4 | 1 |
-| M2 | 510 | 619 | 0 | 0 | 4 | 7 |
-| M3 | 5 | 5 | 0 | 0 | 2 | 0 |
-| M4 | 69 | 61 | 0 | 0 | 0 | 12 |
-| M5 | 36 | 50 | 0 | 0 | 0 | 10 |
-| M6 | 17 | 17 | 0 | 0 | 1 | 1 |
-| M7 | 68 | 62 | 3 | 0 | 2 | 3 |
+| M1 | 489 | 1055 | 2 | 0 | 0 | 1 |
+| M2 | 514 | 628 | 0 | 0 | 0 | 6 |
+| M3 | 6 | 8 | 0 | 0 | 0 | 0 |
+| M4 | 71 | 64 | 0 | 0 | 0 | 11 |
+| M5 | 38 | 60 | 0 | 0 | 0 | 4 |
+| M6 | 18 | 20 | 0 | 0 | 0 | 1 |
+| M7 | 74 | 68 | 5 | 0 | 0 | 3 |
 | M8 | 4 | 8 | 0 | 0 | 0 | 0 |
 | M9 | 2 | 5 | 0 | 0 | 0 | 0 |
 
-No effect removes the real spread. What is left:
+No effect removes the real spread, and every battle rebuilds. What is left:
 
-1. **REBUILD-FAILED — the rebuild cannot reproduce the log**, 13 rows: a hidden user of Gyro Ball or
-   Electro Ball (M3); a Substitute broken or not (M6); Thrash and Petal Dance's lock length;
-   Effect Spore's choice of status; Struggle's random target in Imprison's battle; your Imposter
-   copying the hidden partner, so that a hit stands on two hidden Pokemon; and a hidden Illusion
-   user that only uses Splash, which its disguise's sheet has too.
-2. **UNUSED**, 4 rows. Three are turn order after Transform or Imposter, where the copy has the
-   very Speed of the Pokemon it copied: the order between them is a speed tie, which says nothing,
-   and the two worlds differ only by how the tie fell. The fourth is a hidden Pokemon's HP in one
-   hit by your Transform copy of it, which stands on its copied Attack, its Defence and its HP at
-   once.
-3. **Set aside** (`evidence-open-sheets.md` §2.7): the Counter family's carried amount. Evidence
-   given up, never a spread removed.
-4. **MASKED** — 34 rows. Heals and chip that a battle's own hits already pin — Recover and its kind,
-   Wish, Regenerator, Leftovers on the known side — and the Counter family: the battle cannot say
-   whether the line is read.
-5. **NOT SHOWN** — 144 effects no template made act, from Sleep Talk and Snore (weight 292, 251)
-   down: each needs a battle set up by hand, or a written reason. Most cannot carry a Stat Point
-   at all on an open sheet (accuracy, critical-hit rate, weather length); `evidence-swarm-plan.md`
-   at the repo root asks for every move, ability and item to be judged by hand on exactly that.
+1. **UNUSED**, 7 rows, none of them a line the inference skips. Three are turn order after
+   Transform or Imposter, where the copy has the very Speed of the Pokemon it copied: the order
+   between them is a speed tie, which says nothing. Two are hits that read a Pokemon's own Attack
+   against its own HP and Defence — Thrash's confusion self-hits, your Transform copy hitting the
+   Pokemon it copied: Attack is a list of its own beside the HP and defence pairs, so a pair that
+   fits only apart survives (`engineering.md` §9, certified ranges). A rebuild proves the probe
+   right that the line carries HP: one world's log does not rebuild with the other world's spread.
+   One is Effect Spore paralysing the hidden Pokemon, whose order then is against its own hidden
+   partner, whose Speed no replay gives. One is a disguised Illusion user whose order its disguise
+   could have shown too: nothing settles that switch-in, so it is read for neither.
+2. **Set aside** (`evidence-open-sheets.md` §2.7): that switch-in. Evidence given up, never a
+   spread removed.
+3. **MASKED**, 26 rows. Heals and chip that a battle's own hits already pin — Recover and its
+   kind, Wish, Regenerator, Leftovers on the known side — most of them a share of max HP, which a
+   percentage shows alike at every max HP.
+4. **NOT SHOWN** — 129 effects no template made act, from Sleep Talk's kin down: each needs a
+   battle set up by hand, or a written reason. Most cannot carry a Stat Point at all on an open
+   sheet (accuracy, critical-hit rate, weather length); `evidence-swarm-plan.md` at the repo root
+   asks for every move, ability and item to be judged by hand on exactly that. The conditional
+   ones — Swift Swim, Chlorophyll, Sand Rush, Slush Rush, Quick Feet, Speed Swap, Sleep Talk, Steel
+   Roller, Liquid Ooze, Binding Band, Expert Belt, Big Root, Blaze, Solar Power, Focus Band — have
+   hand-set battles, and each is USED.
 
 **Closed sheets** (`evidence-closed-sheets.md`).
 
@@ -363,14 +369,13 @@ No effect removes the real spread. What is left:
   Swap, Simple Beam, Worry Seed, Trace, Mummy or Wandering Spirit replaced it; the item Poltergeist
   names; the item Magician takes; abilities that announce themselves in `|cant|` or `-block`
   (Armor Tail, Queenly Majesty, Sweet Veil, Aroma Veil) or in `-start` (Flash Fire).
-- *Silent sinks and hazards.* 131 abilities, 48 items and all 25 natures change the log before any
-  line names them; today's assumptions then remove the real spread or break the rebuild in 64
+- *Silent sinks and hazards.* 129 abilities, 47 items and all 25 natures change the log before any
+  line names them; today's assumptions then remove the real spread or break the rebuild in 67
   ability witnesses (Technician, Hustle, Magic Guard, Huge Power, Heatproof, Dry Skin, Multiscale,
-  Fluffy, Stall, Pixilate, Illusion, Liquid Voice, Poison Heal, Steely Spirit, Supreme Overlord), 64 item
-  witnesses (Choice Scarf and Iron Ball through order; the type-boosting items, Muscle Band, Wise
-  Glasses, Light Ball, Metronome through damage) and 28 nature witnesses. Where the rebuild fails
-  with the true set too, the defect is the inference's and is left to the open list
-  (`TRUE-SET-FAILS`, 5 witnesses).
+  Fluffy, Stall, Pixilate, Illusion, Liquid Voice, Poison Heal, Steely Spirit, Supreme Overlord,
+  Slush Rush), 67 item witnesses (Choice Scarf and Iron Ball through order; the type-boosting
+  items, Muscle Band, Wise Glasses, Light Ball, Metronome, Expert Belt, Big Root through damage)
+  and 28 nature witnesses. Each of them rebuilds with the true set, so each is the assumption's.
 
 ---
 
@@ -402,5 +407,5 @@ No effect removes the real spread. What is left:
 - **Possible under the pinned simulator.** As in `engineering.md` §9, a server running different
   mechanics makes every row a statement about the wrong battle.
 - **Cost.** The battles are fast — every move's, without the rebuilds, in 75 s on 13 threads.
-  The rebuilds are not: a full run takes about an hour on 13 threads (moves 38 min, abilities 12,
+  The rebuilds are not: a full run takes about an hour on 13 threads (moves 37 min, abilities 11,
   items 9, natures 1), and so does `--check`. `--kind` with `--out`, then `--records`, splits it.

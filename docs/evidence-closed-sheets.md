@@ -35,9 +35,9 @@ its handlers name. A control's own rebuild is shown when it is not SAFE, since t
 
 | Kind | Effects | READ | MISSED | MISREAD | FALSE | Silent (no line names it) | SILENT-SINK witnesses | HAZARD-UNSOUND | HAZARD-REBUILD | TRUE-SET-FAILS |
 |---|---|---|---|---|---|---|---|---|---|---|
-| move | 510 | 1389 | 18 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| ability | 203 | 109 | 17 | 6 | 0 | 131 | 158 | 55 | 9 | 3 |
-| item | 166 | 130 | 2 | 4 | 2 | 48 | 74 | 64 | 0 | 2 |
+| move | 510 | 1393 | 18 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| ability | 203 | 111 | 17 | 6 | 0 | 129 | 160 | 56 | 11 | 0 |
+| item | 166 | 131 | 2 | 4 | 2 | 47 | 76 | 67 | 0 | 0 |
 | condition | 94 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | nature | 25 | 0 | 0 | 0 | 0 | 25 | 44 | 28 | 0 | 0 |
 
@@ -108,14 +108,17 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 
 | Effect | Weight | Witness | Sinks | Verdict | Last event that cut the hidden Pokemon, or where the rebuild broke |
 |---|---|---|---|---|---|
+| `item:bigroot` | 293 | drains | hidden % | HAZARD-UNSOUND | turn 2: Drain on Blastoise |
 | `item:blackbelt` | 293 | W-Fighting-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Brick Break hit Snorlax |
 | `item:blackglasses` | 293 | W-Dark-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Crunch hit Snorlax |
 | `item:charcoal` | 293 | W-Fire-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Fire Punch hit Snorlax |
 | `item:choicescarf` | 293 | W-order-up | order | HAZARD-UNSOUND | turn 1: Blastoise acted before Ampharos |
 | `item:dragonfang` | 293 | W-Dragon-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Dragon Claw hit Snorlax |
+| `item:expertbelt` | 293 | super-effective | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Brick Break hit Snorlax |
 | `item:fairyfeather` | 293 | W-Fairy-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Play Rough hit Snorlax |
 | `item:hardstone` | 293 | W-Rock-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Stone Edge hit Snorlax |
 | `item:ironball` | 293 | W-burn | order | HAZARD-UNSOUND | turn 2: Snorlax acted before Blastoise |
+| `item:ironball` | 293 | W-confusion | presence | HAZARD-UNSOUND | turn 2: Snorlax acted before Blastoise |
 | `item:ironball` | 293 | W-Flying-taken | order | HAZARD-UNSOUND | turn 3: Snorlax acted before Blastoise |
 | `item:ironball` | 293 | W-Ground-taken | order | HAZARD-UNSOUND | turn 3: Snorlax acted before Blastoise |
 | `item:ironball` | 293 | W-order-down | order | HAZARD-UNSOUND | turn 1: Ampharos acted before Blastoise |
@@ -186,7 +189,9 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `ability:hugepower` | 2 | W-toxic | known exact | HAZARD-UNSOUND | turn 2: Azumarill's Strength hit Snorlax |
 | `ability:hugepower` | 2 | W-trade | known exact | HAZARD-UNSOUND | turn 1: Azumarill's Strength hit Snorlax |
 | `ability:hugepower` | 2 | W-two-moves | known exact | HAZARD-UNSOUND | turn 1: Azumarill's Strength hit Snorlax |
-| `ability:illusion` | 2 | W-paralysis | names, presence | HAZARD-REBUILD | turn 2: wanted \|move\|p2a: Slowking\|Strength\|p1a: Snorlax, got \|move\|p1a: Snorlax\|Splash\|p1a: Snorlax |
+| `ability:illusion` | 2 | W-confusion | names, presence | HAZARD-REBUILD | turn 2: wanted \|-damage\|p2a: Slowking\|78/100\|[from] confusion, got \|-damage\|p2a: Slowking\|91/100\|[from] confusion |
+| `ability:illusion` | 2 | W-order-down | presence | HAZARD-REBUILD | turn 1: wanted \|move\|p2a: Slowking\|Splash\|p2a: Slowking, got \|move\|p1a: Goodra\|Splash\|p1a: Goodra |
+| `ability:illusion` | 2 | W-paralysis | names, presence | HAZARD-REBUILD | turn 2: wanted \|move\|p2a: Slowking\|Strength\|p1a: Snorlax, got \|move\|p2b: Avalugg\|Splash\|p2b: Avalugg |
 | `ability:illusion` | 2 | W-taunt | names, presence | HAZARD-REBUILD | turn 1: wanted \|-start\|p2a: Slowking\|move: Taunt, got \|-immune\|p2a: Slowking\|[from] ability: Oblivious |
 | `ability:fluffy` | 1 | W-phys-taken | hidden %, presence | HAZARD-UNSOUND | turn 1: Snorlax's Dragon Claw hit Houndstone |
 | `ability:fluffy` | 1 | W-pivot | hidden % | HAZARD-UNSOUND | turn 1: Snorlax's Dragon Claw hit Houndstone |
@@ -207,6 +212,7 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `ability:pixilate` | 1 | W-trade | known exact | HAZARD-UNSOUND | turn 1: Sylveon's Strength hit Snorlax |
 | `ability:pixilate` | 1 | W-two-moves | known exact | HAZARD-UNSOUND | turn 1: Sylveon's Strength hit Snorlax |
 | `ability:poisonheal` | 1 | W-toxic | presence | HAZARD-REBUILD | turn 1: wanted \|upkeep, got \|-damage\|p2a: Gliscor\|93/100 tox\|[from] psn |
+| `ability:slushrush` | 1 | race-under-it | order | HAZARD-UNSOUND | turn 1: Beartic acted before Abomasnow |
 | `ability:stall` | 1 | W-burn | order | HAZARD-UNSOUND | turn 1: Snorlax acted before Sableye |
 | `ability:stall` | 1 | W-confusion | hidden %, presence | HAZARD-REBUILD | turn 1: wanted \|move\|p1a: Snorlax\|Confuse Ray\|p2a: Sableye, got \|-activate\|p2a: Sableye\|move: Struggle |
 | `ability:stall` | 1 | W-lethal | presence | HAZARD-REBUILD | turn 1: wanted \|move\|p1a: Snorlax\|Sheer Cold\|p2a: Sableye, got \|-activate\|p2a: Sableye\|move: Struggle |
@@ -269,11 +275,13 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 
 | Effect | Weight | Named by a line | Witnesses with a silent change |
 |---|---|---|---|
+| `item:bigroot` | 293 | never | drains (hidden %) |
 | `item:blackbelt` | 293 | never | W-Fighting-dealt (known exact) |
 | `item:blackglasses` | 293 | never | W-Dark-dealt (known exact) |
 | `item:charcoal` | 293 | never | W-Fire-dealt (known exact) |
 | `item:choicescarf` | 293 | never | W-phys-dealt (presence); W-spec-dealt (presence); W-order-up (order); W-trade (presence); W-burn (presence); W-paralysis (order, presence); W-toxic (presence); W-sleep (presence); W-taunt (presence); W-two-moves (presence) |
 | `item:dragonfang` | 293 | never | W-Dragon-dealt (known exact) |
+| `item:expertbelt` | 293 | never | super-effective (known exact) |
 | `item:fairyfeather` | 293 | never | W-Fairy-dealt (known exact) |
 | `item:hardstone` | 293 | never | W-Rock-dealt (known exact) |
 | `item:ironball` | 293 | never | W-phys-taken (presence); W-spec-taken (order); W-order-down (order); W-pace (order); W-trade (order); W-Flying-taken (order); W-Ground-taken (order); W-burn (order); W-paralysis (order); W-toxic (order); W-sleep (order, presence); W-confusion (presence); W-taunt (order); W-two-moves (order) |
@@ -291,6 +299,7 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `item:softsand` | 293 | never | W-Ground-dealt (known exact) |
 | `item:twistedspoon` | 293 | never | W-Psychic-dealt (known exact) |
 | `item:wiseglasses` | 293 | never | W-spec-dealt (known exact); W-two-moves (known exact) |
+| `ability:blaze` | 11 | never | in-a-pinch (known exact) |
 | `ability:technician` | 10 | never | W-spec-dealt (known exact); W-two-moves (known exact) |
 | `ability:guts` | 7 | never | W-burn (known exact, presence); W-paralysis (known exact, presence); W-toxic (known exact, presence) |
 | `ability:prankster` | 6 | never | W-order-up (order); W-pace (order) |
@@ -316,6 +325,7 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `ability:purepower` | 1 | never | W-phys-dealt (known exact); W-trade (known exact); W-burn (known exact); W-paralysis (known exact); W-toxic (known exact); W-sleep (known exact); W-taunt (known exact); W-two-moves (known exact) |
 | `ability:purifyingsalt` | 1 | yes | W-Ghost-taken (hidden %) |
 | `ability:refrigerate` | 1 | never | W-phys-dealt (known exact); W-spec-dealt (known exact); W-trade (known exact); W-Normal-dealt (known exact); W-burn (known exact); W-paralysis (known exact); W-toxic (known exact); W-sleep (known exact); W-taunt (known exact); W-two-moves (known exact) |
+| `ability:slushrush` | 1 | never | race-under-it (order) |
 | `ability:stall` | 1 | never | W-phys-dealt (order); W-spec-dealt (order); W-phys-taken (order, presence); W-spec-taken (order, presence); W-order-up (order); W-order-down (order); W-pace (order); W-trade (order); W-burn (order); W-paralysis (order); W-toxic (order); W-sleep (known exact, order, presence); W-confusion (hidden %, presence); W-taunt (order, presence); W-lethal (presence); W-pivot (order); W-two-moves (order) |
 | `ability:stancechange` | 1 | never | W-phys-dealt (known exact, presence); W-spec-dealt (known exact, presence); W-trade (known exact, presence); W-burn (known exact, presence); W-paralysis (known exact, presence); W-toxic (known exact, presence); W-sleep (known exact, presence); W-taunt (known exact, presence); W-two-moves (known exact, presence) |
 | `ability:steelyspirit` | 1 | never | W-Steel-dealt (known exact) |
@@ -434,7 +444,7 @@ Named by its own `|move|` line and read into its user's move box, in every place
 | Cosmic Power | 6 | READ | — |
 | Cotton Guard | 6 | READ | — |
 | Cotton Spore | 4 | READ | READ |
-| Counter | 41 | READ | — |
+| Counter | 41 | READ | READ |
 | Court Change | 1 | READ | READ |
 | Covet | 25 | READ | READ |
 | Crabhammer | 3 | READ | READ |
@@ -1058,7 +1068,9 @@ No witness changed the log before it was named.
 
 11 holders · weight 11. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| in-a-pinch | known exact | `\|-damage\|p1a: Snorlax\|200/255` → `\|-damage\|p1a: Snorlax\|173/255` | no | SAFE |  |
 
 #### Bulletproof · `ability:bulletproof`
 
@@ -1469,17 +1481,17 @@ Other boxes: MISREAD p2 Slowking move Strength; MISREAD p2 Slowking move Round; 
 | W-phys-taken | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | SAFE |  |
 | W-spec-taken | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | SAFE |  |
 | W-order-up | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
-| W-order-down | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | TRUE-SET-FAILS |  |
+| W-order-down | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | HAZARD-REBUILD |  |
 | W-pace | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
 | W-trade | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | SAFE |  |
 | W-burn | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
 | W-paralysis | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | HAZARD-REBUILD |  |
 | W-toxic | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
 | W-sleep | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
-| W-confusion | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | TRUE-SET-FAILS |  |
+| W-confusion | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | HAZARD-REBUILD |  |
 | W-taunt | names, presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | HAZARD-REBUILD |  |
 | W-lethal | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | SAFE |  |
-| W-pivot | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | TRUE-SET-FAILS |  |
+| W-pivot | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | SAFE |  |
 | W-two-moves | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
 
 #### Immunity · `ability:immunity`
@@ -1588,7 +1600,8 @@ No witness changed the log before it was named.
 
 #### Liquid Ooze · `ability:liquidooze`
 
-1 holders · weight 1. Named by: no line, in any witness.
+1 holders · weight 1. Named by: `\|-damage\|p1a: Snorlax\|248/255\|[from] ability: Liquid Ooze\|[of] p2a: Swalot` (drained, turn 1).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -2094,7 +2107,9 @@ No witness changed the log before it was named.
 
 1 holders · weight 1. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| race-under-it | order | `p1a: Abomasnow before p2a: Beartic` → `p2a: Beartic before p1a: Abomasnow` | no | HAZARD-UNSOUND |  |
 
 #### Sniper · `ability:sniper`
 
@@ -2117,7 +2132,8 @@ No witness changed the log before it was named.
 
 #### Solar Power · `ability:solarpower`
 
-2 holders · weight 2. Named by: no line, in any witness.
+2 holders · weight 2. Named by: `\|-damage\|p2a: Charizard\|87/100\|[from] ability: Solar Power\|[of] p2a: Charizard` (in-the-sun, turn 1).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -2581,7 +2597,9 @@ No witness changed the log before it was named.
 
 293 holders · weight 293. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| drains | hidden % | `\|-heal\|p2a: Blastoise\|58/100\|[from] drain\|[of] p1a: Snorlax` → `\|-heal\|p2a: Blastoise\|60/100\|[from] drain\|[of] p1a: Snorlax` | no | HAZARD-UNSOUND |  |
 
 #### Binding Band · `item:bindingband`
 
@@ -2718,7 +2736,7 @@ No witness changed the log before it was named.
 | W-paralysis | order, presence | `\|move\|p2a: Blastoise\|Strength\|p1a: Snorlax` → — | no | SAFE |  |
 | W-toxic | presence | `\|move\|p2a: Blastoise\|Strength\|p1a: Snorlax` → — | no | SAFE |  |
 | W-sleep | presence | `\|move\|p2a: Blastoise\|Strength\|p1a: Snorlax` → — | no | SAFE |  |
-| W-taunt | presence | `\|move\|p2a: Blastoise\|Strength\|p1a: Snorlax` → — | no | TRUE-SET-FAILS |  |
+| W-taunt | presence | `\|move\|p2a: Blastoise\|Strength\|p1a: Snorlax` → — | no | SAFE |  |
 | W-two-moves | presence | `\|move\|p2a: Blastoise\|Round\|p1a: Snorlax` → — | no | SAFE |  |
 
 #### Chople Berry · `item:chopleberry`
@@ -2836,7 +2854,9 @@ No witness changed the log before it was named.
 
 293 holders · weight 293. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| super-effective | known exact | `\|-damage\|p1a: Snorlax\|179/255` → `\|-damage\|p1a: Snorlax\|164/255` | no | HAZARD-UNSOUND |  |
 
 #### Fairy Feather · `item:fairyfeather`
 
@@ -2869,7 +2889,8 @@ No witness changed the log before it was named.
 
 #### Focus Band · `item:focusband`
 
-293 holders · weight 293. Named by: no line, in any witness.
+293 holders · weight 293. Named by: `\|-activate\|p2a: Whimsicott\|item: Focus Band` (lethal-at-the-edge, turn 1).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -3036,7 +3057,7 @@ No witness changed the log before it was named.
 | W-paralysis | order | `p2a: Blastoise before p1a: Snorlax` → `p1a: Snorlax before p2a: Blastoise` | no | HAZARD-UNSOUND |  |
 | W-toxic | order | `p2a: Blastoise before p1a: Snorlax` → `p1a: Snorlax before p2a: Blastoise` | no | HAZARD-UNSOUND |  |
 | W-sleep | order, presence | `\|-curestatus\|p2a: Blastoise\|slp\|[msg]` → — | no | HAZARD-UNSOUND |  |
-| W-confusion | presence | `\|-activate\|p2a: Blastoise\|confusion` → — | no | TRUE-SET-FAILS |  |
+| W-confusion | presence | `\|-activate\|p2a: Blastoise\|confusion` → — | no | HAZARD-UNSOUND |  |
 | W-taunt | order | `p2a: Blastoise before p1a: Snorlax` → `p1a: Snorlax before p2a: Blastoise` | no | HAZARD-UNSOUND |  |
 | W-two-moves | order | `p2a: Blastoise before p1a: Snorlax` → `p1a: Snorlax before p2a: Blastoise` | no | HAZARD-UNSOUND |  |
 
