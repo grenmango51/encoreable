@@ -2,7 +2,9 @@
 
 **Read first:** `engineering.md` §7.5 (Stat Points by elimination), §7.6 (closed team sheets),
 §9 (open tasks).
-**Status:** Phases 0–3 and 5 done; Phase 4 not started.
+**Status:** Phases 0–3 and 5 built as `npm run catalog` (§4); its first full run is the two
+reports `evidence-open-sheets.md` and `evidence-closed-sheets.md`, summarised in §5. Phase 4, fixing
+what they list, not started.
 **Target format:** `gen9championsvgc2026regmc`, Reg M-C, live on play.pokemonshowdown.com.
 **Verified against:** `pokemon-showdown` at upstream commit `a5df827` (2026-09-22), the commit
 `package.json` pins; `scripts/lib/inference/` as of commit `e6d3501` plus the working tree of
@@ -48,20 +50,24 @@ mechanism.
 
 ## 2. Where the evidence pass stands
 
-What is built, what is known to be missing, and what nobody has checked yet. Status counts reflect
-the full Reg M-C catalog run (`npm run catalog`).
+What is built and what the first catalog run (§5) found. "Unverified" means neither a search of
+`scripts/lib/inference/` nor the run settled it.
 
-| # | Mechanism | Sink | Hook today | Status |
+| # | Mechanism | Sink | Hook today | Status after the run |
 |---|---|---|---|---|
-| M1 | damage taken | hidden % line | `actions.getDamage` rows per (attacking stat, defending stat) | built: 1309 USED, 4 UNUSED, 6 UNSOUND |
-| M2 | damage dealt | known exact line | the same rows, attacker side | built: 556 USED, 0 UNUSED, 1 UNSOUND |
-| M3 | a hidden stat read inside a damage calculation, other than the attack/defence pair | either HP line | `analyseHit` sees the read and marks the hit `supported: false`, and `onChange` then treats it as "HP went down" (`band('down')`) | gap: 136 USED, 135 UNUSED |
-| M4 | an HP change that is a fraction of max HP (chip, heal, weather, status) | hidden % line | `effectChange`, fractions scaled only when the amount proves them | merged into M1/M6 |
-| M5 | a hidden amount carried over to an exact line | known exact line | recoil, drain, Leech Seed, Shell Bell, Pain Split, Strength Sap | built: 16 USED |
-| M6 | an HP threshold crossed or not | a line present or absent | pinch Berries (`runEvent('Update')`), Focus Sash, Sturdy, Endure (`Damage` event) | built: 1179 USED, 7 UNUSED, 10 UNSOUND |
-| M7 | order | order of lines | `speed.mjs`, every sort by speed | built: 179 USED, 151 UNUSED, 4 UNSOUND |
-| M8 | a stat moved between Pokemon | later damage and HP lines | none | unverified: Power Split, Guard Split, Transform probed under M1/M6/M7/M9 |
-| M9 | a stat named or compared in a message | what a line names | none | 599 USED, 308 UNUSED, 3 UNSOUND |
+| M1 | damage taken | hidden % line | `actions.getDamage` rows per (attacking stat, defending stat) | built; **unsound** for a hit boosted by an "-ate" ability (Pixilate, Refrigerate, and the Megas that gain one) |
+| M2 | damage dealt | known exact line | the same rows, attacker side | built; the same "-ate" defect |
+| M3 | a hidden stat read inside a damage calculation, other than the attack/defence pair | either HP line | `analyseHit` sees the read and marks the hit `supported: false`, and `onChange` then treats it as "HP went down" (`band('down')`) | **gap**, and worse than unused: Gyro Ball and Electro Ball leave the rebuild unable to reproduce the hit |
+| M4 | an HP change that is a fraction of max HP (chip, heal, weather, status) | hidden % line | `effectChange`, fractions scaled only when the amount proves them | built; a Toxic tick after the first (n × ⌊max HP/16⌋) breaks the rebuild; a move's HP cost (Substitute) is not read |
+| M5 | a hidden amount carried over to an exact line | known exact line | recoil, drain, Leech Seed, Shell Bell, Pain Split, Strength Sap | built; **unsound** for the Counter family (Counter, Mirror Coat, Metal Burst, Comeuppance) |
+| M6 | an HP threshold crossed or not | a line present or absent | pinch Berries (`runEvent('Update')`), Focus Sash, Sturdy, Endure (`Damage` event) | built; Substitute breaking not read, and it breaks the rebuild |
+| M7 | order | order of lines | `speed.mjs`, every sort by speed | built |
+| M8 | a stat moved between Pokemon | later damage and HP lines | none | **unsound**: Power Split, Guard Split, Power Trick, Transform, Imposter; Speed Swap unverified |
+| M9 | a stat named or compared in a message | what a line names | none | only Shell Side Arm has a legal user |
+
+A confusion self-hit, which the inference models (`actions.getConfusionDamage`), turns out to narrow
+little: in a battle with three of them only the first cut anything, and the HP they carry is listed
+unused.
 
 Reg M-C's legal pool on upstream master: 293 species that pass `checkSpecies`, 203 abilities in
 their slots, 510 moves at least one of them can learn (`checkCanLearn`), 166 items. Against Reg
@@ -191,20 +197,21 @@ worth more than one inequality on one stat. Each fix goes in at the mechanism le
 hook. It never special-cases a move. The whole probe suite runs again after each fix, against
 the 21 recordings and their 83 real spreads as well.
 
-The first items are already known:
+The work list is `evidence-open-sheets.md` §2 and `evidence-closed-sheets.md` §2; §5 below gives
+their head. Three of the four items this plan expected are on it, one changed:
 
 1. **M3, Speed inside a damage calculation.** Gyro Ball and Electro Ball read Speed in
    `basePowerCallback`. Add Speed as a third dimension of the hit's rows, a flat domain memoised
    like Attack, and accept that read in `analyseHit`'s `supported` test. Then extend the same
    dimension to any other stat the reads observer catches.
-2. **M5, the Counter family.** Counter, Mirror Coat, Metal Burst and Comeuppance return a
-   multiple of the damage the user just took. When the hidden Pokemon returns it onto a known
-   one, the exact line gives that damage exactly.
-3. **M5, Wish.** It heals half its user's max HP into a slot. Landing on a known Pokemon, it
-   gives the hidden user's HP stat almost outright.
-4. **M6, Substitute and Emergency Exit.** Whether a hit breaks a hidden Pokemon's Substitute
-   ties the damage to a quarter of its max HP. Whether a hidden Golisopod switches out ties it
-   to half.
+2. **M5, the Counter family** is unsound, not merely unused. Counter, Mirror Coat, Metal Burst
+   and Comeuppance return a multiple of the damage the user just took, and the inference computes
+   that damage from the scaffold's guess for every candidate alike, so a line that disagrees with
+   the guess removes every spread, the real one included.
+3. **Wish** can only land on its own side's slot, so a hidden Wish heals a hidden Pokemon and
+   shows as a percentage (M4), never on a known Pokemon's exact line as this plan had it.
+4. **M6, Substitute.** Whether a hit breaks a hidden Pokemon's Substitute ties the damage to a
+   quarter of its max HP; the inference does not read it, and the rebuild then fails.
 
 ### Phase 5 — Closed team sheets
 
@@ -216,50 +223,145 @@ says which candidates are worth a dimension at all.
 
 ---
 
-## 4. Files added
-
-The evidence catalog and reports:
+## 4. The engine: `npm run catalog`
 
 | File | What it holds |
 |---|---|
-| `scripts/local-catalog.mjs` | The evidence catalog command and probe pipeline (`npm run catalog`), Phases 1, 2, 3 and 5 |
-| `catalog.bat` | Double-click entry point for `npm run catalog` |
-| `scripts/fixtures/catalog.js` | Hand-set templates, written reasons, mechanism assignments and notes, keyed by effect id |
-| `docs/evidence-open-sheets.md` | Generated open-sheet report: Stat Points revealed by every legal effect, summary and work lists |
-| `docs/evidence-closed-sheets.md` | Generated closed-sheet report: what every legal effect names, silent sinks, hazards and work lists |
+| `scripts/local-catalog.mjs` | the command: pool, battles, differences, rebuilds, closed-sheet reading, reports |
+| `scripts/fixtures/catalog.js` | the fixed cast, the witness moves, and the battles set up by hand |
+| `catalog.bat` | the double-click entry point |
+| `docs/evidence-open-sheets.md` | generated: Stat Points, every effect, and the work list for the inference |
+| `docs/evidence-closed-sheets.md` | generated: names, silent sinks and hazards, and the work list for closed sheets |
+
+No probe battle is kept in `recordings/`: every one is rebuilt from the fixture on every run.
+
+**How it answers the question.**
+
+1. **The pool** is the validator's (Phase 1). Formes that exist only in battle, Megas among them,
+   are not brought and are left out; their Stones are items like any other. A Mega Stone or an
+   item made for one species is weighed by that species alone, not by everyone who could hold it.
+2. **Every battle is in the real format**, `gen9championsvgc2026regmc`, in-process. That matters:
+   the known side's view of a real battle shows the hidden side as a percentage, as a replay does.
+   The Doubles Custom Game has `debug: true` and so prints every HP exactly on every channel
+   (`sim/battle.ts:227`), which would make every HP stat readable at switch-in.
+3. **The cast is fixed** (`scripts/fixtures/catalog.js`): a known actor, a known ally and bench, the
+   hidden Pokemon in p2a with a hidden ally and bench. Every one of the cast is slower than any
+   hidden Pokemon the command picks, so turn order depends on the hidden Speed only when an effect
+   makes it; items are rocks that only lengthen weather; the hidden side's other Pokemon hold the
+   first ability their species lists, which is what a closed-sheet rebuild assumes. Dice are fixed
+   by rule: every move hits, none crits, every roll is the highest, every chance an effect takes
+   comes up, and the hidden Pokemon wins its speed ties.
+4. **Templates.** A move is used by the hidden Pokemon and, where it can reach one, by the known
+   side on it, each in five battles: alone (`quiet`); after its user is halved and takes a priority
+   hit (`before`, for the Counter family and for heals that would otherwise be capped); followed by
+   a hit each way (`after`); against a known Pokemon one point faster than the hidden one is after
+   the move (`pace`, for anything that changes turn order); and followed by the hidden Pokemon
+   switching out and back (`pivot`). An item, ability or nature sits on the hidden Pokemon, or an
+   item or ability on the known one, through a battery of witnesses: hits dealt and taken, a trade,
+   each status, a one-hit KO, three order witnesses, a pivot, two moves in a row, and a hit of every
+   type its handlers name. A few effects also have a battle set up by hand, where no general battle
+   reaches their edge (Focus Sash, Substitute breaking, Strength Sap on a hurt user).
+5. **Worlds and changes.** Each battle is run with one hidden Stat Point at 0 and then at 32, the
+   rest at 2, and so is its control, the same battle without the effect. A change is a line of the
+   known side's view that differs between the worlds and not the same way in the control. Lines
+   are matched by the turn, by what printed them and by the Pokemon they name, never by position;
+   an HP line that moves by the same exact amount in both worlds, read off the omniscient channel,
+   only repeats an earlier difference and is dropped.
+6. **Coverage.** Each world with a change is rebuilt from its log alone by `inferSpreads`, as
+   `--infer p2` rebuilds a replay. The inference uses the change when one world's log rules out
+   the other world's spread, which differs only in that stat. Where the battle's own lines already
+   carry the stat, the effect's own line must also have cut the hidden Pokemon in an event, or the
+   verdict is MASKED: it cannot be told whether that line is ignored or only redundant.
+7. **Closed sheets.** Every battle is read by `setsFromLog` from the spectator channel and judged
+   box by box against the truth; what the control also shows is dropped. For an item, ability or
+   nature on the hidden Pokemon, any change against the control before a line names it is a silent
+   sink, and that witness is rebuilt with the sets `setsFromLog` reads — no item, the first ability
+   listed, a neutral nature — to see whether the real spread survives. It is a hazard only if the
+   same rebuild with the true set gets through; otherwise the fault is the inference's, and the
+   open-sheet list has it. A witness whose control does not survive that rebuild either is reported
+   as the battle's defect, not the effect's.
+8. **Reports** are rendered from the records alone and sorted, with no timestamps, so `--check`
+   can compare a fresh run with them line for line. `--dump` prints the battle behind any row.
 
 ---
 
 ## 5. Coverage
 
-Generated from the full 988-effect catalog run (`npm run catalog`). Full details in `docs/evidence-open-sheets.md` and `docs/evidence-closed-sheets.md`.
+The first full run, on `pokemon-showdown` `a5df827` and `scripts/lib/inference/` as of commit
+`e6d3501`. The reports hold every card and the whole work list; this is their head.
 
-### 5.1 By mechanism
+**Open sheets** (`evidence-open-sheets.md`). Of 510 moves, 418 showed a Stat Point in some line,
+77 acted with nothing stat-dependent, 15 never acted in any template; of 203 abilities, 62, 48 and 93;
+of 166 items, 137, 5 and 24. Per effect, role, stat and mechanism:
 
-| Mechanism | Effects probed | USED | UNUSED | UNSOUND |
-|---|---|---|---|---|
-| M1 | 440 | 1309 | 4 | 6 |
-| M2 | 392 | 556 | 0 | 1 |
-| M3 | 152 | 136 | 135 | 0 |
-| M4 | 0 | 0 | 0 | 0 |
-| M5 | 8 | 16 | 0 | 0 |
-| M6 | 106 | 1179 | 7 | 10 |
-| M7 | 152 | 179 | 151 | 4 |
-| M8 | 0 | 0 | 0 | 0 |
-| M9 | 229 | 599 | 308 | 3 |
+| Mechanism | Effects | USED | UNUSED | UNSOUND | REBUILD-FAILED | MASKED |
+|---|---|---|---|---|---|---|
+| M1 | 494 | 1024 | 2 | 25 | 15 | 1 |
+| M2 | 516 | 601 | 0 | 21 | 6 | 7 |
+| M3 | 5 | 4 | 0 | 0 | 3 | 0 |
+| M4 | 69 | 60 | 0 | 0 | 2 | 11 |
+| M5 | 36 | 48 | 0 | 5 | 0 | 7 |
+| M6 | 18 | 15 | 0 | 0 | 3 | 1 |
+| M7 | 70 | 64 | 0 | 3 | 3 | 2 |
+| M8 | 4 | 0 | 0 | 8 | 0 | 0 |
+| M9 | 2 | 5 | 0 | 0 | 0 | 0 |
 
-### 5.2 Gaps (Phase 4 work list)
+Almost everything the log carries is read. What is not, in the order Phase 4 takes it:
 
-- **UNSOUND (24 rows across 5 effects):** `guardsplit` (user-hidden HP), `nightdaze` (user-hidden SpA, target-hidden HP, target-hidden SpD), `powersplit` (user-hidden HP, user-hidden Atk), `transform` (user-hidden HP across M1/M6/M9, target-hidden Spe across M7), `illusion` (holder-hidden HP M9).
-- **UNUSED (605 rows):** M1 (4), M3 (135), M6 (7), M7 (151), M9 (308). The top score gaps are speed-dependent damage moves (M3) and unrevealed ability/item stat modifiers.
+1. **UNSOUND — the real spread removed.**
+   - *"-ate" abilities*: a Normal move turned into another type and boosted — Pixilate,
+     Refrigerate, and the Mega Stones whose Mega gains one (Gardevoirite, Altarianite, Salamencite,
+     Pinsirite, Glalitite, Feraligite). The dry run misses the 1.2× boost, so a Sylveon's hit is
+     read as coming from more Attack than it has. The boost applies only while
+     `move.typeChangerBoosted === this.effect` (`data/abilities.ts:71`, Aerilate, and five more
+     like it), and the dry run hands `getDamage` a deep clone of the move (`evidence.mjs:1118`),
+     whose copy of the ability is not the same object.
+   - *The Counter family*: Counter, Mirror Coat, Metal Burst, Comeuppance (M5, §3 Phase 4).
+   - *Stats moved between Pokemon* (M8): Power Split, Guard Split, Power Trick, Transform, Imposter.
+     Transform's user keeps its own max HP, yet the evidence pass sizes it by the forme it copied
+     (`evidence.mjs:265` keys its stat table on `pokemon.species`).
+   - *Illusion*, on either side.
+2. **REBUILD-FAILED — the rebuild cannot reproduce the log.** Gyro Ball and Electro Ball (M3); a
+   Toxic tick after the first; a Substitute broken or not; Thrash and Petal Dance's lock length;
+   Beat Up; Effect Spore's choice of status; confusion self-hits.
+3. **ERROR.** Fickle Beam: the evidence pass's dry run re-rolls the power boost and writes its
+   `[anim]` tag into the real log.
+4. **UNUSED and MASKED.** Confusion self-hits (above). Heals and chip that a battle's own hits
+   already pin — Recover and its kind, Wish, Regenerator, Leftovers on the known side — are MASKED:
+   the battle cannot say whether they are read.
+5. **NOT SHOWN** — 132 effects no template made act, from Sleep Talk and Snore (weight 292, 251)
+   down: each needs a battle set up by hand, or a written reason.
+
+**Closed sheets** (`evidence-closed-sheets.md`).
+
+- *`setsFromLog` reads wrong.* Rocky Helmet is put on the Pokemon it hurt when the holder is on
+  the other side: the `[of]` holder is looked up on the side being read only. A Mega's ability is
+  read into the base set when the base species can also have it (Speed Boost, Protean, Snow
+  Warning).
+- *It misses what a line names.* The ability a Pokemon had before Entrainment, Role Play, Skill
+  Swap, Simple Beam, Worry Seed, Trace, Mummy or Wandering Spirit replaced it; the item Poltergeist
+  names; the item Magician takes; abilities that announce themselves in `|cant|` or `-block`
+  (Armor Tail, Queenly Majesty, Sweet Veil, Aroma Veil) or in `-start` (Flash Fire).
+- *Silent sinks and hazards.* 131 abilities, 48 items and all 25 natures change the log before any
+  line names them; today's assumptions then remove the real spread or break the rebuild for 42
+  abilities (Huge Power, Hustle, Technician, Multiscale, Fluffy, Heatproof, Stall…), 63 item
+  witnesses (Choice Scarf through order; the type-boosting items, Muscle Band, Wise Glasses, Light
+  Ball, Iron Ball, Metronome through damage) and 28 nature witnesses. Where the rebuild fails with
+  the true set too, the defect is the inference's and is left to the open list (`TRUE-SET-FAILS`).
 
 ---
 
 ## 6. Limits
 
-- **The template has to make the effect fire.** The static scan catches effects that did not,
-  but an effect whose template is wrong and whose source reads nothing obvious can still slip
-  through.
+- **The template has to make the effect act.** An effect no template made act is listed NOT
+  SHOWN, and one that acted with no stat-dependent line is NO CHANNEL *in these battles*: a
+  threshold is only probed at the HP the templates leave the hidden Pokemon on, and an effect that
+  needs a setup no template gives it (a Berry to eat, a terrain, a sleeping user) needs one written
+  by hand. The static scan flags handlers that read a stat no battle showed.
+- **MASKED is not a verdict on the inference.** It means the battle's own lines already told the
+  worlds apart, so the effect's line could not be seen being used or ignored.
+- **One hidden Pokemon, one stat at a time**, at 0 and 32. A stat that only matters jointly with
+  another, or away from the extremes, is not probed.
 - **A diff shows that a stat can be observed, not how to use it.** Each new mechanism is still
   real work. What this plan changes is that the list is known before it starts.
 - **Interactions between two effects** are not probed. They mostly come for free, because the
@@ -267,6 +369,6 @@ Generated from the full 988-effect catalog run (`npm run catalog`). Full details
   The probe finds missing hooks, not missing combinations.
 - **Possible under the pinned simulator.** As in `engineering.md` §9, a server running different
   mechanics makes every row a statement about the wrong battle.
-- **Cost, estimated rather than measured:** about 500 moves × 2 roles × about 13 perturbations ×
-  about 30 ms per battle comes to minutes on one thread, before abilities, items and templates
-  set up by hand.
+- **Cost.** The battles are fast — every move's, without the rebuilds, in 75 s on 13 threads.
+  The rebuilds are not: a full run takes about an hour on 13 threads (moves 36 min, abilities 13,
+  items 10, natures 1), and so does `--check`. `--kind` with `--out`, then `--records`, splits it.

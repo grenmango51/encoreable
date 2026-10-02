@@ -1,440 +1,200 @@
 'use strict';
 
 /**
- * Hand-set templates and written reasons for `npm run catalog`, keyed by effect id.
- * An effect with no entry gets the auto template. The known actor and the filler are named here.
+ * The fixed cast, the witness moves and the hand-set battles of `npm run catalog`
+ * (scripts/local-catalog.mjs, docs/evidence-catalog.md).
+ *
+ * Every auto template is built from what is here, so every run builds the same
+ * battles. p1 is the known side and p2 the hidden one; the hidden Pokemon whose
+ * Stat Points a probe varies always stands in p2a.
+ *
+ * Speed. No two of the cast tie, and every one of them is slower than 56, the
+ * lowest Speed a Pokemon of base Speed 36 can have. The command prefers hidden
+ * Pokemon of at least that base, so the order of a turn does not depend on the
+ * hidden Pokemon's Speed unless the effect makes it.
+ *
+ * Items. Each of the cast holds a rock or the like, which only lengthens a
+ * condition its holder sets and so changes nothing in a probe of four turns. A
+ * move that takes, swaps, burns or names an item then has one to act on.
+ *
+ * Abilities. The hidden ally and bench hold the first ability their species
+ * lists, which is what a replay with no team sheet assumes for them
+ * (`setsFromLog`), so a closed-sheet rebuild assumes them right.
  */
-module.exports = {
-  'move:counter': {
-    templates: [{
-      role: 'user-hidden',
-      p1: [
-        { species: 'Snorlax', gender: 'M', ability: 'Thick Fat', item: '', nature: 'Serious',
-          evs: { hp: 20, atk: 10, def: 20, spa: 0, spd: 16, spe: 0 }, moves: ['Body Slam', 'Splash'] },
-        'filler_p1',
-        'filler_p1',
-      ],
-      p2: [
-        { species: 'Hariyama', gender: 'M', ability: 'Guts', item: '', nature: 'Serious', moves: ['Counter', 'Splash'] },
-        'filler_p2',
-        'filler_p2',
-      ],
-      turns: [
-        { p1: 'move bodyslam 1, move splash', p2: 'move counter, move splash' },
-        { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-      ],
-      control: {
-        p2Moves: ['Splash', 'Splash'],
-        turns: [
-          { p1: 'move bodyslam 1, move splash', p2: 'move splash, move splash' },
-          { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-        ],
-      },
-      dice: [['hit', 'nocrit', 'roll8', 'noproc']],
-      hpLevels: false,
-      why: 'Counter needs a physical hit taken first; the known actor gives it one.',
-    }],
-  },
 
-  'move:mirrorcoat': {
-    templates: [{
-      role: 'user-hidden',
-      p1: [
-        { species: 'Snorlax', gender: 'M', ability: 'Thick Fat', item: '', nature: 'Serious',
-          evs: { hp: 20, atk: 10, def: 20, spa: 0, spd: 16, spe: 0 }, moves: ['Swift', 'Splash'] },
-        'filler_p1',
-        'filler_p1',
-      ],
-      p2: [
-        { species: 'Blastoise', gender: 'M', ability: 'Torrent', item: '', nature: 'Serious', moves: ['Mirror Coat', 'Splash'] },
-        'filler_p2',
-        'filler_p2',
-      ],
-      turns: [
-        { p1: 'move swift 1, move splash', p2: 'move mirrorcoat, move splash' },
-        { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-      ],
-      control: {
-        p2Moves: ['Splash', 'Splash'],
-        turns: [
-          { p1: 'move swift 1, move splash', p2: 'move splash, move splash' },
-          { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-        ],
-      },
-      dice: [['hit', 'nocrit', 'roll8', 'noproc']],
-      hpLevels: false,
-      why: 'Mirror Coat needs a special hit taken first; the known actor gives it one.',
-    }],
-  },
+const spread = (evs = {}) => ({ hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0, ...evs });
+const member = (species, gender, ability, item, evs) => ({
+  name: species, species, gender, ability, item, nature: 'Serious', level: 50, evs: spread(evs),
+});
 
-  'move:metalburst': {
-    templates: [{
-      role: 'user-hidden',
-      p1: [
-        { species: 'Snorlax', gender: 'M', ability: 'Thick Fat', item: '', nature: 'Serious',
-          evs: { hp: 20, atk: 10, def: 20, spa: 0, spd: 16, spe: 0 }, moves: ['Body Slam', 'Splash'] },
-        'filler_p1',
-        'filler_p1',
-      ],
-      p2: [
-        { species: 'Duraludon', gender: 'M', ability: 'Light Metal', item: '', nature: 'Serious', moves: ['Metal Burst', 'Splash'] },
-        'filler_p2',
-        'filler_p2',
-      ],
-      turns: [
-        { p1: 'move bodyslam 1, move splash', p2: 'move metalburst, move splash' },
-        { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-      ],
-      control: {
-        p2Moves: ['Splash', 'Splash'],
-        turns: [
-          { p1: 'move bodyslam 1, move splash', p2: 'move splash, move splash' },
-          { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-        ],
-      },
-      dice: [['hit', 'nocrit', 'roll8', 'noproc']],
-      hpLevels: false,
-      why: 'Metal Burst needs damage taken first; the known actor gives it one.',
-    }],
-  },
+const cast = {
+  // p1a in every auto template: bulky, slow, and its ability does nothing
+  // without a Berry to eat. Speed 50.
+  known: member('Snorlax', 'M', 'Gluttony', 'Heat Rock', { hp: 20, atk: 20, def: 10, spd: 16 }),
+  // p1a instead, when Snorlax is immune to the move being probed (Ghost). Speed 50.
+  knownAlt: member('Slowbro', 'M', 'Oblivious', 'Heat Rock', { hp: 20, def: 20, spd: 26 }),
+  // p1b. Speed 40.
+  knownAlly: member('Torkoal', 'M', 'Shell Armor', 'Damp Rock', { hp: 32, def: 32 }),
+  // p1c, sent in only when something forces p1a out. Speed 55.
+  knownBench: member('Mudsdale', 'M', 'Own Tempo', 'Light Clay', { hp: 32, def: 32 }),
+  // p2a when the probe needs a hidden Pokemon that is not a move's learner or an
+  // ability's holder: a Water type, so no move type is barred from it. Speed 98-130.
+  hidden: member('Blastoise', 'F', 'Torrent', 'Smooth Rock', {}),
+  // p2b. Speed 49.
+  hiddenAlly: member('Avalugg', 'F', 'Own Tempo', 'Icy Rock', { hp: 32, def: 32, spe: 1 }),
+  // p2c. Speed 53.
+  hiddenBench: member('Slowking', 'F', 'Oblivious', 'Terrain Extender', { hp: 32, spd: 30, spe: 3 }),
+  // p2b or p2c instead, when the hidden Pokemon is of the same species as one
+  // of them - Slowking-Galar, whose name the log prints as Slowking. Speed 55.
+  hiddenSpare: member('Mudsdale', 'F', 'Own Tempo', 'Light Clay', { hp: 32, def: 32 }),
+};
 
+/**
+ * Known Pokemon for the order witnesses, which need one within a point of the
+ * hidden Pokemon's Speed. The command takes the first whose Speed range covers
+ * the Speed it wants, and sets its Speed Stat Points to hit it; with those, each
+ * still spends at most 66.
+ */
+const pacers = [
+  member('Shuckle', 'M', 'Sturdy', 'Heat Rock', { hp: 18, def: 16 }),
+  member('Snorlax', 'M', 'Gluttony', 'Heat Rock', { hp: 18, def: 16 }),
+  member('Ampharos', 'M', 'Plus', 'Heat Rock', { hp: 18, def: 16 }),
+  member('Goodra', 'M', 'Hydration', 'Heat Rock', { hp: 18, def: 16 }),
+  member('Arcanine', 'M', 'Justified', 'Heat Rock', { hp: 18, def: 16 }),
+  member('Garchomp', 'M', 'Sand Veil', 'Heat Rock', { hp: 18, def: 16 }),
+  member('Crobat', 'M', 'Inner Focus', 'Heat Rock', { hp: 18, def: 16 }),
+  member('Ninjask', 'M', 'Infiltrator', 'Heat Rock', { hp: 18, def: 16 }),
+  { ...member('Deoxys-Speed', '', 'Pressure', 'Heat Rock', { hp: 18, def: 16 }), name: 'Deoxys' },
+  member('Regieleki', '', 'Transistor', 'Heat Rock', { hp: 18, def: 16 }),
+  { ...member('Regieleki', '', 'Transistor', 'Heat Rock', { hp: 18, def: 16 }), nature: 'Timid' },
+];
+
+/**
+ * Hits used as witnesses, one physical and one special per type, none with a
+ * secondary effect or with every secondary switched off by the dice.
+ */
+const hits = {
+  Normal: ['Strength', 'Round'],
+  Fire: ['Fire Punch', 'Flamethrower'],
+  Water: ['Waterfall', 'Hydro Pump'],
+  Electric: ['Thunder Punch', 'Thunderbolt'],
+  Grass: ['Leaf Blade', 'Energy Ball'],
+  Ice: ['Ice Punch', 'Ice Beam'],
+  Fighting: ['Brick Break', 'Aura Sphere'],
+  Poison: ['Poison Jab', 'Sludge Bomb'],
+  Ground: ['High Horsepower', 'Earth Power'],
+  Flying: ['Drill Peck', 'Air Slash'],
+  Psychic: ['Zen Headbutt', 'Psychic'],
+  Bug: ['X-Scissor', 'Bug Buzz'],
+  Rock: ['Stone Edge', 'Power Gem'],
+  Ghost: ['Shadow Claw', 'Shadow Ball'],
+  Dragon: ['Dragon Claw', 'Dragon Pulse'],
+  Dark: ['Crunch', 'Dark Pulse'],
+  Steel: ['Iron Head', 'Flash Cannon'],
+  Fairy: ['Play Rough', 'Moonblast'],
+};
+
+const witnessMoves = {
+  // The default witness hits, in order of preference: the first the target is
+  // not immune to by type.
+  physical: ['Strength', 'Dragon Claw', 'Waterfall'],
+  special: ['Round', 'Dragon Pulse', 'Hydro Pump'],
+  // A hit that lands before a priority-0 move, for a move that answers damage
+  // taken this turn.
+  priorityPhysical: 'Quick Attack',
+  prioritySpecial: 'Vacuum Wave',
+  // Halves what it hits whatever the Stat Points, so it wears a Pokemon down
+  // without saying anything about them: the first its target is not immune to.
+  halving: ['Super Fang', "Nature's Madness"],
+  status: {
+    burn: 'Will-O-Wisp', paralysis: 'Thunder Wave', toxic: 'Toxic', sleep: 'Hypnosis', confusion: 'Confuse Ray', taunt: 'Taunt',
+  },
+  // A hit that knocks out whatever it lands on: the first the target is not
+  // immune to.
+  lethal: ['Guillotine', 'Sheer Cold', 'Fissure'],
+};
+
+/**
+ * Abilities that do nothing in these battles unless the probe is about them -
+ * no weather, no terrain, no Berry, no ally to protect - in order of
+ * preference. A move's hidden user holds the first of these its species has,
+ * or else Run Away, which no species needs to have for the simulator to run it:
+ * an ability that acts (Intimidate, Static, Refrigerate) would put its own
+ * changes, and its own gaps, on the move's card. An item's or a nature's hidden
+ * holder is picked among species whose first ability is one of these, because
+ * that is the one a replay with no team sheet assumes.
+ */
+const quietAbilities = [
+  'Run Away', 'Honey Gather', 'Ball Fetch', 'Keen Eye', 'Illuminate', 'Inner Focus', 'Shell Armor', 'Battle Armor',
+  'Gluttony', 'Sturdy', 'Rock Head', 'Torrent', 'Blaze', 'Overgrow', 'Swarm', 'Sniper', 'Super Luck', 'Steadfast',
+  'Big Pecks', 'Hyper Cutter', 'Own Tempo', 'Oblivious', 'Early Bird', 'Tangled Feet', 'Suction Cups', 'Sticky Hold',
+  'Leaf Guard', 'Insomnia', 'Vital Spirit', 'Limber', 'Immunity', 'Water Veil', 'Magma Armor', 'Klutz',
+  'Telepathy', 'Plus', 'Minus', 'Sand Veil', 'Snow Cloak', 'Swift Swim', 'Chlorophyll', 'Sand Rush', 'Slush Rush',
+  'Solar Power', 'Rain Dish', 'Ice Body', 'Hydration', 'Flower Veil', 'Sweet Veil', 'Aroma Veil', 'Pastel Veil',
+  'Friend Guard', 'Overcoat', 'Soundproof', 'Bulletproof', 'Clear Body', 'White Smoke', 'Pressure', 'Anticipation',
+  'Forewarn', 'Unnerve', 'Levitate',
+];
+
+/**
+ * Hand-set entries, keyed by effect id. An effect with no entry gets the auto
+ * templates only. Each field is optional:
+ *
+ *   templates  battles added to the auto templates, in the shape below
+ *   unfireable why no battle in this format can make the effect act, citing
+ *              node_modules/pokemon-showdown file:line
+ *   mechanism  { stat: 'M1'..'M9' } overriding the rule for that stat
+ *   note       shown on the effect's card as written
+ *
+ * A template names its role, both teams (a cast key or a set; p2[0] is the
+ * hidden Pokemon, whose Stat Points the probe sets), each turn's choices, and
+ * `control`: the same battle with the effect taken out, as a patch of the teams
+ * and, where the effect is a choice, of the turns. `why` is quoted on the card.
+ */
+const QUIET = { p1: 'move splash, move splash', p2: 'move splash, move splash' };
+const withMoves = (key, moves) => ({ ...cast[key], evs: { ...cast[key].evs }, moves });
+
+const entries = {
   'move:strengthsap': {
     templates: [{
+      name: 'known-user-hurt',
       role: 'target-hidden',
-      p1: [
-        { species: 'Sinistcha', gender: 'M', ability: 'Hospitality', item: '', nature: 'Serious',
-          evs: { hp: 20, atk: 0, def: 0, spa: 0, spd: 14, spe: 32 }, moves: ['Strength Sap', 'Splash'] },
-        { species: 'Gengar', gender: 'M', ability: 'Cursed Body', item: '', nature: 'Serious',
-          evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 32 }, moves: ['Night Shade', 'Splash'] },
-        'filler_p1',
-      ],
-      p2: [
-        { species: 'Chansey', gender: 'F', ability: 'Natural Cure', item: '', nature: 'Serious', moves: ['Splash'] },
-        'filler_p2',
-        'filler_p2',
-      ],
+      p1: [withMoves('known', ['Strength Sap', 'Splash']), withMoves('knownAlly', ['Super Fang', 'Splash']), 'knownBench'],
+      p2: ['hidden', 'hiddenAlly', 'hiddenBench'],
       turns: [
-        { p1: 'move strengthsap 1, move nightshade -1', p2: 'move splash, move splash' },
-        { p1: 'move splash, move splash', p2: 'move splash, move splash' },
+        { p1: 'move splash, move superfang -1', p2: 'move splash, move splash' },
+        { p1: 'move strengthsap 1, move splash', p2: 'move splash, move splash' },
+        QUIET,
       ],
-      control: {
-        p1Moves: ['Splash', 'Night Shade'],
-        turns: [
-          { p1: 'move splash, move nightshade -1', p2: 'move splash, move splash' },
-          { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-        ],
-      },
-      dice: [['hit', 'nocrit', 'roll8', 'noproc']],
-      hpLevels: false,
-      why: 'Strength Sap heals by the target\'s Attack; p1 heals an exact amount.',
+      control: { turns: [{ p1: 'move splash, move superfang -1', p2: 'move splash, move splash' }, QUIET, QUIET] },
+      why: 'The known user is first halved by its own ally, so the heal is not capped at full HP and equals the hidden target\'s Attack.',
     }],
   },
-
-  'move:painsplit': {
+  'move:substitute': {
     templates: [{
-      role: 'target-hidden',
-      p1: [
-        { species: 'Alomomola', gender: 'F', ability: 'Healer', item: '', nature: 'Serious',
-          evs: { hp: 32, atk: 0, def: 0, spa: 0, spd: 14, spe: 20 }, moves: ['Pain Split', 'Splash'] },
-        { species: 'Gengar', gender: 'M', ability: 'Cursed Body', item: '', nature: 'Serious',
-          evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 32 }, moves: ['Night Shade', 'Splash'] },
-        'filler_p1',
-      ],
-      p2: [
-        { species: 'Kingambit', gender: 'M', ability: 'Defiant', item: '', nature: 'Serious', moves: ['Splash'] },
-        'filler_p2',
-        'filler_p2',
-      ],
+      name: 'broken-at-the-edge',
+      role: 'user-hidden',
+      p1: [withMoves('known', ['Dragon Rage', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [withMoves('hidden', ['Substitute', 'Splash']), 'hiddenAlly', 'hiddenBench'],
       turns: [
-        { p1: 'move splash, move nightshade -1', p2: 'move splash, move splash' },
-        { p1: 'move painsplit 1, move splash', p2: 'move splash, move splash' },
+        { p1: 'move splash, move splash', p2: 'move substitute, move splash' },
+        { p1: 'move dragonrage 1, move splash', p2: 'move splash, move splash' },
+        QUIET,
       ],
-      control: {
-        p1Moves: ['Splash', 'Night Shade'],
-        turns: [
-          { p1: 'move splash, move nightshade -1', p2: 'move splash, move splash' },
-          { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-        ],
-      },
-      dice: [['hit', 'nocrit', 'roll8', 'noproc']],
-      hpLevels: false,
-      why: 'Pain Split averages HP between user and target, printing an exact change on p1.',
+      control: { turns: [QUIET, { p1: 'move dragonrage 1, move splash', p2: 'move splash, move splash' }, QUIET] },
+      why: 'Dragon Rage deals 40 whatever the stats, and the Substitute holds a quarter of the hidden Pokemon\'s max HP, 38 to 46: whether it breaks depends on the HP Stat Points.',
     }],
   },
-
-  'move:leechseed': {
-    templates: [{
-      role: 'target-hidden',
-      p1: [
-        { species: 'Sinistcha', gender: 'M', ability: 'Hospitality', item: '', nature: 'Serious',
-          evs: { hp: 20, atk: 0, def: 0, spa: 0, spd: 14, spe: 32 }, moves: ['Leech Seed', 'Splash'] },
-        { species: 'Gengar', gender: 'M', ability: 'Cursed Body', item: '', nature: 'Serious',
-          evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 32 }, moves: ['Night Shade', 'Splash'] },
-        'filler_p1',
-      ],
-      p2: [
-        { species: 'Chansey', gender: 'F', ability: 'Natural Cure', item: '', nature: 'Serious', moves: ['Splash'] },
-        'filler_p2',
-        'filler_p2',
-      ],
-      turns: [
-        { p1: 'move leechseed 1, move nightshade -1', p2: 'move splash, move splash' },
-        { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-      ],
-      control: {
-        p1Moves: ['Splash', 'Night Shade'],
-        turns: [
-          { p1: 'move splash, move nightshade -1', p2: 'move splash, move splash' },
-          { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-        ],
-      },
-      dice: [['hit', 'nocrit', 'roll8', 'noproc']],
-      hpLevels: false,
-      why: 'Leech Seed drains 1/8 max HP from target and heals the seeder.',
-    }],
-  },
-
-  'move:wonderroom': {
-    templates: [{
-      role: 'target-hidden',
-      p1: [
-        { species: 'Snorlax', gender: 'M', ability: 'Thick Fat', item: '', nature: 'Serious',
-          evs: { hp: 20, atk: 10, def: 20, spa: 0, spd: 16, spe: 0 }, moves: ['Wonder Room', 'Dragon Claw'] },
-        'filler_p1',
-        'filler_p1',
-      ],
-      p2: [
-        { species: 'Blastoise', gender: 'M', ability: 'Torrent', item: '', nature: 'Serious', moves: ['Splash'] },
-        'filler_p2',
-        'filler_p2',
-      ],
-      turns: [
-        { p1: 'move wonderroom, move splash', p2: 'move splash, move splash' },
-        { p1: 'move dragonclaw 1, move splash', p2: 'move splash, move splash' },
-      ],
-      control: {
-        p1Moves: ['Splash', 'Dragon Claw'],
-        turns: [
-          { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-          { p1: 'move dragonclaw 1, move splash', p2: 'move splash, move splash' },
-        ],
-      },
-      dice: [['hit', 'nocrit', 'roll8', 'noproc']],
-      hpLevels: false,
-      why: 'Wonder Room swaps Def and SpD in damage calculation.',
-    }],
-  },
-
-  'condition:wonderroom': {
-    templates: [{
-      role: 'target-hidden',
-      p1: [
-        { species: 'Snorlax', gender: 'M', ability: 'Thick Fat', item: '', nature: 'Serious',
-          evs: { hp: 20, atk: 10, def: 20, spa: 0, spd: 16, spe: 0 }, moves: ['Wonder Room', 'Dragon Claw'] },
-        'filler_p1',
-        'filler_p1',
-      ],
-      p2: [
-        { species: 'Blastoise', gender: 'M', ability: 'Torrent', item: '', nature: 'Serious', moves: ['Splash'] },
-        'filler_p2',
-        'filler_p2',
-      ],
-      turns: [
-        { p1: 'move wonderroom, move splash', p2: 'move splash, move splash' },
-        { p1: 'move dragonclaw 1, move splash', p2: 'move splash, move splash' },
-      ],
-      control: {
-        p1Moves: ['Splash', 'Dragon Claw'],
-        turns: [
-          { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-          { p1: 'move dragonclaw 1, move splash', p2: 'move splash, move splash' },
-        ],
-      },
-      dice: [['hit', 'nocrit', 'roll8', 'noproc']],
-      hpLevels: false,
-      why: 'Wonder Room swaps Def and SpD in damage calculation.',
-    }],
-  },
-
-  'item:shellbell': {
-    templates: [{
-      role: 'holder-hidden',
-      p1: [
-        { species: 'Snorlax', gender: 'M', ability: 'Thick Fat', item: '', nature: 'Serious',
-          evs: { hp: 20, atk: 10, def: 20, spa: 0, spd: 16, spe: 0 }, moves: ['Super Fang', 'Splash'] },
-        'filler_p1',
-        'filler_p1',
-      ],
-      p2: [
-        { species: 'Blastoise', gender: 'M', ability: 'Torrent', item: 'Shell Bell', nature: 'Serious', moves: ['Body Slam', 'Splash'] },
-        'filler_p2',
-        'filler_p2',
-      ],
-      turns: [
-        { p1: 'move superfang 1, move splash', p2: 'move splash, move splash' },
-        { p1: 'move splash, move splash', p2: 'move bodyslam 1, move splash' },
-      ],
-      control: {
-        p2Item: '',
-        turns: [
-          { p1: 'move superfang 1, move splash', p2: 'move splash, move splash' },
-          { p1: 'move splash, move splash', p2: 'move bodyslam 1, move splash' },
-        ],
-      },
-      dice: [['hit', 'nocrit', 'roll8', 'noproc']],
-      hpLevels: false,
-      why: 'Shell Bell heals the holder by 1/8 of damage dealt when damaged.',
-    }],
-  },
-
   'item:focussash': {
     templates: [{
+      name: 'lethal-at-the-edge',
       role: 'holder-hidden',
-      p1: [
-        { species: 'Garchomp', gender: 'M', ability: 'Rough Skin', item: 'Choice Scarf', nature: 'Adamant',
-          evs: { hp: 0, atk: 32, def: 0, spa: 0, spd: 0, spe: 32 }, moves: ['Iron Head', 'Splash'] },
-        'filler_p1',
-        'filler_p1',
-      ],
-      p2: [
-        { species: 'Whimsicott', gender: 'M', ability: 'Infiltrator', item: 'Focus Sash', nature: 'Serious', moves: ['Splash'] },
-        'filler_p2',
-        'filler_p2',
-      ],
-      turns: [
-        { p1: 'move ironhead 1, move splash', p2: 'move splash, move splash' },
-        { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-      ],
-      control: {
-        p2Item: '',
-        turns: [
-          { p1: 'move ironhead 1, move splash', p2: 'move splash, move splash' },
-          { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-        ],
-      },
-      dice: [['hit', 'nocrit', 'roll8', 'noproc']],
-      hpLevels: false,
-      why: 'Focus Sash holds a lethal hit at 1 HP, firing an activation line (M6).',
-    }],
-    mechanism: { hp: 'M6' },
-  },
-
-  'condition:confusion': {
-    templates: [{
-      role: 'user-hidden',
-      p1: [
-        { species: 'Gengar', gender: 'M', ability: 'Cursed Body', item: '', nature: 'Serious',
-          evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 32 }, moves: ['Confuse Ray', 'Splash'] },
-        'filler_p1',
-        'filler_p1',
-      ],
-      p2: [
-        { species: 'Snorlax', gender: 'M', ability: 'Thick Fat', item: '', nature: 'Serious', moves: ['Splash'] },
-        'filler_p2',
-        'filler_p2',
-      ],
-      turns: [
-        { p1: 'move confuseray 1, move splash', p2: 'move splash, move splash' },
-        { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-      ],
-      control: {
-        turns: [
-          { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-          { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-        ],
-      },
-      dice: [['hit', 'nocrit', 'roll8', 'noproc'], ['confused', 'roll8']],
-      hpLevels: false,
-      why: 'Confusion self-hit deals 40-power physical damage using the Pokemon\'s own Atk and Def.',
+      p1: [{ ...member('Garchomp', 'M', 'Sand Veil', 'Heat Rock', { hp: 2, atk: 32, def: 32 }), moves: ['Iron Tail', 'Splash'] }, 'knownAlly', 'knownBench'],
+      p2: [{ ...member('Whimsicott', 'F', 'Infiltrator', 'Focus Sash', {}), moves: ['Splash'] }, 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move irontail 1, move splash', p2: 'move splash, move splash' }, QUIET, QUIET],
+      control: { p2: [{ item: '' }] },
+      why: 'A hit that knocks the holder out at some Stat Points and not at others, so whether the Sash is spent depends on them.',
     }],
   },
-
-  'item:choicescarf': {
-    witnesses: ['W-order', 'W-two-moves'],
-    note: 'Speed modifier that remains silent in battle until move order reveals it.',
-  },
-
-  'item:rockyhelmet': {
-    witnesses: ['W-phys-taken'],
-    note: 'Damages physical attacker for 1/6 max HP, correctly credited to the holder.',
-  },
-
-  'ability:voltabsorb': {
-    templates: [{
-      role: 'holder-hidden',
-      p1: [
-        { species: 'Electrode', gender: 'N', ability: 'Soundproof', item: '', nature: 'Serious',
-          evs: { hp: 0, atk: 0, def: 0, spa: 32, spd: 0, spe: 32 }, moves: ['Thunderbolt', 'Splash'] },
-        'filler_p1',
-        'filler_p1',
-      ],
-      p2: [
-        { species: 'Jolteon', gender: 'M', ability: 'Volt Absorb', item: '', nature: 'Serious', moves: ['Splash'] },
-        'filler_p2',
-        'filler_p2',
-      ],
-      turns: [
-        { p1: 'move thunderbolt 1, move splash', p2: 'move splash, move splash' },
-        { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-      ],
-      control: {
-        p2Ability: 'Quick Feet',
-        turns: [
-          { p1: 'move thunderbolt 1, move splash', p2: 'move splash, move splash' },
-          { p1: 'move splash, move splash', p2: 'move splash, move splash' },
-        ],
-      },
-      dice: [['hit', 'nocrit', 'roll8', 'noproc']],
-      why: 'Volt Absorb heals holder when targeted by Electric move, correctly credited to holder despite [of] tag.',
-    }],
-    witnesses: ['W-spec-taken'],
-    note: 'Heals holder when targeted by Electric move, correctly credited to holder despite [of] tag.',
-  },
-  'move:acupressure': { noChannelReason: 'data/moves.ts:79: raises random stat stage by 2, no stat channel' },
-  'move:dive': { noChannelReason: 'data/moves.ts:503: semi-invulnerable turn has no stat channel' },
-  'move:endure': { noChannelReason: 'data/moves.ts:581: endures lethal hit with 1 HP, handled by M6 threshold' },
-  'move:growth': { noChannelReason: 'data/moves.ts:881: raises Atk/SpA stages, no stat channel' },
-  'move:guardswap': { noChannelReason: 'data/moves.ts:889: swaps Def/SpD stage changes, no stat channel' },
-  'move:healingwish': { noChannelReason: 'data/moves.ts:931: faints user to heal replacement, no stat channel' },
-  'move:healpulse': { noChannelReason: 'data/moves.ts:939: restores 1/2 target max HP as fixed fraction (M4)' },
-  'move:highjumpkick': { noChannelReason: 'data/moves.ts:979: crash damage on miss is 1/2 user max HP (M4)' },
-  'move:moonlight': { noChannelReason: 'data/moves.ts:1330: weather recovery heals fixed max HP fraction (M4)' },
-  'move:morningsun': { noChannelReason: 'data/moves.ts:1338: weather recovery heals fixed max HP fraction (M4)' },
-  'move:powerswap': { noChannelReason: 'data/moves.ts:1537: swaps Atk/SpA stage changes, no stat channel' },
-  'move:psychup': { noChannelReason: 'data/moves.ts:1568: copies target stat stages, no stat channel' },
-  'move:speedswap': { noChannelReason: 'data/moves.ts:1936: swaps raw Spe stats (M8), unverified' },
-  'move:spikyshield': { noChannelReason: 'data/moves.ts:1946: contact damage is 1/8 max HP fixed fraction (M4)' },
-  'move:stealthrock': { noChannelReason: 'data/moves.ts:1976: entry hazard deals type-scaled max HP fraction (M4)' },
-  'move:synthesis': { noChannelReason: 'data/moves.ts:2088: weather recovery heals fixed max HP fraction (M4)' },
-  'move:topsyturvy': { noChannelReason: 'data/moves.ts:2210: inverts target stat stages, no stat channel' },
-
-  'ability:angerpoint': { noChannelReason: 'data/abilities.ts:79: maxes Atk stage when hit by crit, no stat channel' },
-  'ability:battlebond': { noChannelReason: 'data/abilities.ts:173: boosts Atk/SpA/Spe stages upon KO, no stat channel' },
-  'ability:blaze': { noChannelReason: 'data/abilities.ts:206: boosts Fire moves at <= 1/3 max HP, no stat channel' },
-  'ability:cheekpouch': { noChannelReason: 'data/abilities.ts:273: heals 1/3 max HP when Berry eaten (M4)' },
-  'ability:cudchew': { noChannelReason: 'data/abilities.ts:400: re-eats Berry at turn end, no stat channel' },
-  'ability:disguise': { noChannelReason: 'data/abilities.ts:474: bust damage is 1/8 max HP fixed fraction (M4)' },
-  'ability:dryskin': { noChannelReason: 'data/abilities.ts:503: water/rain heal is fixed max HP fraction (M4)' },
-  'ability:eartheater': { noChannelReason: 'data/abilities.ts:524: ground immunity heal is 1/4 max HP (M4)' },
-  'ability:galewings': { noChannelReason: 'data/abilities.ts:684: priority boost at 100% HP threshold (M6)' },
-  'ability:hospitality': { noChannelReason: 'data/abilities.ts:833: heals ally for 1/4 max HP on switch-in (M4)' },
-  'ability:icebody': { noChannelReason: 'data/abilities.ts:861: heals 1/16 max HP in snow (M4)' },
-  'ability:mirrorarmor': { noChannelReason: 'data/abilities.ts:1174: reflects stat stage drops, no stat channel' },
-  'ability:opportunist': { noChannelReason: 'data/abilities.ts:1288: copies foe stat stage boosts, no stat channel' },
-  'ability:overgrow': { noChannelReason: 'data/abilities.ts:1309: boosts Grass moves at <= 1/3 max HP, no stat channel' },
-  'ability:poisonheal': { noChannelReason: 'data/abilities.ts:1406: heals 1/8 max HP per turn when poisoned (M4)' },
-  'ability:raindish': { noChannelReason: 'data/abilities.ts:1506: heals 1/16 max HP in rain (M4)' },
-  'ability:receiver': { noChannelReason: 'data/abilities.ts:1532: copies fainted ally ability, no stat channel' },
-  'ability:regenerator': { noChannelReason: 'data/abilities.ts:1552: heals 1/3 max HP on switch-out (M4)' },
-  'ability:shedskin': { noChannelReason: 'data/abilities.ts:1722: 1/3 chance to cure status at turn end, no stat channel' },
-  'ability:solarpower': { noChannelReason: 'data/abilities.ts:1821: loses 1/8 max HP per turn in sun (M4)' },
-  'ability:stickyhold': { noChannelReason: 'data/abilities.ts:1894: prevents item removal, no stat channel' },
-  'ability:sturdy': { noChannelReason: 'data/abilities.ts:1924: survives OHKO at 100% HP threshold (M6)' },
-  'ability:swarm': { noChannelReason: 'data/abilities.ts:1946: boosts Bug moves at <= 1/3 max HP, no stat channel' },
-  'ability:torrent': { noChannelReason: 'data/abilities.ts:2134: boosts Water moves at <= 1/3 max HP, no stat channel' },
-  'ability:unaware': { noChannelReason: 'data/abilities.ts:2209: ignores foe stat stage changes, no stat channel' },
-  'ability:waterabsorb': { noChannelReason: 'data/abilities.ts:2287: water immunity heal is 1/4 max HP (M4)' },
-
-  'item:leppaberry': { noChannelReason: 'data/items.ts:805: restores 10 PP when a move reaches 0 PP, no stat channel' },
-  'item:whiteherb': { noChannelReason: 'data/items.ts:1784: restores lowered stat stages, no stat channel' },
 };
+
+module.exports = { cast, pacers, hits, witnessMoves, quietAbilities, entries };

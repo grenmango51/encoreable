@@ -1064,7 +1064,7 @@ natures in or out is the next step (§9).
 | `npm run live` | Truncate at a turn, import it as a live room, open two windows on it. §5.9. |
 | `npm run reconstruct` | Rebuild an input log from a replay plus both teams, then check it turn by turn. §7. |
 | `npm run extension` | Build the Chrome extension into `extension/dist/`; `--check` holds each step to the Node reference in a throwaway Chrome. `docs/extension.md`. |
-| `npm run catalog` | Run the evidence catalog probe across every legal effect in Reg M-C: open sheets (Stat Points) and closed sheets (names, silent sinks, hazards). `--check` verifies report parity. `docs/evidence-catalog.md`. |
+| `npm run catalog` | Put every effect Reg M-C allows through small battles, find what each lets a replay show about a hidden Pokemon, and ask the inference whether it uses it; write the two work lists `docs/evidence-open-sheets.md` and `docs/evidence-closed-sheets.md`. `docs/evidence-catalog.md` §4. |
 
 `npm run replay` serves its page from the client host and puts a **Play from here** button in the
 replay control row, which does the same thing as `npm run live` for the turn on screen. §5.10.
@@ -1079,8 +1079,11 @@ source is always S4, and `--threads` only changes how long the search takes, nev
 `--always` and `--seed <seed>`: it replays the recording twice from that turn under one shared
 reseed, once plain and once controlled, and reports what was substituted and which battle lines
 moved. That is the headless proof for §4; `/rng` is the same engine driven from a live room.
-`npm run catalog` takes `--pool`, `--list`, `--shard <k/n>`, `--only <id>`, `--kind <kind>`,
-`--inputs <file>`, `--out <dir>`, `--no-coverage`, `--check`, `--threads <n>`, `--verbose`.
+`npm run catalog` takes `--pool`, `--list`, `--only <ids>`, `--kind <kind>`, `--sheets open|closed`,
+`--inputs <file>`, `--out <dir>`, `--no-coverage`, `--check`, `--threads <n>` and `--verbose`, and
+`--dump <effect> <role/template> <stat> <0|32>` for the battle behind one row, and
+`--records <file>` (repeatable) to render saved runs again; only records covering the whole pool
+write the reports in `docs/`, and `--check` fails when a fresh full run disagrees with them.
 `replay.bat`, `live.bat`, `battle.bat` and `catalog.bat` are the double-click entry points.
 
 | File | Role |
@@ -1104,8 +1107,8 @@ moved. That is the headless proof for §4; `/rng` is the same engine driven from
 | `scripts/lib/rng-control.mjs` | that engine driven headlessly: build a controlled input log, replay it, read the accounting (§4.2). Importing it teaches `>rng` to every `BattleStream` in the process |
 | `scripts/client/rng-panel.js` | the move and Pokemon tooltips that arm a draw without typing (§4) |
 | `scripts/fixtures/teams.js` | the two fixture teams, as export text, packed at runtime |
-| `scripts/fixtures/catalog.js` | hand-set templates, written reasons and notes for `npm run catalog` |
-| `scripts/local-catalog.mjs` | the evidence catalog command and probe pipeline (`npm run catalog`, §8) |
+| `scripts/local-catalog.mjs` | the evidence catalog: the pool, the battles, the difference against a control, the rebuild of each world, the closed-sheet reading, and the two reports (`evidence-catalog.md` §4) |
+| `scripts/fixtures/catalog.js` | the catalog's fixed cast, its witness moves, and its hand-set battles |
 | `scripts/provision-local-server.mjs` | local config, including `logchallenges` (§3.1) |
 
 The fixture teams use non-uniform spreads that each sum to 66 (e.g. Archaludon
@@ -1123,10 +1126,14 @@ both` stays as built and gets no further work (§10). Every task keeps the one r
 matters: a spread the replay could have come from is never eliminated — checked against the
 fixtures' real spreads, 83 of 83 today, plus the synthetic battles in §7.5.
 
-`evidence-catalog.md` and the generated report `docs/evidence-open-sheets.md` provide the
-systematic work list across all 988 legal effects in Reg M-C:
-- **UNSOUND (§2.1):** 24 rows across 5 effects (`guardsplit`, `nightdaze`, `powersplit`, `transform`, `illusion`) — defects to fix first.
-- **UNUSED (§2.2):** 605 rows ordered by weight × information score — speed-dependent damage moves (M3) and unrevealed ability/item stat modifiers.
+`evidence-catalog.md` finds the rest ahead of time: `npm run catalog` puts every legal effect
+through small battles, finds which stats each lets reach the log, and checks that against what the
+evidence pass uses. Its report `evidence-open-sheets.md` §2 is the work list, and its head
+(`evidence-catalog.md` §5) is where to start: real spreads removed for a hit boosted by an "-ate"
+ability, for the Counter family, and after a stat is moved between Pokemon (Power Split, Guard
+Split, Power Trick, Transform, Imposter) or under Illusion; rebuilds that fail on Gyro Ball and
+Electro Ball, a Toxic tick after the first and a Substitute broken; the Fickle Beam dry run that
+writes into the log.
 
 1. **The evidence still unused** (§7.5): Shell Bell summed over several targets or hits,
    recoil summed over several hits, and Strength Sap or Pain Split between two Pokemon that are
@@ -1161,14 +1168,12 @@ systematic work list across all 988 legal effects in Reg M-C:
 
 ### Closed team sheets — what is still open (§7.6)
 
-The sets are read off the log and the rest is assumed. `docs/evidence-closed-sheets.md` provides
-the systematic work list:
-- **MISREAD / FALSE (§2.1) & MISSED (§2.2):** 0 today (`setsFromLog` correctly reads all named moves, items, abilities).
-- **HAZARD-UNSOUND (§2.3):** 165 items where the default "no item" assumption removes the real spread when speed order differs.
-- **SILENT-SINK (§2.4):** candidate dimensions for closed-sheet inference, ranked by weight.
-
-Next, in the same shape as §7.5 — each unknown becomes a candidate dimension, and the simulator
-is still the only thing that computes:
+The sets are read off the log and the rest is assumed. `evidence-closed-sheets.md` §2 is the work
+list: what `setsFromLog` reads wrong (Rocky Helmet put on the Pokemon it hurt, a Mega's ability
+read into the base set) or misses (the ability a move or Trace replaced, the item Poltergeist
+names), and which items, abilities and natures change the log unnamed, with the witness battles in
+which today's assumption then removes the real spread. Next, in the same shape as §7.5 — each
+unknown becomes a candidate dimension, and the simulator is still the only thing that computes:
 
 1. **Items the log never names** — Choice Band, Specs and Scarf, Expert Belt, type boosters,
    Assault Vest — as a small candidate set per Pokemon. Each hit is dry-run per (item, spread): a
