@@ -24,6 +24,8 @@
  * `--certify` then rebuilds the replay once per end of each inferred range,
  * with a spread at that end: a rebuild that reproduces the log proves the end
  * possible, and the range prints `?` beside an end it could not prove.
+ * `--outside` with it also rebuilds one Stat Point beyond each end, which no
+ * rebuild should reproduce: one that does is a spread removed wrongly.
  *
  * Usage:
  *   node scripts/local-reconstruct.mjs --rung s1
@@ -34,7 +36,7 @@
  *   node scripts/local-reconstruct.mjs --rung s3 --all --infer p2
  *
  * Flags: --from <file> --rung s1|s2|s3 --all --teams <fixture> --infer p1|p2|both
- *        --all-spent --certify --sample <n> --max-probes <n> --threads <n> --out <file> --dry-run --verbose
+ *        --all-spent --certify --outside --sample <n> --max-probes <n> --threads <n> --out <file> --dry-run --verbose
  */
 
 import fs from 'fs';
@@ -159,7 +161,7 @@ function hpAccuracy(truthLines, builtLines, side) {
 
 // -------------------------------------------------------------- one run
 
-async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProbes, threads, write, outDir, infer, allSpent, showEvents, certify }) {
+async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProbes, threads, write, outDir, infer, allSpent, showEvents, certify, outside }) {
   let rung = requestedRung;
   const source = loadSource(file);
   const label = path.basename(file);
@@ -339,7 +341,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
   let truthKept = true;
   if (inference && certify) {
     certified = await certifyRanges(inference, {
-      formatid: source.formatid, sets: inferSets, playerNames: source.players, observed, channel, sampleSeed, threads, onProgress: chatty,
+      formatid: source.formatid, sets: inferSets, playerNames: source.players, observed, channel, sampleSeed, threads, outside, onProgress: chatty,
     });
   }
   if (inference) {
@@ -352,12 +354,15 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
         || toID(p.species).startsWith(toID(s.species || s.name)));
       const kept = real ? p.contains(real.evs) : null;
       if (kept === false) truthKept = false;
+      const wrong = Object.entries(certified?.[p.id] || {}).filter(([, c]) => c.outside?.length);
+      if (wrong.length) truthKept = false;
       // With --certify, an end no rebuild proved carries a `?`.
       const mark = (s, end) => (certified?.[p.id]?.[s] && !certified[p.id][s][end] ? '?' : '');
       const ranges = ['hp', 'atk', 'def', 'spa', 'spd', 'spe']
         .map(s => (p.stats[s] ? `${s} ${p.stats[s].min}${mark(s, 'min')}-${p.stats[s].max}${mark(s, 'max')}` : `${s} -`)).join('  ');
       say(`       ${p.side} ${p.species.padEnd(14)} ${p.spreads.toLocaleString('en')} of ${p.from.toLocaleString('en')} left  ${ranges}` +
           `${kept === null ? '' : kept ? '  (real spread survives)' : '  REAL SPREAD ELIMINATED'}`);
+      for (const [s, c] of wrong) say(`         a spread with ${s} ${c.outside.join(' or ')}, outside the range, rebuilds the log: a possible spread was removed`);
       if (!p.spreads) {
         say(readOffLog[side]
           ? '         no spread fits the set read off the log, so one of its assumptions is wrong - the events say which observation ruled it out'
@@ -462,6 +467,7 @@ async function main() {
         allSpent: flag('--all-spent'),
         showEvents: !flag('--all'),
         certify: !!infer && flag('--certify'),
+        outside: flag('--outside'),
       }));
     } catch (err) {
       say(`  ${path.basename(file)}: ERROR ${err.message}`);

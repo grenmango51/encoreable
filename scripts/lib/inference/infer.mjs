@@ -414,10 +414,15 @@ function spreadAt(kn, stat, value, prev) {
  * has a budget, so an end it does not prove is not shown impossible. The
  * spreads the inference settled on are a witness already when they rebuilt.
  *
- * @returns per Pokemon id, per stat, `{ min, max }` as true (proved) or false.
+ * With `outside`, each range is also tried one Stat Point beyond each end, a
+ * value the inference removed: a rebuild that reproduces the log there is a
+ * spread removed wrongly - a defect found without knowing the real spreads.
+ *
+ * @returns per Pokemon id, per stat, `{ min, max }` as true (proved) or false,
+ *          and `outside`, the values beyond an end that rebuilt the log.
  */
 export async function certifyRanges(inf, {
-  formatid, sets, playerNames, observed, channel = 1, sampleSeed = 1, maxProbes = 600, threads, onProgress = () => {},
+  formatid, sets, playerNames, observed, channel = 1, sampleSeed = 1, maxProbes = 600, threads, outside = false, onProgress = () => {},
 }) {
   const seed = sampler(sampleSeed ^ 0x5eed).seed();
   const tried = new Map();
@@ -452,6 +457,25 @@ export async function certifyRanges(inf, {
         picks[s][i] = pick;
         onProgress(`certifying ${p.species}'s ${stat} ${end} (${value})`);
         out[p.id][stat][end] = await witness(picks);
+      }
+      if (!outside) continue;
+      out[p.id][stat].outside = [];
+      for (const value of [range.min - 1, range.max + 1]) {
+        if (value < 0 || value >= SPAN) continue;
+        // The inference's own spread with this stat moved out, the others
+        // lowered, largest first, where that breaks the budget.
+        const pick = { ...inf.picks[s][i], [stat]: value };
+        let over = STAT_IDS.reduce((t, x) => t + pick[x], 0) - BUDGET;
+        for (const x of [...STAT_IDS].filter(y => y !== stat).sort((a, b) => pick[b] - pick[a])) {
+          if (over <= 0) break;
+          const cut = Math.min(over, pick[x]);
+          pick[x] -= cut;
+          over -= cut;
+        }
+        const picks = inf.picks.map(team => team.map(e => ({ ...e })));
+        picks[s][i] = pick;
+        onProgress(`trying ${p.species}'s ${stat} at ${value}, outside its range`);
+        if (await witness(picks)) out[p.id][stat].outside.push(value);
       }
     }
   }
