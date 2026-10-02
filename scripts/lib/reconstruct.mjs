@@ -194,6 +194,30 @@ function revealOrder(lines) {
   return order;
 }
 
+/**
+ * What the team sheets say about each side, for seeing an Illusion through:
+ * each Pokemon's name, moves and max HP - read off a battle built from the
+ * packed team, so the max HP is the simulator's - and whether the log shows
+ * that side's HP exactly. A side with no team has no sheet.
+ */
+function sheetsOf(formatid, packedTeams, channel) {
+  const out = {};
+  for (const [s, packed] of packedTeams.entries()) {
+    if (!packed) continue;
+    const battle = new Battle({ formatid, p1: { name: 'p1', team: packed }, p2: { name: 'p2', team: packed } });
+    out[`p${s + 1}`] = {
+      exact: channel === -1 || channel === s + 1,
+      members: battle.sides[0].pokemon.map(p => ({
+        name: p.name,
+        moves: new Set(p.set.moves.map(toID)),
+        maxhp: p.maxhp,
+        illusion: toID(p.set.ability) === 'illusion',
+      })),
+    };
+  }
+  return out;
+}
+
 /** `|teamsize|pN|4` -> how many each side brought. */
 function teamSizes(lines) {
   const sizes = { p1: 6, p2: 6 };
@@ -1763,7 +1787,7 @@ export async function reconstruct({
 
   // Who was really sent in, and who really acted, is planned from the log with
   // every Illusion seen through; the turns are still compared as shown.
-  const unmasked = unmaskIllusion(lines);
+  const unmasked = unmaskIllusion(lines, sheetsOf(formatid, packedTeams, channel));
   const plans = splitTurns(unmasked.lines).map(s => planSegment(s, dex));
   recoverChargeTargets(plans);
 

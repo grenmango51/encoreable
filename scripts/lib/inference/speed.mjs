@@ -10,38 +10,47 @@
 
 import { battleLines } from '../protocol.mjs';
 import { ACTION_START, identName, identSide, override, tagsOf } from '../reconstruct.mjs';
-import { SPAN, fullEvs } from './knowledge.mjs';
+import { SPAN } from './knowledge.mjs';
 
 export function attachSpeed(battle, {
-  state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label, measure, cutOf, note,
+  state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label, measure, cutOf, note, depOf, ownValue,
 }) {
+  const byId = new Map(recs.map(rec => [rec.id, rec]));
   const sorts = [];
   const executed = [];
   const tainted = new Set();
   let lastSort = null;
   let sortOrdinal = 0;
 
-  // A table of speeds per Stat Point stands in for the real speed only if, at
-  // this Pokemon's own Stat Points, it gives the speed the battle is using -
-  // Speed Swap and Transform write a Speed no Stat Point gives.
-  const trusted = (rec, table, real) => {
-    if (!rec.movedStats.has('spe') && table[fullEvs(rec.pokemon.set.evs).spe] === real) return table;
-    note(`${label(rec)}'s Speed`, 'is not the one its Stat Points give, so its turn order was not used');
-    return null;
-  };
-
-  const speedTable = rec => memo(`spe|${sortOrdinal}|${rec.id}`, () => guarded(() => {
+  /**
+   * The speeds a Pokemon could be on, as `{ owner, table }`: `table` is indexed
+   * by `owner`'s Speed Stat Points - the Pokemon's own, or after Speed Swap
+   * the other one's - and is one speed throughout for a Speed no candidate
+   * moves, a known Pokemon's or one copied from it. `read` is the speed the
+   * battle uses, asked with the stored Speed patched. Null where no table
+   * stands in for it: at the replay's own Stat Points it has to give the speed
+   * the battle really uses. Run dry, and keyed by id so a cached one outlives
+   * the pass that made it.
+   */
+  const speedsOf = (rec, read) => guarded(() => {
+    const dep = depOf(rec, 'spe');
     const p = rec.pokemon;
-    const real = p.getActionSpeed();
-    const saved = p.storedStats.spe;
-    const out = new Float64Array(SPAN);
-    try {
-      for (let s = 0; s < SPAN; s++) { p.storedStats.spe = rec.stat('spe', s); out[s] = p.getActionSpeed(); }
-    } finally {
-      p.storedStats.spe = saved;
+    const real = read();
+    if (dep && !dep.owner) return { owner: rec.id, table: new Float64Array(SPAN).fill(real) };
+    if (dep && dep.stat === 'spe') {
+      const saved = p.storedStats.spe;
+      const table = new Float64Array(SPAN);
+      try {
+        for (let s = 0; s < SPAN; s++) { p.storedStats.spe = dep.at(s); table[s] = read(); }
+      } finally {
+        p.storedStats.spe = saved;
+      }
+      if (table[ownValue(dep)] === real) return { owner: dep.owner.id, table };
     }
-    return trusted(rec, out, real);
-  }));
+    note(`${label(rec)}'s Speed`, 'no one candidate value says what it is, so its turn order was not used');
+    return null;
+  });
+  const speedTable = rec => memo(`spe|${sortOrdinal}|${rec.id}`, () => speedsOf(rec, () => rec.pokemon.getActionSpeed()));
 
   const queue = battle.queue;
   const origSort = queue.sort;
@@ -93,9 +102,7 @@ export function attachSpeed(battle, {
       const out = setSpecies.apply(this, args);
       if (!state.dry && !state.ended) {
         // A Transform's `setSpecies` is followed by the copied stats.
-        rec.cachedSpeed = args[2] ? null : rec.kn.known
-          ? trusted(rec, new Float64Array(SPAN).fill(this.speed), this.speed)
-          : trusted(rec, Float64Array.from({ length: SPAN }, (_, s) => rec.stat('spe', s)), this.speed);
+        rec.cachedSpeed = args[2] ? null : speedsOf(rec, () => this.storedStats.spe);
       }
       return out;
     });
@@ -104,18 +111,7 @@ export function attachSpeed(battle, {
       const out = update.call(this);
       if (!state.dry && !state.ended) {
         const at = speedUpdates++;
-        rec.cachedSpeed = rec.kn.known
-          ? trusted(rec, new Float64Array(SPAN).fill(this.speed), this.speed)
-          : memo(`upd|${at}|${rec.id}`, () => guarded(() => {
-            const saved = p.storedStats.spe;
-            const table = new Float64Array(SPAN);
-            try {
-              for (let s = 0; s < SPAN; s++) { p.storedStats.spe = rec.stat('spe', s); table[s] = p.getActionSpeed(); }
-            } finally {
-              p.storedStats.spe = saved;
-            }
-            return trusted(rec, table, this.speed);
-          }));
+        rec.cachedSpeed = memo(`upd|${at}|${rec.id}`, () => speedsOf(rec, () => p.getActionSpeed()));
       }
       return out;
     });
@@ -181,6 +177,18 @@ export function attachSpeed(battle, {
     };
   }
 
+  /**
+   * "X went first, Y after" as a bound between the Pokemon whose Stat Points
+   * each one's speed stands on - the two themselves, unless a Speed Swap
+   * handed one the other's.
+   */
+  const ruleOf = (X, Y, speeds, turn, what) => {
+    const fx = speeds.get(X);
+    const fy = speeds.get(Y);
+    if (!fx || !fy) return null;
+    return { fast: byId.get(fx.owner), slow: byId.get(fy.owner), tf: fx.table, ts: fy.table, turn, what };
+  };
+
   function speedRules() {
     const upTo = Math.min(prefix.cutoffAt, battle.log.length);
     const firstAt = (at) => {
@@ -218,8 +226,8 @@ export function attachSpeed(battle, {
         if (later === undefined || later <= i || !shown.get(y.action)?.on) continue;
         const X = byPokemon.get(x.pokemon);
         const Y = byPokemon.get(y.pokemon);
-        if (!X || !Y || !S.speeds.get(X) || !S.speeds.get(Y)) continue;
-        rules.push({ fast: X, slow: Y, tf: S.speeds.get(X), ts: S.speeds.get(Y), turn: S.turn });
+        const rule = ruleOf(X, Y, S.speeds, S.turn, `${label(X)} acted before ${label(Y)}`);
+        if (rule) rules.push(rule);
       }
     }
 
@@ -248,14 +256,9 @@ export function attachSpeed(battle, {
     };
     const eventRule = (entry, x, y) => {
       if (!x.rec || !y.rec || x.rec === y.rec || x.order !== y.order || x.priority !== y.priority) return;
-      const tf = entry.speeds.get(x.rec);
-      const ts = entry.speeds.get(y.rec);
-      if (!tf || !ts) return;
       const name = it => (entry.kind === 'eachEvent' ? entry.eventid : it.effect?.name || entry.eventid);
-      rules.push({
-        fast: x.rec, slow: y.rec, tf, ts, turn: entry.turn,
-        what: `${label(x.rec)}'s ${name(x)} came before ${label(y.rec)}'s ${name(y)}`,
-      });
+      const rule = ruleOf(x.rec, y.rec, entry.speeds, entry.turn, `${label(x.rec)}'s ${name(x)} came before ${label(y.rec)}'s ${name(y)}`);
+      if (rule) rules.push(rule);
     };
     for (const entry of eventSorts) {
       if (!entry.items) continue;
@@ -266,21 +269,22 @@ export function attachSpeed(battle, {
     }
 
     // The log diverged on who moved: the observed order is the true one. A
-    // side with Illusion can print one Pokemon's name for another, so the
-    // replay's line names nobody for certain there.
+    // side with Illusion can print one Pokemon's name for another, so a name
+    // the replay's line gives on that side says nobody for certain.
     const cut = view.find(e => e.at === prefix.cutoffAt);
-    const disguised = battle.sides.some(side => side.pokemon.some(p => p.baseAbility === 'illusion'));
+    const disguisable = sideId => !!battle.sides.find(side => side.id === sideId)?.pokemon.some(p => p.baseAbility === 'illusion');
     const who = line => /^\|(move|cant)\|/.test(String(line || '')) ? String(line).split('|')[2] : null;
     const was = who(prefix.observedLine);
     const got = who(cut?.line);
-    if (was && got && was !== got && !disguised) {
+    if (was && got && was !== got && !disguisable(identSide(was))) {
       const ex = executed.find(e => e.start <= prefix.cutoffAt && prefix.cutoffAt < e.end);
       const P = byIdent.get(`${identSide(was)}:${identName(was)}`);
       const S = ex?.sort;
       const x = S?.list.find(item => item.action === ex.action);
       const y = S?.list.find(item => item.pokemon === P?.pokemon && item.order === x?.order && item.priority === x?.priority);
       const Q = x && byPokemon.get(x.pokemon);
-      if (P && Q && y && !tainted.has(S.turn) && S.speeds.get(P) && S.speeds.get(Q)) rules.push({ fast: P, slow: Q, tf: S.speeds.get(P), ts: S.speeds.get(Q), turn: S.turn });
+      const rule = P && Q && y && !tainted.has(S.turn) ? ruleOf(P, Q, S.speeds, S.turn, `${label(P)} acted before ${label(Q)}`) : null;
+      if (rule) rules.push(rule);
     }
 
     // The log diverged inside an event sort: the rebuild's handler for Q wrote
@@ -294,7 +298,7 @@ export function attachSpeed(battle, {
       return ident ? byIdent.get(`${identSide(ident)}:${identName(ident)}`) : null;
     };
     const rebuilt = cut && battleLines([cut.line])[0];
-    if (rebuilt && prefix.observedLine && !was && !disguised) {
+    if (rebuilt && prefix.observedLine && !was) {
       for (const entry of eventSorts) {
         if (!entry.items) continue;
         const hit = matched(entry).find(m => m.span.start <= prefix.cutoffAt && prefix.cutoffAt < m.span.end);
@@ -304,7 +308,7 @@ export function attachSpeed(battle, {
         // replay's line names; an each-Pokemon pass has one item per Pokemon
         // and no effect to name.
         const P = whose(prefix.observedLine);
-        const x = P && entry.items.find(it => it.rec === P
+        const x = P && !disguisable(P.side) && entry.items.find(it => it.rec === P
           && (entry.kind === 'eachEvent'
             || (it.effect && (it.effect === hit.item.effect || prefix.observedLine.includes(it.effect.name)))));
         let later = false;

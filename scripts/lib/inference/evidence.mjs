@@ -254,6 +254,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   const recs = [];
   const byPokemon = new Map();
   const byIdent = new Map();
+  // The stored-stat writes of the handler running right now, when one is being
+  // asked about per candidate.
+  let writes = null;
   for (const side of battle.sides) {
     for (const [index, pokemon] of side.pokemon.entries()) {
       const id = `${side.id}:${index}`;
@@ -304,15 +307,22 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
 
       // A stat the simulator writes outside `setSpecies` - Power Split, Guard
       // Split, Power Trick, Speed Swap, Transform - is no longer the one this
-      // Pokemon's Stat Points give, until its next `setSpecies` (a switch out).
-      // Writes are watched rather than values compared: an average that
-      // happens to equal the old value still stops depending on the spread.
-      rec.movedStats = new Set();
+      // Pokemon's own Stat Points give, until its next `setSpecies` (a switch
+      // out). Where the write was asked about per candidate (`askWrites`,
+      // `transformInto`), `deps` says what the stat depends on now; any other
+      // write leaves it `unmapped`, and whatever reads it is set aside. Writes
+      // are watched rather than values compared: an average that happens to
+      // equal the old value still stops depending on the spread.
+      rec.deps = {};
+      rec.unmapped = new Set();
       let settingSpecies = 0;
       pokemon.storedStats = new Proxy(pokemon.storedStats, {
         set(target, key, value) {
           target[key] = value;
-          if (!state.dry && !settingSpecies) rec.movedStats.add(key);
+          if (!state.dry && !settingSpecies) {
+            if (writes) writes.push([rec, key]);
+            else rec.unmapped.add(key);
+          }
           return true;
         },
       });
@@ -323,12 +333,33 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           return setSpecies.apply(this, args);
         } finally {
           settingSpecies--;
-          if (!state.dry && !args[2]) rec.movedStats.clear();
+          if (!state.dry && !args[2]) {
+            rec.deps = {};
+            rec.unmapped.clear();
+          }
         }
       });
     }
   }
   const maxHp = (rec, hp) => rec.fixedHp ?? rec.stat('hp', hp);
+  const byId = new Map(recs.map(rec => [rec.id, rec]));
+
+  /**
+   * What one stored stat of a Pokemon is, as a function of one candidate value:
+   * `{ owner, stat, at(v) }`, the stored stat when `owner`'s `stat` Stat Points
+   * are v; `CONSTANT` when it is the same whatever the spread - a known
+   * Pokemon's, or one copied from it; or null when no one candidate value says.
+   */
+  const CONSTANT = { owner: null };
+  function depOf(rec, stat) {
+    if (rec.unmapped.has(stat)) return null;
+    if (rec.deps[stat]) return rec.deps[stat];
+    if (rec.kn.known) return CONSTANT;
+    return { owner: rec, stat, at: v => rec.stat(stat, v) };
+  }
+  const ownValue = dep => fullEvs(dep.owner.pokemon.set.evs)[dep.stat];
+  /** Whether a stored stat is still the one the Pokemon's own Stat Points give. */
+  const plain = (rec, stat) => !rec.unmapped.has(stat) && !rec.deps[stat];
   // A Pokemon by the species it is, not one it has transformed into.
   const label = rec => rec.pokemon.baseSpecies.name;
   const countOf = (rec) => {
@@ -529,7 +560,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
     }));
     const own = fullEvs(pokemon.set.evs);
-    const moved = T.movedStats.has('atk') || T.movedStats.has(def);
+    const moved = !plain(T, 'atk') || !plain(T, def);
     if (moved || !rowAt(own.atk, own[def]).includes(real)) {
       hit.supported = false;
       note(hit.what, moved ? 'a stat it read was moved by another effect, so the hit was not used'
@@ -607,26 +638,43 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       // hits Defence with a special move. Under Wonder Room a stat asked for as
       // one defence is read from the other (`calculateStat`), so the Stat Points
       // that matter are the other defence's.
+      //
+      // Each stat read stands on one candidate value at most (`depOf`): the
+      // Pokemon's own Stat Points, or after Power Split the average's other
+      // side, or none once Transform copied a known Pokemon's. A hit's rows
+      // vary two of them: the target's defence, a dimension of its joint key,
+      // and one more - the attacking stat as a flat domain, or for Body Press a
+      // dimension of the attacker's key. The target's Speed, which Gyro Ball and
+      // Electro Ball read, is that one more when no hidden attacking stat is.
       const physical = clone.category === 'Physical';
-      const attacker = clone.overrideOffensivePokemon === 'target' ? target : source;
-      const wantOff = clone.overrideOffensiveStat || (physical ? 'atk' : 'spa');
       const wantDef = clone.overrideDefensiveStat || (physical ? 'def' : 'spd');
-      const unknownReads = reads.filter(([p]) => !byPokemon.get(p).kn.known);
-      let off = unknownReads.some(([p, s]) => p === attacker && s === wantOff) ? roomStat(wantOff) : null;
-      let offBy = attacker === source ? 'source' : 'target';
-      const def = roomStat(wantDef);
       const shaped = source !== target && clone.overrideDefensivePokemon !== 'source';
-      let supported = shaped
-        && unknownReads.every(([p, s]) => (p === attacker && s === wantOff) || (p === target && s === wantDef));
-      // One other hidden stat the calculation reads - the target's Speed, for
-      // Gyro Ball and Electro Ball - takes the attacking stat's place when no
-      // hidden attacking stat holds it: a hit carries one flat stat at a time.
-      const extra = [...new Set(unknownReads.filter(([p, s]) => !(p === target && s === wantDef))
-        .map(([p, s]) => `${p === source ? 'source' : 'target'}|${s}`))];
-      if (!supported && shaped && !off && extra.length === 1 && FLAT.includes(extra[0].split('|')[1])) {
-        [offBy, off] = extra[0].split('|');
-        supported = true;
+      const vars = new Map();
+      const unmapped = new Set();
+      for (const [p, s] of reads) {
+        const rec = byPokemon.get(p);
+        const key = roomStat(s);
+        const dep = depOf(rec, key);
+        if (!dep) { unmapped.add(label(rec)); continue; }
+        if (!dep.owner) continue;
+        const v = `${dep.owner.id}|${dep.stat}`;
+        if (!vars.has(v)) vars.set(v, { owner: dep.owner.id, stat: dep.stat, readers: [] });
+        const reader = { who: p === source ? 'source' : 'target', key };
+        if (!vars.get(v).readers.some(r => r.who === reader.who && r.key === reader.key)) vars.get(v).readers.push(reader);
       }
+      // The attacker's own key dimension can come beside its flat stat - its
+      // Attack and, through a known Pokemon's split or copied Defence, its own
+      // Defence - and is carried like the attacker's HP, as a source state.
+      const isDim = x => x.stat === 'def' || x.stat === 'spd';
+      const dims = [...vars.values()].filter(x => x.owner === T.id && isDim(x));
+      const others = [...vars.values()].filter(x => !dims.includes(x));
+      const srcVar = others.length === 2 ? others.find(x => x.owner === S.id && isDim(x)) || null : null;
+      const offVar = (srcVar ? others.find(x => x !== srcVar) : others[0]) || null;
+      const supported = shaped && !unmapped.size && dims.length <= 1 && (others.length <= 1 || (srcVar && FLAT.includes(offVar.stat)))
+        && (!offVar || FLAT.includes(offVar.stat) || offVar.owner !== T.id);
+      const def = dims[0]?.stat || roomStat(wantDef);
+      const off = offVar ? offVar.stat : null;
+      const readers = [...vars.values()].flatMap(x => x.readers.map(r => ({ ...r, by: x === offVar ? 'a' : x === srcVar ? 's' : 'd' })));
 
       // HP matters to Water Spout, Multiscale, Brine, pinch abilities, and max
       // HP to a one-hit knockout. Ask rather than list: the row either moves
@@ -642,22 +690,19 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       // Comeuppance return what the user was dealt. That amount was the
       // replay's own, and another spread would have been dealt another.
       const carried = !!clone.damageCallback && !reads.length && !targetHp && !sourceHp;
-      // A stat moved between Pokemon is not the one the Stat Points give, so no
-      // patch of them says what the hit would have done - nor, for a known
-      // Pokemon that took half of a hidden one's stat, is it known any more.
-      const moved = [...new Set(reads.filter(([p, s]) => byPokemon.get(p)?.movedStats.has(roomStat(s))).map(([p]) => label(byPokemon.get(p))))];
       return {
-        off, offBy, def, supported: supported && !carried && !moved.length, carried, moved, targetHp, sourceHp,
+        off, offOwner: offVar?.owner ?? null, srcDim: srcVar?.stat ?? null, def, readers, supported: supported && !carried, carried,
+        moved: [...unmapped], targetHp, sourceHp,
       };
     });
     Object.assign(hit, shape);
     if (hit.carried) note(what, 'its damage was carried over from an earlier hit, so it was not used');
-    if (hit.moved.length) note(what, `${hit.moved.join(' and ')} had a stat it read moved by another effect, so it was not used`);
+    if (hit.moved.length) note(what, `${hit.moved.join(' and ')} had a stat it read moved where no one candidate value says what it became, so it was not used`);
     if (!hit.supported) return hit;
 
     // The attacking stat is a flat domain (Attack, Special Attack) or, for Body
     // Press, a dimension of the user's joint key.
-    const A = hit.offBy === 'target' ? T : S;
+    const A = hit.offOwner ? byId.get(hit.offOwner) : S;
     hit.A = A;
     hit.offDim = hit.off === 'def' || hit.off === 'spd';
     if (hit.offDim && !A.chain) initChain(A);
@@ -670,19 +715,24 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       dVals.add(KEY_DIM[hit.def][k]);
       if (hit.targetHp) for (const h of hs) tStates.set(`${KEY_HP[k]}|${h}`, [KEY_HP[k], h]);
     }
+    // The attacker's states: the HP it could be on, when the hit reads it, and
+    // the value of its own key dimension, when the hit reads that - each as
+    // `[maxhp, hp, dim]`, null where the hit reads no such thing.
     const sStates = [];
-    if (hit.sourceHp) {
+    if (hit.sourceHp || hit.srcDim) {
       if (!S.chain) initChain(S);
       const seen = new Set();
       for (const [k, hs] of S.chain) {
-        for (const h of hs) {
-          const M = maxHp(S, KEY_HP[k]);
-          if (!seen.has(`${M}|${h}`)) { seen.add(`${M}|${h}`); sStates.push([M, h]); }
+        const dim = hit.srcDim ? KEY_DIM[hit.srcDim][k] : null;
+        const M = hit.sourceHp ? maxHp(S, KEY_HP[k]) : null;
+        for (const h of hit.sourceHp ? hs : [null]) {
+          const id = `${M}|${h}|${dim}`;
+          if (!seen.has(id)) { seen.add(id); sStates.push([M, h, dim]); }
         }
       }
     }
     const targetStates = hit.targetHp ? [...tStates.values()] : [null];
-    hit.sStates = hit.sourceHp ? sStates : [null];
+    hit.sStates = sStates.length ? sStates : [null];
 
     hit.rows = new Map();
     for (const t of targetStates) {
@@ -692,15 +742,15 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         for (const a of hit.aVals) {
           for (const d of dVals) {
             const row = memo(`row|${ord}|${a}|${d}|${hpKey}`, () => {
-              const patches = [];
-              const tp = { pokemon: target, stats: T.kn.known ? {} : { [hit.def]: T.stat(hit.def, d) } };
-              if (hit.off && !A.kn.known) {
-                if (A === T) tp.stats[hit.off] = T.stat(hit.off, a);
-                else patches.push({ pokemon: source, stats: { [hit.off]: S.stat(hit.off, a) } });
+              const sp = { pokemon: source, stats: {} };
+              const tp = { pokemon: target, stats: {} };
+              for (const r of hit.readers) {
+                const pokemon = r.who === 'source' ? source : target;
+                (r.who === 'source' ? sp : tp).stats[r.key] = depOf(byPokemon.get(pokemon), r.key).at(r.by === 'a' ? a : r.by === 's' ? s[2] : d);
               }
               if (t) { tp.maxhp = maxHp(T, t[0]); tp.hp = t[1]; }
-              patches.push(tp);
-              if (s) patches.push({ pokemon: source, maxhp: s[0], hp: s[1] });
+              const patches = [sp, tp];
+              if (s && s[0] !== null) patches.push({ pokemon: source, maxhp: s[0], hp: s[1] });
               return dryRow(hit, patches, post);
             });
             hit.rows.set(rowKey(a, d, t && t[0], t && t[1], si), row);
@@ -792,7 +842,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       rollAt: hit.rollAt,
       via,
       dealtBy: S,
-      sourceStates: hit.sourceHp ? hit.sStates : null,
+      sourceStates: hit.sourceHp || hit.srcDim ? hit.sStates : null,
+      srcDim: hit.srcDim || null,
       move: ctx.effect,
       // Recoil and drain read the user's own attacking stat off the same hit;
       // one that belongs to the target or to a key dimension says nothing there.
@@ -1067,6 +1118,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
    * only the HP values it could print survive, and an attacking stat survives
    * only if some candidate reached the display through it.
    */
+  /** Whether a key survives a change that allows only some values of one key dimension. */
+  const dimAllowed = (change, k) => !change.allowDims || change.allowDims.values.has(KEY_DIM[change.allowDims.dim][k]);
+
   function apply(rec, change, token, survived = false) {
     const noted = record && (token !== null || change.gate);
     // Each Pokemon this event can move, measured before it moves it.
@@ -1090,6 +1144,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         allow = allowAt.get(M);
         if (!allow) continue;
       }
+      if (!dimAllowed(change, k)) continue;
       const d = change.dim ? KEY_DIM[change.dim][k] : 0;
       const out = new Set();
       for (const h of hs) {
@@ -1143,13 +1198,15 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     if (dealt) change.dealtBy.lastDealt = { move: change.move, off: change.off, hits: change.hits, byA: dealt, change, victim: rec, turn: change.turn };
     if (supported && token !== null) narrowVia(change.via, supported);
     // The victim's display also says which HP the attacker could have been on,
-    // when the hit depended on it.
+    // and which value of its own key dimension, when the hit depended on them.
     if (sourceOk) {
       const S = change.dealtBy;
-      const allowSet = new Set([...sourceOk].map(si => change.sourceStates[si][0] * HP_BITS + change.sourceStates[si][1]));
+      const states = [...sourceOk].map(si => change.sourceStates[si]);
+      const allowSet = change.sourceStates[0][0] === null ? null : new Set(states.map(([M, h]) => M * HP_BITS + h));
+      const allowDims = change.srcDim ? { dim: change.srcDim, values: new Set(states.map(s => s[2])) } : null;
       for (const c of S.pending.splice(0)) apply(S, c, null);
       touch(S);
-      apply(S, { same: true, allowSet, what: change.what, turn: change.turn }, null);
+      apply(S, { same: true, allowSet, allowDims, what: change.what, turn: change.turn }, null);
     }
     if (noted) {
       const cuts = [...befores].map(([r, before]) => cutOf(r, before)).filter(Boolean);
@@ -1467,7 +1524,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         try { return target.getStat('atk', false, true); } finally { undo(); }
       });
       const real = guarded(() => target.getStat('atk', false, true));
-      if (!T.movedStats.has('atk') && sapAt(fullEvs(target.set.evs).atk) === real) {
+      if (plain(T, 'atk') && sapAt(fullEvs(target.set.evs).atk) === real) {
         const amounts = new Map();
         for (const a of aliveOf(T.flat.atk)) amounts.set(a, sapAt(a));
         sapFor.set(source, { rec: T, amounts });
@@ -1525,8 +1582,143 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
   };
 
+  // A handler that writes stored stats - Power Split's and Guard Split's
+  // `onHit`, Speed Swap's, Power Trick's volatile starting and ending - is
+  // asked before it runs, the way Pain Split is: run dry once per value of each
+  // candidate value its Pokemon's stats stand on, and each stat it writes is
+  // read off as a function of the one value that moved it (`deps`). One that
+  // moves with two - a split between two hidden Pokemon - stays unmapped.
+  const MOVABLE = ['atk', 'def', 'spa', 'spd', 'spe'];
+  const writer = new Map();
+  const writesStats = (effect, eventid) => {
+    const handler = effect?.[`on${eventid}`];
+    if (typeof handler !== 'function') return false;
+    if (!writer.has(handler)) writer.set(handler, /storedStats(\.\w+|\[[^\]]+\])\s*=(?!=)/.test(String(handler)));
+    return writer.get(handler);
+  };
+  let writeOrdinal = 0;
+  function askWrites(involved, run) {
+    const vars = new Map();
+    for (const rec of involved) {
+      for (const s of MOVABLE) {
+        const dep = depOf(rec, s);
+        if (!dep) return null;
+        if (dep.owner) vars.set(`${dep.owner.id}|${dep.stat}`, dep);
+      }
+    }
+    const tables = new Map();
+    for (const [key, variable] of vars) {
+      for (let v = 0; v < SPAN; v++) {
+        const after = guarded(() => {
+          const undo = patchAll(involved.map((rec) => {
+            const stats = {};
+            for (const s of MOVABLE) {
+              const dep = depOf(rec, s);
+              if (dep.owner === variable.owner && dep.stat === variable.stat) stats[s] = dep.at(v);
+            }
+            return { pokemon: rec.pokemon, stats };
+          }));
+          const items = snapItems(involved.map(rec => rec.pokemon));
+          try {
+            run();
+            return involved.map(rec => MOVABLE.map(s => rec.pokemon.storedStats[s]));
+          } finally {
+            restoreItems(items);
+            undo();
+          }
+        });
+        for (const [i, rec] of involved.entries()) {
+          for (const [j, s] of MOVABLE.entries()) {
+            const at = `${rec.id}|${s}`;
+            if (!tables.has(at)) tables.set(at, new Map());
+            if (!tables.get(at).has(key)) tables.get(at).set(key, new Int32Array(SPAN));
+            tables.get(at).get(key)[v] = after[i][j];
+          }
+        }
+      }
+    }
+    return { vars: [...vars.keys()], tables };
+  }
+
+  /** Settle what each written stat now depends on, checked at the replay's own Stat Points. */
+  function settleWrites(written, asked, what) {
+    for (const [rec, s] of written) {
+      const actual = rec.pokemon.storedStats[s];
+      const byVar = asked?.tables.get(`${rec.id}|${s}`);
+      const moving = asked && (byVar || !asked.vars.length)
+        ? asked.vars.filter(key => { const t = byVar.get(key); return t.some(x => x !== t[0]); }) : null;
+      let dep = null;
+      if (moving && moving.length === 0) dep = CONSTANT;
+      if (moving && moving.length === 1) {
+        const [ownerId, stat] = moving[0].split('|');
+        const values = byVar.get(moving[0]);
+        dep = { owner: byId.get(ownerId), stat, at: v => values[v] };
+      }
+      const fits = dep && (dep.owner ? dep.at(ownValue(dep)) === actual
+        : !asked.vars.length || asked.vars.every(key => byVar.get(key)[0] === actual));
+      if (fits) {
+        rec.deps[s] = dep;
+        rec.unmapped.delete(s);
+      } else {
+        delete rec.deps[s];
+        rec.unmapped.add(s);
+        note(`${what} on ${label(rec)}'s ${s}`, 'no one candidate value says what it wrote, so what reads it is set aside');
+      }
+    }
+  }
+
+  const statSingle = battle.singleEvent;
+  battle.singleEvent = function (eventid, effect, effectState, target, source, ...rest) {
+    const run = () => statSingle.call(this, eventid, effect, effectState, target, source, ...rest);
+    if (state.dry || state.ended || !writesStats(effect, eventid)) return run();
+    const involved = [...new Set([target, source])].filter(p => p && typeof p === 'object' && byPokemon.has(p)).map(p => byPokemon.get(p));
+    const ord = writeOrdinal++;
+    const asked = memo(`writes|${ord}`, () => askWrites(involved, run));
+    const outer = writes;
+    writes = [];
+    try {
+      return run();
+    } finally {
+      const written = [...new Map(writes.map(([rec, s]) => [`${rec.id}|${s}`, [rec, s]])).values()];
+      writes = outer;
+      settleWrites(written, asked, effect.name);
+    }
+  };
+
+  // Transform and Imposter copy the other Pokemon's stats in `transformInto`,
+  // so each copied stat stands on whatever the original stood on: nothing, for
+  // one of the known side, and the hidden one's own Stat Points when the known
+  // side copies it.
+  for (const rec of recs) {
+    const transformInto = rec.pokemon.transformInto;
+    override(rec.pokemon, 'transformInto', function (pokemon, ...rest) {
+      const from = byPokemon.get(pokemon);
+      if (state.dry || state.ended || !from) return transformInto.call(this, pokemon, ...rest);
+      const copied = Object.fromEntries(MOVABLE.map(s => [s, depOf(from, s)]));
+      const outer = writes;
+      writes = [];
+      try {
+        return transformInto.call(this, pokemon, ...rest);
+      } finally {
+        const written = writes;
+        writes = outer;
+        for (const [r, s] of written) {
+          const dep = r === rec ? copied[s] : null;
+          if (dep && (!dep.owner || dep.at(ownValue(dep)) === r.pokemon.storedStats[s])) {
+            r.deps[s] = dep;
+            r.unmapped.delete(s);
+          } else {
+            delete r.deps[s];
+            r.unmapped.add(s);
+            note(`Transform on ${label(r)}'s ${s}`, 'no one candidate value says what it copied, so what reads it is set aside');
+          }
+        }
+      }
+    });
+  }
+
   const speed = attachSpeed(battle, {
-    state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label, measure, cutOf, note,
+    state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label, measure, cutOf, note, depOf, ownValue,
   });
 
   /**
@@ -1564,7 +1756,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           for (const h of hs) {
             let ok = false;
             if (change.same) {
-              ok = later.includes(h) && (!change.allowSet || change.allowSet.has(M * HP_BITS + h)) && (!change.allow || change.allow(M, h));
+              ok = later.includes(h) && dimAllowed(change, k) && (!change.allowSet || change.allowSet.has(M * HP_BITS + h)) && (!change.allow || change.allow(M, h));
             } else if (change.band) {
               let lo = change.band === 'up' ? h : 0;
               let hi = change.band === 'down' ? h : M;
@@ -1655,7 +1847,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const options = [];
       const rollOf = new Map();
       if (e.change.same) {
-        if (later.includes(h) && (!e.change.allowSet || e.change.allowSet.has(M * HP_BITS + h)) && (!e.change.allow || e.change.allow(M, h))) options.push(h);
+        if (later.includes(h) && dimAllowed(e.change, k) && (!e.change.allowSet || e.change.allowSet.has(M * HP_BITS + h)) && (!e.change.allow || e.change.allow(M, h))) options.push(h);
       } else if (e.change.band) {
         const lo = e.change.band === 'up' ? h : 0;
         const hi = e.change.band === 'down' ? h : M;
@@ -1674,8 +1866,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           const tag = Math.floor(packed / HP_BITS);
           if (e.change.dealtOk && !e.change.dealtOk.has((tag % SPAN) * HP_BITS + h - h2)) continue;
           if (attacker) {
-            const [sM, sH] = e.change.sourceStates[Math.floor(tag / SPAN)];
-            if (sM !== maxHp(e.change.dealtBy, KEY_HP[attacker[0]]) || sH !== attacker[1]) continue;
+            const [sM, sH, sD] = e.change.sourceStates[Math.floor(tag / SPAN)];
+            if (sM !== null && (sM !== maxHp(e.change.dealtBy, KEY_HP[attacker[0]]) || sH !== attacker[1])) continue;
+            if (sD !== null && sD !== KEY_DIM[e.change.srcDim][attacker[0]]) continue;
           }
           options.push(h2);
           if (rs && !rollOf.has(h2)) rollOf.set(h2, rs[j]);

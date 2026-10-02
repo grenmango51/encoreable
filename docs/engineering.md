@@ -654,7 +654,9 @@ Stat Point inference (§7.5) hooks the simulator at more internal points than an
 | Illusion copies the last Pokemon behind it in the party that has not fainted, and `\|replace\|` names the real one when a hit breaks it | who was really sent in is read through it, and the one it copied goes last in team preview | `data/abilities.ts` (`illusion`) |
 | `faint()` does nothing to a Pokemon already queued to faint, and it is what sets HP to 0 | a dry run clears the flag for a candidate that is still standing | `sim/pokemon.ts` (`faint`) |
 | `getActionSpeed` and `statModify` are replaced per instance by the Champions mod | speeds and stats are asked of the instance, never the prototype | `data/mods/champions/scripts.ts` |
-| `storedStats` is written only by `setSpecies` (third argument true for a Transform), `transformInto` and the moves that move stats; `maxhp` is set once, at the first `setSpecies` | a stat written elsewhere is watched as moved until the next `setSpecies`, and max HP is sized from the species the Pokemon entered as | `sim/pokemon.ts` (`setSpecies`, `transformInto`), `data/moves.ts` (`powersplit`, `guardsplit`, `powertrick`, `speedswap`) |
+| `storedStats` is written only by `setSpecies` (third argument true for a Transform), `transformInto` and the handlers of the moves that move stats, each an `on<Event>` whose source assigns `storedStats`; `maxhp` is set once, at the first `setSpecies` | a stat-writing handler is found by its source and run dry per candidate before the real one; any other write leaves the stat unmapped until the next `setSpecies`; max HP is sized from the species the Pokemon entered as | `sim/pokemon.ts` (`setSpecies`, `transformInto`), `data/moves.ts` (`powersplit`, `guardsplit`, `powertrick`, `speedswap`) |
+| `transformInto` copies each non-HP stored stat from the Pokemon copied, and Imposter copies the foe in the opposite slot | a copied stat stands on what the original's stood on | `sim/pokemon.ts` (`transformInto`), `data/abilities.ts` (`imposter`) |
+| a `Battle` built with both packed teams has every Pokemon's `maxhp` and set before a turn is played | the sheet a hidden Illusion user is seen through by | `sim/battle.ts`, `sim/pokemon.ts` |
 | the "-ate" abilities boost only while `move.typeChangerBoosted === this.effect` | a dry run's copy of the move shares the frozen dex entries by reference | `data/abilities.ts` (`pixilate`, `aerilate`, `refrigerate`, `dragonize`) |
 | `attrLastMove` extends the last move line in place, at `battle.lastMoveLine` | a dry run hands back that line as well as the log's length | `sim/battle.ts` (`attrLastMove`) |
 | a chance inside the damage calculation draws through `prng.random` — Fickle Beam's `randomChance` | a dry run gives it the face the real calculation's draw of the same range took | `data/moves.ts` (`ficklebeam`) |
@@ -789,7 +791,12 @@ Pokemon is sent in from the same party order. Illusion copies the last Pokemon b
 party that has not fainted, so the one it was shown as goes last in team preview, unless it led.
 The evidence reads whose HP a line shows from the slot, not the name: a line printed under the
 disguise belongs to the Pokemon a later `|replace|` names in that slot, and `|replace|` itself
-carries no HP. An Illusion the log never breaks is not seen through.
+carries no HP. With team sheets, a disguise no hit broke is seen through too, from that switch-in
+to the next: when the Pokemon shown uses a move its sheet lacks and the Illusion user's has, or
+shows — on the side whose HP the log prints exactly — the Illusion user's max HP and not its own,
+read off a battle built from the packed teams. Moves another effect called, Struggle, and a stay
+with Transform, Mimic or Sketch prove nothing. An Illusion user that only uses moves the
+disguise's sheet also has, and whose HP shows only as a percentage, is not seen through.
 
 When several values reproduce the observation equally well, the one kept is drawn **uniformly
 among them**. That is the whole of the HP sampler. A draw that matched on its own needs no such
@@ -886,9 +893,10 @@ only where the two can be compared and agree:
   real move is used, handed back as it was after each run; where that disagrees too, the hit is
   not used.
 - **A moved stat.** Power Split, Guard Split, Power Trick, Speed Swap and Transform write a stat
-  outside `setSpecies`, and the evidence pass watches those writes. Until the Pokemon's next
-  `setSpecies` — a switch — a hit that reads the moved stat, of either Pokemon, is not used, and
-  neither is its turn order when the stat is Speed.
+  outside `setSpecies`, and the evidence pass watches those writes (below, *Stats moved between
+  Pokemon*). A write it could not map to one candidate value leaves the stat unmapped until the
+  Pokemon's next `setSpecies` — a switch — and a hit that reads it is not used, nor its turn
+  order when the stat is Speed.
 - **A carried amount.** A damage callback that reads no stat and no HP hands on an amount kept
   from an earlier hit: Counter, Mirror Coat, Metal Burst and Comeuppance return what the user was
   dealt, and another spread would have been dealt another amount. Not used.
@@ -949,6 +957,22 @@ Every line set aside is recorded — `inference.checks` in the written `.log.jso
   line where it reproduces the log, the replay's where the scaffold first goes wrong on exactly
   that line. That holds even when the hidden one's own display lies past the cutoff, and it
   names the hidden HP almost exactly.
+- **Stats moved between Pokemon.** A stat is what the simulator stored, and each stored stat
+  stands on at most one candidate value: the Pokemon's own Stat Points, a constant for a known
+  Pokemon, or whatever the effect that moved it made of them. A handler that writes stored stats
+  — Power Split's and Guard Split's `onHit`, Speed Swap's, Power Trick's volatile starting or
+  ending — is run dry before the real one, once per value of each candidate value its Pokemon's
+  stats stand on, the way Pain Split is, and each stat it writes is read off as a function of the
+  one that moved it. So after Power Split the hidden Pokemon's Attack is the average with yours,
+  and your own Attack now stands on its Stat Points too; after Power Trick its Attack stands on
+  its Defence Stat Points. Transform and Imposter copy in `transformInto`, so each copied stat
+  stands on what the original stood on: nothing, once a hidden Pokemon copies one of yours, and
+  its Stat Points when yours copies it. A hit's rows then patch every stat it reads with that
+  function. The attacker's own key dimension can stand beside its flat attacking stat — its
+  Attack and, through your split or copied Defence, its Defence — and is carried like the
+  attacker's HP, as a source state the victim's line narrows. A stat that stands on two
+  candidate values at once, of two hidden Pokemon, is unmapped and set aside. Each function is
+  checked at the scaffold's own Stat Points against the stat the simulator really wrote.
 - **Confusion self-hits** read the Pokemon's own Attack and Defence and throw one damage roll:
   `getConfusionDamage` is re-run per candidate like any hit, and the roll goes on the path.
 - **A survived lethal hit.** A Focus Sash, Sturdy or Endure announces itself before the hit's HP
@@ -1166,10 +1190,10 @@ fixtures' real spreads, 83 of 83 today, plus the synthetic battles in §7.5.
 through small battles, finds which stats each lets reach the log, and checks that against what the
 evidence pass uses. Its report `evidence-open-sheets.md` §2 is the work list: no legal effect
 removes a real spread there, and `evidence-catalog.md` §3 Phase 4 orders what is left — a
-Substitute broken or not, unread, which breaks the rebuild; the lines the evidence pass sets aside,
-the Counter family's carried amount and every hit after a stat is moved, with the rebuild failing
-on the latter; a hidden user of Gyro Ball or Electro Ball; and the rebuild's dice for Thrash, Petal
-Dance and Effect Spore, and an Illusion the log never breaks.
+Substitute broken or not, unread, which breaks the rebuild; the Counter family's carried amount,
+set aside; a hit that stands on two hidden Pokemon at once, as when your Imposter copies the hidden
+partner; a hidden user of Gyro Ball or Electro Ball; the rebuild's dice for Thrash, Petal Dance and
+Effect Spore; and an Illusion user the log never gives away.
 
 1. **The evidence still unused** (§7.5): every line the evidence pass sets aside, Shell Bell
    summed over several targets or hits, recoil summed over several hits, and Strength Sap or Pain
