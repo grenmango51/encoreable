@@ -791,6 +791,9 @@ thread as with thirteen workers. The pool is `os.availableParallelism()` less th
 there is none below two workers; `--threads <n>` overrides. `reconstruct.mjs` is the workers'
 entry too, and a worker loads the simulator's data before it takes a probe.
 
+**Ally Switch** moves two Pokemon between slots mid-turn, and the lines after it name the new
+slots; a turn's choices are read back to the slot each Pokemon chose from (`planSegment`).
+
 **A battle that ended without a Pokemon deciding it** — a forfeit, the timer — ends in the
 rebuild with `>forcelose` for the loser once everything before its `|win|` has printed. The
 room's announcement is room text, and `battleLines` drops it.
@@ -932,7 +935,14 @@ The opponent's HP is a percentage, so a candidate is not one HP but the **set** 
 it could be on, carried hit to hit. HP, Defence and Special Defence are one joint key, because
 they are what decides that set; Attack, Special Attack and Speed are flat. That is 35,937 keys and
 three 33-value domains per Pokemon, and a whole pass is one replay of about 30 ms plus the dry
-calls. `getDamage` runs once per surviving (attacking stat, defending stat) pair; its last step,
+calls. A flat stat is **tied** to the key where a hit reads it against the same Pokemon's key — its
+own Attack in its recoil, its drain or a confusion self-hit, a Foul Play on it, your Transform
+copy hitting it, Gyro Ball on it, Water Spout or a pinch ability reading its own HP: the tie keeps,
+per key, the values of that stat that reached the display beside it (two 32-bit words per key).
+Two flat stats one hit reads together — a Gyro Ball user's Attack and its own Speed — get a pair
+tie, the pairs of values that fit. A key with no tied value left goes, a value no key allows goes,
+and the count, the ranges, the 66-point budget, the next guess and the check of a real spread all
+go through the ties. `getDamage` runs once per surviving (attacking stat, defending stat) pair; its last step,
 `modifyDamage`, receives one number and nothing stat-dependent after it, so its sixteen rolls are
 memoised on that number.
 
@@ -979,8 +989,9 @@ Every line set aside is recorded — `inference.checks` in the written `.log.jso
 - **Whose stat attacks.** The move says: Foul Play attacks with the target's Attack, Body Press
   with the user's Defence, Psyshock hits Defence with a special move. A hit keeps the attacking
   values that reached the display — a flat domain, or for Body Press a dimension of the user's
-  joint key. Foul Play ties the target's Attack to its own Defence, so a new guess fixes HP,
-  Defence and Special Defence first and picks the flat stats from what survives beside them.
+  joint key. Foul Play ties the target's Attack to its own Defence — a tie, above — and a new
+  guess fixes HP, Defence and Special Defence first and picks the flat stats from what survives
+  beside them.
   Under Wonder Room a defence is read from the other one's stored stat (`calculateStat`), so a
   hit there narrows the other defence — a physical hit, Special Defence. Any other hidden stat a
   calculation reads — the target's Speed, for Gyro Ball and Electro Ball — takes the attacking
@@ -998,7 +1009,9 @@ Every line set aside is recorded — `inference.checks` in the written `.log.jso
   action is the one that decided it. After You, Quash and Instruct taint their turn's queue.
   Where the rebuild diverges on order, the replay's order is used only when it is proved: a move
   line always prints, and so do a `|cant|` and what only `onBeforeMove` prints before a move —
-  the confusion check, waking up, thawing out — each opening its Pokemon's action; a handler's
+  the confusion check, waking up, thawing out — each opening its Pokemon's action, and the move
+  the rebuild chose for that Pokemon has to be the one the replay shows it using, since another
+  move can have another priority; a handler's
   line counts only if the replay shows the rebuilt Pokemon's line later in the same phase — a
   Leftovers heal at full HP prints nothing.
 - **Pinch Berries.** After each HP change the simulator's own check is asked, per max HP, up to
@@ -1007,9 +1020,13 @@ Every line set aside is recorded — `inference.checks` in the written `.log.jso
 - **HP given back from the other side.** What Leech Seed takes from a Pokemon shown as a
   percentage is what its seeder gets back, so the seeder's exact line says how much the seeded
   one really lost — an eighth of its max HP, which is its HP stat to within eight points. Shell
-  Bell is the same link for a single hit, and exact outright when every Pokemon the holder hurt
-  is shown exactly. Both are carried like drain: the amounts each candidate could have lost,
-  checked against the other Pokemon's line in the whole-path walk. Liquid Ooze turns a drain,
+  Bell is the same link for what its holder's move dealt, exact outright when every Pokemon the
+  holder hurt is shown exactly. Otherwise it is read hit by hit: the others' damage is exact, and
+  for one hit on a Pokemon shown as a percentage the amounts it could have dealt come on top; for
+  more — a spread move on both hidden Pokemon, a move that hits twice — the holder's line keeps
+  the totals that print it, and each hit keeps the amounts some amounts of the others complete to
+  one of them. A spread move counts its hits per target. All are carried like drain: the amounts
+  each candidate could have lost, checked against the other Pokemon's line in the whole-path walk. Liquid Ooze turns a drain,
   Leech Seed's heal or Strength Sap's into damage of the same amount to the Pokemon that would
   have healed; that damage is read as the heal it replaced, through the simulator's own Liquid
   Ooze, so a known seeder's exact line gives a hidden holder's HP to within eight points.
@@ -1029,7 +1046,11 @@ Every line set aside is recorded — `inference.checks` in the written `.log.jso
   hidden one could be on, and the exact one has to land where the log shows it — the scaffold's
   line where it reproduces the log, the replay's where the scaffold first goes wrong on exactly
   that line. That holds even when the hidden one's own display lies past the cutoff, and it
-  names the hidden HP almost exactly.
+  names the hidden HP almost exactly. Between two Pokemon both shown as percentages — a hidden
+  one splitting with its partner — `onHit` is re-run for every pair of HPs the two could be on,
+  and each keeps the HPs some pair leaves it on that both displays allow. Strength Sap needs no
+  such pair: the heal is read off the user's display whatever it shows, one amount per Attack
+  the target could have.
 - **Stats moved between Pokemon.** A stat is what the simulator stored, and each stored stat
   stands on at most one candidate value: the Pokemon's own Stat Points, a constant for a known
   Pokemon, or whatever the effect that moved it made of them. A handler that writes stored stats
@@ -1074,9 +1095,8 @@ Every line set aside is recorded — `inference.checks` in the written `.log.jso
   and Pelipper from 1.86M to 180,297, and the S3 suite keeps all 83 real spreads under it.
 
 **What is not used, and costs precision only.** An HP change of unknown shape lets the candidate
-move anywhere its next printed line allows. Recoil and Shell Bell summed over several hits or
-targets are not used, and neither are Strength Sap and Pain Split between two Pokemon both shown
-as percentages, which only `--infer both` meets.
+move anywhere its next printed line allows. Recoil is read only off a move that hit once, which
+every recoil move does.
 An effect written as a fraction of max HP — Leech Seed's drain and a move's HP cost through
 `directDamage` included — is scaled only when its amount proves the fraction: a non-integer
 amount was passed unrounded; a whole one could have been rounded either way, so both roundings
@@ -1084,8 +1104,11 @@ are kept. Toxic's nth tick is n sixteenths with the sixteenth rounded down first
 that way. A move's cost to its user that the simulator rounds from the user's max HP — Struggle's
 quarter, Mind Blown's, Chloroblast's and Steel Beam's half — is `applyRecoilDamage` run for each
 candidate. Wish heals half its maker's max HP, so it is scaled only when the Pokemon healed made
-it, is a fixed amount when its maker is known, and is not used otherwise. None of these can remove
-a spread that fits.
+it and is a fixed amount when its maker is known; from a hidden partner — switched into the
+maker's slot by Ally Switch, or sent in after it left — it is one amount per HP Stat Point the
+maker could have, and the healed Pokemon's display narrows the maker's HP too. An amount the effect's
+own code writes as a number — Oran Berry's 10 HP — is the same for every spread. None of these can
+remove a spread that fits.
 
 **The scaffold.** Every hit has to happen in the position it really happened in, so the replay
 needs *some* spread that reproduces the log. The position does not depend on which consistent
@@ -1276,21 +1299,16 @@ fixtures' real spreads, 83 of 83 today, plus the synthetic battles in §7.5.
 through small battles, finds which stats each lets reach the log, and checks that against what the
 evidence pass uses. Its report `evidence-open-sheets.md` §2 is the work list: no legal effect
 removes a real spread there, and every battle in it rebuilds. What is left (`evidence-catalog.md`
-§5) is what the representation cannot hold — Attack, Special Attack and Speed are lists of their
-own beside the HP and defence pairs, so a hit that reads a Pokemon's own Attack against its own HP
-and Defence (a confusion self-hit, your Transform copy hitting it) narrows each apart — and what a
-battle cannot tell: a speed tie, an order between two hidden Pokemon, an Illusion switch-in nothing
-settles.
+§5) is what a battle cannot tell: a speed tie, an order between two hidden Pokemon, an Illusion
+switch-in nothing settles.
 
-1. **The evidence still unused** (§7.5): every line the evidence pass sets aside, Shell Bell
-   summed over several targets or hits, recoil summed over several hits, a Wish from a hidden
-   partner, which stands on the partner's HP, and Strength Sap or Pain Split between two Pokemon
-   that are both shown as percentages — which only `--infer both` meets.
+1. **The evidence still unused** (§7.5): every line the evidence pass sets aside — none in the
+   S3 suite, and in the catalog only a switch-in Illusion could have made.
 2. **Certified ranges** (`--certify`). The inference keeps impossible spreads on purpose: an HP
    change it cannot model lets a candidate move anywhere its next display allows, Attack, Special
-   Attack and Speed are separate lists that each only have to fit every hit on its own, two
-   unknown Pokemon that constrain each other are narrowed one at a time, and a speed tie counts
-   both ways. So every range is an upper bound. A **witness** proves a spread possible: pin it,
+   Attack and Speed are separate lists that each only have to fit every hit on its own except
+   where a tie holds them to the key or to each other, two unknown Pokemon that constrain each
+   other are narrowed one at a time, and a speed tie counts both ways. So every range is an upper bound. A **witness** proves a spread possible: pin it,
    rebuild the battle, and the input log that reproduces the replay line for line is a proof
    anyone can check by replaying it. A stat's range is exact once its minimum and its maximum
    each have a witness, because every value outside it was removed. `--certify` would build those
