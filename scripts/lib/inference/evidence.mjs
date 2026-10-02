@@ -546,7 +546,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   /**
    * A confusion self-hit, as a hit on itself: the simulator's own
    * `getConfusionDamage`, run again for every surviving Attack and Defence and
-   * all sixteen rolls. It reads nothing but the Pokemon's own stats.
+   * all sixteen rolls. It reads nothing but the Pokemon's own stats, each its
+   * own Stat Points' or a constant - one Transform or Imposter copied from a
+   * known Pokemon; a stat that stands on anything else is not used.
    */
   function selfHit(pokemon, basePower, real, items, getConfusionDamage) {
     const T = byPokemon.get(pokemon);
@@ -558,8 +560,19 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       off: 'atk', offDim: false, offBy: 'source', def, targetHp: false, sourceHp: false, sStates: [null],
       clone: { name: 'confusion' }, what: `${label(T)} hurt itself in its confusion`,
     };
+    const varOf = (stat) => {
+      const dep = depOf(T, stat);
+      if (!dep) return undefined;
+      if (!dep.owner) return null;
+      return dep.owner === T && dep.stat === stat ? dep : undefined;
+    };
+    const atkVar = varOf('atk');
+    const defVar = varOf(def);
     const rowAt = (a, d) => memo(`conf|${ord}|${a}|${d}`, () => guarded(() => {
-      const undo = patchAll([{ pokemon, stats: { atk: T.stat('atk', a), [def]: T.stat(def, d) } }]);
+      const stats = {};
+      if (atkVar) stats.atk = T.stat('atk', a);
+      if (defVar) stats[def] = T.stat(def, d);
+      const undo = patchAll([{ pokemon, stats }]);
       try {
         return Array.from({ length: ROLLS }, (_, r) => withRoll(r, () => getConfusionDamage.call(actions, pokemon, basePower)));
       } finally {
@@ -567,14 +580,15 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
     }));
     const own = fullEvs(pokemon.set.evs);
-    const moved = !plain(T, 'atk') || !plain(T, def);
+    const moved = atkVar === undefined || defVar === undefined;
     if (moved || !rowAt(own.atk, own[def]).includes(real)) {
       hit.supported = false;
       note(hit.what, moved ? 'a stat it read was moved by another effect, so the hit was not used'
         : 'no dry calculation reproduced the real damage, so the hit was not used');
       return hit;
     }
-    hit.aVals = aliveOf(T.flat.atk);
+    if (!atkVar) hit.off = null;
+    hit.aVals = atkVar ? aliveOf(T.flat.atk) : [0];
     const dVals = new Set([...T.chain.keys()].map(k => KEY_DIM[def][k]));
     hit.rows = new Map();
     for (const a of hit.aVals) {
