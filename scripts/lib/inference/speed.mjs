@@ -10,10 +10,10 @@
 
 import { battleLines } from '../protocol.mjs';
 import { ACTION_START, identName, identSide, override, tagsOf } from '../reconstruct.mjs';
-import { SPAN } from './knowledge.mjs';
+import { SPAN, fullEvs } from './knowledge.mjs';
 
 export function attachSpeed(battle, {
-  state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label, measure, cutOf,
+  state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label, measure, cutOf, note,
 }) {
   const sorts = [];
   const executed = [];
@@ -21,8 +21,18 @@ export function attachSpeed(battle, {
   let lastSort = null;
   let sortOrdinal = 0;
 
+  // A table of speeds per Stat Point stands in for the real speed only if, at
+  // this Pokemon's own Stat Points, it gives the speed the battle is using -
+  // Speed Swap and Transform write a Speed no Stat Point gives.
+  const trusted = (rec, table, real) => {
+    if (!rec.movedStats.has('spe') && table[fullEvs(rec.pokemon.set.evs).spe] === real) return table;
+    note(`${label(rec)}'s Speed`, 'is not the one its Stat Points give, so its turn order was not used');
+    return null;
+  };
+
   const speedTable = rec => memo(`spe|${sortOrdinal}|${rec.id}`, () => guarded(() => {
     const p = rec.pokemon;
+    const real = p.getActionSpeed();
     const saved = p.storedStats.spe;
     const out = new Float64Array(SPAN);
     try {
@@ -30,7 +40,7 @@ export function attachSpeed(battle, {
     } finally {
       p.storedStats.spe = saved;
     }
-    return out;
+    return trusted(rec, out, real);
   }));
 
   const queue = battle.queue;
@@ -82,9 +92,10 @@ export function attachSpeed(battle, {
     override(p, 'setSpecies', function (...args) {
       const out = setSpecies.apply(this, args);
       if (!state.dry && !state.ended) {
-        rec.cachedSpeed = rec.kn.known
-          ? new Float64Array(SPAN).fill(this.speed)
-          : Float64Array.from({ length: SPAN }, (_, s) => rec.stat('spe', s));
+        // A Transform's `setSpecies` is followed by the copied stats.
+        rec.cachedSpeed = args[2] ? null : rec.kn.known
+          ? trusted(rec, new Float64Array(SPAN).fill(this.speed), this.speed)
+          : trusted(rec, Float64Array.from({ length: SPAN }, (_, s) => rec.stat('spe', s)), this.speed);
       }
       return out;
     });
@@ -94,7 +105,7 @@ export function attachSpeed(battle, {
       if (!state.dry && !state.ended) {
         const at = speedUpdates++;
         rec.cachedSpeed = rec.kn.known
-          ? new Float64Array(SPAN).fill(this.speed)
+          ? trusted(rec, new Float64Array(SPAN).fill(this.speed), this.speed)
           : memo(`upd|${at}|${rec.id}`, () => guarded(() => {
             const saved = p.storedStats.spe;
             const table = new Float64Array(SPAN);
@@ -103,7 +114,7 @@ export function attachSpeed(battle, {
             } finally {
               p.storedStats.spe = saved;
             }
-            return table;
+            return trusted(rec, table, this.speed);
           }));
       }
       return out;
@@ -207,7 +218,7 @@ export function attachSpeed(battle, {
         if (later === undefined || later <= i || !shown.get(y.action)?.on) continue;
         const X = byPokemon.get(x.pokemon);
         const Y = byPokemon.get(y.pokemon);
-        if (!X || !Y) continue;
+        if (!X || !Y || !S.speeds.get(X) || !S.speeds.get(Y)) continue;
         rules.push({ fast: X, slow: Y, tf: S.speeds.get(X), ts: S.speeds.get(Y), turn: S.turn });
       }
     }
@@ -269,7 +280,7 @@ export function attachSpeed(battle, {
       const x = S?.list.find(item => item.action === ex.action);
       const y = S?.list.find(item => item.pokemon === P?.pokemon && item.order === x?.order && item.priority === x?.priority);
       const Q = x && byPokemon.get(x.pokemon);
-      if (P && Q && y && !tainted.has(S.turn)) rules.push({ fast: P, slow: Q, tf: S.speeds.get(P), ts: S.speeds.get(Q), turn: S.turn });
+      if (P && Q && y && !tainted.has(S.turn) && S.speeds.get(P) && S.speeds.get(Q)) rules.push({ fast: P, slow: Q, tf: S.speeds.get(P), ts: S.speeds.get(Q), turn: S.turn });
     }
 
     // The log diverged inside an event sort: the rebuild's handler for Q wrote

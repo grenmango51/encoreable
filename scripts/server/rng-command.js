@@ -408,11 +408,21 @@ function hook(st, p) {
 		} else { off = Math.floor(from); d = Math.floor(to) - off; }
 
 		// A dry run must not touch the generator (§4.4). Only `randomizer` gets
-		// the requested band; anything else takes the bottom of its range.
+		// the requested band. Any other draw takes the value the real run's draw
+		// of the same range took, when the dry run was handed those (`draws`),
+		// and otherwise the bottom of its range.
 		if (st.dry) {
 			if (!d) return 0;
 			const site = leaf(framesOf()[0] || '');
-			return off + (site === 'randomizer' ? Math.min(st.dry.roll, d - 1) : 0);
+			if (site === 'randomizer') return off + Math.min(st.dry.roll, d - 1);
+			const f = from === undefined ? -1 : from;
+			const t = to === undefined ? -1 : to;
+			const same = st.dry.draws && st.dry.draws.find(x => !x.used && x.from === f && x.to === t);
+			if (same) {
+				same.used = true;
+				return same.value;
+			}
+			return off;
 		}
 
 		const prevD = st.d;

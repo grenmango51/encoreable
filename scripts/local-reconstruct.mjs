@@ -350,6 +350,9 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
           : '         no spread fits the published set - a mechanic the inference does not model, or a defect');
       }
     }
+    // Where a shortcut of the evidence pass disagreed with the simulator, so
+    // that line of evidence was given up rather than trusted.
+    for (const c of inference.checks || []) say(`       not used, turn ${c.turn}: ${c.what} - ${c.reason}`);
     // Which event narrowed what, and to which ranges. A whole suite prints only
     // the totals above; every event is in the written log either way.
     if (showEvents) {
@@ -388,6 +391,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
         rounds: inference.rounds,
         pokemon: inference.pokemon.filter(p => !p.known).map(({ contains, known, ...rest }) => rest),
         events: inference.events,
+        checks: inference.checks,
       } : undefined,
       inputLog: built.inputLog,
       log: built.log,

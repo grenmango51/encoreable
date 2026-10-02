@@ -654,6 +654,11 @@ Stat Point inference (§7.5) hooks the simulator at more internal points than an
 | Illusion copies the last Pokemon behind it in the party that has not fainted, and `\|replace\|` names the real one when a hit breaks it | who was really sent in is read through it, and the one it copied goes last in team preview | `data/abilities.ts` (`illusion`) |
 | `faint()` does nothing to a Pokemon already queued to faint, and it is what sets HP to 0 | a dry run clears the flag for a candidate that is still standing | `sim/pokemon.ts` (`faint`) |
 | `getActionSpeed` and `statModify` are replaced per instance by the Champions mod | speeds and stats are asked of the instance, never the prototype | `data/mods/champions/scripts.ts` |
+| `storedStats` is written only by `setSpecies` (third argument true for a Transform), `transformInto` and the moves that move stats; `maxhp` is set once, at the first `setSpecies` | a stat written elsewhere is watched as moved until the next `setSpecies`, and max HP is sized from the species the Pokemon entered as | `sim/pokemon.ts` (`setSpecies`, `transformInto`), `data/moves.ts` (`powersplit`, `guardsplit`, `powertrick`, `speedswap`) |
+| the "-ate" abilities boost only while `move.typeChangerBoosted === this.effect` | a dry run's copy of the move shares the frozen dex entries by reference | `data/abilities.ts` (`pixilate`, `aerilate`, `refrigerate`, `dragonize`) |
+| `attrLastMove` extends the last move line in place, at `battle.lastMoveLine` | a dry run hands back that line as well as the log's length | `sim/battle.ts` (`attrLastMove`) |
+| a chance inside the damage calculation draws through `prng.random` — Fickle Beam's `randomChance` | a dry run gives it the face the real calculation's draw of the same range took | `data/moves.ts` (`ficklebeam`) |
+| Toxic's tick is `clampIntRange(baseMaxhp / 16, 1) * stage` | scaled per candidate max HP with the stage the scaffold shows | `data/conditions.ts` (`tox`) |
 
 `pokemon-showdown` is pinned to one upstream commit in `package.json`, not to an npm release:
 play.pokemonshowdown.com runs upstream master, and npm releases lag it by months (0.11.11, the
@@ -782,8 +787,9 @@ the log with every Illusion seen through (`unmaskIllusion`, `scripts/lib/protoco
 are still compared as shown, because the simulator prints the same disguise once the real
 Pokemon is sent in from the same party order. Illusion copies the last Pokemon behind it in the
 party that has not fainted, so the one it was shown as goes last in team preview, unless it led.
-The evidence reads whose HP a line shows from the slot, not the name. An Illusion the log never
-breaks is not seen through.
+The evidence reads whose HP a line shows from the slot, not the name: a line printed under the
+disguise belongs to the Pokemon a later `|replace|` names in that slot, and `|replace|` itself
+carries no HP. An Illusion the log never breaks is not seen through.
 
 When several values reproduce the observation equally well, the one kept is drawn **uniformly
 among them**. That is the whole of the HP sampler. A draw that matched on its own needs no such
@@ -852,7 +858,7 @@ places a spread matters, `scripts/lib/inference/`:
 
 | Hook | What is asked, per surviving spread |
 |---|---|
-| `actions.getDamage` | the damage all 16 rolls would do, from a dry re-run in the real position (§4's `damageLadder` guards: cloned move, no dice consumed, no messages, state restored) |
+| `actions.getDamage` | the damage all 16 rolls would do, from a dry re-run in the real position (§4's `damageLadder` guards: a fresh copy of the move for each run, no dice consumed, no messages, state restored) |
 | `pokemon.damage` / `heal` / `sethp` | where each candidate's exact HP moves to — then only what `getHealth` would print as the next line survives |
 | `queue.sort` → `battle.runAction` | each candidate's `getActionSpeed`, so "acted before X in the same bracket" becomes a speed bound |
 | `fieldEvent` / `eachEvent` → `speedSort` | the same for switch-in abilities, end-of-turn effects and weather's pass over the field, at each candidate's speed as `updateSpeed` cached it |
@@ -867,6 +873,32 @@ three 33-value domains per Pokemon, and a whole pass is one replay of about 30 m
 calls. `getDamage` runs once per surviving (attacking stat, defending stat) pair; its last step,
 `modifyDamage`, receives one number and nothing stat-dependent after it, so its sixteen rolls are
 memoised on that number.
+
+**Every shortcut is checked against the simulator.** A dry run stands in for the real calculation
+only where the two can be compared and agree:
+
+- **A hit.** At the stats the scaffold is running with, the dry calculation has to deal what the
+  real one dealt, on the roll the real one took. The copy of the move shares the simulator's own
+  data by reference — frozen dex entries, live Pokemon — because handlers compare them by identity:
+  Pixilate, Refrigerate, Aerilate and Dragonize boost only a move whose `typeChangerBoosted` *is*
+  their own ability object. Any other die the calculation throws — Fickle Beam's chance to double
+  its power — takes the face the real calculation's die took. Where the copy still disagrees, the
+  real move is used, handed back as it was after each run; where that disagrees too, the hit is
+  not used.
+- **A moved stat.** Power Split, Guard Split, Power Trick, Speed Swap and Transform write a stat
+  outside `setSpecies`, and the evidence pass watches those writes. Until the Pokemon's next
+  `setSpecies` — a switch — a hit that reads the moved stat, of either Pokemon, is not used, and
+  neither is its turn order when the stat is Speed.
+- **A carried amount.** A damage callback that reads no stat and no HP hands on an amount kept
+  from an earlier hit: Counter, Mirror Coat, Metal Burst and Comeuppance return what the user was
+  dealt, and another spread would have been dealt another amount. Not used.
+- **Speed and max HP.** A table of speeds is used only if, at the Pokemon's own Stat Points, it
+  gives the speed the battle is using. Max HP comes from the species the Pokemon entered as, since
+  a Transform changes every stat but HP; a Pokemon whose max HP its Stat Points do not give has
+  its HP lines read without them.
+
+Every line set aside is recorded — `inference.checks` in the written `.log.json`, printed as
+"not used" — and costs precision, never a spread that fits. The S3 suite sets none aside.
 
 **What links Pokemon, and is used:**
 
@@ -884,7 +916,10 @@ memoised on that number.
   joint key. Foul Play ties the target's Attack to its own Defence, so a new guess fixes HP,
   Defence and Special Defence first and picks the flat stats from what survives beside them.
   Under Wonder Room a defence is read from the other one's stored stat (`calculateStat`), so a
-  hit there narrows the other defence — a physical hit, Special Defence.
+  hit there narrows the other defence — a physical hit, Special Defence. One other hidden stat a
+  calculation reads takes the attacking stat's place when no hidden attacking stat holds it: the
+  target's Speed, for Gyro Ball and Electro Ball. A hit carries one flat stat at a time, so a
+  hidden user of those two, whose attacking stat and Speed both count, is not used.
 - **Speed order from every sort.** Queued actions (moves, Mega Evolution, switches), switch-in
   abilities, end-of-turn effects and weather's pass: two items of one sort at the same order and
   priority ran fastest first, so a Pokemon whose line came first had at least the other's speed.
@@ -938,7 +973,8 @@ targets are not used, and neither are Strength Sap and Pain Split between two Po
 as percentages, which only `--infer both` meets.
 An effect written as a fraction of max HP — Leech Seed's drain included — is scaled only when its
 amount proves the fraction: a non-integer amount was passed unrounded; a whole one could have
-been rounded either way, so both roundings are kept. None of these can remove a spread that
+been rounded either way, so both roundings are kept. Toxic's nth tick is n sixteenths with the
+sixteenth rounded down first, and is scaled that way. None of these can remove a spread that
 fits.
 
 **The scaffold.** Every hit has to happen in the position it really happened in, so the replay
@@ -1128,16 +1164,16 @@ fixtures' real spreads, 83 of 83 today, plus the synthetic battles in §7.5.
 
 `evidence-catalog.md` finds the rest ahead of time: `npm run catalog` puts every legal effect
 through small battles, finds which stats each lets reach the log, and checks that against what the
-evidence pass uses. Its report `evidence-open-sheets.md` §2 is the work list, and its head
-(`evidence-catalog.md` §5) is where to start: real spreads removed for a hit boosted by an "-ate"
-ability, for the Counter family, and after a stat is moved between Pokemon (Power Split, Guard
-Split, Power Trick, Transform, Imposter) or under Illusion; rebuilds that fail on Gyro Ball and
-Electro Ball, a Toxic tick after the first and a Substitute broken; the Fickle Beam dry run that
-writes into the log.
+evidence pass uses. Its report `evidence-open-sheets.md` §2 is the work list: no legal effect
+removes a real spread there, and `evidence-catalog.md` §3 Phase 4 orders what is left — a
+Substitute broken or not, unread, which breaks the rebuild; the lines the evidence pass sets aside,
+the Counter family's carried amount and every hit after a stat is moved, with the rebuild failing
+on the latter; a hidden user of Gyro Ball or Electro Ball; and the rebuild's dice for Thrash, Petal
+Dance and Effect Spore, and an Illusion the log never breaks.
 
-1. **The evidence still unused** (§7.5): Shell Bell summed over several targets or hits,
-   recoil summed over several hits, and Strength Sap or Pain Split between two Pokemon that are
-   both shown as percentages — which only `--infer both` meets.
+1. **The evidence still unused** (§7.5): every line the evidence pass sets aside, Shell Bell
+   summed over several targets or hits, recoil summed over several hits, and Strength Sap or Pain
+   Split between two Pokemon that are both shown as percentages — which only `--infer both` meets.
 2. **Certified ranges** (`--certify`). The inference keeps impossible spreads on purpose: an HP
    change it cannot model lets a candidate move anywhere its next display allows, Attack, Special
    Attack and Speed are separate lists that each only have to fit every hit on its own, two

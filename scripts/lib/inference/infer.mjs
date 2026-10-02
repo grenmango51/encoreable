@@ -133,6 +133,7 @@ export async function inferSpreads({
     }
     return {
       events: first.events,
+      checks: first.checks,
       cutoff: first.cutoff,
       seen: new Set(first.recs.filter(r => r.seen).map(r => r.id)),
       initial,
@@ -302,6 +303,9 @@ export async function inferSpreads({
     picks,
     pokemon,
     events: result.events,
+    // Where a shortcut of the evidence pass disagreed with the simulator and
+    // was not used: evidence given up, never a spread removed.
+    checks: result.checks,
     cutoff: result.cutoff,
     passes: result.passes,
   };

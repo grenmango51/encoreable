@@ -30,15 +30,16 @@ import { createRequire } from 'module';
 import { battleLines, firstDivergence } from '../protocol.mjs';
 import { install } from '../rng-control.mjs';
 import {
-  ROLLS, SOFT_PRETURN, hpRank, identName, identSide, override, restoreItems, snapItems, splitTurns,
+  ROLLS, SOFT_PRETURN, cloneMove, hpRank, identName, identSide, override, restoreItems, restoreMove, saveLog, snapItems,
+  splitTurns, withDice,
 } from '../reconstruct.mjs';
 import {
-  KEY_DIM, KEY_HP, SPAN, STAT_IDS, aliveOf, fullEvs, maskKeys, rangesOf, spreadCount,
+  FLAT, KEY_DIM, KEY_HP, SPAN, STAT_IDS, aliveOf, fullEvs, maskKeys, rangesOf, spreadCount,
 } from './knowledge.mjs';
 import { attachSpeed } from './speed.mjs';
 
 const require = createRequire(import.meta.url);
-const { BattleStream, toID, Utils } = require('pokemon-showdown');
+const { BattleStream, toID } = require('pokemon-showdown');
 
 const HP_BITS = 4096;
 
@@ -108,7 +109,8 @@ const HP_FIELD = { '-damage': 3, '-heal': 3, '-sethp': 3, switch: 4, drag: 4, re
 function hpLine(line) {
   const parts = String(line || '').split('|');
   const at = HP_FIELD[parts[1]];
-  if (at === undefined) return null;
+  // `|replace|`, Illusion breaking, names the Pokemon without its HP.
+  if (at === undefined || !parts[at]) return null;
   return {
     kind: parts[1],
     side: identSide(parts[2]),
@@ -236,6 +238,17 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     return value;
   };
 
+  // Every place the simulator and one of this pass's own shortcuts disagreed,
+  // so the shortcut was not used there. Each is a line of evidence given up.
+  const checks = [];
+  const noted = new Set();
+  const note = (what, reason) => {
+    const key = `${battle.turn}|${what}|${reason}`;
+    if (noted.has(key)) return;
+    noted.add(key);
+    checks.push({ turn: battle.turn, what, reason });
+  };
+
   // ------------------------------------------------------------ who is who
 
   const recs = [];
@@ -247,6 +260,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const kn = knowledge.get(id);
       if (!kn) continue;
       const byForme = new Map();
+      // Max HP is set once, from the species the Pokemon entered the battle as:
+      // a Mega Evolution or a Transform changes every other stat, never HP.
+      const hpSpecies = pokemon.species;
       const rec = {
         id,
         side: side.id,
@@ -262,14 +278,15 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         shown: [],
         // A stat as the simulator computes it for this Pokemon's current forme.
         stat(stat, sp) {
-          let table = byForme.get(pokemon.species);
+          const species = stat === 'hp' ? hpSpecies : pokemon.species;
+          let table = byForme.get(species);
           if (!table) {
             table = {};
             for (const s of STAT_IDS) {
               table[s] = Int32Array.from({ length: SPAN }, (_, v) => battle.statModify(
-                pokemon.species.baseStats, { ...pokemon.set, evs: { ...fullEvs(pokemon.set.evs), [s]: v } }, s));
+                species.baseStats, { ...pokemon.set, evs: { ...fullEvs(pokemon.set.evs), [s]: v } }, s));
             }
-            byForme.set(pokemon.species, table);
+            byForme.set(species, table);
           }
           return table[stat][sp];
         },
@@ -277,10 +294,43 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       recs.push(rec);
       byPokemon.set(pokemon, rec);
       byIdent.set(`${side.id}:${pokemon.name}`, rec);
+
+      // A max HP its own Stat Points do not give - a species with a fixed HP -
+      // says nothing about its HP Stat Points.
+      if (rec.stat('hp', fullEvs(pokemon.set.evs).hp) !== pokemon.baseMaxhp) {
+        rec.fixedHp = pokemon.baseMaxhp;
+        note(`${pokemon.species.name}'s max HP`, 'is not the one its Stat Points give, so HP lines say nothing about them');
+      }
+
+      // A stat the simulator writes outside `setSpecies` - Power Split, Guard
+      // Split, Power Trick, Speed Swap, Transform - is no longer the one this
+      // Pokemon's Stat Points give, until its next `setSpecies` (a switch out).
+      // Writes are watched rather than values compared: an average that
+      // happens to equal the old value still stops depending on the spread.
+      rec.movedStats = new Set();
+      let settingSpecies = 0;
+      pokemon.storedStats = new Proxy(pokemon.storedStats, {
+        set(target, key, value) {
+          target[key] = value;
+          if (!state.dry && !settingSpecies) rec.movedStats.add(key);
+          return true;
+        },
+      });
+      const setSpecies = pokemon.setSpecies;
+      override(pokemon, 'setSpecies', function (...args) {
+        settingSpecies++;
+        try {
+          return setSpecies.apply(this, args);
+        } finally {
+          settingSpecies--;
+          if (!state.dry && !args[2]) rec.movedStats.clear();
+        }
+      });
     }
   }
-  const maxHp = (rec, hp) => rec.stat('hp', hp);
-  const label = rec => rec.pokemon.species.name;
+  const maxHp = (rec, hp) => rec.fixedHp ?? rec.stat('hp', hp);
+  // A Pokemon by the species it is, not one it has transformed into.
+  const label = rec => rec.pokemon.baseSpecies.name;
   const countOf = (rec) => {
     const count = spreadCount(rec.chain ? rec.chain.keys() : rec.knKeys, rec.flat);
     return rec.kn.spent ? count.spent : count.total;
@@ -337,10 +387,15 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
 
   // ------------------------------------------------------------ dry runs
 
-  function withRoll(roll, fn) {
+  /**
+   * Run `fn` dry on damage roll `roll`. Any other die it throws takes the face
+   * the real calculation's die with the same range took (`draws`), so a chance
+   * inside the calculation - Fickle Beam doubling its power - lands as it did.
+   */
+  function withRoll(roll, fn, draws = null) {
     const undo = override(battle, 'random', (m, n) => (m === 16 && n === undefined ? roll : (n === undefined ? 0 : m)));
     const prevDry = st.dry;
-    st.dry = { roll };
+    st.dry = { roll, draws: draws ? draws.map(d => ({ ...d, used: false })) : null };
     try { return fn(); } finally { st.dry = prevDry; undo(); }
   }
 
@@ -365,7 +420,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   function guarded(fn) {
     state.dry++;
     const saved = {
-      log: battle.log.length,
+      log: saveLog(battle),
       faints: battle.faintQueue.length,
       move: battle.activeMove,
       target: battle.activeTarget,
@@ -375,13 +430,38 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     try {
       return fn();
     } finally {
-      battle.log.length = saved.log;
+      saved.log();
       battle.faintQueue.length = saved.faints;
       battle.activeMove = saved.move;
       battle.activeTarget = saved.target;
       battle.activePokemon = saved.user;
       battle.lastDamage = saved.lastDamage;
       state.dry--;
+    }
+  }
+
+  /**
+   * The move one dry calculation runs on: a fresh copy of the one taken before
+   * the real calculation, so no dry run sees another's changes - Beat Up takes
+   * an ally off its list each time. Where that copy did not reproduce the real
+   * hit, the real move itself, handed back afterwards as it was.
+   */
+  function onMove(hit, fn) {
+    if (!hit.onReal) {
+      const copy = cloneMove(hit.clone);
+      copy.moveHitData = undefined;
+      return fn(copy);
+    }
+    const move = hit.move;
+    const snap = cloneMove(move);
+    const hitData = move.moveHitData;
+    move.moveHitData = undefined;
+    move.willCrit = hit.crit;
+    try {
+      return fn(move);
+    } finally {
+      restoreMove(move, snap);
+      move.moveHitData = hitData;
     }
   }
 
@@ -400,7 +480,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           cached = [];
           for (let r = 0; r < ROLLS; r++) {
             restoreItems(hit.items);
-            cached.push(withRoll(r, () => origModify.call(this, base, pokemon, target, move, suppress)));
+            cached.push(withRoll(r, () => origModify.call(this, base, pokemon, target, move, suppress), hit.draws));
           }
           post.set(base, cached);
         }
@@ -409,8 +489,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       });
       try {
         restoreItems(hit.items);
-        hit.clone.moveHitData = undefined;
-        const out = withRoll(0, () => hit.getDamage.call(actions, hit.source, hit.target, hit.clone, true));
+        const out = withRoll(0, () => onMove(hit, move => hit.getDamage.call(actions, hit.source, hit.target, move, true)), hit.draws);
         return row || new Array(ROLLS).fill(typeof out === 'number' ? out : null);
       } finally {
         undoModify();
@@ -441,20 +520,27 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       off: 'atk', offDim: false, offBy: 'source', def, targetHp: false, sourceHp: false, sStates: [null],
       clone: { name: 'confusion' }, what: `${label(T)} hurt itself in its confusion`,
     };
+    const rowAt = (a, d) => memo(`conf|${ord}|${a}|${d}`, () => guarded(() => {
+      const undo = patchAll([{ pokemon, stats: { atk: T.stat('atk', a), [def]: T.stat(def, d) } }]);
+      try {
+        return Array.from({ length: ROLLS }, (_, r) => withRoll(r, () => getConfusionDamage.call(actions, pokemon, basePower)));
+      } finally {
+        undo();
+      }
+    }));
+    const own = fullEvs(pokemon.set.evs);
+    const moved = T.movedStats.has('atk') || T.movedStats.has(def);
+    if (moved || !rowAt(own.atk, own[def]).includes(real)) {
+      hit.supported = false;
+      note(hit.what, moved ? 'a stat it read was moved by another effect, so the hit was not used'
+        : 'no dry calculation reproduced the real damage, so the hit was not used');
+      return hit;
+    }
     hit.aVals = aliveOf(T.flat.atk);
     const dVals = new Set([...T.chain.keys()].map(k => KEY_DIM[def][k]));
     hit.rows = new Map();
     for (const a of hit.aVals) {
-      for (const d of dVals) {
-        hit.rows.set(rowKey(a, d, null, null, 0), memo(`conf|${ord}|${a}|${d}`, () => guarded(() => {
-          const undo = patchAll([{ pokemon, stats: { atk: T.stat('atk', a), [def]: T.stat(def, d) } }]);
-          try {
-            return Array.from({ length: ROLLS }, (_, r) => withRoll(r, () => getConfusionDamage.call(actions, pokemon, basePower)));
-          } finally {
-            undo();
-          }
-        })));
-      }
+      for (const d of dVals) hit.rows.set(rowKey(a, d, null, null, 0), rowAt(a, d));
     }
     return hit;
   }
@@ -464,13 +550,43 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
    * What one real damage calculation depends on, and its value for every
    * surviving stat. Computed before the real result lands, in the real position.
    */
-  function analyseHit(source, target, clone, crit, real, items, getDamage) {
+  function analyseHit(source, target, move, clone, crit, real, items, getDamage, draws, hpBefore) {
     const S = byPokemon.get(source);
     const T = byPokemon.get(target);
     const ord = hitOrdinal++;
-    const hit = { S, T, source, target, clone, real, items, getDamage, ord, supported: false };
+    const hit = { S, T, source, target, move, clone, crit, real, items, getDamage, draws, ord, supported: false };
     clone.willCrit = crit;
     if (!T.chain) initChain(T);
+    const what = `${label(S)}'s ${clone.name} hit ${label(T)}`;
+
+    // Every row below is a dry calculation standing in for the real one. At the
+    // stats this replay is running with, the two answer the same question, so
+    // the dry one must deal the real damage on the roll the real one took - not
+    // merely on some roll, since a boosted low roll and an unboosted high one
+    // can share a value. When the copy of the move does not, the real move is
+    // used instead; when neither does, the hit is not used at all.
+    // Both are asked at the HP the Pokemon had going in: Final Gambit knocks its
+    // own user out before it returns that HP as damage.
+    const faces = draws.filter(d => d.from === ROLLS && d.to === -1);
+    const fits = row => (faces.length === 1 ? row[faces[0].value] === real : row.includes(real));
+    const goingIn = [...hpBefore].filter(([p, hp]) => p.hp !== hp).map(([pokemon, hp]) => ({ pokemon, hp }));
+    const check = memo(`check|${ord}`, () => {
+      if (fits(dryRow(hit, goingIn, new Map()))) return 'copy';
+      hit.onReal = true;
+      try {
+        return fits(dryRow(hit, goingIn, new Map())) ? 'real' : 'none';
+      } finally {
+        hit.onReal = false;
+      }
+    });
+    if (check === 'none') {
+      note(what, 'no dry calculation reproduced the real damage, so the hit was not used');
+      return hit;
+    }
+    if (check === 'real') {
+      hit.onReal = true;
+      note(what, 'the copied move did not reproduce the real damage, so the real move was used');
+    }
 
     const shape = memo(`hit|${ord}`, () => {
       // Which stats the calculation reads, observed rather than assumed: Body
@@ -496,21 +612,47 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const wantOff = clone.overrideOffensiveStat || (physical ? 'atk' : 'spa');
       const wantDef = clone.overrideDefensiveStat || (physical ? 'def' : 'spd');
       const unknownReads = reads.filter(([p]) => !byPokemon.get(p).kn.known);
-      const off = unknownReads.some(([p, s]) => p === attacker && s === wantOff) ? roomStat(wantOff) : null;
+      let off = unknownReads.some(([p, s]) => p === attacker && s === wantOff) ? roomStat(wantOff) : null;
+      let offBy = attacker === source ? 'source' : 'target';
       const def = roomStat(wantDef);
-      const supported = source !== target && clone.overrideDefensivePokemon !== 'source'
+      const shaped = source !== target && clone.overrideDefensivePokemon !== 'source';
+      let supported = shaped
         && unknownReads.every(([p, s]) => (p === attacker && s === wantOff) || (p === target && s === wantDef));
+      // One other hidden stat the calculation reads - the target's Speed, for
+      // Gyro Ball and Electro Ball - takes the attacking stat's place when no
+      // hidden attacking stat holds it: a hit carries one flat stat at a time.
+      const extra = [...new Set(unknownReads.filter(([p, s]) => !(p === target && s === wantDef))
+        .map(([p, s]) => `${p === source ? 'source' : 'target'}|${s}`))];
+      if (!supported && shaped && !off && extra.length === 1 && FLAT.includes(extra[0].split('|')[1])) {
+        [offBy, off] = extra[0].split('|');
+        supported = true;
+      }
 
-      // HP matters to Water Spout, Multiscale, Brine, pinch abilities. Ask
-      // rather than list: the row either moves with HP or it does not.
+      // HP matters to Water Spout, Multiscale, Brine, pinch abilities, and max
+      // HP to a one-hit knockout. Ask rather than list: the row either moves
+      // with them or it does not.
       const probe = (p) => [...new Set([p.maxhp, p.maxhp - 1, Math.ceil(p.maxhp / 2),
         Math.floor(p.maxhp / 2), Math.floor(p.maxhp / 3), Math.floor(p.maxhp / 4), 1])].filter(h => h >= 1);
-      const moves = p => probe(p).some(h => !sameRow(dryRow(hit, [{ pokemon: p, hp: h }], new Map()), base));
+      const moves = p => probe(p).some(h => !sameRow(dryRow(hit, [{ pokemon: p, hp: h }], new Map()), base))
+        || !sameRow(dryRow(hit, [{ pokemon: p, maxhp: p.maxhp + 1 }], new Map()), base);
+      const targetHp = moves(target);
+      const sourceHp = moves(source);
+      // A damage callback that reads no stat and no HP hands on an amount the
+      // battle kept from earlier - Counter, Mirror Coat, Metal Burst and
+      // Comeuppance return what the user was dealt. That amount was the
+      // replay's own, and another spread would have been dealt another.
+      const carried = !!clone.damageCallback && !reads.length && !targetHp && !sourceHp;
+      // A stat moved between Pokemon is not the one the Stat Points give, so no
+      // patch of them says what the hit would have done - nor, for a known
+      // Pokemon that took half of a hidden one's stat, is it known any more.
+      const moved = [...new Set(reads.filter(([p, s]) => byPokemon.get(p)?.movedStats.has(roomStat(s))).map(([p]) => label(byPokemon.get(p))))];
       return {
-        off, offBy: attacker === source ? 'source' : 'target', def, supported, targetHp: moves(target), sourceHp: moves(source),
+        off, offBy, def, supported: supported && !carried && !moved.length, carried, moved, targetHp, sourceHp,
       };
     });
     Object.assign(hit, shape);
+    if (hit.carried) note(what, 'its damage was carried over from an earlier hit, so it was not used');
+    if (hit.moved.length) note(what, `${hit.moved.join(' and ')} had a stat it read moved by another effect, so it was not used`);
     if (!hit.supported) return hit;
 
     // The attacking stat is a flat domain (Attack, Special Attack) or, for Body
@@ -848,10 +990,18 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       return statAmountChange(T, kind, sap.amounts, { rec: sapped, stat: 'atk' }, ctx, `Strength Sap on ${label(sapped)}'s Attack`);
     }
 
+    const M0 = T.pokemon.baseMaxhp;
+    // Toxic's nth tick is n sixteenths of max HP with the sixteenth rounded
+    // down first (`clampIntRange(baseMaxhp / 16, 1) * stage`), and the stage is
+    // the same whatever the spread.
+    if (id === 'tox' && kind === 'damage' && Number.isInteger(raw)) {
+      const stage = raw / Math.max(1, Math.floor(M0 / 16));
+      if (Number.isInteger(stage)) return amountChange(T, kind, M => [stage * Math.max(1, Math.floor(M / 16))], ctx, what);
+    }
+
     // Everything else that scales is written as a fraction of max HP. A raw
     // amount that is not a whole number proves the fraction was passed unrounded;
     // a whole one could have been rounded either way, so both are kept.
-    const M0 = T.pokemon.baseMaxhp;
     const k = FRACTIONS.find(f => Math.abs(raw - M0 * f) < 1e-9);
     if (k === undefined) return band(dir, what);
     const whole = Number.isInteger(raw);
@@ -1023,10 +1173,27 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
    * Whose HP a printed line shows: the Pokemon in that slot, which is the one
    * the line names or, under Illusion, the one disguised as it.
    */
-  function recOf(line) {
+  function recOf(line, at) {
     const p = battle.sides.find(s => s.id === line.side)?.active[line.slot];
-    if (p && (p.name === line.name || p.illusion?.name === line.name)) return byPokemon.get(p);
+    if (p && (p.name === line.name || p.illusion?.name === line.name || unmaskedAfter(p, line, at))) return byPokemon.get(p);
     return byIdent.get(`${line.side}:${line.name}`);
+  }
+
+  /**
+   * Whether the line at `at` named `p` by its disguise: Illusion had broken by
+   * the time the line is read, and a `|replace|` naming `p` in that slot comes
+   * after it, before anything switches in there.
+   */
+  function unmaskedAfter(p, line, at) {
+    const ident = `${line.side}${'abcd'[line.slot]}: `;
+    for (const entry of view) {
+      if (entry.at <= at) continue;
+      const [, kind, who] = entry.line.split('|');
+      if (!String(who || '').startsWith(ident)) continue;
+      if (kind === 'replace') return identName(who) === p.name;
+      if (kind === 'switch' || kind === 'drag') return false;
+    }
+    return false;
   }
 
   /**
@@ -1035,7 +1202,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
    * it is never handed on as proved.
    */
   function observe(line, token, at, ahead = false, survived = false) {
-    const rec = recOf(line);
+    const rec = recOf(line, at);
     if (!rec) return;
     const first = !rec.chain;
     if (first) initChain(rec);
@@ -1115,13 +1282,16 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       return origGetDamage.call(this, source, target, move, suppress);
     }
     sync();
-    const clone = Utils.deepClone(move);
+    const clone = cloneMove(move);
     const pre = snapItems([source, target]);
+    const hpBefore = new Map([[source, source.hp], [target, target.hp]]);
     const draws = [];
     rollDraws = draws;
+    // Every die the real calculation throws, for the dry ones to throw alike.
     let real;
+    let thrown;
     try {
-      real = origGetDamage.call(this, source, target, move, suppress);
+      ({ value: real, thrown } = withDice(st, () => origGetDamage.call(this, source, target, move, suppress)));
     } finally {
       rollDraws = null;
     }
@@ -1129,7 +1299,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const crit = !!target.getMoveHitData(move).crit;
     const post = snapItems([source, target]);
     try {
-      const hit = analyseHit(source, target, clone, crit, real, pre, origGetDamage);
+      const hit = analyseHit(source, target, move, clone, crit, real, pre, origGetDamage, thrown, hpBefore);
       hit.rollAt = draws.length === 1 ? draws[0] : null;
       pendingHits.set(target, hit);
     } finally {
@@ -1292,14 +1462,18 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const T = byPokemon.get(target);
     const S = byPokemon.get(source);
     if (effect.id === 'strengthsap' && T && S && !T.kn.known) {
-      const amounts = new Map();
-      for (const a of aliveOf(T.flat.atk)) {
-        amounts.set(a, guarded(() => {
-          const undo = patchAll([{ pokemon: target, stats: { atk: T.stat('atk', a) } }]);
-          try { return target.getStat('atk', false, true); } finally { undo(); }
-        }));
+      const sapAt = a => guarded(() => {
+        const undo = patchAll([{ pokemon: target, stats: { atk: T.stat('atk', a) } }]);
+        try { return target.getStat('atk', false, true); } finally { undo(); }
+      });
+      const real = guarded(() => target.getStat('atk', false, true));
+      if (!T.movedStats.has('atk') && sapAt(fullEvs(target.set.evs).atk) === real) {
+        const amounts = new Map();
+        for (const a of aliveOf(T.flat.atk)) amounts.set(a, sapAt(a));
+        sapFor.set(source, { rec: T, amounts });
+      } else {
+        note(`Strength Sap on ${label(T)}`, 'its Attack is not the one its Stat Points give, so the heal was not used');
       }
-      sapFor.set(source, { rec: T, amounts });
     }
     if (effect.id !== 'painsplit' || !T || !S || T === S || T.exact === S.exact) {
       return origSingle.call(this, eventid, effect, effectState, target, source, ...rest);
@@ -1352,7 +1526,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   };
 
   const speed = attachSpeed(battle, {
-    state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label, measure, cutOf,
+    state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label, measure, cutOf, note,
   });
 
   /**
@@ -1556,6 +1730,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         // In the order they were applied: every HP event as the battle ran, then
         // the whole-path check, then speed order, which needs every turn's sort.
         events,
+        checks,
         cutoff: prefix.cutoffAt === Infinity ? null : { turn: prefix.turn, observed: prefix.observedLine },
       };
     },

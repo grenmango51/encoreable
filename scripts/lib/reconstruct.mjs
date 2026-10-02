@@ -37,7 +37,7 @@ import { battleLines, firstDivergence, unmaskIllusion } from './protocol.mjs';
 import { install, traceOn, markDraws, atLine } from './rng-control.mjs';
 
 const require = createRequire(import.meta.url);
-const { Battle, BattleStream, Dex, Teams, toID, Utils } = require('pokemon-showdown');
+const { Battle, BattleStream, Dex, Teams, toID } = require('pokemon-showdown');
 // Not re-exported by `sim/index.ts`; see docs/engineering.md 6.5. This is the sim's
 // own resolver for the secret/public split, so no percentage arithmetic of ours
 // exists anywhere in this project.
@@ -495,6 +495,69 @@ export function restoreItems(snap) {
   }
 }
 
+/**
+ * A copy of an in-flight move that a dry run may change freely. Plain data on
+ * it is copied; the simulator's own entries - abilities, items, conditions,
+ * species, all frozen - and live objects such as a Pokemon are shared, because
+ * handlers compare them by identity (`move.typeChangerBoosted === this.effect`).
+ */
+export function cloneMove(move) {
+  const out = Object.create(Object.getPrototypeOf(move));
+  for (const key of Object.keys(move)) out[key] = copyData(move[key]);
+  return out;
+}
+
+function copyData(value) {
+  if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  if (Array.isArray(value)) return value.map(copyData);
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return value;
+  const out = {};
+  for (const key of Object.keys(value)) out[key] = copyData(value[key]);
+  return out;
+}
+
+/** Hand a move back the fields a `cloneMove` snapshot of it had. */
+export function restoreMove(move, snap) {
+  for (const key of Object.keys(move)) if (!(key in snap)) delete move[key];
+  for (const key of Object.keys(snap)) move[key] = copyData(snap[key]);
+}
+
+/**
+ * Run `fn` and hand back the dice it threw, as the RNG engine's trace rows. A
+ * battle already tracing keeps every row where it was written.
+ */
+export function withDice(st, fn) {
+  if (st.trace) {
+    const start = st.trace.length;
+    const value = fn();
+    return { value, thrown: st.trace.slice(start) };
+  }
+  st.trace = [];
+  try {
+    const value = fn();
+    return { value, thrown: st.trace };
+  } finally {
+    st.trace = null;
+  }
+}
+
+/**
+ * The battle log as a dry run found it. Lines are only ever appended, except
+ * the last move line, which `attrLastMove` extends in place - Fickle Beam's
+ * `[anim]` tag.
+ */
+export function saveLog(battle) {
+  const length = battle.log.length;
+  const at = battle.lastMoveLine;
+  const line = battle.log[at];
+  return () => {
+    battle.log.length = length;
+    battle.lastMoveLine = at;
+    if (at >= 0 && at < length) battle.log[at] = line;
+  };
+}
+
 /** Swap an own method in, returning the undo. Mods install some methods per instance. */
 export function override(obj, name, fn) {
   const had = Object.prototype.hasOwnProperty.call(obj, name);
@@ -610,18 +673,20 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
     return origRandomizer.call(this, base);
   };
 
-  const dry = (fn, roll) => {
+  // Any die but the damage roll takes the face the real calculation's die of
+  // the same range took (`thrown`).
+  const dry = (fn, roll, thrown = null) => {
     const undo = override(battle, 'random', (m, n) => (m === 16 && n === undefined ? roll : (n === undefined ? 0 : m)));
     const prevDry = st.dry;
-    st.dry = { roll };
+    st.dry = { roll, draws: thrown ? thrown.map(d => ({ ...d, used: false })) : null };
     const saved = {
-      log: battle.log.length, faints: battle.faintQueue.length, move: battle.activeMove,
+      log: saveLog(battle), faints: battle.faintQueue.length, move: battle.activeMove,
       target: battle.activeTarget, user: battle.activePokemon, lastDamage: battle.lastDamage,
     };
     try {
       return fn();
     } finally {
-      battle.log.length = saved.log;
+      saved.log();
       battle.faintQueue.length = saved.faints;
       battle.activeMove = saved.move;
       battle.activeTarget = saved.target;
@@ -688,7 +753,7 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
 
   const none = wrong => ({ reps: [], groups: new Map(), wrong });
 
-  function bracket(source, target, move, clone, items, seen, current) {
+  function bracket(source, target, move, clone, items, seen, current, real, thrown) {
     // No HP line for this target before the next action: the hit landed on
     // nothing the log shows, and its roll has nothing to fix - unless a
     // Substitute took it, whose breaking the roll does decide.
@@ -701,17 +766,21 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
 
     const h = target.hp;
     const shown = new Map();
+    const dealt = new Map();
     const printed = (r) => {
       if (shown.has(r)) return shown.get(r);
       let token = null;
       let left = null;
       const post = snapItems([source, target]);
       try {
+        // A fresh copy each time, so no dry run sees another's changes.
         let x = dry(() => {
           restoreItems(items);
-          clone.moveHitData = undefined;
-          return origGetDamage.call(actions, source, target, clone, true);
-        }, r);
+          const copy = cloneMove(clone);
+          copy.moveHitData = undefined;
+          return origGetDamage.call(actions, source, target, copy, true);
+        }, r, thrown);
+        dealt.set(r, x);
         if (typeof x === 'number') {
           if (x !== 0) x = Math.max(1, x);
           if (x >= h) {
@@ -741,6 +810,10 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
       return rank;
     };
     try {
+      // The dry calculation stands in for the real one only if, on the roll the
+      // real one took, it deals what the real one dealt.
+      printed(current);
+      if (dealt.get(current) !== real) return null;
       let lo = 0;
       let hi = ROLLS;
       while (lo < hi) { const mid = (lo + hi) >> 1; if (rankAt(mid) < wantRank) lo = mid + 1; else hi = mid; }
@@ -809,15 +882,16 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
       return origGetDamage.call(this, source, target, move, suppress);
     }
     const seen = expect(target);
-    const clone = Utils.deepClone(move);
+    const clone = cloneMove(move);
     const items = snapItems([source, target]);
     const got = [];
     const rolled = [];
     draws = got;
     chances = rolled;
     let real;
+    let thrown;
     try {
-      real = origGetDamage.call(this, source, target, move, suppress);
+      ({ value: real, thrown } = withDice(st, () => origGetDamage.call(this, source, target, move, suppress)));
     } finally {
       draws = null;
       chances = null;
@@ -830,7 +904,7 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
     clone.willCrit = crit;
     const current = faceOf(got[0]);
     if (current === undefined) return real;
-    const fits = bracket(source, target, move, clone, items, seen, current);
+    const fits = bracket(source, target, move, clone, items, seen, current, real, thrown);
     if (fits) out.set(got[0], fits);
     return real;
   };
