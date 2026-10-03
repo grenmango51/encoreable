@@ -456,7 +456,8 @@ export function combineGames(game, others) {
     if (o.p1 !== game.p1 || o.p2 !== game.p2) return 'its players are not on the same sides';
     if (![0, 1].every(s => sameSheet(o.bestOf.sheets?.[s], own.sheets?.[s]))) return 'its team sheets are not this game\'s';
     if (game.complete !== true || inf.complete !== true) return 'this game did not rebuild line for line';
-    if (o.complete !== true || o.inference?.complete !== true) return 'it did not rebuild line for line';
+    if (!o.inference) return 'it inferred no Stat Points';
+    if (o.complete !== true || o.inference.complete !== true) return 'it did not rebuild line for line';
     if (assumes(o) && !assumes(game)) return 'it assumed every Stat Point spent';
     const misplaced = inf.pokemon.some((p) => {
       const q = o.inference.pokemon.find(x => x.id === p.id);
