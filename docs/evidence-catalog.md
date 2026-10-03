@@ -5,7 +5,8 @@
 **Status:** Phases 0–3 and 5 built as `npm run catalog` (§4); its reports are
 `evidence-open-sheets.md` and `evidence-closed-sheets.md`, summarised in §5. Phase 4 done for open
 sheets: the inference checks its own shortcuts against the simulator, and every open-sheet gap
-the runs found is read; what is left is listed in §3 Phase 4.
+the runs found is read; what is left is listed in §3 Phase 4. What the catalog cannot see yet is
+`open-sheet-plan.md`; closed-sheet inference is `closed-sheet-plan.md`.
 **Target format:** `gen9championsvgc2026regmc`, Reg M-C, live on play.pokemonshowdown.com.
 **Verified against:** `pokemon-showdown` at upstream commit `a5df827` (2026-09-22), the commit
 `package.json` pins; `scripts/lib/inference/` as of 2026-10-03.
@@ -102,8 +103,7 @@ Who can use each candidate:
 These have **no legal holder in Reg M-C**, so they are out of scope until a regulation allows them:
 Protosynthesis, Quark Drive, Beast Boost, Download, Anger Shell, Wimp Out, Ruination, and the move
 Photon Geyser. The items Choice Band, Choice Specs, Assault Vest and Booster Energy are
-nonstandard in M-C, as they were in M-B. `engineering.md` §9 names Choice Band, Specs and Assault
-Vest as closed-sheet candidates. Phase 5 corrects that list against this pool.
+nonstandard in M-C, as they were in M-B, so no closed-sheet candidate list includes them.
 
 The rest of what M-C adds should need no new mechanism, which Phase 3 confirms: the damage
 modifiers (Filter, Stakeout, Punk Rock, Steely Spirit, Grass Pelt, Normal Gem, the terrain Seeds
@@ -253,10 +253,9 @@ a percentage (M4), never on a known Pokemon's exact line as this plan first had 
 ### Phase 5 — Closed team sheets
 
 Run the same probe with item, ability and nature varied instead of Stat Points, over the Phase 1
-pool. The rows say which unknown each effect reveals and through which sink. That replaces the
-hand-written candidate list in `engineering.md` §9 (closed sheets). The cost of carrying those
-unknowns in `knowledge.mjs` (21 natures, items as a dimension) is decided there. The catalog only
-says which candidates are worth a dimension at all.
+pool. The rows say which unknown each effect reveals and through which sink. How those unknowns
+are carried and eliminated is `closed-sheet-plan.md`; the catalog says which candidates act at
+all, and once that plan's Phase 4 is built, whether the closed inference keeps and narrows them.
 
 ---
 
@@ -364,8 +363,9 @@ use, it uses. What is left:
 4. **UNSTABLE**, 21 rows, where the two worlds drew different dice (one fainted, one missed): they
    cannot say whether a line is read, but each world is rebuilt and keeps its real spread.
 5. **NOT SHOWN** — 129 effects no template made act: most cannot carry a Stat Point at all on an
-   open sheet (accuracy, critical-hit rate, weather length); `evidence-swarm-plan.md` at the repo
-   root asks for every move, ability and item to be judged by hand on exactly that. The
+   open sheet (accuracy, critical-hit rate, weather length); `evidence-by-hand.md` judges every
+   move, ability and item by hand on exactly that, and its answers, checked
+   against the simulator, are the appendices of `open-sheet-plan.md` and `closed-sheet-plan.md`. The
    conditional ones — the weather speed abilities, Quick Feet, Speed Swap, Sleep Talk, Steel
    Roller, Liquid Ooze, Binding Band, Expert Belt, Big Root, Blaze, Solar Power, Focus Band, a
    partner's Wish, Pain Split with the partner, Shell Bell over a spread move and a double hit —

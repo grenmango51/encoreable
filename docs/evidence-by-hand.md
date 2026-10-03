@@ -1,5 +1,11 @@
 # Evidence by hand: every move, ability and item, read one at a time
 
+**Status:** done, every entry filled (commit `e7f3322`). Its answers are hypotheses: they were
+checked against the catalog and the simulator source, and what held up is the appendices of
+`open-sheet-plan.md` and `closed-sheet-plan.md`. §8's "twenty most useful findings" is unreliable —
+16 of the 20 cite a wrong entry number or an effect not in Reg M-C. The brief below is the task as it
+was given.
+
 **For:** one agent, working alone, with no earlier conversation.
 **Task:** read the source of every move, ability and item that Reg M-C allows — 879 of them,
 listed in §6 — and write down, for each one, whether it can let a replay reveal something hidden

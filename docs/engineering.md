@@ -1307,7 +1307,8 @@ through small battles, finds which stats each lets reach the log, and checks tha
 evidence pass uses. Its report `evidence-open-sheets.md` §2 is the work list: no legal effect
 removes a real spread there, and every battle in it rebuilds. What is left (`evidence-catalog.md`
 §5) is what a battle cannot tell: a speed tie, an order between two hidden Pokemon, an Illusion
-switch-in nothing settles.
+switch-in nothing settles. What the catalog cannot see yet, and the battles that close it, are
+`open-sheet-plan.md`.
 
 1. **The evidence still unused** (§7.5): every line the evidence pass sets aside — none in the
    S3 suite, and in the catalog only a switch-in Illusion could have made.
@@ -1341,20 +1342,10 @@ switch-in nothing settles.
 ### Closed team sheets — what is still open (§7.6)
 
 The sets are read off the log and the rest is assumed. `evidence-closed-sheets.md` §2 is the work
-list: what `setsFromLog` reads wrong (Rocky Helmet put on the Pokemon it hurt, a Mega's ability
-read into the base set) or misses (the ability a move or Trace replaced, the item Poltergeist
-names), and which items, abilities and natures change the log unnamed, with the witness battles in
-which today's assumption then removes the real spread. Next, in the same shape as §7.5 — each
-unknown becomes a candidate dimension, and the simulator is still the only thing that computes:
-
-1. **Items the log never names** — Choice Band, Specs and Scarf, Expert Belt, type boosters,
-   Assault Vest — as a small candidate set per Pokemon. Each hit is dry-run per (item, spread): a
-   hit above every no-item spread's maximum proves a boosting item, an attacker that chose two
-   different moves without switching holds no Choice item, an Assault Vest holder never chose a
-   status move, and speed order bounds Scarf.
-2. **Natures**, which multiply the stat model by 21 distinct effects, so the joint key grows with
-   them.
-3. **Abilities** with more than one option, most of which announce themselves when they act.
+list: what `setsFromLog` reads wrong or misses, and which items, abilities and natures change the
+log unnamed, with the witness battles in which today's assumption then removes the real spread.
+`closed-sheet-plan.md` is the plan that replaces the assumption with elimination: each unknown box
+a list of candidates, removed only when the simulator says no spread under it fits.
 
 ---
 
