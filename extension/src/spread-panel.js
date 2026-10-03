@@ -143,10 +143,12 @@ function notes(b, side) {
           now.grids = after;
         }
       }
-      if (!moved.length && !grid) continue;
-      const body = `<strong>${who(b, c.id, c.pokemon, side)}</strong>: ` +
-        (moved.length ? moved.join(', ') : 'no one stat\'s range moved, but which HP goes with which Def and SpD did');
-      put(e.turn, note(body, context, grid));
+      let said = moved.join(', ');
+      if (!said) {
+        said = grid ? 'no one stat\'s range moved, but which HP goes with which Def and SpD did'
+          : 'no one stat\'s range moved, but which values go together did';
+      }
+      put(e.turn, note(`<strong>${who(b, c.id, c.pokemon, side)}</strong>: ${said}`, context, grid));
     }
   }
   for (const c of inf.checks || []) {
@@ -329,9 +331,12 @@ export function install({ call, branchOf }) {
     const state = stateOf(b, entry);
     const seq = ++state.seq;
     const got = await ask(b, entry, state);
-    if (!got || seq !== state.seq) return;
-    state.spread = got.spread;
-    state.reach = got.reach;
+    if (seq !== state.seq) return;
+    // With nothing back, the thumb goes back to where the state still has it.
+    if (got) {
+      state.spread = got.spread;
+      state.reach = got.reach;
+    }
     redraw(roomid, id);
   }
 
