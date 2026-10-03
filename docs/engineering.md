@@ -909,8 +909,13 @@ each, at most 66 together — 136,663,185 spreads. Inference starts from all of 
 the simulator says could not have produced the log. The result is the whole surviving set, not
 a guess: stat ranges, a spread count, and every event that removed something
 (`inference.events` in the written `.log.json`) — with, for each Pokemon it cut, the count
-before and after, every stat's range after, and which of those ranges it moved. A single-source
-run prints the events too.
+before and after, every stat's range after, and which of those ranges it moved. An event that
+read HP, Defence and Special Defence together also carries `grids`: which HP still goes with
+which Defence and which Special Defence, as bits. Each inferred Pokemon in
+`inference.pokemon` carries its whole surviving set as `knowledge` (`packKnowledge` in
+`knowledge.mjs`, a few kilobytes), so a recording opened later — the extension's Stat Point
+sliders — knows every spread still possible, not just the ranges. A single-source run prints
+the events too.
 
 **The simulator decides everything.** One replay of a reconstructed input log is hooked at the
 places a spread matters, `scripts/lib/inference/`:

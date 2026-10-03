@@ -34,7 +34,8 @@ import {
   splitTurns, withDice,
 } from '../reconstruct.mjs';
 import {
-  FLAT, KEY_DIM, KEY_HP, SPAN, STAT_IDS, aliveOf, fullEvs, maskKeys, newTie, pairName, rangesOf, spreadCount, supported, tieHas, tieWords,
+  FLAT, KEY_DIM, KEY_HP, SPAN, STAT_IDS, aliveOf, fullEvs, maskKeys, newTie, packBits, pairName, rangesOfValues, spreadCount, supported,
+  tieHas, tieWords, valuesOf,
 } from './knowledge.mjs';
 import { attachSpeed } from './speed.mjs';
 
@@ -371,12 +372,21 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   };
 
   // What an event did to one Pokemon: the spread count before and after, each
-  // stat's range after, and which of those ranges it moved.
-  const measure = rec => ({ count: countOf(rec), stats: rangesOf(rec.chain ? rec.chain.keys() : rec.knKeys, rec.flat, rec.kn.spent, rec.ties) });
+  // stat's range after, which of those ranges it moved, and - where it read
+  // HP, Defence and Special Defence together - which HP goes with which
+  // Defence and which Special Defence after it.
+  const measure = (rec) => {
+    const keys = rec.chain ? rec.chain.keys() : rec.knKeys;
+    const { values, grids } = valuesOf(keys, rec.flat, rec.kn.spent, rec.ties);
+    return { count: countOf(rec), keyCount: rec.chain ? rec.chain.size : rec.knKeys.length, stats: rangesOfValues(values), grids };
+  };
   const sameRange = (a, b) => (a === null ? b === null : b !== null && a.min === b.min && a.max === b.max);
+  const sameGrid = (a, b) => a.every((v, i) => v === b[i]);
   function cutOf(rec, before) {
     const after = measure(rec);
     if (after.count === before.count) return null;
+    const paired = after.keyCount !== before.keyCount
+      && (!sameGrid(after.grids.def, before.grids.def) || !sameGrid(after.grids.spd, before.grids.spd));
     return {
       id: rec.id,
       pokemon: label(rec),
@@ -384,6 +394,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       after: after.count,
       stats: after.stats,
       narrowed: STAT_IDS.filter(s => !sameRange(before.stats[s], after.stats[s])),
+      ...(paired ? { grids: { def: packBits(after.grids.def), spd: packBits(after.grids.spd) } } : {}),
     };
   }
 

@@ -18,7 +18,10 @@ import fs from './node/fs.js';
 import { truncateAtTurn, inputLogLines } from '../../scripts/lib/truncate.mjs';
 import { battleLines } from '../../scripts/lib/protocol.mjs';
 import { reconstruct, unpackTeams } from '../../scripts/lib/reconstruct.mjs';
-import { inferSpreads } from '../../scripts/lib/inference/infer.mjs';
+import { inferSpreads, inferenceRecord } from '../../scripts/lib/inference/infer.mjs';
+import {
+  STAT_IDS, containsSpread, rangesOfValues, spreadAt, typicalSpread, unpackKnowledge, valuesOf, maskKeys,
+} from '../../scripts/lib/inference/knowledge.mjs';
 import {
   alignSpeciesToSheet, crossCheckLog, crossCheckSheet, loadSource, maxHpFromLog, setsFromLog, setsFromSheet,
   teamsForSides, withLogIdentity,
@@ -450,7 +453,7 @@ export async function reconstructReplay({ source: input, teams = [null, null], i
         p2: source.players[1],
         p1team,
         p2team,
-        inference: inference ? { inferred, complete: inference.complete, rounds: inference.rounds } : undefined,
+        inference: inference ? inferenceRecord(inference, inferred) : undefined,
         inputLog: built.inputLog,
         log: built.log,
         format: source.formatid,
@@ -462,4 +465,95 @@ export async function reconstructReplay({ source: input, teams = [null, null], i
   }
 }
 
-export const methods = { resim, open, branch, choose, undo, forfeit, view, exportLog, close, reconstructReplay, rngCommand };
+// ---------------------------------------------------------------- Stat Points
+
+/** Per open panel, per Pokemon id: what survives for it, and each stat's values across it. */
+const panels = new Map();
+let nextPanel = 0;
+
+const valuesList = kn => Object.fromEntries(Object.entries(valuesOf(maskKeys(kn.keys), kn.dom, kn.spent, kn.ties).values)
+  .map(([s, mask]) => [s, [...mask.keys()].filter(v => mask[v])]));
+
+/** Per stat, the values it can move to with every other stat staying where `spread` has it. */
+const reachFrom = (kn, values, spread) => Object.fromEntries(STAT_IDS.map(s => [s, values[s].filter(v => containsSpread(kn, { ...spread, [s]: v }))]));
+
+/**
+ * What the Stat Point sliders of a branch show, for every Pokemon of both
+ * teams in team order: its stats at each Stat Point for each forme it can
+ * take, the spread its battle uses, and - for one whose Stat Points were
+ * inferred - each stat's possible values, the spread the sliders open on, and
+ * how far each slider goes from there with nothing else moving.
+ *
+ * @param inference  a recording's `inference` block, or null when both teams were known
+ */
+export function spreadPanel(key, inference) {
+  const battle = session(key).battle;
+  const handle = ++nextPanel;
+  const byId = new Map((inference?.pokemon || []).map(p => [p.id, p]));
+  const inferredSides = new Set(inference?.inferred || []);
+  const pokemon = [];
+  for (const [s, side] of battle.sides.entries()) {
+    for (const [i, set] of side.team.entries()) {
+      const id = `p${s + 1}:${i}`;
+      const species = battle.dex.species.get(set.species || set.name);
+      const nature = battle.dex.natures.get(set.nature || 'Serious');
+      const mega = battle.dex.items.get(set.item).megaStone?.[species.baseSpecies];
+      const stats = {};
+      for (const forme of [species, mega && battle.dex.species.get(mega)].filter(f => f?.exists)) {
+        stats[forme.name] = Object.fromEntries(STAT_IDS.map(stat => [stat, Array.from({ length: 33 }, (_, sp) => battle.statModify(
+          forme.baseStats, { ...set, evs: { ...set.evs, [stat]: sp } }, stat))]));
+      }
+      const used = Object.fromEntries(STAT_IDS.map(x => [x, Number(set.evs?.[x]) || 0]));
+      const entry = { id, side: `p${s + 1}`, name: set.name || species.name, species: species.name, nature: nature.name, stats, used };
+      const p = byId.get(id);
+      if (p?.knowledge) {
+        const kn = unpackKnowledge(p.knowledge);
+        const values = valuesList(kn);
+        panels.set(`${handle}|${id}`, { kn, values });
+        const spread = typicalSpread(kn, species.baseStats, nature) || used;
+        Object.assign(entry, {
+          inferred: true, spreads: p.spreads, ranges: rangesOfValues(valuesOf(maskKeys(kn.keys), kn.dom, kn.spent, kn.ties).values),
+          values, typical: spread, spread, reach: reachFrom(kn, values, spread),
+        });
+      } else if (inferredSides.has(entry.side)) {
+        // A recording made before what survives was kept with it.
+        Object.assign(entry, { inferred: true, unrecorded: true, spread: used });
+      } else {
+        entry.spread = used;
+      }
+      pokemon.push(entry);
+    }
+  }
+  return { handle, pokemon };
+}
+
+/**
+ * One slider moved: `stat` to `value`, the others kept where `current` has
+ * them if that spread survives, and otherwise moved to the nearest one that
+ * does.
+ */
+export function spreadMove(handle, id, stat, value, current) {
+  const panel = panels.get(`${handle}|${id}`);
+  if (!panel) throw new Error(`no Stat Point panel for ${id}`);
+  const wanted = { ...current, [stat]: Number(value) };
+  const spread = containsSpread(panel.kn, wanted) ? wanted : spreadAt(panel.kn, stat, Number(value), current);
+  if (!spread) return null;
+  return { spread, reach: reachFrom(panel.kn, panel.values, spread) };
+}
+
+/** The reach of a spread already chosen, as when the sliders go back to where they opened. */
+export function spreadReach(handle, id, spread) {
+  const panel = panels.get(`${handle}|${id}`);
+  if (!panel) throw new Error(`no Stat Point panel for ${id}`);
+  return { spread, reach: reachFrom(panel.kn, panel.values, spread) };
+}
+
+export function spreadPanelClose(handle) {
+  for (const k of [...panels.keys()]) if (k.startsWith(`${handle}|`)) panels.delete(k);
+  return true;
+}
+
+export const methods = {
+  resim, open, branch, choose, undo, forfeit, view, exportLog, close, reconstructReplay, rngCommand,
+  spreadPanel, spreadMove, spreadReach, spreadPanelClose,
+};

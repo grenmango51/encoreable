@@ -20,6 +20,8 @@
  *
  * Nothing addressed to a fake room is ever sent. Everything else is untouched.
  */
+import { annotate, install as installSpreads, loadPanel } from './spread-panel.js';
+
 (() => {
   'use strict';
   if (window.encoreable) return;
@@ -29,7 +31,7 @@
   const COUNTER = 'encoreable:next';
   const SIDES = ['p1', 'p2'];
 
-  const branches = new Map();   // n -> { n, key, formatid, players, source, closed: Set }
+  const branches = new Map();   // n -> { n, key, formatid, players, source, start, inference, panel, closed: Set }
   const pending = new Map();
   let nextCall = 0;
   let workerReady = null;
@@ -148,8 +150,20 @@
 
   function persist(b, summary) {
     store.set(STORE + b.n, {
-      n: b.n, formatid: b.formatid, players: b.players, source: b.source, inputLog: summary.inputLog,
+      n: b.n, formatid: b.formatid, players: b.players, source: b.source, start: b.start, inference: b.inference,
+      inputLog: summary.inputLog,
     });
+  }
+
+  /** The Stat Point panel needs the branch's battle; a branch shows without one rather than not at all. */
+  async function withPanel(b) {
+    try {
+      await loadPanel(b, call);
+    } catch (err) {
+      b.panel = null;
+      log('no Stat Point panel:', err);
+    }
+    return b;
   }
 
   /** Builds (or rebuilds) both rooms of a branch from what the Worker opened. */
@@ -157,7 +171,7 @@
     for (const side of ['p2', 'p1']) {
       const id = roomId(b, side);
       const view = opened.sides[side];
-      deliver(id, ['|init|battle', `|title|${title(b, side)}`, ...view.scrollback], { init: true });
+      deliver(id, ['|init|battle', `|title|${title(b, side)}`, ...annotate(view.scrollback, b, side)], { init: true });
       if (view.request) deliver(id, [view.request]);
       b.closed.delete(side);
     }
@@ -166,14 +180,19 @@
 
   /**
    * Opens a branch: `inputLog` cut at the start of `turn`, every later roll fresh.
-   * `source` is a label kept with it (a file name, a replay id).
+   * `source` is a label kept with it (a file name, a replay id); `inference` is
+   * the recording's, when its Stat Points were worked out from a replay.
    */
-  async function openBranch({ inputLog, turn, source = '' }) {
+  async function openBranch({ inputLog, turn, source = '', inference = null }) {
     if (!window.app || !app.receive) throw new Error('the Showdown client is not loaded yet');
     const opened = await call('branch', String(inputLog), Number(turn));
-    const b = { n: allocate(), key: opened.key, formatid: opened.formatid, players: opened.players, source, closed: new Set() };
+    const b = {
+      n: allocate(), key: opened.key, formatid: opened.formatid, players: opened.players, source,
+      start: opened.turn, inference, closed: new Set(),
+    };
     branches.set(b.n, b);
     persist(b, opened);
+    await withPanel(b);
     show(b, opened, 'p1');
     log('opened branch', b.n, 'at turn', opened.turn, 'from', source || '(unnamed)');
     return { n: b.n, rooms: SIDES.map(s => roomId(b, s)), turn: opened.turn };
@@ -185,8 +204,12 @@
     const saved = store.get(STORE + n);
     if (!saved) return null;
     const opened = await call('open', saved.inputLog);
-    const b = { n, key: opened.key, formatid: saved.formatid, players: saved.players, source: saved.source, closed: new Set(SIDES) };
+    const b = {
+      n, key: opened.key, formatid: saved.formatid, players: saved.players, source: saved.source,
+      start: saved.start, inference: saved.inference || null, closed: new Set(SIDES),
+    };
     branches.set(n, b);
+    await withPanel(b);
     b.opened = opened;
     log('rebuilt branch', n, 'at turn', opened.turn);
     return b;
@@ -195,6 +218,7 @@
   async function dispose(b) {
     branches.delete(b.n);
     store.remove(STORE + b.n);
+    if (b.panel) await call('spreadPanelClose', b.panel.handle).catch(() => {});
     await call('close', b.key).catch(() => {});
   }
 
@@ -401,7 +425,7 @@
       throw new Error(`${id} was rebuilt only through turn ${reach} of ${rec.turns}, so it cannot be branched at turn ${turn}. ` +
         `It is saved as "${name}"; open it at turn ${reach} or earlier from the Encoreable recordings page.`);
     }
-    const opened = await openBranch({ inputLog: rec.inputLog.join('\n'), turn, source: `replay ${id}` });
+    const opened = await openBranch({ inputLog: rec.inputLog.join('\n'), turn, source: `replay ${id}`, inference: rec.inference || null });
     banner(`${id}: rebuilt (${rec.complete ? 'matches the replay line for line' : `verified through turn ${reach}`}) and branched at turn ${opened.turn}.`, { done: true });
     return opened;
   }
@@ -421,7 +445,7 @@
       banner(`opening ${request.recording.name} at turn ${request.turn}...`);
       const data = JSON.parse(request.recording.text);
       const inputLog = Array.isArray(data.inputLog) ? data.inputLog.join('\n') : String(data.inputLog);
-      const opened = await openBranch({ inputLog, turn: request.turn, source: request.recording.name });
+      const opened = await openBranch({ inputLog, turn: request.turn, source: request.recording.name, inference: data.inference || null });
       banner(`${request.recording.name} branched at turn ${opened.turn}.`, { done: true });
       return opened;
     }
@@ -455,6 +479,15 @@
 
   // The RNG panel serves fake rooms only; a real battle's tooltips stay vanilla.
   window.__rngPanelRooms = roomid => FAKE_ROOM.test(String(roomid));
+
+  // So does the Stat Point panel.
+  installSpreads({
+    call,
+    branchOf: (roomid) => {
+      const m = FAKE_ROOM.exec(String(roomid || ''));
+      return m ? branches.get(Number(m[1])) || null : null;
+    },
+  });
 
   // `App.initialize` runs `window.app = this` before it sends anything.
   let appRef = window.app;

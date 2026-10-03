@@ -26,8 +26,8 @@ import { createRequire } from 'module';
 
 import { disguisableStays, identName, identSide, reconstruct, sampler, unsettledDisguises } from '../reconstruct.mjs';
 import {
-  BUDGET, FLAT, KEY_DEF, KEY_HP, KEY_SPD, KEYS, SPAN, STAT_IDS, aimFor, cloneKnowledge, closestSpread, defaultSpread, freshKnowledge, fullEvs,
-  intersectKnowledge, keyOf, maskKeys, pinKnowledge, sameSpread, spreadsLeft, summarise, tieHas, tighten, uniteKnowledge,
+  BUDGET, FLAT, SPAN, STAT_IDS, aimFor, cloneKnowledge, closestSpread, containsSpread, defaultSpread, freshKnowledge, fullEvs,
+  intersectKnowledge, keyOf, maskKeys, packKnowledge, pinKnowledge, sameSpread, spreadAt, spreadsLeft, summarise, tighten, uniteKnowledge,
 } from './knowledge.mjs';
 import { evidencePass } from './evidence.mjs';
 
@@ -306,15 +306,7 @@ export async function inferSpreads({
         afterEvents: result.afterFirst.get(id),
         ...summarise(kn),
         used: picks[s][i],
-        contains: (evs) => {
-          const e = fullEvs(evs);
-          const sum = STAT_IDS.reduce((t, x) => t + e[x], 0);
-          const k = keyOf(e.hp, e.def, e.spd);
-          const pairs = Object.entries(kn.ties || {}).filter(([n]) => n.includes('|'));
-          return !!kn.keys[k] && FLAT.every(x => kn.dom[x][e[x]] && (!kn.ties?.[x] || tieHas(kn.ties[x], k, e[x])))
-            && pairs.every(([n, m]) => { const [a, b] = n.split('|'); return m[e[a] * SPAN + e[b]] === 1; })
-            && (!kn.spent || sum === BUDGET);
-        },
+        contains: evs => containsSpread(kn, evs),
       });
     }
   }
@@ -391,20 +383,21 @@ export async function inferSpreads({
 }
 
 /**
- * A surviving spread with `stat` at `value`, the rest as near `prev` as the
- * knowledge allows - or null when none survives there.
+ * The inference as a recording carries it: each inferred Pokemon's ranges and
+ * what survives for it, every event that narrowed one and every check, so a
+ * recording opened later shows what the replay showed.
  */
-function spreadAt(kn, stat, value, prev) {
-  const at = cloneKnowledge(new Map([['x', kn]])).get('x');
-  if (FLAT.includes(stat)) {
-    at.dom[stat].fill(0);
-    at.dom[stat][value] = kn.dom[stat][value];
-  } else {
-    const of = { hp: KEY_HP, def: KEY_DEF, spd: KEY_SPD }[stat];
-    for (let k = 0; k < KEYS; k++) if (of[k] !== value) at.keys[k] = 0;
-  }
-  tighten(at);
-  return closestSpread(at, { ...prev, [stat]: value });
+export function inferenceRecord(inf, inferred, certified = null) {
+  return {
+    inferred,
+    complete: inf.complete,
+    rounds: inf.rounds,
+    pokemon: inf.pokemon.filter(p => !p.known)
+      .map(({ contains, known, ...rest }) => ({ ...rest, knowledge: packKnowledge(inf.knowledge.get(rest.id)) })),
+    events: inf.events,
+    checks: inf.checks,
+    ...(certified ? { certified } : {}),
+  };
 }
 
 /**

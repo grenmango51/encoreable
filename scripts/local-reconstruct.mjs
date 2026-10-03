@@ -45,7 +45,7 @@ import { createRequire } from 'module';
 
 import { battleLines } from './lib/protocol.mjs';
 import { listLogFiles, newestLogFile, posix as toPosix } from './lib/recordings.mjs';
-import { certifyRanges, inferSpreads } from './lib/inference/infer.mjs';
+import { certifyRanges, inferSpreads, inferenceRecord } from './lib/inference/infer.mjs';
 import { reconstruct, unpackTeams } from './lib/reconstruct.mjs';
 import {
   alignSpeciesToSheet, crossCheckLog, crossCheckSheet, loadSource, maxHpFromLog, setsFromLog, setsFromSheet,
@@ -404,15 +404,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
       p2: source.players[1],
       p1team: unpackTeams(packedTeams)[0],
       p2team: unpackTeams(packedTeams)[1],
-      inference: inference ? {
-        inferred,
-        complete: inference.complete,
-        rounds: inference.rounds,
-        pokemon: inference.pokemon.filter(p => !p.known).map(({ contains, known, ...rest }) => rest),
-        events: inference.events,
-        checks: inference.checks,
-        ...(certified ? { certified } : {}),
-      } : undefined,
+      inference: inference ? inferenceRecord(inference, inferred, certified) : undefined,
       inputLog: built.inputLog,
       log: built.log,
       format: source.formatid,

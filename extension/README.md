@@ -28,6 +28,19 @@ esbuild comes in as a dependency of the pinned `pokemon-showdown`.
 - **Playing.** A branch opens as two rooms, one per side, each seeing only its own exact HP.
   Switch between them in the client's tab bar. Hover a move or a Pokémon for the RNG controls.
   A reload keeps the branch.
+- **Stat Points.** Hover any Pokémon for a slider per stat. A Pokémon whose team was supplied
+  sits fixed on its spread. One whose Stat Points were worked out from the replay spans only
+  the values some spread the replay leaves still has, so the slider skips any value none has.
+  Moving one slider moves the others to the nearest spread still possible with it; the dark
+  part of a track is how far it goes with nothing else moving. The sliders open on the most
+  likely spread: the most the nature's raised stat can have, then the most HP, then the most
+  for the weaker defence (when the raised stat is Attack, Special Attack or Speed) or the
+  stronger attack (when it is a defence). **Reset** goes back there. The sliders never change
+  the battle; the spread it runs on is printed under them.
+  The battle log says, at the end of each turn, which ranges that turn narrowed, and the rest
+  of the replay's just before the branch point. A note that narrowed which HP goes with which
+  Defence or Special Defence opens onto both pairings as a grid. A recording rebuilt before
+  these were kept with it shows no sliders for that side.
 
 ## What is where
 
@@ -35,6 +48,7 @@ esbuild comes in as a dependency of the pinned `pokemon-showdown`.
 |---|---|
 | `manifest.json` | The Manifest V3 manifest. |
 | `src/room.js` | The fake room: hooks `app.send`, runs branches in the Worker, feeds each side its room. |
+| `src/spread-panel.js` | The Stat Point sliders in a branch's tooltips and the notes in its log; bundled into `room.js`. |
 | `src/engine.js`, `src/worker.js` | The simulator Worker: branches, `/rng`, reconstruction. |
 | `src/cjs.js` | Runs the embedded simulator's CommonJS files as Node would. |
 | `src/node/` | Browser stand-ins for the Node built-ins the reused `scripts/lib` code imports. |

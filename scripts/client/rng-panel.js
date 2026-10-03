@@ -672,10 +672,13 @@
 		el.style.height = height + 'px';
 	}
 
-	/** Marks the wrapper interactive when the box that just rendered has rows. */
+	/**
+	 * Marks the wrapper interactive when the box that just rendered has rows, or
+	 * a section another script's controls are in, marked `keeps-open`.
+	 */
 	function afterShow(anchor) {
 		var wrapper = document.getElementById('tooltipwrapper');
-		var open = !!(wrapper && wrapper.querySelector('.tooltip .rng'));
+		var open = !!(wrapper && wrapper.querySelector('.tooltip .rng, .tooltip .keeps-open'));
 		if (wrapper) {
 			if (open) wrapper.classList.add('rng-open');
 			else wrapper.classList.remove('rng-open');

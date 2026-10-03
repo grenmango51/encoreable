@@ -516,29 +516,44 @@ export function spreadsLeft(kn, keys = maskKeys(kn.keys), dom = kn.dom) {
 }
 
 /**
- * Each stat's range across the whole spreads that survive, as `{ min, max }`, or
- * null for a stat with nothing left. A value counts only if it fits the budget
- * beside some surviving choice for everything else - the rule `tighten` pushes
- * through, read here without moving anything.
+ * Which values each stat takes across the whole spreads that survive, and which
+ * HP-Defence and HP-Special Defence pairs do, each pair at HP times SPAN plus
+ * the other. A value counts only if it fits the budget beside some surviving
+ * choice for everything else - the rule `tighten` pushes through, read here
+ * without moving anything.
  */
-export function rangesOf(keys, dom, spent = false, ties = {}) {
-  const out = Object.fromEntries(STAT_IDS.map(s => [s, null]));
+export function valuesOf(keys, dom, spent = false, ties = {}) {
+  const values = Object.fromEntries(STAT_IDS.map(s => [s, new Uint8Array(SPAN)]));
+  const grids = { def: new Uint8Array(SPAN * SPAN), spd: new Uint8Array(SPAN * SPAN) };
   const { keys: list, dom: flat } = supported(keys, dom, ties);
-  if (!list.length || FLAT.some(s => !flat[s].includes(1))) return out;
+  if (!list.length || FLAT.some(s => !flat[s].includes(1))) return { values, grids };
   const fits = Object.keys(ties || {}).length ? tiedBudget(list, flat, ties, spent) : budgetTest(list, flat, spent);
-  const lo = { hp: SPAN, def: SPAN, spd: SPAN };
-  const hi = { hp: -1, def: -1, spd: -1 };
+  let any = false;
   for (const k of list) {
     if (!fits.key(k)) continue;
-    lo.hp = Math.min(lo.hp, KEY_HP[k]); hi.hp = Math.max(hi.hp, KEY_HP[k]);
-    lo.def = Math.min(lo.def, KEY_DEF[k]); hi.def = Math.max(hi.def, KEY_DEF[k]);
-    lo.spd = Math.min(lo.spd, KEY_SPD[k]); hi.spd = Math.max(hi.spd, KEY_SPD[k]);
+    any = true;
+    values.hp[KEY_HP[k]] = 1;
+    values.def[KEY_DEF[k]] = 1;
+    values.spd[KEY_SPD[k]] = 1;
+    grids.def[KEY_HP[k] * SPAN + KEY_DEF[k]] = 1;
+    grids.spd[KEY_HP[k] * SPAN + KEY_SPD[k]] = 1;
   }
-  if (hi.hp < 0) return out;
-  for (const s of ['hp', 'def', 'spd']) out[s] = { min: lo[s], max: hi[s] };
-  for (const [j, s] of FLAT.entries()) {
-    const values = aliveOf(flat[s]).filter(fits.flat[j]);
-    if (values.length) out[s] = { min: values[0], max: values[values.length - 1] };
+  if (!any) return { values, grids };
+  for (const [j, s] of FLAT.entries()) for (const v of aliveOf(flat[s])) if (fits.flat[j](v)) values[s][v] = 1;
+  return { values, grids };
+}
+
+/** Each stat's range across the whole spreads that survive, as `{ min, max }`, or null for a stat with nothing left. */
+export function rangesOf(keys, dom, spent = false, ties = {}) {
+  return rangesOfValues(valuesOf(keys, dom, spent, ties).values);
+}
+
+/** The ends of each stat's values from `valuesOf`. */
+export function rangesOfValues(values) {
+  const out = {};
+  for (const s of STAT_IDS) {
+    const alive = aliveOf(values[s]);
+    out[s] = alive.length ? { min: alive[0], max: alive[alive.length - 1] } : null;
   }
   return out;
 }
@@ -733,4 +748,134 @@ export function aimFor(kn, prev, q = 0.5) {
     aim[s] = values.length && values.length < SPAN ? values[Math.floor((values.length - 1) * q + 0.5)] : prev[s];
   }
   return aim;
+}
+
+// ------------------------------------------------------------ one spread
+
+/** Whether `evs` is one of the spreads `kn` still allows. */
+export function containsSpread(kn, evs) {
+  const e = fullEvs(evs);
+  const sum = STAT_IDS.reduce((t, x) => t + e[x], 0);
+  if (kn.spent ? sum !== BUDGET : sum > BUDGET) return false;
+  const k = keyOf(e.hp, e.def, e.spd);
+  return kn.keys[k] === 1
+    && FLAT.every(x => kn.dom[x][e[x]] === 1 && (!kn.ties?.[x] || tieHas(kn.ties[x], k, e[x])))
+    && pairsAllow(pairsOf(kn.ties), e);
+}
+
+/** A copy of `kn` with `stat` held at `value`, and the budget and ties pushed through. */
+export function restrictKnowledge(kn, stat, value) {
+  const at = cloneKnowledge(new Map([['x', kn]])).get('x');
+  if (FLAT.includes(stat)) {
+    at.dom[stat].fill(0);
+    at.dom[stat][value] = kn.dom[stat][value];
+  } else {
+    const of = { hp: KEY_HP, def: KEY_DEF, spd: KEY_SPD }[stat];
+    for (let k = 0; k < KEYS; k++) if (of[k] !== value) at.keys[k] = 0;
+  }
+  tighten(at);
+  return at;
+}
+
+/**
+ * A surviving spread with `stat` at `value`, the rest as near `prev` as the
+ * knowledge allows - or null when none survives there.
+ */
+export function spreadAt(kn, stat, value, prev) {
+  return closestSpread(restrictKnowledge(kn, stat, value), { ...prev, [stat]: value });
+}
+
+const OFFENSIVE = ['atk', 'spa', 'spe'];
+
+/**
+ * The spread the Stat Point sliders open on, inside what survives: the most the
+ * nature's raised stat can have, then the most HP beside it, then the most a
+ * third stat can have - the weaker of Defence and Special Defence when the
+ * raised stat is Attack, Special Attack or Speed, the stronger of Attack and
+ * Special Attack when it is a defence. A neutral nature starts from the
+ * stronger attacking stat. The other stats then take the most they can,
+ * highest base stat first and the nature's lowered stat last.
+ */
+export function typicalSpread(kn, baseStats, nature = {}) {
+  const stronger = baseStats.atk >= baseStats.spa ? 'atk' : 'spa';
+  const weaker = baseStats.def <= baseStats.spd ? 'def' : 'spd';
+  const first = nature.plus || stronger;
+  const order = [first, 'hp', OFFENSIVE.includes(first) ? weaker : stronger];
+  const rest = STAT_IDS.filter(s => !order.includes(s))
+    .sort((a, b) => (a === nature.minus) - (b === nature.minus) || baseStats[b] - baseStats[a]);
+  let at = kn;
+  const out = {};
+  for (const stat of [...order, ...rest]) {
+    const alive = aliveOf(valuesOf(maskKeys(at.keys), at.dom, at.spent, at.ties).values[stat]);
+    if (!alive.length) return null;
+    out[stat] = alive[alive.length - 1];
+    at = restrictKnowledge(at, stat, out[stat]);
+  }
+  return out;
+}
+
+// ------------------------------------------------------------ in a recording
+
+const toBase64 = (bytes) => {
+  let text = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(text);
+};
+const fromBase64 = (text) => {
+  const raw = atob(text);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+};
+
+/** A 0/1 array as base64, eight to a byte. */
+export function packBits(mask) {
+  const out = new Uint8Array(Math.ceil(mask.length / 8));
+  for (let i = 0; i < mask.length; i++) if (mask[i]) out[i >> 3] |= 1 << (i & 7);
+  return toBase64(out);
+}
+
+export function unpackBits(text, length) {
+  const bytes = fromBase64(text);
+  const out = new Uint8Array(length);
+  for (let i = 0; i < length; i++) out[i] = (bytes[i >> 3] >> (i & 7)) & 1;
+  return out;
+}
+
+/**
+ * What is known about one Pokemon as JSON a recording can carry: the keys, the
+ * flat domains and each pair tie as bits, and each key tie as the distinct
+ * words it holds with, per alive key in order, which one that key has.
+ */
+export function packKnowledge(kn) {
+  const alive = maskKeys(kn.keys);
+  const ties = {};
+  for (const [name, tie] of Object.entries(kn.ties || {})) {
+    if (name.includes('|')) { ties[name] = packBits(tie); continue; }
+    const words = [];
+    const seen = new Map();
+    const at = new Uint16Array(alive.length);
+    alive.forEach((k, i) => {
+      const sig = `${tie[2 * k]}.${tie[2 * k + 1]}`;
+      if (!seen.has(sig)) { seen.set(sig, words.length); words.push([tie[2 * k], tie[2 * k + 1]]); }
+      at[i] = seen.get(sig);
+    });
+    ties[name] = { words, at: toBase64(new Uint8Array(at.buffer)) };
+  }
+  return { spent: kn.spent, keys: packBits(kn.keys), dom: Object.fromEntries(FLAT.map(s => [s, packBits(kn.dom[s])])), ties };
+}
+
+export function unpackKnowledge(packed) {
+  const keys = unpackBits(packed.keys, KEYS);
+  const alive = maskKeys(keys);
+  const ties = {};
+  for (const [name, t] of Object.entries(packed.ties || {})) {
+    if (name.includes('|')) { ties[name] = unpackBits(t, SPAN * SPAN); continue; }
+    const at = new Uint16Array(fromBase64(t.at).buffer);
+    const tie = newTie();
+    alive.forEach((k, i) => { [tie[2 * k], tie[2 * k + 1]] = t.words[at[i]]; });
+    ties[name] = tie;
+  }
+  const dom = Object.fromEntries(FLAT.map(s => [s, unpackBits(packed.dom[s], SPAN)]));
+  return { known: false, spent: !!packed.spent, keys, dom, ties };
 }
