@@ -37,10 +37,13 @@ esbuild comes in as a dependency of the pinned `pokemon-showdown`.
   for the weaker defence (when the raised stat is Attack, Special Attack or Speed) or the
   stronger attack (when it is a defence). **Reset** goes back there. The sliders never change
   the battle; the spread it runs on is printed under them.
-  The battle log says, at the end of each turn, which ranges that turn narrowed, and the rest
-  of the replay's just before the branch point. A note that narrowed which HP goes with which
-  Defence or Special Defence opens onto both pairings as a grid. A recording rebuilt before
-  these were kept with it shows no sliders for that side.
+  The battle log opens, just before turn 1, with **Stat Points the replay allows**: a table of
+  every inferred Pokémon's ranges, bold where the replay narrowed them. Hover a range for the
+  turns it came from, or a name for everything learned about that Pokémon and how many spreads
+  are left; click to keep the box open. Where the replay narrowed which HP goes with which
+  Defence or Special Defence, the box ends with those pairings as grids. Each of the two rooms
+  says it from its own side — "your Raichu", "the opposing Raichu" — so a mirror match stays
+  readable. A recording rebuilt before these were kept with it shows no sliders for that side.
 
 ## What is where
 

@@ -57,6 +57,28 @@ const FRACTIONS = (() => {
   return out;
 })();
 
+const MARK = '\u0001';
+const MARK_END = '\u0002';
+
+/**
+ * A description as plain text, and `who`: where each Pokemon it names starts
+ * in that text and that Pokemon's id, so a reader can say whose it is - two
+ * sides can both have a Raichu.
+ */
+function unmark(text) {
+  const who = [];
+  let what = '';
+  let from = 0;
+  const marks = new RegExp(`${MARK}([^${MARK_END}]*)${MARK_END}`, 'g');
+  for (const m of String(text).matchAll(marks)) {
+    what += text.slice(from, m.index);
+    who.push({ id: m[1], at: what.length });
+    from = m.index + m[0].length;
+  }
+  what += String(text).slice(from);
+  return who.length ? { what, who } : { what };
+}
+
 // ------------------------------------------------------- reading the replay
 
 /** The lines one channel shows, each tagged with its index in the raw log. */
@@ -366,6 +388,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   const plain = (rec, stat) => !rec.unmapped.has(stat) && !rec.deps[stat];
   // A Pokemon by the species it is, not one it has transformed into.
   const label = rec => rec.pokemon.baseSpecies.name;
+  // The same, marked with whose it is, inside a description: `result` turns
+  // the marks into each name's place in the text and its Pokemon's id.
+  const named = rec => `${MARK}${rec.id}${MARK_END}${label(rec)}`;
   const countOf = (rec) => {
     const count = spreadCount(rec.chain ? rec.chain.keys() : rec.knKeys, rec.flat, rec.ties);
     return rec.kn.spent ? count.spent : count.total;
@@ -570,7 +595,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const hit = {
       S: T, T, A: T, source: pokemon, target: pokemon, real, items, ord, supported: true,
       off: 'atk', offDim: false, offBy: 'source', def, targetHp: false, sourceHp: false, sStates: [null],
-      clone: { name: 'confusion' }, what: `${label(T)} hurt itself in its confusion`,
+      clone: { name: 'confusion' }, what: `${named(T)} hurt itself in its confusion`,
     };
     const varOf = (stat) => {
       const dep = depOf(T, stat);
@@ -621,7 +646,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const hit = { S, T, source, target, move, clone, crit, real, items, getDamage, draws, ord, supported: false };
     clone.willCrit = crit;
     if (!T.chain) initChain(T);
-    const what = `${label(S)}'s ${clone.name} hit ${label(T)}`;
+    const what = `${named(S)}'s ${clone.name} hit ${named(T)}`;
 
     // Every row below is a dry calculation standing in for the real one. At the
     // stats this replay is running with, the two answer the same question, so
@@ -900,7 +925,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       off: hit.A === S && !hit.offDim ? hit.off : null,
       hits: S.hitsThisMove,
       hitsOn: S.hitsOn.get(T),
-      what: hit.what || `${label(hit.S)}'s ${hit.clone.name} hit ${label(T)}`,
+      what: hit.what || `${named(hit.S)}'s ${hit.clone.name} hit ${named(T)}`,
     };
   }
 
@@ -1070,7 +1095,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
    */
   function carriedChange(T, hit, ctx) {
     const U = hit.S;
-    const what = `${label(U)}'s ${hit.clone.name} hit ${label(T)}`;
+    const what = `${named(U)}'s ${hit.clone.name} hit ${named(T)}`;
     if (U.exact && typeof ctx.raw === 'number') return amountChange(T, 'damage', () => [ctx.raw], ctx, what);
     const last = T.lastDealt;
     if (T.exact && last?.byA.size && last.victim === U && last.hitsOn === 1 && last.turn === battle.turn) {
@@ -1123,7 +1148,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const id = e?.id || '';
     const healed = kind === 'heal' || !!oozed;
     const ctx = { source: other || null, effect: shown, direct, dice };
-    const what = `${shown?.name || id || kind} on ${label(T)}`;
+    const what = `${shown?.name || id || kind} on ${named(T)}`;
     const dir = kind === 'heal' ? 'up' : 'down';
     if (typeof raw !== 'number' || !(raw > 0)) return band(dir, what);
 
@@ -1134,7 +1159,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     if (kind === 'damage' && active && T.pokemon === battle.activePokemon
       && ((active.struggleRecoil && id === 'strugglerecoil') || (active.mindBlownRecoil && id === active.id)
         || (active.chloroblastRecoil && id === 'recoil'))) {
-      return runChange(T, 'cost', () => actions.applyRecoilDamage(0, active, T.pokemon), `${active.name}'s cost to ${label(T)}`);
+      return runChange(T, 'cost', () => actions.applyRecoilDamage(0, active, T.pokemon), `${active.name}'s cost to ${named(T)}`);
     }
     // Wish heals half its maker's max HP: the Pokemon's own share when it made
     // it, a fixed amount when its maker's HP stat is known, and otherwise one
@@ -1150,7 +1175,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         note(what, 'its maker\'s max HP at its own Stat Points did not give the amount healed, so it was not used');
         return band(dir, what);
       }
-      return statAmountChange(T, kind, amounts, { rec: W, dim: 'hp' }, ctx, `Wish from ${label(W)} on ${label(T)}`);
+      return statAmountChange(T, kind, amounts, { rec: W, dim: 'hp' }, ctx, `Wish from ${named(W)} on ${named(T)}`);
     }
 
     // Drain and recoil are a share of damage dealt. That share is exact when the
@@ -1249,7 +1274,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const sap = sapFor.get(T.pokemon);
       sapFor.delete(T.pokemon);
       if (!sapped || sap?.rec !== sapped) return band(dir, what);
-      return statAmountChange(T, kind, sap.amounts, { rec: sapped, stat: 'atk' }, ctx, `Strength Sap on ${label(sapped)}'s Attack`);
+      return statAmountChange(T, kind, sap.amounts, { rec: sapped, stat: 'atk' }, ctx, `Strength Sap on ${named(sapped)}'s Attack`);
     }
 
     // An amount the effect's own code writes as a number - Oran Berry's 10 HP -
@@ -1299,7 +1324,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       if (effect?.effectType === 'Move' && !ctx.direct) {
         change = hit?.supported ? moveChange(rec, hit, info.d, { ...ctx, effect })
           : hit?.carried ? carriedChange(rec, hit, { ...ctx, effect })
-            : band('down', `${effect.name} hit ${label(rec)}`);
+            : band('down', `${effect.name} hit ${named(rec)}`);
         const src = ctx.source && ctx.source !== rec.pokemon ? byPokemon.get(ctx.source) : null;
         if (src) {
           if (src.victimMove !== effect) { src.victimMove = effect; src.victims = new Set(); src.dealtEach = new Map(); }
@@ -1317,7 +1342,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       change = rec.painSplit;
       rec.painSplit = null;
     } else {
-      change = band('any', `HP set on ${label(rec)}`);
+      change = band('any', `HP set on ${named(rec)}`);
     }
     change.turn = battle.turn;
     changeOrdinal++;
@@ -1637,12 +1662,12 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     if (first) initChain(rec);
     const due = rec.pending.splice(0);
     if (line.changes) {
-      if (!due.length) due.push(band(line.kind === '-heal' ? 'up' : line.kind === '-damage' ? 'down' : 'any', `${line.kind} on ${label(rec)}`));
+      if (!due.length) due.push(band(line.kind === '-heal' ? 'up' : line.kind === '-damage' ? 'down' : 'any', `${line.kind} on ${named(rec)}`));
       for (const change of due.slice(0, -1)) apply(rec, change, null);
       apply(rec, due[due.length - 1], token, survived);
     } else {
       for (const change of due) apply(rec, change, null);
-      apply(rec, { same: true, what: first ? `${label(rec)} came in` : `${label(rec)} shown`, turn: battle.turn }, token);
+      apply(rec, { same: true, what: first ? `${named(rec)} came in` : `${named(rec)} shown`, turn: battle.turn }, token);
     }
     rec.shown.push({ at, hist: rec.history.length - 1, ahead });
     rec.lastToken = token;
@@ -1681,7 +1706,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     return {
       dim: hit.def, table, rolls, rollAt: hit.rollAt, via, noDealt: true,
       dealtBy: hit.S, sourceStates: hit.sourceHp || hit.extra ? hit.sStates : null, extra: hit.extra || null,
-      turn: battle.turn, what: `${label(hit.S)}'s ${hit.clone.name} ${broke ? 'broke' : 'did not break'} ${label(T)}'s Substitute`,
+      turn: battle.turn, what: `${named(hit.S)}'s ${hit.clone.name} ${broke ? 'broke' : 'did not break'} ${named(T)}'s Substitute`,
     };
   }
 
@@ -1947,7 +1972,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     // An edge of 0 or of the whole bar says nothing about HP.
     if ([...edge].every(([M, t]) => t === 0 || t === M)) return origUpdate.call(this, eventid, target, ...rest);
     const name = target.getItem().name;
-    const gate = { same: true, gate: true, turn: battle.turn, what: `${name} on ${label(rec)}`, fired: null };
+    const gate = { same: true, gate: true, turn: battle.turn, what: `${name} on ${named(rec)}`, fired: null };
     gate.allow = (M, h) => gate.fired === null || !edge.has(M) || (h <= edge.get(M)) === gate.fired;
     rec.pending.push(gate);
     const held = target.item;
@@ -1955,7 +1980,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       return origUpdate.call(this, eventid, target, ...rest);
     } finally {
       gate.fired = target.item !== held;
-      gate.what = `${name} ${gate.fired ? 'fired' : 'did not fire'} on ${label(rec)}`;
+      gate.what = `${name} ${gate.fired ? 'fired' : 'did not fire'} on ${named(rec)}`;
     }
   };
   const runEventBefore = battle.runEvent;
@@ -1997,7 +2022,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const ord = painOrdinal++;
     const ga = [...groupsOf(A, null)];
     const gb = [...groupsOf(B, null)];
-    const what = `Pain Split between ${label(A)} and ${label(B)}`;
+    const what = `Pain Split between ${named(A)} and ${named(B)}`;
     const changes = new Map([[A, { dim: null, table: new Map(), via: null, final: true, what }], [B, { dim: null, table: new Map(), via: null, final: true, what }]]);
     if (ga.length * gb.length > 60000) {
       note(what, 'the two could be on too many HPs together, so it was not used');
@@ -2075,7 +2100,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         for (const a of aliveOf(T.flat.atk)) amounts.set(a, sapAt(a));
         sapFor.set(source, { rec: T, amounts });
       } else {
-        note(`Strength Sap on ${label(T)}`, 'its Attack is not the one its Stat Points give, so the heal was not used');
+        note(`Strength Sap on ${named(T)}`, 'its Attack is not the one its Stat Points give, so the heal was not used');
       }
     }
     if (effect.id === 'painsplit' && T && S && T !== S && !T.exact && !S.exact) {
@@ -2105,7 +2130,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         }
       })));
     }
-    const change = { dim: null, table: new Map(), via: null, final: true, what: `Pain Split between ${label(X)} and ${label(Y)}` };
+    const change = { dim: null, table: new Map(), via: null, final: true, what: `Pain Split between ${named(X)} and ${named(Y)}` };
     X.painSplit = change;
     const start = battle.log.length;
     state.hold++;
@@ -2212,7 +2237,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       } else {
         delete rec.deps[s];
         rec.unmapped.add(s);
-        note(`${what} on ${label(rec)}'s ${s}`, 'no one candidate value says what it wrote, so what reads it is set aside');
+        note(`${what} on ${named(rec)}'s ${s}`, 'no one candidate value says what it wrote, so what reads it is set aside');
       }
     }
   }
@@ -2260,7 +2285,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           } else {
             delete r.deps[s];
             r.unmapped.add(s);
-            note(`Transform on ${label(r)}'s ${s}`, 'no one candidate value says what it copied, so what reads it is set aside');
+            note(`Transform on ${named(r)}'s ${s}`, 'no one candidate value says what it copied, so what reads it is set aside');
           }
         }
       }
@@ -2268,7 +2293,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   }
 
   const speed = attachSpeed(battle, {
-    state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label, measure, cutOf, note, depOf, ownValue,
+    state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label: named, measure, cutOf, note, depOf, ownValue,
   });
 
   /**
@@ -2491,8 +2516,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         })),
         // In the order they were applied: every HP event as the battle ran, then
         // the whole-path check, then speed order, which needs every turn's sort.
-        events,
-        checks,
+        events: events.map(e => ({ ...e, ...unmark(e.what) })),
+        checks: checks.map(c => ({ ...c, ...unmark(c.what) })),
         cutoff: prefix.cutoffAt === Infinity ? null : { turn: prefix.turn, observed: prefix.observedLine },
       };
     },

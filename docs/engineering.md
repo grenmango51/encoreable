@@ -911,7 +911,9 @@ a guess: stat ranges, a spread count, and every event that removed something
 (`inference.events` in the written `.log.json`) — with, for each Pokemon it cut, the count
 before and after, every stat's range after, and which of those ranges it moved. An event that
 read HP, Defence and Special Defence together also carries `grids`: which HP still goes with
-which Defence and which Special Defence, as bits. Each inferred Pokemon in
+which Defence and which Special Defence, as bits. An event or check that names Pokemon carries
+`who`: where each name starts in its text and that Pokemon's id, so a reader can say whose it
+is — "Raichu-Mega-Y acted before Raichu-Mega-Y" in a mirror match. Each inferred Pokemon in
 `inference.pokemon` carries its whole surviving set as `knowledge` (`packKnowledge` in
 `knowledge.mjs`, a few kilobytes), so a recording opened later — the extension's Stat Point
 sliders — knows every spread still possible, not just the ranges. A single-source run prints

@@ -374,9 +374,11 @@ export async function inferSpreads({
         Object.assign(res.pokemon.find(p => p.id === id), summarise(res.knowledge.get(id)));
       }
       const from = [...new Set(stays.map(x => (x.turn ? `turn ${x.turn}` : 'the start')))].join(', ');
+      const shown = sets[s].findIndex(set => (set.name || set.species) === name);
       res.checks.push({
         turn: stays[0].turn,
         what: `${name}, shown from ${from}`,
+        ...(shown >= 0 ? { who: [{ id: `${side}:${shown}`, at: 0 }] } : {}),
         reason: 'it could have been the Illusion user, so what it showed was not used on its side',
       });
     }

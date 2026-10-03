@@ -1,7 +1,10 @@
 /**
  * The Stat Point panel of a branch, in the live client: a slider per stat in
- * every Pokemon's tooltip, and a note in the battle log at each turn where the
- * replay narrowed what an inferred Pokemon's Stat Points can be.
+ * every Pokemon's tooltip, and a block just before turn 1 of the battle log
+ * with what the replay allows each inferred Pokemon's Stat Points to be.
+ * Hovering a range there says which turns narrowed it; clicking keeps that
+ * open. Each room says the Pokemon as its own side sees them: "your" for its
+ * own team, "the opposing" for the other, so a mirror stays readable.
  *
  * A Pokemon whose team was known has one spread, and its sliders sit fixed on
  * it. An inferred one's slider spans the values some spread the replay leaves
@@ -15,8 +18,8 @@
  * in `knowledge.mjs`). They never change the battle, which runs on the spread
  * its rebuild found; that one is printed under them.
  *
- * Where an event narrowed which HP goes with which Defence or Special Defence,
- * its note opens onto both pairings as a grid.
+ * Where the replay narrowed which HP goes with which Defence or Special
+ * Defence, the sources of those ranges end with the pairings left, as grids.
  *
  * The tooltip is the one `rng-panel.js` keeps up while the pointer is in it;
  * the section's `keeps-open` class asks for that.
@@ -29,6 +32,7 @@ const SPAN = 33;
 const toId = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 const escapeHtml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const count = n => Number(n).toLocaleString('en');
+const short = n => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : count(n));
 const range = r => (r ? (r.min === r.max ? `${r.min}` : `${r.min}–${r.max}`) : 'none');
 
 // ---------------------------------------------------------------- the log
@@ -40,172 +44,181 @@ const unpackBits = (text, length) => {
   return out;
 };
 
-const GRID_COLOURS = { on: '#4a5f78', cut: '#d0453a', off: '#dddddd' };
+const FULL = { min: 0, max: SPAN - 1 };
 
-/** One pairing as rows of blocks, HP 32 at the top: possible, ruled out by this event, or ruled out before it. */
-function gridRows(before, after) {
-  const rows = [];
-  for (let hp = SPAN - 1; hp >= 0; hp--) {
-    let row = '';
-    let run = '';
-    let colour = null;
-    for (let x = 0; x < SPAN; x++) {
-      const i = hp * SPAN + x;
-      const c = after[i] ? 'on' : before[i] ? 'cut' : 'off';
-      if (c !== colour && run) { row += `<span style="color:${GRID_COLOURS[colour]}">${run}</span>`; run = ''; }
-      colour = c;
-      run += '█';
-    }
-    row += `<span style="color:${GRID_COLOURS[colour]}">${run}</span>`;
-    rows.push(row);
-  }
-  // A protocol line ends at a newline, so the rows break with <br>.
-  return rows.join('<br />');
-}
-
-function gridHtml(before, after) {
-  const block = '<div style="font-family:monospace;font-size:5px;line-height:5px;letter-spacing:0;white-space:nowrap;margin:2px 0">';
-  return '<details class="details"><summary><small>Which HP goes with which Def and SpD</small></summary>' +
-    '<table><tr>' +
-    `<td><small>HP ↑ by Def →</small>${block}${gridRows(before.def, after.def)}</div></td>` +
-    `<td><small>HP ↑ by SpD →</small>${block}${gridRows(before.spd, after.spd)}</div></td>` +
-    '</tr></table>' +
-    `<small><span style="color:${GRID_COLOURS.on}">█</span> still possible ` +
-    `<span style="color:${GRID_COLOURS.cut}">█</span> ruled out here ` +
-    `<span style="color:${GRID_COLOURS.off}">█</span> ruled out before. 0 is bottom left.</small></details>`;
-}
-
-function who(b, id, fallback, side) {
-  const entry = b.panel?.pokemon.find(p => p.id === id);
-  const name = escapeHtml(entry ? entry.name : fallback);
-  return id.slice(0, 2) === side ? name : `the opposing ${name}`;
-}
-
-const note = (body, context, more = '') => `|raw|<div class="sp-note"><small style="color:#888">Stat Points</small> ${body}` +
-  `${context ? ` <small style="color:#888">(${context})</small>` : ''}${more}</div>`;
-
-/** A spread count short enough for a table cell. */
-const short = n => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : count(n));
+/** A Pokemon as one room says it: the room's own side's is "your", the other's "the opposing". */
+const whose = (id, name, side) => `${id.slice(0, 2) === side ? 'your' : 'the opposing'} ${name}`;
 
 /**
- * The notes for one room of a branch: per turn of the replay before the branch
- * point, what that turn narrowed; then what the rest of the replay narrowed,
- * and what every observation together leaves, which is what the sliders show.
- *
- * Each note's ranges run on from the ones before it in the order the log shows
- * them, each new range kept inside the last: the evidence pass reads speed
+ * A description as one room reads it, each Pokemon it names said as that
+ * room's own or the opposing one. One from before names were marked reads as
+ * it was written.
+ */
+function described(e, side) {
+  let text = String(e.what);
+  for (const w of [...(e.who || [])].sort((x, y) => y.at - x.at)) {
+    text = `${text.slice(0, w.at)}${w.id.slice(0, 2) === side ? 'your ' : 'the opposing '}${text.slice(w.at)}`;
+  }
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * Where each inferred Pokemon's ranges came from: per stat, every event that
+ * moved its range, and under HP, Defence and Special Defence every event that
+ * moved which of them go together. Events run in the order the log shows the
+ * turns, each new range kept inside the last: the evidence pass reads speed
  * order after every hit, so its own order is not the battle's.
  */
-function notes(b, side) {
-  const inf = b.inference;
-  const inline = new Map();
-  const later = [];
-  const put = (turn, line) => {
-    if (turn < b.start) {
-      if (!inline.has(turn)) inline.set(turn, []);
-      inline.get(turn).push(line);
-    } else {
-      later.push(line);
+function sourcesOf(inf) {
+  const out = new Map();
+  const at = (id) => {
+    if (!out.has(id)) {
+      out.set(id, {
+        ranges: Object.fromEntries(STATS.map(s => [s, FULL])),
+        grids: null,
+        steps: Object.fromEntries(STATS.map(s => [s, []])),
+        all: [],
+      });
     }
-  };
-  const full = () => Object.fromEntries(STATS.map(s => [s, { min: 0, max: SPAN - 1 }]));
-  const allPairs = () => ({ def: new Uint8Array(SPAN * SPAN).fill(1), spd: new Uint8Array(SPAN * SPAN).fill(1) });
-  const cur = new Map();
-  const at = id => {
-    if (!cur.has(id)) cur.set(id, { ranges: full(), grids: allPairs() });
-    return cur.get(id);
+    return out.get(id);
   };
   const events = (inf.events || []).map((e, order) => ({ ...e, order })).sort((x, y) => x.turn - y.turn || x.order - y.order);
   for (const e of events) {
-    const context = escapeHtml(`${e.what}${e.shown !== undefined ? `, shown ${e.shown}` : ''}`);
     for (const c of e.cuts) {
       const now = at(c.id);
-      const moved = [];
+      const moved = {};
       for (const s of c.narrowed) {
         const was = now.ranges[s];
         const to = c.stats[s];
-        const next = !was || !to ? null : { min: Math.max(was.min, to.min), max: Math.min(was.max, to.max) };
+        const next = was && to ? { min: Math.max(was.min, to.min), max: Math.min(was.max, to.max) } : null;
         const kept = next && next.min <= next.max ? next : null;
         if (range(kept) === range(was)) continue;
-        moved.push(`${LABEL[s]} ${range(was)} → ${range(kept)}`);
+        moved[s] = { from: was, to: kept };
         now.ranges[s] = kept;
       }
-      let grid = '';
+      let paired = false;
       if (c.grids) {
         const after = {};
-        let changed = false;
         for (const d of ['def', 'spd']) {
-          after[d] = unpackBits(c.grids[d], SPAN * SPAN).map((v, i) => v & now.grids[d][i]);
-          changed ||= after[d].some((v, i) => v !== now.grids[d][i]);
+          after[d] = unpackBits(c.grids[d], SPAN * SPAN);
+          if (now.grids) after[d] = after[d].map((v, i) => v & now.grids[d][i]);
+          paired ||= !now.grids ? after[d].includes(0) : after[d].some((v, i) => v !== now.grids[d][i]);
         }
-        if (changed) {
-          grid = gridHtml(now.grids, after);
-          now.grids = after;
-        }
+        now.grids = after;
       }
-      let said = moved.join(', ');
-      if (!said) {
-        said = grid ? 'no one stat\'s range moved, but which HP goes with which Def and SpD did'
-          : 'no one stat\'s range moved, but which values go together did';
-      }
-      put(e.turn, note(`<strong>${who(b, c.id, c.pokemon, side)}</strong>: ${said}`, context, grid));
+      const step = { e, moved, paired };
+      now.all.push(step);
+      for (const s of Object.keys(moved)) now.steps[s].push(step);
+      if (paired) for (const s of ['hp', 'def', 'spd']) if (!moved[s]) now.steps[s].push(step);
     }
   }
-  for (const c of inf.checks || []) {
-    put(c.turn ?? 0, note(`<em>not used:</em> ${escapeHtml(c.what)}`, escapeHtml(c.reason)));
-  }
-
-  // What every observation together leaves, against where the notes left each range.
-  const summary = [];
-  for (const entry of (b.panel?.pokemon || []).filter(p => p.inferred && !p.unrecorded)) {
-    const now = at(entry.id);
-    const moved = STATS.filter(s => range(now.ranges[s]) !== range(entry.ranges[s]))
-      .map(s => `${LABEL[s]} ${range(now.ranges[s])} → ${range(entry.ranges[s])}`);
-    if (moved.length) {
-      summary.push(note(`<strong>${who(b, entry.id, entry.name, side)}</strong>: ${moved.join(', ')}`,
-        'every observation read together'));
-    }
-  }
-  const cell = 'style="white-space:nowrap;padding:0 1px;text-align:right"';
-  const tables = [];
-  for (const team of ['p1', 'p2']) {
-    const rows = (b.panel?.pokemon || []).filter(p => p.side === team && p.inferred && !p.unrecorded).map(p => '<tr>' +
-      `<td style="white-space:nowrap">${escapeHtml(p.name)}</td>` + STATS.map(s => `<td ${cell}>${range(p.ranges[s])}</td>`).join('') +
-      `<td ${cell}>${short(p.spreads)}</td></tr>`);
-    if (!rows.length) continue;
-    tables.push(`<small>${team === side ? 'Your team' : 'Their team'}</small><table style="font-size:7.5pt"><tr><th></th>` +
-      `${STATS.map(s => `<th ${cell}>${LABEL[s]}</th>`).join('')}<th ${cell}>spreads</th></tr>${rows.join('')}</table>`);
-  }
-  if (tables.length) {
-    summary.push('|raw|<div class="infobox"><details class="details"><summary>Stat Points the replay allows</summary>' +
-      `${tables.join('')}<small>Hover a Pok&eacute;mon for its sliders.</small></details></div>`);
-  }
-  if (later.length) later.unshift('|raw|<div class="sp-note"><small style="color:#888">Stat Points</small> <em>What the rest of the replay showed:</em></div>');
-  return { inline, tail: [...later, ...summary] };
+  return out;
 }
 
 /**
- * A room's scrollback with the Stat Point notes in it: each turn's at the end
- * of that turn, and the rest just before the turn the branch starts at.
+ * What the replay allows, as the one block a room's log opens with, just
+ * before turn 1: a table per inferred team, the room's own side as "your
+ * team". Every cell names its Pokemon and stat in its class, so hovering or
+ * clicking it can say where that range came from.
  */
-export function annotate(lines, b, side) {
-  if (!b.inference) return lines;
-  const { inline, tail } = notes(b, side);
-  const out = [];
-  let placed = false;
-  for (const line of lines) {
-    const m = /^\|turn\|(\d+)/.exec(line);
-    if (m) {
-      const t = Number(m[1]);
-      out.push(...(inline.get(t - 1) || []));
-      inline.delete(t - 1);
-      if (t === b.start) { out.push(...tail); placed = true; }
+function summaryBlock(b, side) {
+  const inf = b.inference;
+  const sources = sourcesOf(inf);
+  const inferred = (b.panel?.pokemon || []).filter(p => p.inferred);
+  const cell = 'white-space:nowrap;padding:0 3px;text-align:right';
+  let html = '<div class="infobox sp-summary"><strong>Stat Points the replay allows</strong>';
+  for (const own of [false, true]) {
+    const team = inferred.filter(p => (p.side === side) === own);
+    if (!team.length) continue;
+    html += `<div style="margin-top:4px"><small>${own ? 'Your team' : 'The opposing team'}</small></div>` +
+      `<table style="font-size:8pt"><tr><th></th>${STATS.map(s => `<th style="${cell}">${LABEL[s]}</th>`).join('')}</tr>`;
+    for (const p of team) {
+      const key = p.id.replace(':', '-');
+      html += `<tr><td class="sp-cell sp-at-${key}-all" style="white-space:nowrap;cursor:help">${escapeHtml(p.name)}</td>`;
+      if (p.unrecorded) {
+        html += `<td colspan="${STATS.length}"><small>this recording did not keep its ranges</small></td></tr>`;
+        continue;
+      }
+      const src = sources.get(p.id);
+      for (const s of STATS) {
+        const learned = !!src?.steps[s].length || range(p.ranges[s]) !== range(FULL);
+        html += `<td class="sp-cell sp-at-${key}-${s}" style="${cell};cursor:help${learned ? ';font-weight:bold' : ';color:#888'}">` +
+          `${range(p.ranges[s])}</td>`;
+      }
+      html += '</tr>';
     }
-    out.push(line);
+    html += '</table>';
   }
-  for (const rest of inline.values()) out.push(...rest);
-  if (!placed) out.push(...tail);
-  return out;
+  for (const c of inf.checks || []) {
+    html += `<div><small style="color:#888">Not used, turn ${c.turn ?? 0}: ${escapeHtml(described(c, side))} - ${escapeHtml(c.reason)}</small></div>`;
+  }
+  html += '<div><small style="color:#888">Hover a range or a name to see where it came from; click to keep it open. ' +
+    'Hover a Pok&eacute;mon on the field for its sliders.</small></div></div>';
+  return `|raw|${html}`;
+}
+
+/** A room's scrollback with the Stat Point block in it, just before turn 1. */
+export function annotate(lines, b, side) {
+  if (!b.inference || !b.panel) return lines;
+  const block = summaryBlock(b, side);
+  const first = lines.findIndex(l => /^\|turn\|/.test(l));
+  return first < 0 ? [...lines, block] : [...lines.slice(0, first), block, ...lines.slice(first)];
+}
+
+// ------------------------------------------------------------ where it came from
+
+const GRID_ON = '#4a5f78';
+const GRID_OFF = '#dddddd';
+
+/** The box a range's sources show in: the client's own tooltip, drawn the same. */
+function sourceHtml(b, side, id, stat) {
+  b.sources ||= sourcesOf(b.inference);
+  const entry = b.panel.pokemon.find(p => p.id === id);
+  if (!entry) return null;
+  const src = b.sources.get(id);
+  const name = escapeHtml(whose(id, entry.name, side));
+  const title = stat === 'all' ? `${name} <small>${count(entry.spreads)} spreads fit the replay</small>` : `${name} <small>${LABEL[stat]} ${range(entry.ranges[stat])}</small>`;
+  let html = `<h2>${title.charAt(0).toUpperCase() + title.slice(1)}</h2>`;
+  const steps = !src ? [] : stat === 'all' ? src.all : src.steps[stat];
+  for (const { e, moved, paired } of steps) {
+    const said = Object.entries(moved).filter(([s]) => stat === 'all' || s === stat)
+      .map(([s, m]) => `${LABEL[s]} ${range(m.from)} → ${range(m.to)}`);
+    if (paired && (stat === 'all' || !moved[stat])) said.push('which HP goes with which Def and SpD');
+    if (!said.length) said.push('which values go together');
+    html += `<p class="tooltip-section"><small>Turn ${e.turn}</small> ${escapeHtml(described(e, side))}` +
+      `${e.shown !== undefined ? ` <small>(shown ${escapeHtml(e.shown)})</small>` : ''}<br />&rarr; ${said.join(', ')}</p>`;
+  }
+  const last = src ? src.ranges : null;
+  const together = (stat === 'all' ? STATS : [stat])
+    .filter(s => range(last ? last[s] : FULL) !== range(entry.ranges[s]))
+    .map(s => `${LABEL[s]} ${range(last ? last[s] : FULL)} → ${range(entry.ranges[s])}`);
+  if (together.length) {
+    html += `<p class="tooltip-section"><small>Every observation read together</small><br />&rarr; ${together.join(', ')}</p>`;
+  }
+  if (!steps.length && !together.length) {
+    html += '<p class="tooltip-section">Nothing in the replay narrowed this.</p>';
+  }
+  if (entry.grids && ['all', 'hp', 'def', 'spd'].includes(stat) && (entry.grids.def.includes(0) || entry.grids.spd.includes(0))) {
+    const pairs = stat === 'def' ? ['def'] : stat === 'spd' ? ['spd'] : ['def', 'spd'];
+    html += '<p class="tooltip-section"><small>Which HP still goes with which ' +
+      `${pairs.map(d => LABEL[d]).join(' and ')} (HP up, ${pairs.map(d => LABEL[d]).join(' / ')} across, 0 at bottom left)</small><br />` +
+      pairs.map(d => `<canvas class="sp-grid" data-sp-pair="${d}" width="${SPAN * 3}" height="${SPAN * 3}" style="margin:2px 6px 2px 0;border:1px solid #888"></canvas>`).join('') +
+      '</p>';
+  }
+  return html;
+}
+
+function drawGrids(box, entry) {
+  for (const canvas of box.querySelectorAll('canvas.sp-grid')) {
+    const mask = entry.grids[canvas.dataset.spPair];
+    const g = canvas.getContext('2d');
+    for (let hp = 0; hp < SPAN; hp++) {
+      for (let x = 0; x < SPAN; x++) {
+        g.fillStyle = mask[hp * SPAN + x] ? GRID_ON : GRID_OFF;
+        g.fillRect(x * 3, (SPAN - 1 - hp) * 3, 3, 3);
+      }
+    }
+  }
 }
 
 // ------------------------------------------------------------ the sliders
@@ -299,6 +312,17 @@ function addStyles() {
     '  background: #555555; border: 0; border-radius: 2px; }',
     '#tooltipwrapper .tooltip .sp-value { display: inline-block; width: 22px; text-align: right; font-weight: bold; vertical-align: middle; }',
     '#tooltipwrapper .tooltip .sp-stat { display: inline-block; width: 34px; text-align: right; color: #555555; vertical-align: middle; }',
+    // The box a range's sources show in: `#tooltipwrapper .tooltip` in battle.css, and its locked look once clicked.
+    '#sp-source { position: fixed; z-index: 60; width: 300px; text-align: left; color: black; border: 1px solid #888888;',
+    '  background: #EEEEEE; background: rgba(240,240,240,.95); border-radius: 5px; pointer-events: none; }',
+    '#sp-source.sp-pinned { border: 2px solid #444444; background: #DEDEDE; pointer-events: auto; }',
+    '#sp-source h2 { padding: 2px 4px; margin: 0; border-bottom: 1px solid #888888; font-size: 10pt; color: black; }',
+    '#sp-source h2 small { font-weight: normal; }',
+    '#sp-source p { padding: 2px 4px; margin: 0; font-size: 9pt; }',
+    '#sp-source p small { font-size: 8pt; color: #555555; }',
+    '#sp-source p.tooltip-section { border-top: 1px solid #aaaaaa; }',
+    '#sp-source h2 + p.tooltip-section { border-top: 0; }',
+    '.sp-summary .sp-cell:hover, .sp-summary .sp-cell.sp-chosen { background: rgba(120,140,170,.25); }',
   ].join('\n');
   document.head.appendChild(style);
 }
@@ -376,6 +400,69 @@ export function install({ call, branchOf }) {
       const value = valuesFor(entry, state, stat)[index];
       return call('spreadMove', b.panel.handle, entry.id, stat, value, state.spread);
     }).catch(err => console.error('[encoreable]', err));
+  }, true);
+
+  // Where a range in the log's Stat Point block came from: shown while a cell
+  // is hovered, and kept, in the client's locked look, once it is clicked.
+  let pinned = null;
+  const cellOf = node => (node && node.closest ? node.closest('.sp-summary .sp-cell') : null);
+  const sourceBox = () => {
+    let box = document.getElementById('sp-source');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'sp-source';
+      box.style.display = 'none';
+      document.body.appendChild(box);
+    }
+    return box;
+  };
+  function hideSource() {
+    sourceBox().style.display = 'none';
+    sourceBox().classList.remove('sp-pinned');
+    if (pinned) pinned.classList.remove('sp-chosen');
+    pinned = null;
+  }
+  function showSource(cell, pin) {
+    const m = /\bsp-at-(p[12])-(\d+)-(\w+)\b/.exec(cell.className);
+    const room = m && window.app && Object.values(app.rooms).find(r => r && r.el && r.el.contains && r.el.contains(cell));
+    const b = room && branchOf(room.id);
+    const side = room && /-(p[12])$/.exec(room.id)?.[1];
+    if (!b || !b.panel || !side) return;
+    const id = `${m[1]}:${m[2]}`;
+    const html = sourceHtml(b, side, id, m[3]);
+    if (!html) return;
+    const box = sourceBox();
+    box.innerHTML = html;
+    box.classList.toggle('sp-pinned', !!pin);
+    box.style.display = 'block';
+    drawGrids(box, b.panel.pokemon.find(p => p.id === id));
+    const at = cell.getBoundingClientRect();
+    const width = box.offsetWidth;
+    const left = at.right + 8 + width <= window.innerWidth ? at.right + 8 : Math.max(4, at.left - 8 - width);
+    box.style.left = `${left}px`;
+    box.style.top = `${Math.max(4, Math.min(at.top, window.innerHeight - box.offsetHeight - 4))}px`;
+    if (pin) {
+      if (pinned) pinned.classList.remove('sp-chosen');
+      pinned = cell;
+      cell.classList.add('sp-chosen');
+    }
+  }
+  document.addEventListener('mouseover', (e) => {
+    const cell = cellOf(e.target);
+    if (cell && !pinned) showSource(cell, false);
+  }, true);
+  document.addEventListener('mouseout', (e) => {
+    const cell = cellOf(e.target);
+    if (cell && !pinned && !(e.relatedTarget && cell.contains(e.relatedTarget))) hideSource();
+  }, true);
+  document.addEventListener('click', (e) => {
+    const cell = cellOf(e.target);
+    if (cell) {
+      if (pinned === cell) hideSource();
+      else showSource(cell, true);
+      return;
+    }
+    if (pinned && !(e.target.closest && e.target.closest('#sp-source'))) hideSource();
   }, true);
 
   function wrap() {
