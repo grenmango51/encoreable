@@ -511,8 +511,9 @@ export function spreadPanel(key, inference) {
         const values = valuesList(kn);
         panels.set(`${handle}|${id}`, { kn, values });
         const spread = typicalSpread(kn, species.baseStats, nature) || used;
+        const all = valuesOf(maskKeys(kn.keys), kn.dom, kn.spent, kn.ties);
         Object.assign(entry, {
-          inferred: true, spreads: p.spreads, ranges: rangesOfValues(valuesOf(maskKeys(kn.keys), kn.dom, kn.spent, kn.ties).values),
+          inferred: true, spreads: p.spreads, ranges: rangesOfValues(all.values), grids: all.grids,
           values, typical: spread, spread, reach: reachFrom(kn, values, spread),
         });
       } else if (inferredSides.has(entry.side)) {
