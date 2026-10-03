@@ -1202,6 +1202,62 @@ With both sides withheld, p1's exact HP pins each of its HP stats on sight — C
 two unknowns: Grimmsnarl 71,946 (SpD 11–16), Basculegion 428,728 (Atk 17–32, Spe ≥ 10),
 Blastoise 96,238 (SpA 25–32).
 
+**A best-of set is one team.** The server starts every game of a set from the options each
+player challenged with, team included (`BestOfGame.getOptions`, `server/room-battle-bestof.ts`),
+so a Pokemon's Stat Points are the same in every game, and what is still possible for it is what
+every game leaves: the intersection. Each game's set keeps the real spread, so theirs does.
+
+*Which set a game is.* The server writes into every game a `|uhtml|bestof|` heading — *Game 1
+of a best-of-3*, linked to the set's own room, `game-bestof3-<format>-<number>` — and, into a
+game once the next one has started, `|uhtml|next|` linked to that game's room
+(`bestOfFromLog`, `replay-source.mjs`). The number is the server's battle counter, counted once
+for every battle and set, so format and number name the set; the last heading is read and its
+`-<password>pw` dropped, because a privacy change renames the room and writes the heading again
+(`server/rooms.ts`). A replay from another server takes that server's prefix from its replay id.
+A player cannot print such a line: `/adduhtml` needs `*`, `#` or `~` and arrives as a chat line.
+A rebuilt log has neither the heading nor the `|showteam|` lines, so a reconstruction of a game
+of a set is written with `bestOf`: the set, the game, the best-of, its own replay id, the next
+game's, and both sheets as printed. A saved replay page names its replay in a hidden `replayid`
+field.
+
+*When two games are combined* (`combineGames`, `infer.mjs`) — only when the second game is
+certainly the same set and the same team, since combining two teams is the one way to lose the
+real spread: the same set, format and player on each side; both sheets alike set for set, in
+order, in every field but gender, which a Champions game rolls afresh (Raichu is M in game 1 of
+the live pair below and F in game 2); and two different replays that both claim one game of the
+set leave the set uncombined. Both games must also have rebuilt line for line, the one narrowed
+included. A game that never reproduced its whole log can stand on a reading the rest of the log
+would have overturned — an Illusion user taken for what it showed — or on a mechanic the
+inference does not model, and either can already have removed the real spread; a complete
+rebuild is what every soundness result above was measured on. A game shown alone keeps its own
+set as before, but does not narrow another. A game assumed to spend all 66 points narrows only one
+that assumed the same. The surviving sets are unpacked, intersected and `tighten`ed per
+Pokemon, which has the same id in every game because the sheets are in the same order, and every
+game's events and checks are kept, each marked with its `game`. Nothing combined is ever written
+back: each recording keeps its own game's, and a game opened later combines afresh.
+
+Where the other games come from: the extension combines a game, when it is opened, with every
+other game of its set in its recordings store (`docs/extension.md` §3); `npm run reconstruct
+--with <file>` combines it with another game's `.log.json` and prints both. Neither fetches the
+other games. Only the next game is named, only once it had started when the replay was saved —
+so game 2 cannot find game 1 — and each rebuild in the browser takes 15–30 s; opening the games
+of a set one after another combines them anyway.
+
+| Set | Pokemon | Game 1 alone | Game 2 alone | Together |
+|---|---|---|---|---|
+| Bo3 games A and B (`recordings/showdown/full-sheets/`), p2 inferred | Blastoise | 3,822 | 535,418 | 181 — HP 24–32, Atk 0–4, Def 0–5, SpA 30–32, SpD 0–8, Spe 0–4 |
+| | Farigiraf | 20,341,022 | 1,981,424 | 1,155,982 |
+| | Pelipper | 1,858,677 | 115,515,084 | 1,858,677 |
+| live pair (Reg M-C, Yo_Asta vs. cundangcap), p1 inferred | Floette-Eternal | 24,185,327 | 635,924 | 477,304 — HP 0, Def 0–10, SpA 25–32, Spe 3–32 |
+| | Raichu | 3,894,227 | 4,507,341 | 1,101,672 — HP 1–32 (15 values), Atk 0–27, Def 10–32, SpA 0–13, SpD 0–27, Spe 7–28 |
+| | Arcanine-Hisui | 2,756,715 | 652,721 | 35,018 — HP 0, Atk 29–32, Def 0 |
+| | Volcarona | 59,028,041 | 136,663,185 | 59,028,041 — SpA 0–10 |
+| | Rillaboom | 136,663,185 | 32,680,117 | 32,680,117 |
+
+Every real spread of games A and B survives the intersection; the live pair has no known
+answer. The spread a game's battle runs on is one its own game allows, and need not be one the
+set allows: on the live pair, game 2's Raichu runs on 18/0/20/7/0/18, which game 1 rules out.
+
 ### 7.6 Closed team sheets — one side read off the log
 
 A Bo1 ladder game publishes no `|showteam|`, so the opponent's item, ability, nature and
@@ -1248,7 +1304,8 @@ replay control row, which does the same thing as `npm run live` for the turn on 
 Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 `npm run live` takes `--at <turn>`, `--dry-run` and `--verify <log.json>`.
 `npm run reconstruct` takes `--all`, `--rung s1|s2|s3`, `--teams <key>`, `--infer p1|p2|both`,
-`--all-spent`, `--certify`, `--outside`, `--sample <n>`, `--max-probes <n>`, `--threads <n>` and `--dry-run`; a `.html`
+`--all-spent`, `--certify`, `--outside`, `--with <file>` (repeatable; another game of the same
+best-of set, §7.5), `--sample <n>`, `--max-probes <n>`, `--threads <n>` and `--dry-run`; a `.html`
 source is always S4, and `--threads` only changes how long the search takes, never what it finds
 (§7.3).
 `npm run replay` takes `--force "<outcome> <subject> [move]"` (repeatable), with `--at <turn>`,
