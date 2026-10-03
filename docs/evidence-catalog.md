@@ -226,11 +226,24 @@ never the real spread, and the open-sheet report lists every line set aside (§2
   showed, which a disguised Zoroark's Speed showed to matter; Fickle Beam's dry run keeps the real
   die and the log; Beat Up's dry runs no longer share one ally list; Toxic's ticks scale; Final
   Gambit is checked at the HP its user went in with;
+- a flat stat a hit reads against the same Pokemon's key is tied to it — its own Attack in
+  recoil, drain or a confusion self-hit, a Foul Play on it, a Water Spout reading its own HP — and
+  two flat stats one hit reads together are tied to each other; counts, ranges, the budget, the
+  next guess and the check of a real spread go through the ties, which took Foul Play on a hidden
+  target from 136M spreads to 66M and made Thrash's self-hits and your Transform copy's hits read;
+- a Wish from a hidden partner is read through its maker's HP, Pain Split between two hidden
+  Pokemon pair by pair, Shell Bell hit by hit over spread and multi-hit moves, Oran Berry's fixed
+  10 HP, and a sixteenth's half (Stealth Rock on a double resist);
 - the rebuild redraws the die a failing lock or status line depends on (Thrash, Petal Dance,
   Effect Spore), tries wide dice between their ends, and records Imprison's Struggle as the choice
   it wrote; a move's own HP cost rounded from max HP (Struggle, Steel Beam) is the simulator's
-  `applyRecoilDamage`, and an action that opens with the confusion check or waking up says who
-  moved first.
+  `applyRecoilDamage`, an action that opens with the confusion check or waking up says who moved
+  first, an order is read only when the rebuilt move is the one the replay shows, and Ally
+  Switch's choices go back to the slot they were made from — that battle removed every spread
+  before;
+- `npm run reconstruct -- --infer p2 --certify` proves each range end a rebuild reaches, and
+  `--outside` rebuilds one Stat Point past each end, where a rebuild that succeeds is a spread
+  removed wrongly.
 
 What is left on the open-sheet work list is in §5: no line there is one the inference skips.
 
@@ -324,40 +337,39 @@ hold every card and the whole work list; this is their head.
 
 | Mechanism | Effects | USED | UNUSED | UNSOUND | REBUILD-FAILED | MASKED |
 |---|---|---|---|---|---|---|
-| M1 | 489 | 1055 | 2 | 0 | 0 | 1 |
+| M1 | 489 | 1057 | 0 | 0 | 0 | 1 |
 | M2 | 514 | 628 | 0 | 0 | 0 | 6 |
 | M3 | 6 | 8 | 0 | 0 | 0 | 0 |
-| M4 | 71 | 64 | 0 | 0 | 0 | 11 |
-| M5 | 38 | 60 | 0 | 0 | 0 | 4 |
+| M4 | 71 | 65 | 0 | 0 | 0 | 10 |
+| M5 | 38 | 60 | 0 | 0 | 0 | 5 |
 | M6 | 18 | 20 | 0 | 0 | 0 | 1 |
 | M7 | 74 | 68 | 5 | 0 | 0 | 3 |
 | M8 | 4 | 8 | 0 | 0 | 0 | 0 |
 | M9 | 2 | 5 | 0 | 0 | 0 | 0 |
 
-No effect removes the real spread, and every battle rebuilds. What is left:
+No effect removes the real spread, every battle rebuilds, and every line the inference could
+use, it uses. What is left:
 
-1. **UNUSED**, 7 rows, none of them a line the inference skips. Three are turn order after
-   Transform or Imposter, where the copy has the very Speed of the Pokemon it copied: the order
-   between them is a speed tie, which says nothing. Two are hits that read a Pokemon's own Attack
-   against its own HP and Defence — Thrash's confusion self-hits, your Transform copy hitting the
-   Pokemon it copied: Attack is a list of its own beside the HP and defence pairs, so a pair that
-   fits only apart survives (`engineering.md` §9, certified ranges). A rebuild proves the probe
-   right that the line carries HP: one world's log does not rebuild with the other world's spread.
-   One is Effect Spore paralysing the hidden Pokemon, whose order then is against its own hidden
-   partner, whose Speed no replay gives. One is a disguised Illusion user whose order its disguise
-   could have shown too: nothing settles that switch-in, so it is read for neither.
-2. **Set aside** (`evidence-open-sheets.md` §2.7): that switch-in. Evidence given up, never a
-   spread removed.
+1. **UNUSED**, 5 rows, all turn order a battle cannot tell. Three are after Transform or
+   Imposter, where the copy has the very Speed of the Pokemon it copied: the order between them
+   is a speed tie, which says nothing. One is Effect Spore paralysing the hidden Pokemon, whose
+   order then is against its own hidden partner, whose Speed no replay gives. One is a disguised
+   Illusion user whose order its disguise could have shown too: nothing settles that switch-in,
+   so it is read for neither, as asked.
+2. **Set aside** (`evidence-open-sheets.md` §2.7): those Illusion switch-ins. Evidence given up,
+   never a spread removed.
 3. **MASKED**, 26 rows. Heals and chip that a battle's own hits already pin — Recover and its
    kind, Wish, Regenerator, Leftovers on the known side — most of them a share of max HP, which a
    percentage shows alike at every max HP.
-4. **NOT SHOWN** — 129 effects no template made act, from Sleep Talk's kin down: each needs a
-   battle set up by hand, or a written reason. Most cannot carry a Stat Point at all on an open
-   sheet (accuracy, critical-hit rate, weather length); `evidence-swarm-plan.md` at the repo root
-   asks for every move, ability and item to be judged by hand on exactly that. The conditional
-   ones — Swift Swim, Chlorophyll, Sand Rush, Slush Rush, Quick Feet, Speed Swap, Sleep Talk, Steel
-   Roller, Liquid Ooze, Binding Band, Expert Belt, Big Root, Blaze, Solar Power, Focus Band — have
-   hand-set battles, and each is USED.
+4. **UNSTABLE**, 21 rows, where the two worlds drew different dice (one fainted, one missed): they
+   cannot say whether a line is read, but each world is rebuilt and keeps its real spread.
+5. **NOT SHOWN** — 129 effects no template made act: most cannot carry a Stat Point at all on an
+   open sheet (accuracy, critical-hit rate, weather length); `evidence-swarm-plan.md` at the repo
+   root asks for every move, ability and item to be judged by hand on exactly that. The
+   conditional ones — the weather speed abilities, Quick Feet, Speed Swap, Sleep Talk, Steel
+   Roller, Liquid Ooze, Binding Band, Expert Belt, Big Root, Blaze, Solar Power, Focus Band, a
+   partner's Wish, Pain Split with the partner, Shell Bell over a spread move and a double hit —
+   have hand-set battles, and each is read.
 
 **Closed sheets** (`evidence-closed-sheets.md`).
 

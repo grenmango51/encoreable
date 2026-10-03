@@ -1401,12 +1401,17 @@ async function catalogEffect(effect, { entry, coverage, sheets, say }) {
           mechanism: entry?.mechanism?.[stat] || mechanismOf(c, stat, { subject, effectTurn: template.effectTurn, moved: record.scan?.moved || [], wonderRoom }),
           turn: c.turn, own: printedBy(effect, c), at0: c.at0, at32: c.at32, spectator: spectatorOf(c, s0, s32), printer: c.printer,
         })).sort((a, b) => Number(b.own) - Number(a.own) || a.turn - b.turn);
-        const covered = coverage && !entryStat.unstable ? await cover(template, stat, entryStat, effect.name) : null;
+        // Two worlds that drew different dice cannot say whether the line is
+        // used, but each must still keep its own real spread.
+        const failed = entryStat.e0.error || entryStat.e32.error;
+        const covered = coverage && !failed ? await cover(template, stat, entryStat, effect.name) : null;
+        const verdict = !covered ? (entryStat.unstable ? 'UNSTABLE' : null)
+          : !entryStat.unstable || ['UNSOUND', 'ERROR'].includes(covered.verdict) ? covered.verdict : 'UNSTABLE';
         record.open.stats.push({
           role: template.role, template: template.key, stat, masked: entryStat.masked, unstable: entryStat.unstable, rows,
-          verdict: covered ? covered.verdict : entryStat.unstable ? 'UNSTABLE' : null, worlds: covered?.worlds || null,
+          verdict, worlds: covered?.worlds || null,
         });
-        say(`  ${effect.key} ${template.key} ${stat}: ${rows.length} change(s)${covered ? `, ${covered.verdict}` : ''}`);
+        say(`  ${effect.key} ${template.key} ${stat}: ${rows.length} change(s)${verdict ? `, ${verdict}` : ''}`);
       }
     }
 
@@ -1644,7 +1649,7 @@ function renderOpen(records, pool) {
   out.push('| REBUILD-FAILED | ↻ | not told apart, and a world\'s log did not rebuild to the end; its first wrong line is listed. Often the same gap: an unused stat leaves the rebuild without a spread that reproduces the line |');
   out.push('| MASKED | ○ | the worlds were told apart, but the control\'s lines already do that and no event read the effect\'s own line to cut more: unused, or with nothing left to add — this battle cannot say which |');
   out.push('| ERROR | ! | the rebuild threw |');
-  out.push('| UNSTABLE | ~ | the two worlds drew a different number of dice, speed ties aside, so the difference is not only the stat; not rebuilt |');
+  out.push('| UNSTABLE | ~ | the two worlds drew a different number of dice, speed ties aside, so the difference is not only the stat: rebuilt only to check that each world keeps its real spread, which it does |');
   out.push('');
   out.push('A stat is judged per role and per mechanism: the worst defect over the templates that showed it through that');
   out.push('mechanism, else the best use. So Gyro Ball\'s Speed through its damage (M3) and through turn order (M7) are two');

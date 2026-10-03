@@ -35,7 +35,7 @@ its handlers name. A control's own rebuild is shown when it is not SAFE, since t
 
 | Kind | Effects | READ | MISSED | MISREAD | FALSE | Silent (no line names it) | SILENT-SINK witnesses | HAZARD-UNSOUND | HAZARD-REBUILD | TRUE-SET-FAILS |
 |---|---|---|---|---|---|---|---|---|---|---|
-| move | 510 | 1393 | 18 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| move | 510 | 1395 | 18 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | ability | 203 | 111 | 17 | 6 | 0 | 129 | 160 | 56 | 11 | 0 |
 | item | 166 | 131 | 2 | 4 | 2 | 47 | 76 | 67 | 0 | 0 |
 | condition | 94 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
@@ -118,7 +118,6 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `item:fairyfeather` | 293 | W-Fairy-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Play Rough hit Snorlax |
 | `item:hardstone` | 293 | W-Rock-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Stone Edge hit Snorlax |
 | `item:ironball` | 293 | W-burn | order | HAZARD-UNSOUND | turn 2: Snorlax acted before Blastoise |
-| `item:ironball` | 293 | W-confusion | presence | HAZARD-UNSOUND | turn 2: Snorlax acted before Blastoise |
 | `item:ironball` | 293 | W-Flying-taken | order | HAZARD-UNSOUND | turn 3: Snorlax acted before Blastoise |
 | `item:ironball` | 293 | W-Ground-taken | order | HAZARD-UNSOUND | turn 3: Snorlax acted before Blastoise |
 | `item:ironball` | 293 | W-order-down | order | HAZARD-UNSOUND | turn 1: Ampharos acted before Blastoise |
@@ -270,6 +269,12 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `nature:sassy` | 1 | W-order-down | order | HAZARD-UNSOUND | turn 1: Ampharos acted before Blastoise |
 | `nature:sassy` | 1 | W-pace | order | HAZARD-UNSOUND | turn 1: Ampharos acted before Blastoise |
 | `nature:timid` | 1 | W-order-up | order | HAZARD-UNSOUND | turn 1: Blastoise acted before Ampharos |
+
+Witness battles whose control, without the effect, does not rebuild SAFE either — a defect of the battle or of the rebuild, not of the effect:
+
+| Effect | Witness | Effect's rebuild | Control's rebuild | Control: last event, or where it broke |
+|---|---|---|---|---|
+| `item:ironball` | W-confusion | HAZARD-UNSOUND | HAZARD-REBUILD | turn 3: wanted \|-damage\|p2a: Blastoise\|78/100\|[from] confusion, got \|-damage\|p2a: Blastoise\|81/100\|[from] confusion |
 
 ### 2.4 SILENT-SINK, by weight — candidate dimensions for closed-sheet inference
 
@@ -3057,7 +3062,7 @@ No witness changed the log before it was named.
 | W-paralysis | order | `p2a: Blastoise before p1a: Snorlax` → `p1a: Snorlax before p2a: Blastoise` | no | HAZARD-UNSOUND |  |
 | W-toxic | order | `p2a: Blastoise before p1a: Snorlax` → `p1a: Snorlax before p2a: Blastoise` | no | HAZARD-UNSOUND |  |
 | W-sleep | order, presence | `\|-curestatus\|p2a: Blastoise\|slp\|[msg]` → — | no | HAZARD-UNSOUND |  |
-| W-confusion | presence | `\|-activate\|p2a: Blastoise\|confusion` → — | no | HAZARD-UNSOUND |  |
+| W-confusion | presence | `\|-activate\|p2a: Blastoise\|confusion` → — | no | HAZARD-UNSOUND | HAZARD-REBUILD |
 | W-taunt | order | `p2a: Blastoise before p1a: Snorlax` → `p1a: Snorlax before p2a: Blastoise` | no | HAZARD-UNSOUND |  |
 | W-two-moves | order | `p2a: Blastoise before p1a: Snorlax` → `p1a: Snorlax before p2a: Blastoise` | no | HAZARD-UNSOUND |  |
 
