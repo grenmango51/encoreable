@@ -427,9 +427,11 @@ export function inferenceRecord(inf, inferred, certified = null) {
  * @param others  other recordings, of any set, each with a `recording` name
  * @returns `{ inference, combined, skipped }`: the game's inference with each
  *          inferred Pokemon's surviving set intersected with what every
- *          combined game leaves it, and `inference.combined` naming those
- *          games; `combined` lists them, `skipped` every other game of the set
- *          left out and why. With nothing combined, the inference as it was.
+ *          combined game leaves it, the events and checks of every one of those
+ *          games, each marked with its `game`, and `inference.combined` naming
+ *          them; `combined` lists the other games, `skipped` every other game
+ *          of the set left out and why. With nothing combined, the inference as
+ *          it was.
  */
 export function combineGames(game, others) {
   const own = game.bestOf;
@@ -489,10 +491,19 @@ export function combineGames(game, others) {
   });
   out.combined = using.map(o => ({ game: o.bestOf.game, replay: o.bestOf.replay, recording: o.recording || null }))
     .sort((a, b) => a.game - b.game);
+  // Every game's events and checks, each marked with its game, in the set's
+  // order. The sheets are alike set for set, so a Pokemon has the same id in
+  // every game; another game's cuts are kept for the Pokemon narrowed here.
+  const ids = new Set(inf.pokemon.map(p => p.id));
+  const sources = [game, ...using].sort((a, b) => a.bestOf.game - b.bestOf.game);
+  const mark = (rec, list) => (list || []).map(e => ({ ...e, game: rec.bestOf.game }));
   out.inference = {
     ...inf,
     pokemon,
-    combined: { of: own.of, games: [own.game, ...out.combined.map(g => g.game)].sort((a, b) => a - b), with: out.combined },
+    events: sources.flatMap(rec => (rec === game ? mark(rec, inf.events)
+      : mark(rec, rec.inference.events).map(e => ({ ...e, cuts: e.cuts.filter(c => ids.has(c.id)) })).filter(e => e.cuts.length))),
+    checks: sources.flatMap(rec => mark(rec, rec.inference.checks)),
+    combined: { of: own.of, games: sources.map(rec => rec.bestOf.game), with: out.combined },
   };
   return out;
 }

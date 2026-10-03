@@ -383,25 +383,65 @@ import { annotate, install as installSpreads, loadPanel } from './spread-panel.j
     return null;
   }
 
-  const saving = new Map();
-  let nextSave = 0;
+  const replies = new Map();
+  let nextReply = 0;
   window.addEventListener('message', (event) => {
     const msg = event.source === window && event.data;
-    if (!msg || msg.encoreable !== 'saved') return;
-    const p = saving.get(msg.replyId);
+    if (!msg || (msg.encoreable !== 'saved' && msg.encoreable !== 'set-games-found')) return;
+    const p = replies.get(msg.replyId);
     if (!p) return;
-    saving.delete(msg.replyId);
+    replies.delete(msg.replyId);
     if (msg.error) p.reject(new Error(msg.error)); else p.resolve(msg.result);
   });
-  function saveRecording(name, recording, source) {
+  /** One request to the recordings store, through the bridge. */
+  function toStore(type, message) {
     return new Promise((resolve, reject) => {
-      const replyId = ++nextSave;
-      saving.set(replyId, { resolve, reject });
-      window.postMessage({ encoreable: 'save-recording', replyId, name, source, text: `${JSON.stringify(recording, null, 2)}\n` }, location.origin);
+      const replyId = ++nextReply;
+      replies.set(replyId, { resolve, reject });
+      window.postMessage({ encoreable: type, replyId, ...message }, location.origin);
     });
   }
+  const saveRecording = (name, recording, source) => toStore('save-recording', { name, source, text: `${JSON.stringify(recording, null, 2)}\n` });
 
-  /** Fetches a replay, rebuilds it into a recording in the Worker, keeps it, and branches it. */
+  const recordingId = name => String(name).replace(/\.log\.json$/i, '');
+  const asGame = (name, rec) => ({
+    recording: recordingId(name), bestOf: rec.bestOf, complete: rec.complete, p1: rec.p1, p2: rec.p2, format: rec.format, inference: rec.inference,
+  });
+
+  /**
+   * A recording's inference narrowed by every other game of its best-of set in
+   * the store (`combineSet` in the Worker), and what to tell the player: which
+   * games went in, which did not and why, and the next game when the replay
+   * names one the store does not hold. Anything that goes wrong leaves the
+   * game's own inference.
+   */
+  async function withSet(name, rec) {
+    const own = rec.inference || null;
+    if (!own || !rec.bestOf) return { inference: own, said: [] };
+    try {
+      const rows = await toStore('set-games', { set: rec.bestOf.set });
+      const others = rows.filter(r => recordingId(r.name) !== recordingId(name)).map((r) => {
+        try { return asGame(r.name, JSON.parse(r.text)); } catch { return null; }
+      }).filter(Boolean);
+      const set = await call('combineSet', asGame(name, rec), others);
+      const said = [];
+      if (set.combined.length) said.push(`Stat Points combined with ${set.combined.map(g => `game ${g.game}`).join(' and ')} of this best-of-${rec.bestOf.of}.`);
+      for (const s of set.skipped) said.push(`Game ${s.game} of this set is not combined: ${s.reason}.`);
+      const next = rec.bestOf.next && rec.bestOf.game + 1;
+      if (next && !others.some(o => o.bestOf?.game === next)) {
+        said.push(`Game ${next} is not in your recordings; Play from here on replay.pokemonshowdown.com/${rec.bestOf.next} adds it.`);
+      }
+      return { inference: set.inference, said };
+    } catch (err) {
+      log('could not combine the set:', err);
+      return { inference: own, said: [] };
+    }
+  }
+
+  /**
+   * Fetches a replay, rebuilds it into a recording in the Worker, keeps it, and
+   * branches it, its Stat Points combined with the other games of its set.
+   */
   async function openReplay({ id }, turn) {
     banner(`fetching replay ${id}...`);
     const res = await fetch(`https://replay.pokemonshowdown.com/${encodeURIComponent(id)}.json`);
@@ -415,7 +455,7 @@ import { annotate, install as installSpreads, loadPanel } from './spread-panel.j
       ? ` with your team "${mine.name}" as ${mine.side} - working out the other side's Stat Points...`
       : ' - neither team is in your teambuilder, so both sides\' Stat Points are worked out; this can take a while...'));
     const built = await call('reconstructReplay', {
-      source: { name: id, log: replay.log }, teams, infer, threads: navigator.hardwareConcurrency || 4,
+      source: { name: id, log: replay.log, replay: id }, teams, infer, threads: navigator.hardwareConcurrency || 4,
     });
     const rec = built.recording;
     const name = `reconstructed-${id}`;
@@ -425,8 +465,10 @@ import { annotate, install as installSpreads, loadPanel } from './spread-panel.j
       throw new Error(`${id} was rebuilt only through turn ${reach} of ${rec.turns}, so it cannot be branched at turn ${turn}. ` +
         `It is saved as "${name}"; open it at turn ${reach} or earlier from the Encoreable recordings page.`);
     }
-    const opened = await openBranch({ inputLog: rec.inputLog.join('\n'), turn, source: `replay ${id}`, inference: rec.inference || null });
-    banner(`${id}: rebuilt (${rec.complete ? 'matches the replay line for line' : `verified through turn ${reach}`}) and branched at turn ${opened.turn}.`, { done: true });
+    const set = await withSet(name, rec);
+    const opened = await openBranch({ inputLog: rec.inputLog.join('\n'), turn, source: `replay ${id}`, inference: set.inference });
+    banner([`${id}: rebuilt (${rec.complete ? 'matches the replay line for line' : `verified through turn ${reach}`}) and branched at turn ${opened.turn}.`,
+      ...set.said].join(' '), { done: true });
     return opened;
   }
 
@@ -445,8 +487,9 @@ import { annotate, install as installSpreads, loadPanel } from './spread-panel.j
       banner(`opening ${request.recording.name} at turn ${request.turn}...`);
       const data = JSON.parse(request.recording.text);
       const inputLog = Array.isArray(data.inputLog) ? data.inputLog.join('\n') : String(data.inputLog);
-      const opened = await openBranch({ inputLog, turn: request.turn, source: request.recording.name, inference: data.inference || null });
-      banner(`${request.recording.name} branched at turn ${opened.turn}.`, { done: true });
+      const set = await withSet(request.recording.name, data);
+      const opened = await openBranch({ inputLog, turn: request.turn, source: request.recording.name, inference: set.inference });
+      banner([`${request.recording.name} branched at turn ${opened.turn}.`, ...set.said].join(' '), { done: true });
       return opened;
     }
     if (request.replay) return openReplay(request.replay, request.turn);
@@ -503,7 +546,9 @@ import { annotate, install as installSpreads, loadPanel } from './spread-panel.j
     version: 1,
     openBranch,
     openReplay: (id, turn) => openReplay({ id }, Number(turn) || 1),
-    branches: () => [...branches.values()].map(b => ({ n: b.n, players: b.players, source: b.source, rooms: SIDES.map(s => roomId(b, s)) })),
+    branches: () => [...branches.values()].map(b => ({
+      n: b.n, players: b.players, source: b.source, rooms: SIDES.map(s => roomId(b, s)), combined: b.inference?.combined || null,
+    })),
     exportLog: n => call('exportLog', branches.get(Number(n))?.key),
     rng: (n, target) => {
       const b = branches.get(Number(n));

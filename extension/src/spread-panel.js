@@ -21,6 +21,12 @@
  * Where the replay narrowed which HP goes with which Defence or Special
  * Defence, the sources of those ranges end with the pairings left, as grids.
  *
+ * A game of a best-of set opens combined with the set's other games the
+ * recordings store holds (`combineGames` in `infer.mjs`): every game is one
+ * team, so the ranges, the sliders and the counts are what all of them leave,
+ * the block and the sliders say which games those are, and a range's sources
+ * are every game's events, each under its game.
+ *
  * The tooltip is the one `rng-panel.js` keeps up while the pointer is in it;
  * the section's `keeps-open` class asks for that.
  */
@@ -49,6 +55,15 @@ const FULL = { min: 0, max: SPAN - 1 };
 /** A Pokemon as one room says it: the room's own side's is "your", the other's "the opposing". */
 const whose = (id, name, side) => `${id.slice(0, 2) === side ? 'your' : 'the opposing'} ${name}`;
 
+/** What the Stat Points shown are read from: the replay, or the games of its best-of set combined with it. */
+function readFrom(inf) {
+  const games = inf?.combined?.games || [];
+  return games.length > 1 ? `games ${games.slice(0, -1).join(', ')} and ${games[games.length - 1]} of this set` : 'the replay';
+}
+
+/** Where an event or check was seen: its turn, and its game when games were combined. */
+const seenAt = e => (e.game ? `Game ${e.game}, turn ${e.turn ?? 0}` : `Turn ${e.turn ?? 0}`);
+
 /**
  * A description as one room reads it, each Pokemon it names said as that
  * room's own or the opposing one. One from before names were marked reads as
@@ -67,7 +82,8 @@ function described(e, side) {
  * moved its range, and under HP, Defence and Special Defence every event that
  * moved which of them go together. Events run in the order the log shows the
  * turns, each new range kept inside the last: the evidence pass reads speed
- * order after every hit, so its own order is not the battle's.
+ * order after every hit, so its own order is not the battle's. Combined games
+ * run one after another, in the set's order.
  */
 function sourcesOf(inf) {
   const out = new Map();
@@ -82,7 +98,8 @@ function sourcesOf(inf) {
     }
     return out.get(id);
   };
-  const events = (inf.events || []).map((e, order) => ({ ...e, order })).sort((x, y) => x.turn - y.turn || x.order - y.order);
+  const events = (inf.events || []).map((e, order) => ({ ...e, order }))
+    .sort((x, y) => (x.game || 0) - (y.game || 0) || x.turn - y.turn || x.order - y.order);
   for (const e of events) {
     for (const c of e.cuts) {
       const now = at(c.id);
@@ -116,17 +133,18 @@ function sourcesOf(inf) {
 }
 
 /**
- * What the replay allows, as the one block a room's log opens with, just
- * before turn 1: a table per inferred team, the room's own side as "your
- * team". Every cell names its Pokemon and stat in its class, so hovering or
- * clicking it can say where that range came from.
+ * What the replay allows - or every game of its set combined with it - as the
+ * one block a room's log opens with, just before turn 1: a table per inferred
+ * team, the room's own side as "your team". Every cell names its Pokemon and
+ * stat in its class, so hovering or clicking it can say where that range came
+ * from.
  */
 function summaryBlock(b, side) {
   const inf = b.inference;
   const sources = sourcesOf(inf);
   const inferred = (b.panel?.pokemon || []).filter(p => p.inferred);
   const cell = 'white-space:nowrap;padding:0 3px;text-align:right';
-  let html = '<div class="infobox sp-summary"><strong>Stat Points the replay allows</strong>';
+  let html = `<div class="infobox sp-summary"><strong>Stat Points ${readFrom(inf)} allow${inf.combined ? '' : 's'}</strong>`;
   for (const own of [false, true]) {
     const team = inferred.filter(p => (p.side === side) === own);
     if (!team.length) continue;
@@ -150,7 +168,7 @@ function summaryBlock(b, side) {
     html += '</table>';
   }
   for (const c of inf.checks || []) {
-    html += `<div><small style="color:#888">Not used, turn ${c.turn ?? 0}: ${escapeHtml(described(c, side))} - ${escapeHtml(c.reason)}</small></div>`;
+    html += `<div><small style="color:#888">Not used, ${seenAt(c).toLowerCase()}: ${escapeHtml(described(c, side))} - ${escapeHtml(c.reason)}</small></div>`;
   }
   html += '<div><small style="color:#888">Hover a range or a name to see where it came from; click to keep it open. ' +
     'Hover a Pok&eacute;mon on the field for its sliders.</small></div></div>';
@@ -177,7 +195,8 @@ function sourceHtml(b, side, id, stat) {
   if (!entry) return null;
   const src = b.sources.get(id);
   const name = escapeHtml(whose(id, entry.name, side));
-  const title = stat === 'all' ? `${name} <small>${count(entry.spreads)} spreads fit the replay</small>` : `${name} <small>${LABEL[stat]} ${range(entry.ranges[stat])}</small>`;
+  const from = readFrom(b.inference);
+  const title = stat === 'all' ? `${name} <small>${count(entry.spreads)} spreads fit ${from}</small>` : `${name} <small>${LABEL[stat]} ${range(entry.ranges[stat])}</small>`;
   let html = `<h2>${title.charAt(0).toUpperCase() + title.slice(1)}</h2>`;
   const steps = !src ? [] : stat === 'all' ? src.all : src.steps[stat];
   for (const { e, moved, paired } of steps) {
@@ -185,7 +204,7 @@ function sourceHtml(b, side, id, stat) {
       .map(([s, m]) => `${LABEL[s]} ${range(m.from)} → ${range(m.to)}`);
     if (paired && (stat === 'all' || !moved[stat])) said.push('which HP goes with which Def and SpD');
     if (!said.length) said.push('which values go together');
-    html += `<p class="tooltip-section"><small>Turn ${e.turn}</small> ${escapeHtml(described(e, side))}` +
+    html += `<p class="tooltip-section"><small>${seenAt(e)}</small> ${escapeHtml(described(e, side))}` +
       `${e.shown !== undefined ? ` <small>(shown ${escapeHtml(e.shown)})</small>` : ''}<br />&rarr; ${said.join(', ')}</p>`;
   }
   const last = src ? src.ranges : null;
@@ -193,10 +212,10 @@ function sourceHtml(b, side, id, stat) {
     .filter(s => range(last ? last[s] : FULL) !== range(entry.ranges[s]))
     .map(s => `${LABEL[s]} ${range(last ? last[s] : FULL)} → ${range(entry.ranges[s])}`);
   if (together.length) {
-    html += `<p class="tooltip-section"><small>Every observation read together</small><br />&rarr; ${together.join(', ')}</p>`;
+    html += `<p class="tooltip-section"><small>Every observation${b.inference.combined ? ` of ${from}` : ''} read together</small><br />&rarr; ${together.join(', ')}</p>`;
   }
   if (!steps.length && !together.length) {
-    html += '<p class="tooltip-section">Nothing in the replay narrowed this.</p>';
+    html += `<p class="tooltip-section">Nothing in ${from} narrowed this.</p>`;
   }
   if (entry.grids && ['all', 'hp', 'def', 'spd'].includes(stat) && (entry.grids.def.includes(0) || entry.grids.spd.includes(0))) {
     const pairs = stat === 'def' ? ['def'] : stat === 'spd' ? ['spd'] : ['def', 'spd'];
@@ -259,13 +278,14 @@ function track(values, reach) {
   return `linear-gradient(to right, ${stops.join(', ')})`;
 }
 
-function sectionHtml(roomid, entry, state, forme) {
+/** `from` is what the spreads are read from: `readFrom` of the branch's inference. */
+function sectionHtml(roomid, entry, state, forme, from) {
   const table = statTable(entry, forme);
   let head = '<strong>Stat Points</strong> ';
   if (!entry.inferred) head += '<small>known</small>';
   else if (entry.unrecorded) head += '<small>this recording did not keep its ranges</small>';
-  else if (!sliding(entry)) head += '<small>no spread fits the replay</small>';
-  else head += `<small title="${count(entry.spreads)} spreads">${short(entry.spreads)} spreads fit the replay</small> <button class="button sp-reset">Reset</button>`;
+  else if (!sliding(entry)) head += `<small>no spread fits ${from}</small>`;
+  else head += `<small title="${count(entry.spreads)} spreads">${short(entry.spreads)} spreads fit ${from}</small> <button class="button sp-reset">Reset</button>`;
   let html = `<p class="tooltip-section keeps-open sp-panel" data-sp-room="${escapeHtml(roomid)}" data-sp-id="${entry.id}" data-sp-forme="${escapeHtml(forme)}">` +
     `<span class="sp-head">${head}</span>`;
   for (const stat of STATS) {
@@ -286,7 +306,8 @@ function sectionHtml(roomid, entry, state, forme) {
       '</span>';
   }
   if (sliding(entry)) {
-    html += `<span class="sp-foot"><small>This battle runs on ${STATS.map(s => entry.used[s]).join(' / ')}</small></span>`;
+    html += `<span class="sp-foot"><small>This battle runs on ${STATS.map(s => entry.used[s]).join(' / ')}` +
+      `${entry.usedFits === false ? ', which the set\'s other games rule out' : ''}</small></span>`;
   }
   return `${html}</p>`;
 }
@@ -342,7 +363,7 @@ export function install({ call, branchOf }) {
     const entry = b?.panel?.pokemon.find(p => p.id === id);
     if (!el || !entry || el.dataset.spRoom !== roomid) return;
     const holder = document.createElement('div');
-    holder.innerHTML = sectionHtml(roomid, entry, stateOf(b, entry), el.dataset.spForme);
+    holder.innerHTML = sectionHtml(roomid, entry, stateOf(b, entry), el.dataset.spForme, readFrom(b.inference));
     el.replaceWith(holder.firstChild);
   }
 
@@ -483,7 +504,7 @@ export function install({ call, branchOf }) {
         const forme = (pokemon && pokemon.speciesForme) || (serverPokemon && serverPokemon.speciesForme) || '';
         const entry = side && entryFor(b, side.sideid, name, forme);
         if (!entry) return html;
-        return html + sectionHtml(roomid, entry, stateOf(b, entry), forme);
+        return html + sectionHtml(roomid, entry, stateOf(b, entry), forme, readFrom(b.inference));
       } catch (err) {
         return html;
       }

@@ -470,6 +470,18 @@ export async function reconstructReplay({ source: input, teams = [null, null], i
 
 // ---------------------------------------------------------------- Stat Points
 
+/**
+ * A recording's inference narrowed by the other games of its best-of set that
+ * the store holds (`combineGames` in `infer.mjs`). Nothing is stored: each
+ * recording keeps its own game's, and a game opened later combines afresh.
+ *
+ * @param game    a recording's `recording` name, `bestOf`, `complete`, `p1`, `p2`, `format` and `inference`
+ * @param others  the same, for every other recording of its set
+ */
+export function combineSet(game, others) {
+  return combineGames(game, others);
+}
+
 /** Per open panel, per Pokemon id: what survives for it, and each stat's values across it. */
 const panels = new Map();
 let nextPanel = 0;
@@ -484,10 +496,13 @@ const reachFrom = (kn, values, spread) => Object.fromEntries(STAT_IDS.map(s => [
  * What the Stat Point sliders of a branch show, for every Pokemon of both
  * teams in team order: its stats at each Stat Point for each forme it can
  * take, the spread its battle uses, and - for one whose Stat Points were
- * inferred - each stat's possible values, the spread the sliders open on, and
- * how far each slider goes from there with nothing else moving.
+ * inferred - each stat's possible values, the spread the sliders open on, how
+ * far each slider goes from there with nothing else moving, and whether the
+ * battle's spread is still one of them: its own game always allows it, the
+ * other games of a set combined with it need not.
  *
- * @param inference  a recording's `inference` block, or null when both teams were known
+ * @param inference  a recording's `inference` block, combined with its set's or not, or null
+ *                   when both teams were known
  */
 export function spreadPanel(key, inference) {
   const battle = session(key).battle;
@@ -517,7 +532,7 @@ export function spreadPanel(key, inference) {
         const all = valuesOf(maskKeys(kn.keys), kn.dom, kn.spent, kn.ties);
         Object.assign(entry, {
           inferred: true, spreads: p.spreads, ranges: rangesOfValues(all.values), grids: all.grids,
-          values, typical: spread, spread, reach: reachFrom(kn, values, spread),
+          values, typical: spread, spread, reach: reachFrom(kn, values, spread), usedFits: containsSpread(kn, used),
         });
       } else if (inferredSides.has(entry.side)) {
         // A recording made before what survives was kept with it.
@@ -559,5 +574,5 @@ export function spreadPanelClose(handle) {
 
 export const methods = {
   resim, open, branch, choose, undo, forfeit, view, exportLog, close, reconstructReplay, rngCommand,
-  spreadPanel, spreadMove, spreadReach, spreadPanelClose,
+  combineSet, spreadPanel, spreadMove, spreadReach, spreadPanelClose,
 };
