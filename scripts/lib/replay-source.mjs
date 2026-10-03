@@ -100,6 +100,75 @@ export function sheetsFromLog(lines) {
   return sheets;
 }
 
+/**
+ * Which game of which best-of set a replay is, read off what the server writes
+ * into every game of a set (`server/room-battle-bestof.ts`): a `|uhtml|bestof|`
+ * heading with the game's number and a link to the set's own room, and, once
+ * the next game has started, a `|uhtml|next|` link to that game's room. The
+ * server starts every game of a set from the options each player challenged
+ * with, team included (`BestOfGame.getOptions`), so the games of one set share
+ * every Stat Point.
+ *
+ * A room gains or loses a `-<password>pw` suffix when its privacy changes
+ * (`server/rooms.ts`), and the heading is written again with the new link, so
+ * the last heading is read and the set is named without the suffix: by its
+ * format and battle number, which the server counts once for every battle and
+ * set it starts. A replay from another server carries that server's prefix on
+ * its id, and the set takes the same prefix.
+ *
+ * `sheets` are the two `|showteam|` lines as printed, so two games can be
+ * checked to be one team (`sameSheet`) rather than taken to be.
+ *
+ * @param replayId  the replay's id on replay.pokemonshowdown.com, when known
+ * @returns `{ set, game, of, replay, next, sheets }` - `replay` the game's own
+ *          id and `next` the next game's, password and all - or null for a game
+ *          that names no set, or whose replay id does not fit the set's format
+ */
+export function bestOfFromLog(lines, replayId = null) {
+  let heading = '';
+  let next = '';
+  const sheets = [null, null];
+  for (const line of lines) {
+    const link = /^\|uhtml(?:change)?\|(bestof|next)\|(.*)$/.exec(line);
+    if (link && link[1] === 'bestof') heading = link[2];
+    else if (link) next = link[2];
+    const sheet = /^\|showteam\|p([12])\|(.*)$/.exec(line);
+    if (sheet) sheets[Number(sheet[1]) - 1] = sheet[2];
+  }
+  const set = /<strong>Game (\d+)<\/strong> of <a href="\/game-bestof(\d+)-([a-z0-9]+)-(\d+)(?:-[a-z0-9]+pw)?">/.exec(heading);
+  if (!set) return null;
+  const [, game, of, format, number] = set;
+  let server = '';
+  let replay = null;
+  if (replayId) {
+    const own = new RegExp(`^([a-z0-9]+-)?(${format}-\\d+)(?:-[a-z0-9]+pw)?$`).exec(String(replayId));
+    if (!own) return null;
+    server = own[1] || '';
+    replay = `${server}${own[2]}`;
+  }
+  const after = /<a href="\/battle-([a-z0-9]+-\d+(?:-[a-z0-9]+pw)?)">/.exec(next);
+  return {
+    set: `${server}game-bestof${of}-${format}-${number}`,
+    game: Number(game),
+    of: Number(of),
+    replay,
+    next: after ? `${server}${after[1]}` : null,
+    sheets,
+  };
+}
+
+/**
+ * Whether two `|showteam|` sheets are one team: alike set for set, in order, in
+ * every field but gender, which a Champions game rolls afresh each time.
+ */
+export function sameSheet(a, b) {
+  if (!a || !b) return false;
+  const plain = sheet => sheet.split(']').map(set => set.split('|').map((f, i) => (i === 7 ? '' : f)).join('|'));
+  const x = plain(a);
+  const y = plain(b);
+  return x.length === y.length && x.every((set, i) => set === y[i]);
+}
+
 const sameSpecies = (a, b) => toID(a) === toID(b) ||
   // a sheet names the base forme; a mega evolves into its own species
   toID(a).startsWith(toID(b)) || toID(b).startsWith(toID(a));
@@ -482,6 +551,8 @@ export function loadSource(file) {
       players: playersFromLog(lines),
       packedTeams: [null, null], // a replay never carries stat points
       sheets: sheetsFromLog(lines),
+      // a page the client's Download button saved names its replay
+      replayId: /<input\b[^>]*\bname="replayid"[^>]*\bvalue="([^"]+)"/.exec(raw)?.[1] || null,
       lines,
       inputLog: null,
       seed: null,

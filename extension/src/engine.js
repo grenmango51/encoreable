@@ -18,12 +18,12 @@ import fs from './node/fs.js';
 import { truncateAtTurn, inputLogLines } from '../../scripts/lib/truncate.mjs';
 import { battleLines } from '../../scripts/lib/protocol.mjs';
 import { reconstruct, unpackTeams } from '../../scripts/lib/reconstruct.mjs';
-import { inferSpreads, inferenceRecord } from '../../scripts/lib/inference/infer.mjs';
+import { combineGames, inferSpreads, inferenceRecord } from '../../scripts/lib/inference/infer.mjs';
 import {
   STAT_IDS, containsSpread, rangesOfValues, spreadAt, typicalSpread, unpackKnowledge, valuesOf, maskKeys,
 } from '../../scripts/lib/inference/knowledge.mjs';
 import {
-  alignSpeciesToSheet, crossCheckLog, crossCheckSheet, loadSource, maxHpFromLog, setsFromLog, setsFromSheet,
+  alignSpeciesToSheet, bestOfFromLog, crossCheckLog, crossCheckSheet, loadSource, maxHpFromLog, setsFromLog, setsFromSheet,
   teamsForSides, withLogIdentity,
 } from '../../scripts/lib/replay-source.mjs';
 
@@ -355,7 +355,9 @@ function packTeam(team) {
  * Rebuilds a replay into a recording: `runOne` in `scripts/local-reconstruct.mjs`
  * for a replay source, rung S4, without the printing.
  *
- * @param source  `{ name, html }` a saved replay page, or `{ name, log }` a replay's log
+ * @param source  `{ name, html }` a saved replay page, or `{ name, log }` a replay's log; `replay`
+ *                beside either is its id on replay.pokemonshowdown.com, which a saved page
+ *                otherwise names itself
  * @param teams   `[p1, p2]`, each `{ packed }`, `{ text }` or null - a team may sit on either side
  * @param infer   null, 'p1', 'p2' or 'both': whose Stat Points are worked out from the replay
  */
@@ -451,6 +453,7 @@ export async function reconstructReplay({ source: input, teams = [null, null], i
         turns: r.turns,
         p1: source.players[0],
         p2: source.players[1],
+        bestOf: bestOfFromLog(observed, input.replay || source.replayId) || undefined,
         p1team,
         p2team,
         inference: inference ? inferenceRecord(inference, inferred) : undefined,

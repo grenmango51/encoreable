@@ -25,9 +25,11 @@
 import { createRequire } from 'module';
 
 import { disguisableStays, identName, identSide, reconstruct, sampler, unsettledDisguises } from '../reconstruct.mjs';
+import { sameSheet } from '../replay-source.mjs';
 import {
   BUDGET, FLAT, SPAN, STAT_IDS, aimFor, cloneKnowledge, closestSpread, containsSpread, defaultSpread, freshKnowledge, fullEvs,
   intersectKnowledge, keyOf, maskKeys, packKnowledge, pinKnowledge, sameSpread, spreadAt, spreadsLeft, summarise, tighten, uniteKnowledge,
+  unpackKnowledge,
 } from './knowledge.mjs';
 import { evidencePass } from './evidence.mjs';
 
@@ -398,6 +400,99 @@ export function inferenceRecord(inf, inferred, certified = null) {
     checks: inf.checks,
     ...(certified ? { certified } : {}),
   };
+}
+
+/**
+ * One game's inference narrowed by the other games of its best-of set. Both
+ * players bring one team to every game of a set, Stat Points included
+ * (`bestOfFromLog` in `replay-source.mjs`), so what is still possible for a
+ * Pokemon is what every game leaves it. Every spread a game removes is one the
+ * simulator proved could not have produced that game, so the intersection
+ * keeps the real spread whenever each game does.
+ *
+ * A game goes in only when it is certainly the same set and the same team -
+ * the same set, format and player on each side, both sheets alike in every
+ * field but gender - and only when it rebuilt line for line, as the game
+ * narrowed must have too. A game that never reproduced its whole log can stand
+ * on a reading the rest of the log would have overturned - an Illusion user
+ * taken for what it showed - or on a mechanic the inference does not model, and
+ * either can have removed the real spread; a complete rebuild is what vouches
+ * for the rest. Two different replays that both claim one game of the set
+ * leave it uncombined. A game whose Pokemon were assumed to spend all 66
+ * points narrows only a game that assumed the same.
+ *
+ * @param game    a recording: `bestOf`, `complete`, `p1`, `p2`, `format`, `inference`
+ * @param others  other recordings, of any set, each with a `recording` name
+ * @returns `{ inference, combined, skipped }`: the game's inference with each
+ *          inferred Pokemon's surviving set intersected with what every
+ *          combined game leaves it, and `inference.combined` naming those
+ *          games; `combined` lists them, `skipped` every other game of the set
+ *          left out and why. With nothing combined, the inference as it was.
+ */
+export function combineGames(game, others) {
+  const own = game.bestOf;
+  const inf = game.inference;
+  const out = { inference: inf || null, combined: [], skipped: [] };
+  if (!own || !inf) return out;
+  const mates = others.filter(o => o !== game && o.bestOf?.set === own.set);
+  const skip = (o, reason) => out.skipped.push({ game: o.bestOf.game, recording: o.recording || null, reason });
+
+  const games = [game, ...mates];
+  for (const [i, a] of games.entries()) {
+    const twin = games.slice(i + 1).find(b => b.bestOf.game === a.bestOf.game && a.bestOf.replay && b.bestOf.replay && a.bestOf.replay !== b.bestOf.replay);
+    if (twin) {
+      for (const o of mates) skip(o, `two different replays are both game ${a.bestOf.game} of this set`);
+      return out;
+    }
+  }
+
+  const assumes = rec => rec.inference.pokemon.some(p => p.knowledge?.spent);
+  const whyNot = (o) => {
+    if (o.format !== game.format) return 'it is another format';
+    if (o.p1 !== game.p1 || o.p2 !== game.p2) return 'its players are not on the same sides';
+    if (![0, 1].every(s => sameSheet(o.bestOf.sheets?.[s], own.sheets?.[s]))) return 'its team sheets are not this game\'s';
+    if (game.complete !== true || inf.complete !== true) return 'this game did not rebuild line for line';
+    if (o.complete !== true || o.inference?.complete !== true) return 'it did not rebuild line for line';
+    if (assumes(o) && !assumes(game)) return 'it assumed every Stat Point spent';
+    const misplaced = inf.pokemon.some((p) => {
+      const q = o.inference.pokemon.find(x => x.id === p.id);
+      return q && toID(q.species) !== toID(p.species);
+    });
+    if (misplaced) return 'its Pokemon are not in this game\'s order';
+    return '';
+  };
+  const using = [];
+  for (const o of mates) {
+    // Another copy of this game, or of one already taken, says nothing new.
+    if (o.bestOf.game === own.game || using.some(u => u.bestOf.game === o.bestOf.game)) continue;
+    const reason = whyNot(o);
+    if (reason) skip(o, reason);
+    else using.push(o);
+  }
+  if (!using.length) return out;
+
+  const pokemon = inf.pokemon.map((p) => {
+    if (!p.knowledge) return p;
+    const kn = unpackKnowledge(p.knowledge);
+    let seen = p.seen;
+    for (const o of using) {
+      const q = o.inference.pokemon.find(x => x.id === p.id);
+      if (!q?.knowledge) continue;
+      const other = unpackKnowledge(q.knowledge);
+      intersectKnowledge(kn, maskKeys(other.keys), other.dom, other.ties);
+      seen ||= q.seen;
+    }
+    tighten(kn);
+    return { ...p, seen, ...summarise(kn), knowledge: packKnowledge(kn) };
+  });
+  out.combined = using.map(o => ({ game: o.bestOf.game, replay: o.bestOf.replay, recording: o.recording || null }))
+    .sort((a, b) => a.game - b.game);
+  out.inference = {
+    ...inf,
+    pokemon,
+    combined: { of: own.of, games: [own.game, ...out.combined.map(g => g.game)].sort((a, b) => a - b), with: out.combined },
+  };
+  return out;
 }
 
 /**
