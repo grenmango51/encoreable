@@ -20,3 +20,5 @@ Run it with `npm run reconstruct -- --from <file> --teams <set> --infer <their s
 | `gen9championsvgc2026regmcbo3-2692546803.json` | Reg M-C Bo3 against Illumina_ProfTipl, game 1, 2026-10-04 | p2 | `mc-sun` | Won in 5 turns. Spectator view. `--infer p1`: MATCH in 10 s |
 | `gen9championsvgc2026regmcbo3-2692547671.json` | the same set, game 2 | p2 | `mc-sun` | Lost in 8 turns. Spectator view. `--infer p1`: MATCH in 30 s |
 | `gen9championsvgc2026regmcbo3-2692548771.json` | the same set, game 3 | p2 | `mc-sun` | Won in 10 turns. Spectator view. `--infer p1`: MATCH in 32 s |
+| `gen9championsvgc2026regmcbo3-2692552735.json` | Reg M-C Bo3 against good pov, game 1, 2026-10-04 | p2 | `mc-rain` | Won in 6 turns. Spectator view. `--infer p1`: MATCH in 20 s |
+| `gen9championsvgc2026regmcbo3-2692553871.json` | the same set, game 2 | p2 | `mc-rain` | Won in 8 turns, the set 2–0. Spectator view. `--infer p1`: PARTIAL, verified through turn 1 — Mega Kangaskhan's two-hit Double-Edge recoil is not read, so Sneasler's HP is never narrowed (`docs/open-sheet-plan.md` Phase 5) |

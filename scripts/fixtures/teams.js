@@ -331,6 +331,72 @@ Modest Nature
 - Quick Attack
 `.trim();
 
+// cundangcap, Reg M-C — Pelipper rain and Farigiraf Trick Room behind Armor
+// Tail, Mega Kangaskhan and Mega Mawile, Archaludon, Grapploct.
+const MC_RAIN_EXPORT = `
+Farigiraf @ Sitrus Berry
+Ability: Armor Tail
+Level: 50
+EVs: 32 HP / 21 Def / 1 SpA / 12 SpD
+Relaxed Nature
+- Psychic
+- Rain Dance
+- Helping Hand
+- Trick Room
+
+Archaludon @ Leftovers
+Ability: Stamina
+Level: 50
+EVs: 32 HP / 9 SpA / 25 SpD
+Modest Nature
+- Flash Cannon
+- Dragon Pulse
+- Electro Shot
+- Protect
+
+Pelipper @ Damp Rock
+Ability: Drizzle
+Level: 50
+EVs: 32 HP / 32 SpA / 2 SpD
+Modest Nature
+- Weather Ball
+- Hurricane
+- Tailwind
+- Protect
+
+Mawile @ Mawilite
+Ability: Hyper Cutter
+Level: 50
+Shiny: Yes
+EVs: 32 HP / 32 Atk / 2 SpD
+Adamant Nature
+- Iron Head
+- Play Rough
+- Sucker Punch
+- Protect
+
+Kangaskhan @ Kangaskhanite
+Ability: Scrappy
+Level: 50
+EVs: 14 HP / 32 Atk / 12 Def / 8 SpD
+Adamant Nature
+- Double-Edge
+- Hammer Arm
+- Crunch
+- Fake Out
+
+Grapploct @ Life Orb
+Ability: Technician
+Level: 50
+Shiny: Yes
+EVs: 32 HP / 32 Atk / 2 SpD
+Adamant Nature
+- Storm Throw
+- Stomping Tantrum
+- Mach Punch
+- Detect
+`.trim();
+
 // Named matchups. `fixture` is the scripted harness pair; `alt` is a
 // full-length battle between two real teams. The rest are your own teams for
 // replays against someone who did not share a sheet: one side only, which
@@ -339,6 +405,7 @@ const TEAM_SETS = {
   fixture: { p1: P1_EXPORT, p2: P2_EXPORT },
   alt: { p1: P1_ALT_EXPORT, p2: P2_ALT_EXPORT },
   'mc-sun': { p1: MC_SUN_EXPORT },
+  'mc-rain': { p1: MC_RAIN_EXPORT },
 };
 
-module.exports = { P1_EXPORT, P2_EXPORT, P1_ALT_EXPORT, P2_ALT_EXPORT, MC_SUN_EXPORT, TEAM_SETS };
+module.exports = { P1_EXPORT, P2_EXPORT, P1_ALT_EXPORT, P2_ALT_EXPORT, MC_SUN_EXPORT, MC_RAIN_EXPORT, TEAM_SETS };

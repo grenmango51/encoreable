@@ -268,6 +268,14 @@ battle in Appendix A §A.1, where its Hook column names it. Known already:
   knocked it out. When the attacker is shown exactly, its line names the hidden holder's HP before
   the hit. Read it the way the Counter family is read (`engineering.md` §7.5, *Damage handed
   back*): the amount is carried, and the holder is narrowed to the HPs that print the attacker's line.
+- **Recoil off a move that hit twice.** Recoil is read only off a move that hit once, but Parental
+  Bond (Mega Kangaskhan) makes every recoil move hit twice, and the recoil is a share of both hits
+  together. Found by a real replay: in `mine-open/gen9championsvgc2026regmcbo3-2692553871.json`
+  turn 2, Mega Kangaskhan's Double-Edge knocks out a full-HP Sneasler in two hits, so the recoil
+  (`68/100 [from] Recoil` on a known 194 max HP) is a third of Sneasler's whole max HP and names its
+  HP Stat Points. Unread, the rebuild cannot get past turn 1. Read it the way Shell Bell over a
+  double hit is read: each hit keeps the amounts some amount of the other completes to the total
+  the recoil line allows.
 - **The order between the two hidden Pokemon.** Today it says nothing, because each is narrowed
   alone. A sound use is interval propagation: if A acted before B in the same bracket, no Speed of A
   below B's lowest surviving Speed survives, and no Speed of B above A's highest survives. Repeat
