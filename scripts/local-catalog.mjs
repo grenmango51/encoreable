@@ -2283,11 +2283,30 @@ class FuzzPlayer extends RandomPlayerAI {
   }
 }
 
+/**
+ * A choice the random player made, in words: each slot's move by name with its
+ * target and a Mega Evolution, or the Pokemon it switches to.
+ */
+function describeChoice(request, choice) {
+  return String(choice).split(',').map((part, i) => {
+    const words = part.trim().split(/\s+/);
+    // A request lists the active Pokemon first, in slot order.
+    const who = request.active ? request.side.pokemon[i]?.ident.slice(4) || `slot ${i + 1}` : '';
+    if (words[0] === 'move') {
+      const move = request.active?.[i]?.moves[Number(words[1]) - 1];
+      return `${who} ${move?.move || words[1]}${words.slice(2).length ? ` ${words.slice(2).join(' ')}` : ''}`.trim();
+    }
+    if (words[0] === 'switch') return `${who ? `${who} ` : ''}to ${request.side.pokemon[Number(words[1]) - 1]?.ident.slice(4) || words[1]}`;
+    return part.trim();
+  }).join(', ');
+}
+
 /** One fuzz battle, in-process in the real format, up to the start of turn `cap + 1`. */
 async function playFuzz(recipe) {
   const stream = new BattleStream({ keepAlive: true });
   const drain = (async () => { for await (const chunk of stream) { /* discard */ } })();
   const players = recipe.ai.map(seed => new FuzzPlayer(seed));
+  const choices = [];
   try {
     await stream.write(`>start ${JSON.stringify({ formatid: FORMAT, seed: recipe.seed })}`);
     const battle = stream.battle;
@@ -2307,14 +2326,19 @@ async function playFuzz(recipe) {
             throw new Error(`chooser: ${err.message}`);
           }
           if (!ai.chosen) throw new Error(`chooser: no choice for ${side.id}`);
+          const request = side.activeRequest;
+          const turn = battle.turn;
           await stream.write(`>${side.id} ${ai.chosen}`);
-          if (!side.choice.error) break;
+          if (!side.choice.error) {
+            choices.push({ turn, side: side.id, choice: describeChoice(request, ai.chosen) });
+            break;
+          }
           if (!side.choice.error.startsWith('[Unavailable choice]') || tries > 4) throw new Error(`chooser: ${side.id} "${ai.chosen}": ${side.choice.error}`);
         }
       }
     }
     const channels = extractChannelMessages(battle.log.join('\n'), [1]);
-    return { ch1: channels[1], turns: battle.turn, ended: battle.ended };
+    return { ch1: channels[1], turns: battle.turn, ended: battle.ended, choices };
   } finally {
     stream.destroy?.();
     await Promise.race([drain, Promise.resolve()]);
@@ -2404,10 +2428,25 @@ async function fuzzOne(n, teams, cap, { detail = false } = {}) {
   const diff = report.diffs[0];
   if (!inf.complete) {
     result.diff = diff ? { turn: diff.turn, observed: diff.expected ?? null, rebuilt: diff.actual ?? null } : null;
+    result.choices = played.choices.filter(c => c.turn === diff?.turn).map(c => `${c.side}: ${c.choice}`);
+    // The same log rebuilt with p2's real Stat Points known: when that fails
+    // too, no spread could have matched, and the fault is in rebuilding the
+    // battle (or the battle the fuzzer played), not in what the inference kept.
+    try {
+      const truth = await inferSpreads({
+        formatid: FORMAT, sets: recipe.sides, known: [true, true],
+        playerNames: ['Known', 'Hidden'], observed: played.ch1, channel: 1, threads: 1,
+      });
+      const d = truth.built.report.diffs[0];
+      result.truth = { complete: truth.complete, verifiedThroughTurn: truth.built.report.verifiedThroughTurn ?? null, diff: d ? { turn: d.turn, observed: d.expected ?? null, rebuilt: d.actual ?? null } : null };
+    } catch (err) {
+      result.truth = { error: err.message.split('\n')[0] };
+    }
     const line = diff?.expected ?? diff?.actual ?? '';
     const parts = String(line).split('|');
     const from = parts.find(p => p.startsWith('[from]'));
-    result.signatures.push(`NO MATCH: ${diff?.expected ? '' : 'an extra '}${parts[1] || 'nothing'}${from ? ` ${normalised(from, names)}` : ''}`);
+    const whose = result.truth.error ? 'real spreads threw' : result.truth.complete ? 'inferred spread only' : 'real spreads too';
+    result.signatures.push(`NO MATCH (${whose}): ${diff?.expected ? '' : 'an extra '}${parts[1] || 'nothing'}${from ? ` ${normalised(from, names)}` : ''}`);
   }
   for (const [i, set] of recipe.sides[1].entries()) {
     const p = inf.pokemon.find(x => x.id === `p2:${i}`);
@@ -2441,7 +2480,9 @@ function renderFuzz(results, { from, count, cap, teams, refused }) {
   out.push(`\`npm run catalog -- --fuzz 1 --seed <seed>${cap !== FUZZ_TURNS ? ` --turns ${cap}` : ''}\` replays one and prints what the inference made of it.`);
   out.push(`Each battle is played by Pokemon Showdown's random player up to turn ${cap}, then p2's Stat Points are inferred from p1's`);
   out.push('view with p1 known. Checked: every real spread of a p2 Pokemon the log showed survives; the rebuild is a MATCH;');
-  out.push('nothing throws.', '');
+  out.push('nothing throws. A rebuild that is no MATCH is made again with p2\'s real Stat Points known: `inferred spread only`');
+  out.push('when that one matches, so the inference kept a spread the log rules out and settled on it; `real spreads too`');
+  out.push('when it fails as well, so no spread could have matched and the fault is in rebuilding the battle.', '');
   out.push(`**Teams** (${teams.length}): ${teams.map(t => t.label).join('; ')}.`);
   if (refused.length) out.push(`Left out, refused by the validator: ${refused.map(r => `${r.label} (${r.problem})`).join('; ')}.`);
   out.push('');
@@ -2469,7 +2510,13 @@ function renderFuzz(results, { from, count, cap, teams, refused }) {
       const r = list[0];
       out.push(`${list.length} battle(s). Rerun the first: \`npm run catalog -- --fuzz 1 --seed ${r.seed}${cap !== FUZZ_TURNS ? ` --turns ${cap}` : ''}\`.`, '');
       if (sig.startsWith('THROW')) out.push(`Seed ${r.seed}: ${code(r.error.message.split('\n')[0])}${r.error.stack ? ` at ${code(r.error.stack)}` : ''}`);
-      else if (sig.startsWith('NO MATCH')) out.push(`Seed ${r.seed}, turn ${r.diff?.turn ?? '—'} (verified through turn ${r.verifiedThroughTurn ?? '—'}): observed ${code(r.diff?.observed)}, rebuilt ${code(r.diff?.rebuilt)}.`);
+      else if (sig.startsWith('NO MATCH')) {
+        out.push(`Seed ${r.seed}, turn ${r.diff?.turn ?? '—'} (verified through turn ${r.verifiedThroughTurn ?? '—'}): observed ${code(r.diff?.observed)}, rebuilt ${code(r.diff?.rebuilt)}.`);
+        if (r.choices?.length) out.push(`The players chose, that turn: ${r.choices.map(c => code(c)).join('; ')}.`);
+        if (r.truth?.error) out.push(`With p2's real Stat Points the rebuild threw: ${code(r.truth.error)}.`);
+        else if (r.truth && !r.truth.complete) out.push(`With p2's real Stat Points the rebuild fails too, on turn ${r.truth.diff?.turn ?? '—'}: observed ${code(r.truth.diff?.observed)}, rebuilt ${code(r.truth.diff?.rebuilt)}.`);
+        else if (r.truth) out.push('With p2\'s real Stat Points the rebuild is a MATCH.');
+      }
       else {
         for (const x of r.lost) out.push(`Seed ${r.seed}: ${x.species} (${x.id}) on ${x.real} lost, ${x.spreads} spreads left; ${x.event ? `turn ${x.event.turn}, ${code(x.event.what)}${x.event.stats.length ? `, past its ${x.event.stats.map(s => STAT_NAME[s]).join(', ')}` : ' (the last event that cut it)'}` : 'no recorded event cut it'}.`);
       }
@@ -2510,6 +2557,12 @@ async function runFuzz({ count, from, cap, threads, outDir, verbose }) {
       if (verbose) for (const l of detail.log) console.log(l);
       console.log(`played to turn ${rest.turns}${rest.ended ? ', the battle ended' : ''}; rebuild ${rest.complete ? 'MATCH' : `verified through turn ${rest.verifiedThroughTurn}`}`);
       if (rest.diff) console.log(`  turn ${rest.diff.turn}: observed ${rest.diff.observed}\n          rebuilt  ${rest.diff.rebuilt}`);
+      for (const c of rest.choices || []) console.log(`  chosen that turn, ${c}`);
+      if (rest.truth) {
+        console.log(rest.truth.error ? `  with p2's real Stat Points the rebuild threw: ${rest.truth.error}`
+          : rest.truth.complete ? '  with p2\'s real Stat Points the rebuild is a MATCH'
+            : `  with p2's real Stat Points the rebuild fails too, turn ${rest.truth.diff?.turn}: observed ${rest.truth.diff?.observed}\n          rebuilt  ${rest.truth.diff?.rebuilt}`);
+      }
       for (const p of detail.pokemon) console.log(`  ${p.id} ${p.species.padEnd(16)} ${p.seen ? `${String(p.spreads).padStart(10)} spreads, real ${p.real} ${p.kept ? 'kept' : 'LOST'}  ${p.ranges}` : 'not seen'}`);
       for (const e of detail.events) console.log(`  ${e}`);
       for (const c of detail.checks) console.log(`  not used: ${c}`);

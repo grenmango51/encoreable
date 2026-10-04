@@ -406,7 +406,7 @@ const entries = {
       p2: [{ ...member('Golurk', 'F', 'No Guard', 'Golurkite', {}), moves: ['Drain Punch', 'Splash'] }, 'hiddenAlly', 'hiddenBench'],
       turns: [{ p1: 'move protect, move splash', p2: 'move drainpunch 1 mega, move splash' }, QUIET],
       control: { turns: [{ p1: 'move protect, move splash', p2: 'move splash mega, move splash' }, QUIET] },
-      why: "Mega Evolved, the hidden Golurk's contact move ignores the known Pokemon's Protect and hits it in full, so its exact HP shows Golurk's Attack.",
+      why: "Mega Evolved, the hidden Golurk's contact move hits through the known Pokemon's Protect for a quarter of its damage (bypassProtect in modifyDamage), so its exact HP shows Golurk's Attack.",
     }],
   },
   'ability:piercingdrill': {
