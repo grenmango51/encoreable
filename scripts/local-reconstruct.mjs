@@ -36,13 +36,23 @@
  *   node scripts/local-reconstruct.mjs --from "recordings/showdown/mine-open/<replay id>.json" --teams <yours> --infer p1
  *   node scripts/local-reconstruct.mjs --rung s3 --all --infer p2
  *   node scripts/local-reconstruct.mjs --saved
+ *   node scripts/local-reconstruct.mjs --rung s3 --all --infer p2 --sheets closed
+ *   node scripts/local-reconstruct.mjs --saved --sheets closed
  *
  * `--saved` is the scoreboard over your own saved games: every replay in
  * recordings/showdown/mine-open/ and mine-closed/ whose one side is a team in
  * scripts/fixtures/teams.js, rebuilt with that side known and the other side
  * inferred, and one line per game - MATCH or how far it got, and how long.
  *
- * Flags: --from <file> --rung s1|s2|s3 --all --saved --teams <fixture> --infer p1|p2|both
+ * `--sheets closed` reads every source as if the inferred side published no
+ * team sheet: its sets come off the log (`setsFromLog`), every box - item,
+ * ability, nature, each move - is reported as read or assumed against the truth
+ * where one is known, and a run of several sources ends with every one whose
+ * real spread those assumptions removed. An assumed ability the rebuild shows
+ * announcing itself where the replay does not is ruled out, and the side is
+ * inferred again under the next.
+ *
+ * Flags: --from <file> --rung s1|s2|s3 --all --saved --sheets open|closed --teams <fixture> --infer p1|p2|both
  *        --all-spent --certify --outside --sample <n> --max-probes <n> --threads <n> --out <file> --dry-run --verbose
  */
 
@@ -53,7 +63,7 @@ import { createRequire } from 'module';
 import { battleLines } from './lib/protocol.mjs';
 import { listLogFiles, newestLogFile, posix as toPosix } from './lib/recordings.mjs';
 import { certifyRanges, inferSpreads, inferenceRecord } from './lib/inference/infer.mjs';
-import { reconstruct, unpackTeams } from './lib/reconstruct.mjs';
+import { reconstruct, splitTurns, tagsOf, unpackTeams } from './lib/reconstruct.mjs';
 import {
   alignSpeciesToSheet, crossCheckLog, crossCheckSheet, loadSource, maxHpFromLog, sameSpecies, setsFromLog, setsFromSheet,
   teamsForSides, unreplayableChoices, withLogIdentity,
@@ -213,6 +223,53 @@ function setReport(read, truth, formatid, side) {
   return { lines, wrong };
 }
 
+
+/**
+ * An assumed ability the rebuild shows announcing itself on switch-in where the
+ * replay does not: the first line the rebuild gets wrong names that ability on
+ * a Pokemon whose set was read off the log, the ability has a switch-in
+ * handler in the simulator (`onStart` or `onSwitchIn`), and nothing in the
+ * replay's turn could have made it stay silent - Pressure, Intimidate, Unnerve
+ * and Mold Breaker always print; a weather or terrain setter prints unless that
+ * weather or terrain is already up, so it is ruled out only when the replay's
+ * turn never starts it. Everything before that line matched, so the Pokemon
+ * had switched in exactly as the replay shows. Null when the line is anything
+ * else.
+ */
+function announcedAbility(diff, reads, observed, formatid) {
+  const line = String(diff?.actual || '');
+  if (!line.startsWith('|')) return null;
+  const dex = Dex.forFormat(formatid);
+  const p = line.split('|');
+  const tags = tagsOf(line);
+  let who = null;
+  let ability = null;
+  let field = null;
+  if (p[1] === '-ability' && !tags.from) { who = p[2]; ability = p[3]; }
+  else if (/^ability: /.test(tags.from || '') && ['-weather', '-fieldstart', '-item'].includes(p[1])) {
+    who = tags.of;
+    ability = tags.from.slice(9);
+    if (p[1] !== '-item') field = `|${p[1]}|${p[2]}`;
+  }
+  const m = /^(p[12])[a-d]?: (.+)$/.exec(String(who || ''));
+  if (!m || !ability) return null;
+  const i = Number(m[1][1]) - 1;
+  const read = reads[i];
+  const j = read ? read.sets.findIndex(s => s.name === m[2]) : -1;
+  if (j < 0 || read.boxes[j].ability !== 'assumed' || toID(read.sets[j].ability) !== toID(ability)) return null;
+  const handler = dex.abilities.get(ability);
+  if (!handler.onStart && !handler.onSwitchIn) return null;
+  const turn = splitTurns(observed.filter(l => typeof l === 'string'))[diff.turn] || [];
+  if (turn.includes(line)) return null;
+  if (field && turn.some(l => l.startsWith(`${field}|`) && !l.includes('[upkeep]'))) return null;
+  return {
+    side: i,
+    name: m[2],
+    ability: handler.name,
+    why: `the rebuild announces it on turn ${diff.turn} (${line}) and the replay does not`,
+  };
+}
+
 // -------------------------------------------------------------- one run
 
 async function runOne({ file, rung: requestedRung, teamsKey, teamSet, sampleSeed, maxProbes, threads, write, outDir, infer, allSpent, showEvents, certify, outside, closed = false }) {
@@ -318,37 +375,52 @@ async function runOne({ file, rung: requestedRung, teamsKey, teamSet, sampleSeed
     // off the log, and everything else is an assumption, named and held against
     // the truth where one is known.
     truthSets = [0, 1].map(i => (!supplied(i) && packedTeams[i] ? Teams.unpack(packedTeams[i]) : null));
-    const sets = [0, 1].map((i) => {
+    // An assumed ability the rebuild shows announcing itself where the replay
+    // shows nothing is ruled out, and the side is read again without it.
+    const ruledOut = [{}, {}];
+    const reads = [null, null];
+    const readSets = () => [0, 1].map((i) => {
       readOffLog[i] = !supplied(i) && (closed || (source.kind === 'replay' && !source.sheets?.[i]));
       if (supplied(i)) return Teams.unpack(packedTeams[i]);
       if (readOffLog[i]) {
-        const read = setsFromLog(observed, `p${i + 1}`, source.formatid);
-        const truth = truthSets[i] || publishedSheets[i];
-        say(`  p${i + 1}'s sets are read off the log${closed ? ', its team sheet withheld' : ' - it published no team sheet'}:`);
-        const report = setReport(read, truth, source.formatid, `p${i + 1}`);
-        for (const line of report.lines) say(line);
-        setReports.push(report);
-        return read.sets;
+        reads[i] = setsFromLog(observed, `p${i + 1}`, source.formatid, { ruledOut: ruledOut[i] });
+        return reads[i].sets;
       }
       if (source.kind === 'replay' && source.sheets?.[i]) {
         return withLogIdentity(setsFromSheet(source.sheets[i]), observed, `p${i + 1}`, source.formatid);
       }
       return Teams.unpack(packedTeams[i]).map(s => ({ ...s, evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 } }));
     });
+    let sets;
+    for (;;) {
+      sets = readSets();
+      inference = await inferSpreads({
+        formatid: source.formatid,
+        sets,
+        known: [supplied(0), supplied(1)],
+        playerNames: source.players,
+        observed,
+        channel,
+        sampleSeed,
+        maxProbes,
+        allSpent,
+        threads,
+        onProgress: chatty,
+      });
+      const out = !inference.built.report.complete && announcedAbility(inference.built.report.diffs[0], reads, observed, source.formatid);
+      const already = ruledOut[out?.side]?.[out?.name] || [];
+      if (!out || already.some(r => r.ability === out.ability)) break;
+      ruledOut[out.side][out.name] = [...already, { ability: out.ability, why: out.why }];
+      chatty(`${out.name}: ${out.ability} ruled out - ${out.why}; inferring again`);
+    }
+    for (const i of [0, 1]) {
+      if (!reads[i]) continue;
+      say(`  p${i + 1}'s sets are read off the log${closed ? ', its team sheet withheld' : ' - it published no team sheet'}:`);
+      const report = setReport(reads[i], truthSets[i] || publishedSheets[i], source.formatid, `p${i + 1}`);
+      for (const line of report.lines) say(line);
+      setReports.push(report);
+    }
     inferSets = sets;
-    inference = await inferSpreads({
-      formatid: source.formatid,
-      sets,
-      known: [supplied(0), supplied(1)],
-      playerNames: source.players,
-      observed,
-      channel,
-      sampleSeed,
-      maxProbes,
-      allSpent,
-      threads,
-      onProgress: chatty,
-    });
     built = inference.built;
     packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: inference.picks[s][i] }))));
   } else {

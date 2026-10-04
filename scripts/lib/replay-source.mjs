@@ -247,20 +247,33 @@ function parseDetails(details) {
 /**
  * What a log reveals about one side's sets, for a replay that publishes no team
  * sheet: the Pokemon previewed, the level and gender their details carry, every
- * move each one chose, and the item and ability it showed. The first item and
- * ability shown are the ones it brought; one passed on by Trick or copied by
- * Trace is not.
+ * move each one chose, and the item and ability it brought. Items and
+ * abilities are followed as they move - Trick, Switcheroo, Thief, Covet,
+ * Magician, Pickpocket, Symbiosis, Fling, Bug Bite and Pluck; Skill Swap, Role
+ * Play, Entrainment, Simple Beam, Worry Seed, Trace, Receiver, Mummy and
+ * Wandering Spirit - so a line naming one is credited to the Pokemon that
+ * brought it, on either side. An ability seen after Mega Evolution is the
+ * Mega's, and one a move or another ability gave is nobody's set.
  *
- * Whose ability a `[from] ability:` tag names is settled by the species: `[of]`
- * is the owner for Rough Skin and Hospitality, but the attacker for Volt
- * Absorb, and only the owner's species can have the ability. An ability that
- * appears only after Mega Evolution belongs to the Mega forme, not the set.
+ * Who a line is about: `[of]` names the holder of Rocky Helmet, of a flung
+ * Berry, and of an ability that acts on another Pokemon (Rough Skin, Static,
+ * Cursed Body, Poison Touch, Frisk, Hospitality); `|cant|X|ability: A|Move|[of]
+ * Y` and `-block|X|ability: A|[of] H` name the blocker's ability, and the move
+ * is Y's. On a heal - Volt Absorb's is its own, Hospitality's its ally's - the
+ * species decides which of the two could have it. Prankster's `-hint` names the
+ * last Pokemon to move.
  *
  * Everything the log never showed is filled with a stated assumption, listed
  * per Pokemon in `assumed`: an ability the species has only one of is known by
  * elimination, an unseen item is none, and an unseen nature is neutral.
+ * `boxes` says per Pokemon whether its item and ability were `read` or
+ * `assumed` (`only` for a species with one ability), and its nature `assumed`.
+ *
+ * `ruledOut`, by the name a Pokemon is shown under, lists abilities the
+ * simulator has shown this log cannot have come from (`{ ability, why }`): the
+ * ability assumed is then the first the species lists that is not among them.
  */
-export function setsFromLog(lines, side, formatid) {
+export function setsFromLog(lines, side, formatid, { ruledOut = {} } = {}) {
   const dex = Dex.forFormat(formatid);
   const mons = [];
   for (const line of lines) {
@@ -272,10 +285,6 @@ export function setsFromLog(lines, side, formatid) {
   }
   const baseOf = species => toID(dex.species.get(species).baseSpecies || species);
   const byName = new Map();
-  const find = (who) => {
-    if (!who || who.side !== side) return null;
-    return byName.get(who.name) || null;
-  };
   const canHave = (mon, ability) => Object.values(dex.species.get(mon.species).abilities || {})
     .some(a => toID(a) === toID(ability));
   const tagsOf = line => Object.fromEntries(line.split('|').slice(2)
@@ -297,44 +306,206 @@ export function setsFromLog(lines, side, formatid) {
     byName.set(who.name, mon);
   }
 
+  // Every Pokemon on either side holds an item and has an ability, and each
+  // stands for whoever brought it to the battle: `origin` is that Pokemon's key
+  // (`p2 Name`), or null for one nobody on a team brought - a Mega's ability, a
+  // Simple Beam's. A line names what its Pokemon holds or has now, and the name
+  // is credited to the origin, so an item Trick passed over or an ability
+  // Skill Swap moved is credited to the Pokemon that brought it.
+  const keyOf = who => (who ? `${who.side} ${who.name}` : null);
+  const monOf = key => (key && key.startsWith(`${side} `) ? byName.get(key.slice(3)) || null : null);
+  const held = new Map();
+  const lost = new Map();
+  const holding = (key) => {
+    if (!key) return null;
+    if (!held.has(key)) held.set(key, { origin: key });
+    return held.get(key);
+  };
+  /** What a line naming a Pokemon's item is about: what it holds, or what it last held. */
+  const itemOf = key => holding(key) || lost.get(key) || null;
+  const nameItem = (h, item) => {
+    const mon = monOf(h?.origin);
+    if (mon && item && mon.item === null) mon.item = dex.items.get(item).name || item;
+  };
+  const loseItem = (key) => {
+    const h = holding(key);
+    if (h) lost.set(key, h);
+    held.set(key, null);
+    return h;
+  };
+  const switchedIn = new Map();
+  const abilities = new Map();
+  const abilityOf = (key) => {
+    if (!key) return null;
+    if (!abilities.has(key)) abilities.set(key, switchedIn.get(key) || { origin: key });
+    return abilities.get(key);
+  };
+  const nameAbility = (a, ability) => {
+    const mon = monOf(a?.origin);
+    if (mon && ability && mon.ability === null && canHave(mon, ability)) mon.ability = dex.abilities.get(ability).name || ability;
+  };
+  const addMove = (mon, name) => {
+    const move = dex.moves.get(name);
+    if (mon && move.exists && move.id !== 'struggle' && !mon.moves.includes(move.name)) mon.moves.push(move.name);
+  };
+  const isMega = (details) => {
+    const species = details ? dex.species.get(parseDetails(details).species) : null;
+    return !!species && (!!species.isMega || /^Mega/.test(species.forme || ''));
+  };
+
+  // Which of two Pokemon a line names has an ability, by the species each is
+  // shown as, in its current forme or its base one.
+  const shownAs = new Map();
+  const couldHave = (key, ability) => {
+    const species = key && dex.species.get(shownAs.get(key) || monOf(key)?.species || '');
+    if (!species?.exists) return false;
+    return [species, dex.species.get(species.baseSpecies)]
+      .some(sp => Object.values(sp.abilities || {}).some(a => toID(a) === toID(ability)));
+  };
+
+  let lastMover = null;
+  let trick = null;
+  let transit = null;
+  const eating = new Map();
+
   for (const line of unmaskIllusion(lines).lines) {
     const p = line.split('|');
     const kind = p[1];
     const tags = tagsOf(line);
-    const subject = find(identOf(p[2]));
-    const of = find(identOf(tags.of));
+    const from = tags.from || '';
+    const sKey = keyOf(identOf(p[2]));
+    const oKey = keyOf(identOf(tags.of));
+    const subject = monOf(sKey);
+    if (['switch', 'drag', 'replace', 'detailschange'].includes(kind) && sKey) shownAs.set(sKey, parseDetails(p[3]).species);
 
-    if (kind === 'move' && subject && (!tags.from || tags.from === 'lockedmove')) {
-      const move = dex.moves.get(p[3]);
-      if (move.exists && move.id !== 'struggle' && !subject.moves.includes(move.name)) subject.moves.push(move.name);
-    }
-    if (kind === 'cant' && subject && p[4]) {
-      const move = dex.moves.get(p[4]);
-      if (move.exists && !subject.moves.includes(move.name)) subject.moves.push(move.name);
+    // A Pokemon switched in has the ability it brought, or once it has Mega
+    // Evolved, the Mega's: what a move or another ability gave it is gone.
+    if ((kind === 'switch' || kind === 'drag') && sKey) abilities.set(sKey, switchedIn.get(sKey) || { origin: sKey });
+    if ((kind === '-mega' || (kind === 'detailschange' && isMega(p[3]))) && sKey && !switchedIn.has(sKey)) {
+      switchedIn.set(sKey, { origin: null });
+      abilities.set(sKey, switchedIn.get(sKey));
     }
 
-    // Items: the Mega Stone, an item used up or knocked off, one announced or
-    // frisked, and every effect credited to one. Rocky Helmet and the
-    // retaliation Berries hurt the attacker, and name their holder in `[of]`.
-    const giveItem = (mon, item) => { if (mon && item && mon.item === null) mon.item = dex.items.get(item).name || item; };
-    if (kind === '-mega') giveItem(subject, p[4]);
-    if (kind === '-enditem') giveItem(subject, p[3]);
-    if (kind === '-item' && !/^move:/.test(tags.from || '') && !/Pickpocket|Magician|Pickup/.test(tags.from || '')) giveItem(subject, p[3]);
-    if (kind === '-activate' && /^item: /.test(p[3] || '')) giveItem(subject, p[3].slice(6));
-    if (/^item: /.test(tags.from || '')) giveItem(kind === '-damage' && of ? of : subject, tags.from.slice(6));
-
-    // Abilities, only ever as the species could have them.
-    const giveAbility = (mon, ability) => {
-      if (mon && ability && mon.ability === null && canHave(mon, ability)) mon.ability = dex.abilities.get(ability).name || ability;
-    };
-    if (kind === '-ability' && !/^move:/.test(tags.from || '')) {
-      if (tags.from === 'ability: Trace') giveAbility(subject, 'Trace');
-      else if (!tags.from) giveAbility(subject, p[3]);
+    if (kind === 'move') {
+      lastMover = sKey;
+      if (!from || from === 'lockedmove') addMove(subject, p[3]);
     }
-    if (kind === '-activate' && /^ability: /.test(p[3] || '')) giveAbility(subject, p[3].slice(9));
-    if (/^ability: /.test(tags.from || '')) {
-      const ability = tags.from.slice(9);
-      for (const mon of [subject, of]) if (mon && canHave(mon, ability)) { giveAbility(mon, ability); break; }
+    // `|cant|X|ability: A|Move|[of] Y` - Armor Tail, Queenly Majesty, Dazzling,
+    // Damp: X's ability stopped Y's move, which Y's own move line already named.
+    if (kind === 'cant' && p[4]) {
+      if (/^ability: /.test(p[3] || '')) nameAbility(abilityOf(sKey), p[3].slice(9));
+      else addMove(subject, p[4]);
+    }
+
+    // Items. Trick and Switcheroo swap what two Pokemon hold, then name what each
+    // now holds (`-item`) or what one gave and got nothing back for (`-enditem`,
+    // silent). Thief and Pickpocket take an item (`-enditem`) and give it to the
+    // taker (`-item`); Covet and Magician print only the `-item`, its source in
+    // `[of]`. Symbiosis passes its holder's item to an ally.
+    if (kind === '-activate' && /^move: (Trick|Switcheroo)$/.test(p[3] || '') && sKey && oKey) {
+      const mine = holding(sKey);
+      held.set(sKey, holding(oKey));
+      held.set(oKey, mine);
+      trick = { [sKey]: oKey, [oKey]: sKey };
+    }
+    if (kind === '-mega') nameItem(holding(sKey), p[4]);
+    if (kind === '-enditem' && sKey) {
+      if (/^move: (Trick|Switcheroo)$/.test(from)) nameItem(holding(trick?.[sKey]), p[3]);
+      else if (/^move: Thief$|^ability: Pickpocket$/.test(from)) {
+        nameItem(holding(sKey), p[3]);
+        transit = holding(sKey);
+        held.set(sKey, null);
+      } else {
+        // Used up, knocked off, flung, or eaten by a Bug Bite or Pluck, whose
+        // user then eats a Berry it did not bring.
+        nameItem(itemOf(sKey), p[3]);
+        loseItem(sKey);
+        if (from === 'stealeat' && oKey) eating.set(oKey, toID(p[3]));
+      }
+    }
+    if (kind === '-item' && sKey) {
+      if (/^move: (Trick|Switcheroo)$/.test(from)) nameItem(holding(sKey), p[3]);
+      else if (/^move: (Thief|Covet)$|^ability: (Magician|Pickpocket)$/.test(from)) {
+        const taken = transit || holding(oKey);
+        if (!transit && oKey) held.set(oKey, null);
+        transit = null;
+        nameItem(taken, p[3]);
+        held.set(sKey, taken);
+      } else if (/^ability: Harvest$|^move: Recycle$/.test(from)) {
+        held.set(sKey, lost.get(sKey) || { origin: sKey });
+        nameItem(holding(sKey), p[3]);
+      } else if (from && !/^ability: Frisk$/.test(from)) held.set(sKey, { origin: null });
+      else nameItem(holding(sKey), p[3]);
+    }
+    if (kind === '-activate' && /^ability: Symbiosis$/.test(p[3] || '') && oKey) {
+      nameItem(holding(sKey), p[4]);
+      held.set(oKey, holding(sKey));
+      held.set(sKey, null);
+    }
+    if (kind === '-activate' && /^item: /.test(p[3] || '')) nameItem(itemOf(sKey), p[3].slice(6));
+    if (kind === '-activate' && p[3] === 'move: Poltergeist') nameItem(holding(sKey), p[4]);
+    if (kind === '-block' && /^item: /.test(p[3] || '')) nameItem(holding(sKey), p[3].slice(6));
+    // An effect credited to an item: Rocky Helmet hurts the attacker and a flung
+    // Berry heals its target, each naming the Pokemon whose item it was in `[of]`.
+    if (/^item: /.test(from) && kind !== '-item' && kind !== '-enditem') {
+      const item = from.slice(6);
+      if (!tags.of && eating.get(sKey) === toID(item)) eating.delete(sKey);
+      else nameItem(itemOf((kind === '-damage' || kind === '-heal') && oKey ? oKey : sKey), item);
+    }
+
+    // Abilities, only ever as the species could have them. A changed ability
+    // prints `-ability|X|New|Old|[from] effect`: X had Old, and with `[of] Y`
+    // - Trace, Receiver, Role Play, Entrainment - New is what Y has.
+    if (kind === '-ability' && sKey) {
+      if (from && p[4] && !p[4].startsWith('[')) {
+        nameAbility(abilityOf(sKey), p[4]);
+        if (oKey) nameAbility(abilityOf(oKey), p[3]);
+        abilities.set(sKey, oKey ? abilityOf(oKey) : { origin: null });
+      } else if (from === 'ability: Trace') {
+        nameAbility(abilityOf(sKey), 'Trace');
+        if (oKey) nameAbility(abilityOf(oKey), p[3]);
+        abilities.set(sKey, oKey ? abilityOf(oKey) : { origin: null });
+      } else if (!from) nameAbility(abilityOf(sKey), p[3]);
+    }
+    // `-activate|X|Skill Swap|A|B|[of] Y`: X had B and Y had A, and they swap;
+    // between allies both are left blank. Wandering Spirit swaps the same way.
+    if (kind === '-activate' && /^(move: )?Skill Swap$/.test(p[3] || '') && sKey && oKey) {
+      if (p[5]) nameAbility(abilityOf(sKey), p[5]);
+      if (p[4]) nameAbility(abilityOf(oKey), p[4]);
+      const mine = abilityOf(sKey);
+      abilities.set(sKey, abilityOf(oKey));
+      abilities.set(oKey, mine);
+    }
+    if (kind === '-activate' && /^ability: /.test(p[3] || '')) {
+      nameAbility(abilityOf(sKey), p[3].slice(9));
+      // `-activate|H|ability: Mummy|X|[ability] Old`: X had Old, and now H's.
+      const victim = keyOf(identOf(p[4]));
+      if (victim && tags.ability) {
+        nameAbility(abilityOf(victim), tags.ability);
+        abilities.set(victim, { origin: abilityOf(sKey)?.origin ?? null });
+      }
+    }
+    if ((kind === '-start' || kind === '-end') && /^ability: /.test(p[3] || '')) nameAbility(abilityOf(sKey), p[3].slice(9));
+    // `-block|X|ability: A|[of] H` - Aroma Veil, Sweet Veil, Flower Veil - H's.
+    if (kind === '-block' && /^ability: /.test(p[3] || '')) nameAbility(abilityOf(oKey || sKey), p[3].slice(9));
+    if (kind === '-hint' && /Prankster/.test(p[2] || '')) nameAbility(abilityOf(lastMover), 'Prankster');
+    if (kind === '-transform' && sKey) {
+      if (/^ability: /.test(from)) nameAbility(abilityOf(sKey), from.slice(9));
+      const target = keyOf(identOf(p[3]));
+      if (target) abilities.set(sKey, abilityOf(target));
+    }
+    // An effect credited to an ability. With `[of]` naming another Pokemon, that
+    // one holds it - Rough Skin, Static, Cursed Body, Poison Touch, Liquid Ooze,
+    // Frisk, Hospitality - except where the line is the holder's own gain: an
+    // absorbing ability's heal, or Magician's and Pickpocket's take. Otherwise,
+    // and on a heal, the species decides between the two.
+    if (/^ability: /.test(from) && kind !== '-ability' && kind !== '-transform') {
+      const ability = from.slice(9);
+      const ownGain = kind === '-heal' || (kind === '-item' && !/^ability: Frisk$/.test(from));
+      const candidates = oKey && oKey !== sKey && !ownGain ? [oKey] : [sKey, oKey];
+      for (const key of candidates) {
+        if (couldHave(key, ability)) { nameAbility(abilityOf(key), ability); break; }
+      }
     }
   }
 
@@ -346,17 +517,23 @@ export function setsFromLog(lines, side, formatid) {
     const abilities = Object.values(species.abilities || {});
     const notes = [];
     let ability = mon.ability;
+    const name = mon.name || species.name;
+    const ruled = (ruledOut[name] || []).filter(r => abilities.some(a => toID(a) === toID(r.ability)));
     boxes.push({
       item: mon.item === null ? 'assumed' : 'read',
       ability: ability ? 'read' : abilities.length === 1 ? 'only' : 'assumed',
       nature: 'assumed',
+      ruledOut: ability ? [] : ruled,
     });
     if (!ability && abilities.length === 1) ability = abilities[0];
-    if (!ability) { ability = abilities[0] || ''; notes.push(`ability ${ability || 'none'} (one of ${abilities.join(', ')})`); }
+    if (!ability) {
+      ability = abilities.find(a => !ruled.some(r => toID(r.ability) === toID(a))) || abilities[0] || '';
+      const out = ruled.length ? `; ruled out: ${ruled.map(r => r.ability).join(', ')}` : '';
+      notes.push(`ability ${ability || 'none'} (one of ${abilities.join(', ')}${out})`);
+    }
     if (mon.item === null) notes.push('no item');
     notes.push('a neutral nature');
     if (mon.moves.length < 4) notes.push(`${mon.moves.length} move${mon.moves.length === 1 ? '' : 's'} seen`);
-    const name = mon.name || species.name;
     sets.push({
       name,
       species: species.name,
