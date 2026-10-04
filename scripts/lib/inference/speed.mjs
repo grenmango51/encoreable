@@ -97,6 +97,13 @@ export function attachSpeed(battle, {
   });
   const speedTable = rec => memo(`spe|${sortOrdinal}|${rec.id}`, () => speedsOf(rec, () => rec.pokemon.getActionSpeed()));
 
+  // What a priority handler can read of a Pokemon and the field as the queue
+  // is sorted - whether it is at full HP, its item, ability, types and
+  // volatiles, the terrain and the pseudo-weather - so that a priority that
+  // could have moved between two sorts is known not to have.
+  const priorityState = p => [p.hp === p.maxhp, p.item, p.ability, p.types.join('/'), Object.keys(p.volatiles).sort().join('/'),
+    battle.field.terrain, Object.keys(battle.field.pseudoWeather).sort().join('/')].join('|');
+
   const queue = battle.queue;
   const origSort = queue.sort;
   queue.sort = function () {
@@ -110,6 +117,7 @@ export function attachSpeed(battle, {
         list: this.list.map(a => ({
           action: a, order: a.order, priority: a.priority || 0, pokemon: a.pokemon || null,
           side: a.pokemon?.side?.id ?? null, slot: a.pokemon ? a.pokemon.position : -1,
+          state: a.pokemon ? priorityState(a.pokemon) : null,
         })),
         speeds: new Map(),
       };
@@ -356,22 +364,35 @@ export function attachSpeed(battle, {
       return null;
     };
     // The queued action the replay's line opens: P's move, P's Mega
-    // Evolution, or the switch out of the slot the line names.
-    const opened = (item) => {
+    // Evolution, or the switch out of the slot the line names. A move P never
+    // used - it flinched, or was fully paralysed - shows no move to say which
+    // it chose; `between` then says whether its priority is proved anyway.
+    const opened = (item, between) => {
       if (!ofKind(item.action, was.kind)) return false;
       if (was.kind === 'switch') return item.side === identSide(was.ident) && item.slot === 'abcd'.indexOf(String(was.ident)[2]);
       const P = named(was.ident);
       if (!P || item.pokemon !== P.pokemon) return false;
       if (was.kind === 'mega') return true;
       const move = chosen();
-      return !!move && item.action?.move?.id === move;
+      return move ? item.action?.move?.id === move : between(item);
     };
     if (was && got && (was.ident !== got.ident || was.kind !== got.kind)) {
       const ex = executed.find(e => e.start <= prefix.cutoffAt && prefix.cutoffAt < e.end);
       const S = ex?.sort;
       const x = S?.list.find(item => item.action === ex.action);
+      // P's action came after the action the replay shows just before it, and
+      // before Q's. When those two were sorted at the same order and priority,
+      // so was P's, whatever move it chose - provided nothing a priority
+      // handler reads of P or the field moved between the two sorts.
+      const before = x ? executed[executed.indexOf(ex) - 1] : null;
+      const a = before?.sort && before.sort.turn === S.turn && shown.get(before.action)?.on
+        ? before.sort.list.find(item => item.action === before.action) : null;
+      const between = item => !!a && a.order === x.order && a.priority === x.priority
+        && before.sort.list.find(it => it.action === item.action)?.state === item.state;
+      const unseen = was.kind === 'move' && !chosen();
       const y = x && ofKind(x.action, got.kind)
-        ? S.list.find(item => item !== x && item.pokemon && item.order === x.order && item.priority === x.priority && opened(item)) : null;
+        ? S.list.find(item => item !== x && item.pokemon && item.order === x.order
+          && (item.priority === x.priority || unseen) && opened(item, between)) : null;
       const P = y && byPokemon.get(y.pokemon);
       const Q = x && byPokemon.get(x.pokemon);
       const rule = P && Q && P !== Q && !tainted.has(S.turn) ? ruleOf(P, Q, S.speeds, S.turn, `${label(P)} ${verbOf(y.action)} before ${label(Q)}`) : null;
