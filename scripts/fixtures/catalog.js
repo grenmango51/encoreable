@@ -355,6 +355,62 @@ const entries = {
     control: { p2: [{}, { ability: 'Run Away' }] },
     why: "The hidden Vivillon's Friend Guard takes a quarter off the known Snorlax's Strength on its ally Blastoise, whose percentage shows its Defence and HP.",
   }),
+  'move:swallow': {
+    templates: [{
+      name: 'one-layer',
+      role: 'user-hidden',
+      stat: 'hp',
+      worlds: [1, 31],
+      p1: [withMoves('known', ['Super Fang', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [set('Swalot', 'M', 'Gluttony', 'Smooth Rock', {}, ['Stockpile', 'Swallow', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [knownHits('superfang'), { p1: 'move splash, move splash', p2: 'move stockpile, move splash' }, { p1: 'move splash, move splash', p2: 'move swallow, move splash' }, QUIET],
+      control: { turns: [knownHits('superfang'), { p1: 'move splash, move splash', p2: 'move stockpile, move splash' }, QUIET, QUIET] },
+      why: "Halved by Super Fang, the hidden Swalot swallows one Stockpile, a quarter of its max HP rounded: 176 and 206 max HP print different percentages.",
+    }],
+  },
+  'move:slackoff': {
+    templates: [{
+      name: 'after-two-tosses',
+      role: 'user-hidden',
+      stat: 'hp',
+      worlds: [4, 5],
+      p1: [withMoves('known', ['Seismic Toss', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [set('Slowbro', 'F', 'Oblivious', 'Smooth Rock', {}, ['Slack Off', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [knownHits('seismictoss'), knownHits('seismictoss'), { p1: 'move splash, move splash', p2: 'move slackoff, move splash' }, QUIET],
+      control: { turns: [knownHits('seismictoss'), knownHits('seismictoss'), QUIET, QUIET] },
+      why: "After two Seismic Tosses the hidden Slowbro's Slack Off heals half its max HP rounded: 174 and 175 max HP print 92/100 and 93/100.",
+    }],
+  },
+  'move:toxicspikes': {
+    templates: [{
+      name: 'poisoned-on-entry',
+      role: 'target-hidden',
+      stat: 'hp',
+      worlds: [4, 5],
+      p1: [withMoves('known', ['Toxic Spikes', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: ['hidden', 'hiddenAlly', 'hiddenBench'],
+      turns: [
+        { p1: 'move toxicspikes, move splash', p2: 'switch 3, move splash' },
+        { p1: 'move splash, move splash', p2: 'switch 3, move splash' },
+        QUIET,
+      ],
+      control: { turns: [{ p1: 'move splash, move splash', p2: 'switch 3, move splash' }, { p1: 'move splash, move splash', p2: 'switch 3, move splash' }, QUIET] },
+      why: "The hidden Blastoise switches out, the known Snorlax lays Toxic Spikes, and Blastoise switches back in poisoned: its tick, an eighth of 158 or 159 max HP, prints 87/100 or 88/100.",
+    }],
+  },
+  'move:banefulbunker': {
+    templates: [{
+      name: 'poisons-the-attacker',
+      role: 'target-hidden',
+      stat: 'hp',
+      worlds: [4, 5],
+      p1: [set('Toxapex', 'M', 'Limber', 'Heat Rock', { hp: 32, def: 32 }, ['Baneful Bunker', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [withMoves('hidden', ['Strength', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move banefulbunker, move splash', p2: 'move strength 1, move splash' }, QUIET],
+      control: { p1: [{ moves: ['Protect', 'Splash'] }], turns: [{ p1: 'move protect, move splash', p2: 'move strength 1, move splash' }, QUIET] },
+      why: "The hidden Blastoise's Strength into the known Toxapex's Baneful Bunker poisons it; its tick, an eighth of 158 or 159 max HP, prints 87/100 or 88/100.",
+    }],
+  },
   'ability:sniper': {
     templates: [{
       name: 'critical-hit',
