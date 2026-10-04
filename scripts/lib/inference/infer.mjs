@@ -40,10 +40,13 @@ const { BattleStream, Dex, Teams, toID } = require('pokemon-showdown');
 const { extractChannelMessages } = require('pokemon-showdown/dist/sim/battle.js');
 
 // What the fallback may spend: rebuilds of a failing turn, per line and per
-// inference, and a ceiling on one line's time that only a slow machine meets.
-const FALLBACK_REBUILDS = 12;
-const FALLBACK_TOTAL = 40;
-const FALLBACK_MS = 60000;
+// inference with the readings it runs again under, which bound it the same on
+// every machine; and ceilings on one line's time and on the inference's that
+// only a machine many times slower than usual meets.
+const FALLBACK_REBUILDS = 8;
+const FALLBACK_TOTAL = 32;
+const FALLBACK_MS = 120000;
+const FALLBACK_TOTAL_MS = 240000;
 
 /**
  * The line a rebuild stopped on, in the replay's turn: the lines from the
@@ -159,8 +162,9 @@ function handOn(built, rolls) {
  * @param known    `[p1Known, p2Known]`
  * @param allSpent assume every unknown set spends all 66 points, as real sets do.
  *                 An assumption, not evidence: off unless asked for.
- * @param spend    the fallback's rebuilds left, shared with the inferences
- *                 this one runs again under another reading
+ * @param spend    what the fallback has left - rebuilds and milliseconds - and
+ *                 the lines it searched without getting past, shared with
+ *                 the inferences this one runs again under another reading
  * @returns the surviving spreads per Pokemon, the events that removed the rest,
  *          and the reconstruction built from the spread it settled on.
  */
@@ -179,7 +183,7 @@ export async function inferSpreads({
   onProgress = () => {},
   forced = null,
   readings = true,
-  spend = { rebuilds: FALLBACK_TOTAL },
+  spend = { rebuilds: FALLBACK_TOTAL, ms: FALLBACK_TOTAL_MS, fruitless: new Set() },
 }) {
   const options = { ...arguments[0], spend };
   const dex = Dex.forFormat(formatid);
@@ -306,8 +310,9 @@ export async function inferSpreads({
    * When no surviving value gets past the line, the values just past each
    * moved or narrowed range are tried too. One that reproduces every turn the
    * evidence has read is a spread the evidence removed wrongly, and says so.
-   * A line searched without getting past it is not searched again; one it got
-   * past is searched once more, should a later guess lose it.
+   * A line searched without getting past it is not searched again, nor under
+   * another reading of the same replay; one it got past is searched once more,
+   * should a later guess lose it.
    *
    * @param seen   the Pokemon the evidence has seen
    * @param start  the guess to move from: the one the scaffold was built with,
@@ -322,10 +327,10 @@ export async function inferSpreads({
     const diff = built.report.diffs[0];
     const t = diff?.turn;
     const mark = markOf(diff);
-    if (!diff || !(t >= 1) || !(diff.index >= 0) || (searched.get(mark) || 0) >= 2) return null;
+    if (!diff || !(t >= 1) || !(diff.index >= 0) || (searched.get(mark) || 0) >= 2 || spend.fruitless.has(mark)) return null;
     searched.set(mark, (searched.get(mark) || 0) + 1);
-    const none = () => { searched.set(mark, 2); return null; };
-    if (spend.rebuilds <= 0) return null;
+    const none = () => { searched.set(mark, 2); spend.fruitless.add(mark); return null; };
+    if (spend.rebuilds <= 0 || spend.ms <= 0) return null;
     // The replay through the line that opens the turn after `turn`.
     const cutAt = (turn) => {
       const at = observed.findIndex(l => typeof l === 'string' && Number(/^\|turn\|(\d+)/.exec(l)?.[1]) === turn + 1);
@@ -343,7 +348,8 @@ export async function inferSpreads({
         seed, pins: given, sampleSeed, maxProbes: budget.maxProbes, maxBacktracks: budget.maxBacktracks, threads,
       });
     };
-    const affordable = () => spent < FALLBACK_REBUILDS && spend.rebuilds > 0 && Date.now() - began < FALLBACK_MS;
+    const left = Math.min(FALLBACK_MS, spend.ms);
+    const affordable = () => spent < FALLBACK_REBUILDS && spend.rebuilds > 0 && Date.now() - began < left;
     const reach = b => (b.report.complete ? [Infinity, Infinity] : [b.report.diffs[0]?.turn ?? -1, b.report.diffs[0]?.index ?? -1]);
     const further = (a, b) => (a[0] !== b[0] ? a[0] > b[0] : a[1] > b[1]);
     const outcome = b => JSON.stringify([...reach(b), b.report.diffs[0]?.actual ?? null]);
@@ -604,7 +610,7 @@ export async function inferSpreads({
         turn: t, what: text, who: whoIn(text, moved),
         reason: moved.length
           ? 'no evidence hook reads this line, and no surviving value of the stats that move it reproduces it in the fallback\'s search'
-          : 'no evidence hook reads this line, and no Stat Point of a Pokemon the turn names changes it',
+          : 'no evidence hook reads this line, and no value the fallback tried of a Stat Point of a Pokemon the turn names changes it',
       });
     }
     onProgress(`  fallback on turn ${t}: nothing gets past the line in ${spent} rebuilds, ${clock()}`);
@@ -711,7 +717,9 @@ export async function inferSpreads({
     failed.add(markOf(diff));
     if (unchanged || again || read < 2) {
       const start = picks.map((team, s) => team.map((e, i) => (containsSpread(knowledge.get(`p${s + 1}:${i}`), e) ? e : next[s][i])));
+      const began = Date.now();
       const found = await fallback(seen, start);
+      spend.ms -= Date.now() - began;
       if (found) {
         for (const [id, spread] of found.held) held.set(id, spread);
         picks = found.picks;
