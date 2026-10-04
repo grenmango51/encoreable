@@ -472,6 +472,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, teamSet, sampleSeed
   // Did every real spread survive? A spread the replay could have come from
   // must never be eliminated, so a miss here is a defect, not a hard replay.
   let truthKept = true;
+  let spreadTruth = false;
   const removed = [];
   if (inference && certify) {
     certified = await certifyRanges(inference, {
@@ -487,6 +488,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, teamSet, sampleSeed
       const real = truthSets[side]?.find(s => toID(s.species || s.name).startsWith(toID(p.species))
         || toID(p.species).startsWith(toID(s.species || s.name)));
       const kept = real ? p.contains(real.evs) : null;
+      if (real) spreadTruth = true;
       if (kept === false) { truthKept = false; removed.push(`${p.side} ${p.species}`); }
       const wrong = Object.entries(certified?.[p.id] || {}).filter(([, c]) => c.outside?.length);
       if (wrong.length) truthKept = false;
@@ -549,7 +551,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, teamSet, sampleSeed
 
   return {
     file, label, rung, ok: r.complete && selfConsistent && truthKept, report: r, accuracy, selfConsistent, outFile, seconds,
-    removed, setWrong: setReports.flatMap(x => x.wrong), readOffLog: readOffLog.some(Boolean),
+    removed, spreadTruth, setWrong: setReports.flatMap(x => x.wrong), readOffLog: readOffLog.some(Boolean),
   };
 }
 
@@ -611,7 +613,11 @@ function closedSummary(results) {
   say('');
   say(`closed sheets: ${read.length} source${read.length === 1 ? '' : 's'} read off the log, ` +
       `${read.filter(r => r.setWrong.length).length} with a box the truth contradicts`);
-  say(`real spread removed under the sets read off the log: ${removed.length}`);
+  // A replay knows no real spread for the side it infers, so only a source with
+  // one - a recording, a fixture of that side - can show a spread removed.
+  const checked = read.filter(r => r.spreadTruth).length;
+  say(`real spread removed under the sets read off the log: ${removed.length} ` +
+      `of ${checked} source${checked === 1 ? '' : 's'} with a real spread to check it against`);
   for (const r of removed) {
     say(`  ${r.label}: ${r.removed.join(', ')}`);
     const blamed = r.setWrong.filter(w => r.removed.some(x => x.startsWith(`${w.side} `) && sameSpecies(x.slice(3), w.species)));
