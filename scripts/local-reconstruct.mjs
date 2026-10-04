@@ -35,8 +35,14 @@
  *   node scripts/local-reconstruct.mjs --from "recordings/showdown/full-sheets/<replay>.html" --infer p2
  *   node scripts/local-reconstruct.mjs --from "recordings/showdown/mine-open/<replay id>.json" --teams <yours> --infer p1
  *   node scripts/local-reconstruct.mjs --rung s3 --all --infer p2
+ *   node scripts/local-reconstruct.mjs --saved
  *
- * Flags: --from <file> --rung s1|s2|s3 --all --teams <fixture> --infer p1|p2|both
+ * `--saved` is the scoreboard over your own saved games: every replay in
+ * recordings/showdown/mine-open/ and mine-closed/ whose one side is a team in
+ * scripts/fixtures/teams.js, rebuilt with that side known and the other side
+ * inferred, and one line per game - MATCH or how far it got, and how long.
+ *
+ * Flags: --from <file> --rung s1|s2|s3 --all --saved --teams <fixture> --infer p1|p2|both
  *        --all-spent --certify --outside --sample <n> --max-probes <n> --threads <n> --out <file> --dry-run --verbose
  */
 
@@ -49,7 +55,7 @@ import { listLogFiles, newestLogFile, posix as toPosix } from './lib/recordings.
 import { certifyRanges, inferSpreads, inferenceRecord } from './lib/inference/infer.mjs';
 import { reconstruct, unpackTeams } from './lib/reconstruct.mjs';
 import {
-  alignSpeciesToSheet, crossCheckLog, crossCheckSheet, loadSource, maxHpFromLog, setsFromLog, setsFromSheet,
+  alignSpeciesToSheet, crossCheckLog, crossCheckSheet, loadSource, maxHpFromLog, sameSpecies, setsFromLog, setsFromSheet,
   teamsForSides, unreplayableChoices, withLogIdentity,
 } from './lib/replay-source.mjs';
 
@@ -162,7 +168,7 @@ function hpAccuracy(truthLines, builtLines, side) {
 
 // -------------------------------------------------------------- one run
 
-async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProbes, threads, write, outDir, infer, allSpent, showEvents, certify, outside }) {
+async function runOne({ file, rung: requestedRung, teamsKey, teamSet, sampleSeed, maxProbes, threads, write, outDir, infer, allSpent, showEvents, certify, outside }) {
   let rung = requestedRung;
   const source = loadSource(file);
   const label = path.basename(file);
@@ -196,7 +202,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
     // inferred side from nowhere at all.
     const exactSides = new Set([...maxHpFromLog(observed).keys()].map(key => key.slice(0, 2)));
     channel = !exactSides.size ? 0 : exactSides.size === 1 && exactSides.has('p2') ? 2 : 1;
-    const set = TEAM_SETS[teamsKey];
+    const set = teamSet || TEAM_SETS[teamsKey];
     if (!set && inferred.length < 2) {
       throw new Error(`no fixture team set "${teamsKey}" - have ${Object.keys(TEAM_SETS).join(', ')}`);
     }
@@ -419,6 +425,52 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
   };
 }
 
+// ---------------------------------------------------------------- scoreboard
+
+const SAVED_FOLDERS = ['mine-open', 'mine-closed'];
+
+/**
+ * Every saved game of yours that a fixture team can be put to: the replay, the
+ * fixture team whose six species are one side's six at team preview, and the
+ * other side, which is the one inferred. A game no fixture team matches is
+ * listed as skipped, not run.
+ */
+function savedJobs() {
+  const jobs = [];
+  const skipped = [];
+  for (const folder of SAVED_FOLDERS) {
+    const dir = path.join(ROOT, 'recordings', 'showdown', folder);
+    if (!fs.existsSync(dir)) continue;
+    for (const name of fs.readdirSync(dir).sort()) {
+      if (!/\.html$/i.test(name) && !(/\.json$/i.test(name) && !/\.log\.json$/i.test(name))) continue;
+      const file = path.join(dir, name);
+      const lines = loadSource(file).lines;
+      const previewed = ['p1', 'p2'].map(side => lines
+        .filter(l => l.startsWith(`|poke|${side}|`))
+        .map(l => l.split('|')[3].split(',')[0]));
+      const found = [];
+      for (const [key, set] of Object.entries(TEAM_SETS)) {
+        for (const text of [set.p1, set.p2].filter(Boolean)) {
+          const team = Teams.import(text);
+          for (const i of [0, 1]) {
+            if (previewed[i].length && team.every(s => previewed[i].some(sp => sameSpecies(sp, s.species || s.name)))) {
+              found.push({ key, text, side: i });
+            }
+          }
+        }
+      }
+      const sides = new Set(found.map(m => m.side));
+      if (sides.size !== 1) {
+        skipped.push({ label: `${folder}/${name}`, why: found.length ? 'a fixture team matches both sides' : 'no team in teams.js matches either side' });
+        continue;
+      }
+      const mine = found[0];
+      jobs.push({ file, label: `${folder}/${name}`, teamsKey: mine.key, teamSet: { p1: mine.text }, infer: `p${2 - mine.side}` });
+    }
+  }
+  return { jobs, skipped };
+}
+
 // ------------------------------------------------------------------- main
 
 async function main() {
@@ -432,34 +484,42 @@ async function main() {
   const infer = opt('--infer') ? opt('--infer').toLowerCase() : null;
   if (infer && !['p1', 'p2', 'both'].includes(infer)) throw new Error('--infer takes p1, p2 or both');
 
+  const saved = flag('--saved') ? savedJobs() : null;
   let files;
-  if (flag('--all')) {
+  if (saved) {
+    files = saved.jobs.map(j => j.file);
+  } else if (flag('--all')) {
     files = listLogFiles(ROOT).filter(f => !path.basename(f).startsWith('reconstructed-'));
   } else {
     const from = opt('--from');
     files = [from ? path.resolve(ROOT, from) : newestLogFile(ROOT)];
   }
   if (!files.length || !files[0]) throw new Error('no source found - pass --from <file>');
+  const many = files.length > 1 || !!saved;
 
   // A saved replay is always S4 whatever `--rung` said - the rung only chooses
   // how much of a recording to withhold, and a replay withholds everything by
   // being what it is. Naming it here keeps the header from claiming otherwise.
   const heading = files.every(f => /\.html$/i.test(f) || (/\.json$/i.test(f) && !/\.log\.json$/i.test(f))) ? 's4' : rung;
-  say(`reconstruct: rung ${heading}${infer ? `, Stat Points of ${infer === 'both' ? 'both sides' : infer} inferred` : ''}` +
-    `${infer && flag('--all-spent') ? ', every point assumed spent' : ''}, ` +
+  const inferredHeading = saved ? ', your side known and the other side\'s Stat Points inferred' :
+    infer ? `, Stat Points of ${infer === 'both' ? 'both sides' : infer} inferred` : '';
+  say(`reconstruct: rung ${heading}${inferredHeading}` +
+    `${(infer || saved) && flag('--all-spent') ? ', every point assumed spent' : ''}, ` +
     `${files.length} source${files.length === 1 ? '' : 's'}, sample seed ${sampleSeed}`);
 
   const results = [];
-  for (const file of files) {
+  for (const [n, file] of files.entries()) {
+    const job = saved?.jobs[n];
+    if (job) say(`## ${job.label}  (${job.teamsKey} is p${job.infer === 'p1' ? 2 : 1}, ${job.infer} inferred)`);
     try {
       results.push(await runOne({
-        file, rung, teamsKey, sampleSeed, maxProbes, threads,
-        write: write && !flag('--all'),
+        file, rung, teamsKey: job?.teamsKey || teamsKey, teamSet: job?.teamSet, sampleSeed, maxProbes, threads,
+        write: write && !many,
         outDir,
-        infer,
+        infer: job?.infer || infer,
         allSpent: flag('--all-spent'),
-        showEvents: !flag('--all'),
-        certify: !!infer && flag('--certify'),
+        showEvents: !many,
+        certify: !!(job?.infer || infer) && flag('--certify'),
         outside: flag('--outside'),
       }));
     } catch (err) {
@@ -467,9 +527,19 @@ async function main() {
       if (VERBOSE) console.error(err);
       results.push({ file, label: path.basename(file), rung, ok: false, error: err.message });
     }
+    if (job) results[results.length - 1].label = job.label;
   }
 
-  if (results.length > 1) {
+  if (saved) {
+    say('');
+    say(`scoreboard: ${results.filter(r => r.ok).length}/${results.length} of your saved games rebuilt line-for-line`);
+    for (const r of results) {
+      const verdict = r.error ? 'ERROR' : r.ok ? 'MATCH' : r.report?.complete ? 'FAIL' : `turn ${r.report?.verifiedThroughTurn}/${r.report?.turns}`;
+      say(`  ${verdict.padEnd(11)} ${r.seconds ? `${r.seconds}s`.padStart(7) : '      -'}  ${r.label}${r.error ? ` - ${r.error}` : ''}`);
+    }
+    for (const s of saved.skipped) say(`  skipped              ${s.label} - ${s.why}`);
+    if (results.some(r => !r.ok)) process.exitCode = 1;
+  } else if (results.length > 1) {
     const passed = results.filter(r => r.ok).length;
     say('');
     say(`${passed}/${results.length} reconstructions matched line-for-line`);

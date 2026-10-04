@@ -103,7 +103,7 @@ export function sheetsFromLog(lines) {
   return sheets;
 }
 
-const sameSpecies = (a, b) => toID(a) === toID(b) ||
+export const sameSpecies = (a, b) => toID(a) === toID(b) ||
   // a sheet names the base forme; a mega evolves into its own species
   toID(a).startsWith(toID(b)) || toID(b).startsWith(toID(a));
 

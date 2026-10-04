@@ -55,8 +55,11 @@ same thing as `npm run live` for whichever turn is on screen.
 
 Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 `npm run live` also takes `--at <turn>`, `--dry-run`, `--verify <log.json>`.
-`npm run reconstruct` takes `--all`, `--rung s1|s2|s3`, `--teams <key>`, `--infer p1|p2|both`,
+`npm run reconstruct` takes `--all`, `--saved`, `--rung s1|s2|s3`, `--teams <key>`, `--infer p1|p2|both`,
 `--all-spent`, `--certify`, `--outside`, `--sample <n>`, `--max-probes <n>`, `--threads <n>`, `--dry-run`.
+`npm run reconstruct -- --saved` is the scoreboard over your own saved games (`recordings/showdown/mine-open/`
+and `mine-closed/`): each is rebuilt with your team from `scripts/fixtures/teams.js` and the other side
+inferred, one line per game.
 `npm run replay` takes `--force "<outcome> <subject> [move]"` (repeatable) with `--at <turn>`
 and `--seed <seed>`: it replays a recording twice from that turn under one shared reseed, once
 plain and once with the named draws forced, and reports what moved.

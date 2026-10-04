@@ -96,7 +96,8 @@ reads nothing unless the rebuild's current guess of max HP divides evenly — wh
    (`inference.checks`), never trusted. Precision can be given up; soundness cannot.
 3. **One hook per mechanism, never one per move.** A fix that names a move is the wrong fix.
 4. **After every step:** `npm run reconstruct -- --all --rung s3 --infer p2` keeps every real spread
-   (83 today, plus every probe recording added since). Before a commit that changes the catalog or
+   (83 today, plus every probe recording added since), and `npm run reconstruct -- --saved` matches
+   no fewer of your saved games than before (9 of 24 today). Before a commit that changes the catalog or
    the inference, the affected kinds are rerun (`npm run catalog -- --kind <kind> --out <dir>`) and
    nothing new is UNSOUND. A change to `scripts/lib/inference/` also runs `npm run extension --
    --check`: the extension bundles the inference with browser stand-ins, so a new hook can break it.
