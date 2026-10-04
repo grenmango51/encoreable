@@ -245,6 +245,26 @@ function parseDetails(details) {
 }
 
 /**
+ * The move a set read off the log is given when its Pokemon never used one: a
+ * Pokemon with no move can only Struggle, and a Struggler can neither Mega
+ * Evolve nor choose a target, so its every choice would draw a random one.
+ * The stand-in is a move its species learns that changes nothing a choice
+ * that never ran could show: priority 0 like Struggle, aimed at one chosen
+ * Pokemon so no target is drawn, and damaging and not sound-, heal-, charge- or
+ * Gravity-bound so Taunt, Throat Chop, Heal Block and Gravity leave it usable.
+ */
+function standInMove(dex, species) {
+  for (const id of [species.id, toID(species.baseSpecies)]) {
+    const pool = [...(dex.species.getMovePool(id) || [])].sort();
+    const move = pool.map(m => dex.moves.get(m)).find(m => m.exists && !m.isNonstandard && m.category !== 'Status'
+      && m.priority === 0 && m.target === 'normal' && !m.selfSwitch
+      && !['sound', 'heal', 'charge', 'recharge', 'gravity'].some(f => m.flags[f]));
+    if (move) return move.name;
+  }
+  return null;
+}
+
+/**
  * What a log reveals about one side's sets, for a replay that publishes no team
  * sheet: the Pokemon previewed, the level and gender their details carry, every
  * move each one chose, and the item and ability it brought. Items and
@@ -272,8 +292,11 @@ function parseDetails(details) {
  * `ruledOut`, by the name a Pokemon is shown under, lists abilities the
  * simulator has shown this log cannot have come from (`{ ability, why }`): the
  * ability assumed is then the first the species lists that is not among them.
+ *
+ * `standIn` gives a Pokemon that never used a move one move to choose
+ * (`standInMove`), named in `boxes` as `standIn`, so a rebuild can play it.
  */
-export function setsFromLog(lines, side, formatid, { ruledOut = {} } = {}) {
+export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = false } = {}) {
   const dex = Dex.forFormat(formatid);
   const mons = [];
   for (const line of lines) {
@@ -534,12 +557,17 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {} } = {}) {
     if (mon.item === null) notes.push('no item');
     notes.push('a neutral nature');
     if (mon.moves.length < 4) notes.push(`${mon.moves.length} move${mon.moves.length === 1 ? '' : 's'} seen`);
+    const moves = mon.moves.length || !standIn ? mon.moves : [standInMove(dex, species)].filter(Boolean);
+    if (!mon.moves.length && moves.length) {
+      boxes[boxes.length - 1].standIn = moves[0];
+      notes.push(`${moves[0]}, which it never used`);
+    }
     sets.push({
       name,
       species: species.name,
       item: mon.item || '',
       ability,
-      moves: mon.moves,
+      moves,
       nature: 'Serious',
       gender: mon.gender,
       shiny: mon.shiny,

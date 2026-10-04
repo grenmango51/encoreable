@@ -214,10 +214,14 @@ function setReport(read, truth, formatid, side) {
       verdict('nature', natureOf(set.nature), real ? natureOf(real.nature) : null, !real || natureOf(set.nature) === natureOf(real.nature)));
     const realMoves = (real?.moves || []).map(m => dex.moves.get(m).name);
     for (const move of set.moves) {
+      if (move === boxes.standIn) {
+        row(name(), 'move', 'assumed', move, 'it never used a move; this one stands in for the choices it made');
+        continue;
+      }
       const has = realMoves.some(m => toID(m) === toID(move));
       row(name(), 'move', 'read', move, real ? (has ? 'truth has it' : verdict('move', move, realMoves.join(', '), false)) : '');
     }
-    const unseen = realMoves.filter(m => !set.moves.some(s => toID(s) === toID(m)));
+    const unseen = realMoves.filter(m => !set.moves.some(s => s !== boxes.standIn && toID(s) === toID(m)));
     if (real && unseen.length) row(name(), 'move', 'unseen', '', `truth ${unseen.join(', ')}`);
   }
   return { lines, wrong };
@@ -383,7 +387,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, teamSet, sampleSeed
       readOffLog[i] = !supplied(i) && (closed || (source.kind === 'replay' && !source.sheets?.[i]));
       if (supplied(i)) return Teams.unpack(packedTeams[i]);
       if (readOffLog[i]) {
-        reads[i] = setsFromLog(observed, `p${i + 1}`, source.formatid, { ruledOut: ruledOut[i] });
+        reads[i] = setsFromLog(observed, `p${i + 1}`, source.formatid, { ruledOut: ruledOut[i], standIn: true });
         return reads[i].sets;
       }
       if (source.kind === 'replay' && source.sheets?.[i]) {
