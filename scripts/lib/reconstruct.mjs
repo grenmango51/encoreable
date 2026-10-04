@@ -1169,6 +1169,9 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
       }
       const before = `${battle.turn}:${battle.log.length}:${battle.sides.map(s => s.requestState).join('')}`;
       for (const side of waiting) {
+        // A side whose choice an earlier round already made is left waiting
+        // once the other side's choice resolves the turn: nothing to write.
+        if (!side.requestState) continue;
         written[side.id] = choiceFor(side, plans[k], state, notes);
         await stream.write(`>${side.id} ${written[side.id]}`);
       }
