@@ -397,6 +397,135 @@ Adamant Nature
 - Detect
 `.trim();
 
+// cundangcap, Reg M-C — Tyranitar sand with Sand Rush Excadrill, Mega
+// Salamence, Sinistcha's Trick Room and Rage Powder, Primarina, Gholdengo.
+const MC_SAND_EXPORT = `
+Tyranitar @ Tyranitarite
+Ability: Sand Stream
+Level: 50
+EVs: 12 HP / 26 Atk / 1 SpD / 27 Spe
+Adamant Nature
+- Rock Slide
+- Knock Off
+- Low Kick
+- Protect
+
+Excadrill @ Focus Sash
+Ability: Sand Rush
+Level: 50
+EVs: 2 HP / 32 Atk / 32 Spe
+Adamant Nature
+- High Horsepower
+- Swords Dance
+- Iron Head
+- Protect
+
+Salamence @ Salamencite
+Ability: Intimidate
+Level: 50
+EVs: 1 HP / 32 SpA / 1 SpD / 32 Spe
+Timid Nature
+- Hyper Voice
+- Flamethrower
+- Tailwind
+- Protect
+
+Sinistcha @ Sitrus Berry
+Ability: Hospitality
+Level: 50
+EVs: 31 HP / 10 Def / 25 SpD
+Calm Nature
+- Matcha Gotcha
+- Rage Powder
+- Trick Room
+- Protect
+
+Primarina @ Life Orb
+Ability: Liquid Voice
+Level: 50
+EVs: 26 HP / 3 Def / 14 SpA / 23 Spe
+Modest Nature
+- Moonblast
+- Hyper Voice
+- Dazzling Gleam
+- Protect
+
+Gholdengo @ Leftovers
+Ability: Good as Gold
+Level: 50
+EVs: 31 HP / 2 Def / 17 SpA / 1 SpD / 15 Spe
+Modest Nature
+- Make It Rain
+- Shadow Ball
+- Nasty Plot
+- Protect
+`.trim();
+
+// cundangcap, Reg M-C — Politoed rain with Perish Song from Politoed and Mega
+// Gengar, Vivillon's Sleep Powder and Rage Powder, Incineroar, Rillaboom,
+// Kommo-o.
+const MC_PERISH_EXPORT = `
+Vivillon @ Focus Sash
+Ability: Compound Eyes
+Level: 50
+EVs: 9 Def / 25 SpA / 32 Spe
+Timid Nature
+- Sleep Powder
+- Rage Powder
+- Hurricane
+- Protect
+
+Politoed @ Sitrus Berry
+Ability: Drizzle
+Level: 50
+EVs: 32 HP / 24 Def / 10 SpD
+Calm Nature
+- Weather Ball
+- Perish Song
+- Encore
+- Protect
+
+Gengar @ Gengarite
+Ability: Cursed Body
+Level: 50
+EVs: 30 HP / 18 Def / 11 SpD / 7 Spe
+Modest Nature
+- Shadow Ball
+- Sludge Bomb
+- Perish Song
+- Protect
+
+Incineroar @ Passho Berry
+Ability: Intimidate
+Level: 50
+EVs: 31 HP / 21 Def / 14 SpD
+Relaxed Nature
+- Protect
+- Fake Out
+- Flare Blitz
+- Parting Shot
+
+Rillaboom @ Occa Berry
+Ability: Grassy Surge
+Level: 50
+EVs: 32 HP / 5 Atk / 29 SpD
+Adamant Nature
+- Fake Out
+- Grassy Glide
+- U-turn
+- Protect
+
+Kommo-o @ Leftovers
+Ability: Soundproof
+Level: 50
+EVs: 10 HP / 1 Def / 22 SpA / 1 SpD / 32 Spe
+Modest Nature
+- Clanging Scales
+- Clangorous Soul
+- Aura Sphere
+- Protect
+`.trim();
+
 // Named matchups. `fixture` is the scripted harness pair; `alt` is a
 // full-length battle between two real teams. The rest are your own teams for
 // replays against someone who did not share a sheet: one side only, which
@@ -406,6 +535,10 @@ const TEAM_SETS = {
   alt: { p1: P1_ALT_EXPORT, p2: P2_ALT_EXPORT },
   'mc-sun': { p1: MC_SUN_EXPORT },
   'mc-rain': { p1: MC_RAIN_EXPORT },
+  'mc-sand': { p1: MC_SAND_EXPORT },
+  'mc-perish': { p1: MC_PERISH_EXPORT },
 };
 
-module.exports = { P1_EXPORT, P2_EXPORT, P1_ALT_EXPORT, P2_ALT_EXPORT, MC_SUN_EXPORT, MC_RAIN_EXPORT, TEAM_SETS };
+module.exports = {
+  P1_EXPORT, P2_EXPORT, P1_ALT_EXPORT, P2_ALT_EXPORT, MC_SUN_EXPORT, MC_RAIN_EXPORT, MC_SAND_EXPORT, MC_PERISH_EXPORT, TEAM_SETS,
+};
