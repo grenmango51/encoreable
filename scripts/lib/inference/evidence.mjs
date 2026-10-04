@@ -976,11 +976,6 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const via = !hit.off || hit.A.kn.known ? null
       : hit.offDim ? { rec: hit.A, dim: hit.off } : { rec: hit.A, stat: hit.off };
     const S = hit.S;
-    // Hits this move has landed, in all and on this Pokemon: a spread move hits
-    // each target once.
-    if (S.hitMove !== ctx.effect) { S.hitMove = ctx.effect; S.hitsThisMove = 0; S.hitsOn = new Map(); }
-    S.hitsThisMove++;
-    S.hitsOn.set(T, (S.hitsOn.get(T) || 0) + 1);
     return {
       dim: hit.def,
       table,
@@ -995,8 +990,6 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       // Recoil and drain read the user's own attacking stat off the same hit;
       // one that belongs to the target or to a key dimension says nothing there.
       off: hit.A === S && !hit.offDim ? hit.off : null,
-      hits: S.hitsThisMove,
-      hitsOn: S.hitsOn.get(T),
       what: hit.what || `${named(hit.S)}'s ${hit.clone.name} hit ${named(T)}`,
     };
   }
@@ -1101,9 +1094,167 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     return { dim: null, table, dealtOf, victim: last.change, hurt: last.victim, via: known ? null : { rec: S, stat: last.off }, what };
   }
 
-  /** Recoil: `applyRecoilDamage` computes and applies it in one call. */
-  const recoilChange = (S, last, what) =>
-    dealtChange(S, last, what, 'rcl', d => actions.applyRecoilDamage(d, last.move, S.pokemon));
+  /** Whether nothing has moved `V`'s HP since `change`: every later change only reads it. */
+  const stillSince = (V, change) => {
+    const at = V.history.findLastIndex(e => e.change === change);
+    return at >= 0 && V.history.slice(at + 1).every(e => e.change.same) && V.pending.every(c => c.same);
+  };
+
+  /**
+   * What `V` was on before the first of `hits`, key by key, when nothing but
+   * those hits has moved its HP since: what they dealt together is then that
+   * HP less the HP it is on now. Null otherwise - a Berry it ate between two
+   * hits.
+   */
+  function lostSince(V, hits) {
+    if (!stillSince(V, hits.at(-1))) return null;
+    const first = V.history.findLastIndex(e => e.change === hits[0]);
+    if (first < 0) return null;
+    let next = 0;
+    for (const e of V.history.slice(first)) {
+      if (e.change === hits[next]) next++;
+      else if (!e.change.same) return null;
+    }
+    return next === hits.length ? V.history[first].pre : null;
+  }
+
+  /**
+   * An amount the simulator works out from everything one use of a move
+   * dealt, over every hit and every target - recoil from the total, Shell
+   * Bell's eighth of it - read off the line of the Pokemon it lands on, its
+   * user. `run(t)` is the simulator handing the user that amount for a total
+   * of `t`, asked for every HP the user could be on, and its line keeps the
+   * totals that print it.
+   *
+   * A hit on a Pokemon shown exactly dealt what the log says. What the hits on
+   * Pokemon shown as a percentage dealt comes one of two ways. When one such
+   * Pokemon took them all and nothing else moved its HP from the first of them
+   * on, they dealt the HP it was on before the first less the HP it is on now,
+   * key by key: the totals go per value of its HP Stat Points, the user's line
+   * narrows them, and of the HP it is on now it keeps only what some HP it was
+   * on before completes to a total the line allows. Otherwise each hit dealt
+   * one of the amounts its own display allowed, and those add up; where every
+   * hit read the user's own hidden attacking stat, the totals go per value of
+   * that stat, and the line narrows it. Either way each hit then keeps the
+   * amounts some amounts of the others complete to a total the line allows
+   * (`after`).
+   *
+   * Null where a hit was not read, or where the hits the scaffold landed do
+   * not add up to `total`, the amount the simulator really used: then a hit
+   * is missing, and the line says nothing usable.
+   */
+  function totalChange(S, total, what, tag, run) {
+    const log = S.moveHits;
+    if (!log || log.move !== battle.activeMove || !log.all.length) return null;
+    if (log.all.reduce((t, x) => t + (x.dealt || 0), 0) !== total) {
+      note(what, 'the hits read do not add up to what the move dealt, so it was not used');
+      return null;
+    }
+    let rest = 0;
+    const lasts = [];
+    for (const x of log.all) {
+      if (x.victim.exact) { rest += x.dealt || 0; continue; }
+      const l = (S.dealtHits || []).find(d => d.change === x.change);
+      if (!l?.byA.size) return null;
+      lasts.push(l);
+    }
+    const off = lasts[0]?.off;
+    const perA = !S.kn.known && !!off && lasts.every(l => l.off === off);
+    const V = !perA && lasts.length && lasts.every(l => l.victim === lasts[0].victim) ? lasts[0].victim : null;
+    const span = V ? lostSince(V, lasts.map(l => l.change)) : null;
+    const amountsOf = (l, a) => (perA ? [...l.byA.get(a)] : [...new Set([...l.byA.values()].flatMap(set => [...set]))]);
+    const sumOf = (lists) => {
+      let out = new Set([rest]);
+      for (const list of lists) {
+        const next = new Set();
+        for (const t of out) for (const d of list) next.add(t + d);
+        if (next.size > 4096) return null;
+        out = next;
+      }
+      return out;
+    };
+    const tooMany = () => {
+      note(what, 'its hits could add up to too many totals, so it was not used');
+      return null;
+    };
+    // The totals, per value of what the line narrows besides the user's HP.
+    const byA = new Map();
+    if (span) {
+      for (const [k, hs] of V.chain) {
+        const was = span.get(k);
+        if (!was) continue;
+        const a = KEY_HP[k];
+        if (!byA.has(a)) byA.set(a, new Set());
+        for (const h0 of was) for (const h of hs) if (h0 >= h) byA.get(a).add(rest + h0 - h);
+      }
+    } else {
+      const values = perA ? aliveOf(S.flat[off]).filter(a => lasts.every(l => l.byA.has(a))) : [0];
+      for (const a of values) {
+        const sums = sumOf(lasts.map(l => amountsOf(l, a)));
+        if (!sums) return tooMany();
+        byA.set(a, sums);
+      }
+    }
+    for (const [a, sums] of byA) if (!sums.size) byA.delete(a);
+    if (!byA.size) return null;
+    const totals = [];
+    const index = new Map();
+    for (const sums of byA.values()) for (const t of sums) if (!index.has(t)) { index.set(t, totals.length); totals.push(t); }
+    if (totals.length > 4096) return tooMany();
+    const ord = changeOrdinal;
+    const table = new Map();
+    for (const [g, [hp, , h]] of groupsOf(S, null)) {
+      const M = maxHp(S, hp);
+      const pairs = [];
+      for (const [a, sums] of byA) {
+        for (const t of sums) {
+          const h2 = memo(`${tag}|${ord}|${M}|${h}|${t}`, () => dryHp(S, M, h, () => run(t)));
+          pairs.push((a + SPAN * index.get(t)) * HP_BITS + h2);
+        }
+      }
+      table.set(g, Int32Array.from(pairs));
+    }
+    const after = (passed) => {
+      const fits = new Map();
+      for (const x of passed) {
+        const a = x % SPAN;
+        if (!fits.has(a)) fits.set(a, new Set());
+        fits.get(a).add(totals[Math.floor(x / SPAN)]);
+      }
+      const all = new Set([...fits.values()].flatMap(set => [...set]));
+      if (span && stillSince(V, lasts.at(-1).change)) {
+        const next = new Map();
+        for (const [k, hs] of V.chain) {
+          const want = fits.get(KEY_HP[k]);
+          const was = span.get(k);
+          if (!want || !was) continue;
+          const keep = hs.filter(h => was.some(h0 => h0 >= h && want.has(rest + h0 - h)));
+          if (keep.length) next.set(k, keep);
+        }
+        V.chain = next;
+      }
+      for (const [i, l] of lasts.entries()) {
+        const others = new Map();
+        const ok = new Set();
+        for (const [v, set] of l.byA) {
+          const want = perA ? fits.get(v) : all;
+          if (!want?.size) continue;
+          const key = perA ? v : -1;
+          if (!others.has(key)) others.set(key, sumOf(lasts.filter((_, j) => j !== i).map(o => amountsOf(o, perA ? v : null))));
+          const rests = others.get(key);
+          if (!rests) { for (const d of set) ok.add(v * HP_BITS + d); continue; }
+          for (const d of set) {
+            for (const t of want) if (rests.has(t - d)) { ok.add(v * HP_BITS + d); break; }
+          }
+        }
+        const had = l.change.dealtOk;
+        l.change.dealtOk = had ? new Set([...ok].filter(x => had.has(x))) : ok;
+        narrowDealt(l.victim, l.change, l.change.dealtOk, { what, turn: battle.turn });
+      }
+    };
+    const via = span ? { rec: V, dim: 'hp' } : perA ? { rec: S, stat: off } : null;
+    return { dim: null, table, via, after, what };
+  }
 
   /**
    * Drain: the simulator heals the attacker inside `spreadDamage`, from the
@@ -1223,18 +1374,25 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       return statAmountChange(T, kind, amounts, { rec: W, dim: 'hp' }, ctx, `Wish from ${named(W)} on ${named(T)}`);
     }
 
-    // Drain and recoil are a share of damage dealt. That share is exact when the
-    // Pokemon that took the damage is one whose HP the log shows exactly;
-    // otherwise it is one of the amounts the hit could have dealt, and the line
-    // it prints says which. A recoil summed over several hits says nothing usable.
-    if (id === 'drain' || id === 'recoil') {
-      const hurt = id === 'drain' ? byPokemon.get(other) : null;
-      const exactVictim = hurt ? hurt.exact : T.pokemon.side.foe.active.every(p => !p || byPokemon.get(p)?.exact);
-      if (exactVictim) return amountChange(T, kind, () => [raw], ctx, what);
+    // Drain is a share of the damage one hit dealt: exact when the Pokemon
+    // that took it is shown exactly, and otherwise one of the amounts the hit
+    // could have dealt, which the line it prints says.
+    if (id === 'drain') {
+      const hurt = byPokemon.get(other);
+      if (hurt?.exact) return amountChange(T, kind, () => [raw], ctx, what);
       const last = T.lastDealt;
-      if (id === 'recoil' && last?.byA.size && last.move === battle.activeMove && last.hits === 1) return recoilChange(T, last, what);
-      if (id === 'drain' && last?.byA.size && last.move === battle.activeMove && last.victim === hurt) return drainChange(T, last, what);
+      if (last?.byA.size && last.move === battle.activeMove && last.victim === hurt) return drainChange(T, last, what);
       return band(dir, what);
+    }
+    // Recoil is a share of everything the move dealt, over every hit and every
+    // target, worked out from the total the simulator handed
+    // `applyRecoilDamage`. Recoil off a Substitute is worked out from what the
+    // Substitute took, which no line shows.
+    if (id === 'recoil') {
+      const call = recoilCall?.pokemon === T.pokemon ? recoilCall : null;
+      if (!call) note(what, 'it was worked out from what a Substitute took, which no line shows, so it was not used');
+      const change = call && totalChange(T, call.total, what, 'rcl', t => actions.applyRecoilDamage(t, call.move, T.pokemon));
+      return change || band(dir, what);
     }
     // Leech Seed drains an eighth of the seeded Pokemon's HP, which scales like
     // any fraction below. What the seeder gets back is the amount it really
@@ -1249,66 +1407,14 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
       return band(dir, what);
     }
-    // Shell Bell gives back an eighth of everything the holder's move dealt:
-    // exact when every Pokemon it hurt is shown exactly, and otherwise, for a
-    // single hit on one Pokemon, one of the amounts that hit could have dealt.
+    // Shell Bell gives back an eighth of everything the holder's move dealt,
+    // read the way recoil is, from the move's own total.
     if (id === 'shellbell' && healed) {
-      const hurt = T.victimMove === battle.activeMove ? [...T.victims] : [];
-      if (hurt.length && hurt.every(r => r.exact)) return amountChange(T, kind, () => [raw], ctx, what);
-      // One of them shown as a percentage: the others' damage is exact, and the
-      // amounts its hit could have dealt come on top.
-      const hidden = hurt.filter(r => !r.exact);
-      // More hits than one on them - a spread move on two, a move that hits
-      // twice: the holder's heal is the handler's share
-      // of the total. Its line keeps the totals that print it, and each hit
-      // keeps the amounts some amounts of the others complete to one.
-      const hitsOf = r => (T.dealtHits || []).filter(l => l.victim === r && l.move === battle.activeMove);
-      const lasts = hidden.flatMap(hitsOf);
-      const whole = hidden.every(r => hitsOf(r).length === T.hitsOn?.get(r)) && lasts.every(l => l.byA.size);
-      if (lasts.length > 1 && whole) {
-        const rest = hurt.filter(r => r.exact).reduce((sum, r) => sum + (T.dealtEach?.get(r) || 0), 0);
-        const amounts = lasts.map(l => [...new Set([...l.byA.values()].flatMap(set => [...set]))]);
-        const sumOf = (lists) => {
-          let out = new Set([rest]);
-          for (const list of lists) {
-            const next = new Set();
-            for (const t of out) for (const d of list) next.add(t + d);
-            out = next;
-          }
-          return out;
-        };
-        const totals = [...sumOf(amounts)];
-        if (totals.length > 4096) return band(dir, what);
-        const move = battle.activeMove;
-        const ord = changeOrdinal;
-        const table = new Map();
-        for (const [g, [hp, , h]] of groupsOf(T, null)) {
-          const M = maxHp(T, hp);
-          table.set(g, Int32Array.from(totals.map((t, i) => i * HP_BITS + memo(`bell|${ord}|${M}|${h}|${t}`, () => dryHp(T, M, h,
-            () => battle.singleEvent('AfterMoveSecondarySelf', e, T.pokemon.itemState, T.pokemon, hidden[0].pokemon, { ...move, totalDamage: t }))))));
-        }
-        const after = (passed) => {
-          const fits = new Set([...passed].map(i => totals[i]));
-          for (const [i, l] of lasts.entries()) {
-            const sums = sumOf(amounts.filter((_, j) => j !== i));
-            const ok = new Set();
-            for (const [v, set] of l.byA) {
-              for (const d of set) if ([...sums].some(t => fits.has(t + d))) ok.add(v * HP_BITS + d);
-            }
-            l.change.dealtOk = ok;
-            narrowDealt(l.victim, l.change, ok, { what, turn: battle.turn });
-          }
-        };
-        return { dim: null, table, via: null, after, what };
-      }
-      const last = hidden.length === 1 ? T.dealtTo?.get(hidden[0]) : null;
-      if (last?.byA.size && last.move === battle.activeMove && last.hitsOn === 1) {
-        const V = last.victim.pokemon;
-        const move = battle.activeMove;
-        const rest = hurt.filter(r => r.exact).reduce((sum, r) => sum + (T.dealtEach?.get(r) || 0), 0);
-        return dealtChange(T, last, what, 'shb', d => battle.singleEvent('AfterMoveSecondarySelf', e, T.pokemon.itemState, T.pokemon, V, { ...move, totalDamage: rest + d }));
-      }
-      return band(dir, what);
+      const move = battle.activeMove;
+      const V = T.moveHits?.all[0]?.victim.pokemon;
+      const change = move && V && totalChange(T, move.totalDamage, what, 'bell',
+        t => battle.singleEvent('AfterMoveSecondarySelf', e, T.pokemon.itemState, T.pokemon, V, { ...move, totalDamage: t }));
+      return change || band(dir, what);
     }
     // Strength Sap heals by the target's Attack: a known amount when that
     // Attack is known, and otherwise one amount per Attack still possible,
@@ -1345,7 +1451,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     // What Leech Seed takes from a Pokemon shown as a percentage is what its
     // seeder gets back, so the amounts that fit this line are handed on.
     const seeder = id === 'leechseed' && kind === 'damage' && !T.exact ? byPokemon.get(other) : null;
-    if (seeder) Object.assign(change, { dealtBy: seeder, move: e, off: null, hits: 1 });
+    if (seeder) Object.assign(change, { dealtBy: seeder, move: e, off: null });
     return change;
   }
 
@@ -1367,15 +1473,17 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const hit = pendingHits.get(rec.pokemon);
       pendingHits.delete(rec.pokemon);
       if (effect?.effectType === 'Move' && !ctx.direct) {
+        // Every hit this use of the move has landed, read or not, with what it
+        // took off in the scaffold: a spread move hits each target once, a
+        // multi-hit move or Parental Bond one target more than once.
+        const src = ctx.source && ctx.source !== rec.pokemon ? byPokemon.get(ctx.source) : null;
+        if (src && src.moveHits?.move !== effect) src.moveHits = { move: effect, all: [] };
+        const hitsOn = src ? src.moveHits.all.filter(x => x.victim === rec).length + 1 : 1;
         change = hit?.supported ? moveChange(rec, hit, info.d, { ...ctx, effect })
           : hit?.carried ? carriedChange(rec, hit, { ...ctx, effect })
             : band('down', `${effect.name} hit ${named(rec)}`);
-        const src = ctx.source && ctx.source !== rec.pokemon ? byPokemon.get(ctx.source) : null;
-        if (src) {
-          if (src.victimMove !== effect) { src.victimMove = effect; src.victims = new Set(); src.dealtEach = new Map(); }
-          src.victims.add(rec);
-          src.dealtEach.set(rec, (src.dealtEach.get(rec) || 0) + info.d);
-        }
+        change.hitsOn = hitsOn;
+        if (src) src.moveHits.all.push({ victim: rec, dealt: info.dealt, change });
       } else {
         change = effectChange(rec, 'damage', ctx.raw ?? info.d, effect, ctx.source, ctx.direct, ctx.oozed, ctx.dice);
       }
@@ -1544,8 +1652,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     rec.chain = next;
     if (dealt) {
       const S = change.dealtBy;
-      S.lastDealt = { move: change.move, off: change.off, hits: change.hits, hitsOn: change.hitsOn, byA: dealt, change, victim: rec, turn: change.turn };
-      (S.dealtTo ||= new Map()).set(rec, S.lastDealt);
+      S.lastDealt = { move: change.move, off: change.off, hitsOn: change.hitsOn, byA: dealt, change, victim: rec, turn: change.turn };
       if (S.dealtHitsMove !== change.move) { S.dealtHitsMove = change.move; S.dealtHits = []; }
       S.dealtHits.push(S.lastDealt);
     }
@@ -1909,6 +2016,23 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     return origSpread.call(this, damage, targetArray, source, effect, instafaint);
   };
 
+  // What the simulator hands `applyRecoilDamage`: everything the move dealt,
+  // over every hit and every target. A Substitute's own `onTryPrimaryHit`
+  // hands it only what the Substitute took, which no line shows, and is left
+  // unread.
+  let recoilCall = null;
+  const origRecoil = actions.applyRecoilDamage;
+  actions.applyRecoilDamage = function (damageDealt, move, pokemon) {
+    if (state.dry || state.ended) return origRecoil.call(this, damageDealt, move, pokemon);
+    const was = recoilCall;
+    recoilCall = battle.effect?.id === 'substitute' ? null : { pokemon, move, total: damageDealt };
+    try {
+      return origRecoil.call(this, damageDealt, move, pokemon);
+    } finally {
+      recoilCall = was;
+    }
+  };
+
   // A move's HP cost - Substitute's quarter, Belly Drum's half - goes through
   // `directDamage`, which floors what it is handed and runs no `Damage` event.
   const origDirect = battle.directDamage;
@@ -1948,7 +2072,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const sethp = p.sethp;
     override(p, 'damage', function (d, source, effect) {
       const out = damage.call(this, d, source, effect);
-      if (!state.dry && !state.ended) onChange(rec, 'damage', { d, source, effect });
+      // `dealt` is what it took off, no more than the HP it had.
+      if (!state.dry && !state.ended) onChange(rec, 'damage', { d, source, effect, dealt: out });
       return out;
     });
     override(p, 'heal', function (d, source, effect) {
