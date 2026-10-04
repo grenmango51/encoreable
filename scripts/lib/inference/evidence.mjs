@@ -242,6 +242,88 @@ function exactTurns(raw, tokens, prefix) {
   return turns;
 }
 
+// ------------------------------------------------- what a dry run hands back
+
+const isPlain = v => v !== null && typeof v === 'object' && !Object.isFrozen(v)
+  && (Array.isArray(v) || Object.getPrototypeOf(v) === Object.prototype);
+
+/**
+ * A plain object or array as it is now, `depth` levels down, so that it can
+ * be handed back in place: whoever holds it - a handler's `effectState`, a
+ * volatile's state - holds the same object afterwards, with the same fields.
+ * Anything else it refers to, a Pokemon or a frozen dex entry, is kept by
+ * identity. `shallow` names fields kept by identity only.
+ */
+function keep(obj, depth, shallow = null) {
+  const subs = [];
+  if (Array.isArray(obj)) {
+    const vals = obj.slice();
+    if (depth > 0) for (const v of vals) if (isPlain(v)) subs.push(keep(v, depth - 1));
+    return { obj, keys: null, vals, subs };
+  }
+  const keys = Object.keys(obj);
+  const vals = new Array(keys.length);
+  for (let i = 0; i < keys.length; i++) {
+    const v = obj[keys[i]];
+    vals[i] = v;
+    if (depth > 0 && isPlain(v) && !shallow?.has(keys[i])) subs.push(keep(v, depth - 1));
+  }
+  return { obj, keys, vals, subs };
+}
+
+function putBack({ obj, keys, vals, subs }) {
+  if (!keys) {
+    if (obj.length !== vals.length) obj.length = vals.length;
+    for (let i = 0; i < vals.length; i++) if (obj[i] !== vals[i]) obj[i] = vals[i];
+  } else {
+    const now = Object.keys(obj);
+    if (now.length !== keys.length || now.some((k, i) => k !== keys[i])) {
+      const had = new Set(keys);
+      for (const k of now) if (!had.has(k)) delete obj[k];
+    }
+    for (let i = 0; i < keys.length; i++) if (obj[keys[i]] !== vals[i]) obj[keys[i]] = vals[i];
+  }
+  for (const sub of subs) putBack(sub);
+}
+
+// The battle's own fields an event can move: what is acting, the last damage,
+// the counter that orders new effect states, and the event being run.
+const BATTLE_FIELDS = ['activeMove', 'activePokemon', 'activeTarget', 'lastDamage', 'lastMove', 'lastSuccessfulMoveThisTurn',
+  'effectOrder', 'effect', 'effectState', 'event', 'events', 'eventDepth', 'quickClawRoll', 'midTurn', 'ended', 'winner', 'requestState'];
+const POKEMON_SHALLOW = new Set(['set']);
+const SIDE_SHALLOW = new Set(['team', 'pokemon', 'activeRequest', 'choice']);
+
+/**
+ * Everything an event run dry can change, with the means to hand it back:
+ * each Pokemon on the field - HP, status and its state, volatiles and each
+ * one's state, item, ability and their states, boosts, stored stats, forme,
+ * types and flags such as `ateBerry` - both sides' conditions and slot
+ * conditions, the field's weather, terrain and pseudo-weather, the faint
+ * queue, the action queue, the hints already given, and the log. Returns the
+ * restore.
+ */
+function snapshot(battle) {
+  const log = saveLog(battle);
+  const fields = BATTLE_FIELDS.map(k => battle[k]);
+  const hints = battle.hints.size;
+  const parts = [keep(battle.faintQueue, 0), keep(battle.queue.list, 0), keep(battle.field, 3)];
+  for (const side of battle.sides) {
+    parts.push(keep(side, 3, SIDE_SHALLOW));
+    for (const p of side.active) if (p) parts.push(keep(p, 3, POKEMON_SHALLOW));
+  }
+  return () => {
+    log();
+    for (let i = 0; i < BATTLE_FIELDS.length; i++) if (battle[BATTLE_FIELDS[i]] !== fields[i]) battle[BATTLE_FIELDS[i]] = fields[i];
+    // A set keeps its order, so the hints given before are its first ones.
+    if (battle.hints.size !== hints) {
+      const all = [...battle.hints];
+      battle.hints.clear();
+      for (const h of all.slice(0, hints)) battle.hints.add(h);
+    }
+    for (const part of parts) putBack(part);
+  };
+}
+
 function attachInference(battle, { view, prefix, channel, knowledge, cache, record }) {
   const st = install(battle);
   const actions = battle.actions;
@@ -486,30 +568,22 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     return () => { for (const u of undo.reverse()) u(); };
   }
 
-  /** Everything a dry run may disturb on the battle itself. */
+  /**
+   * Run `fn` dry: whatever it does to the battle is handed back afterwards
+   * (`snapshot`), and no die it throws touches the generator - each takes the
+   * bottom of its range, unless a caller handed it the real run's (`withRoll`).
+   * Every dry run of the evidence pass goes through here.
+   */
   function guarded(fn) {
     state.dry++;
-    // No dry run touches the generator: a die it throws takes the bottom of
-    // its range, unless a caller handed it the real run's (`withRoll`).
     const dry = st.dry;
     st.dry ||= { roll: 0, draws: null };
-    const saved = {
-      log: saveLog(battle),
-      faints: battle.faintQueue.length,
-      move: battle.activeMove,
-      target: battle.activeTarget,
-      user: battle.activePokemon,
-      lastDamage: battle.lastDamage,
-    };
+    const restore = snapshot(battle);
     try {
       return fn();
     } finally {
-      saved.log();
-      battle.faintQueue.length = saved.faints;
-      battle.activeMove = saved.move;
-      battle.activeTarget = saved.target;
-      battle.activePokemon = saved.user;
-      battle.lastDamage = saved.lastDamage;
+      // Handed back while still dry, so no hook reads the restore as a write.
+      restore();
       st.dry = dry;
       state.dry--;
     }
@@ -850,12 +924,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   function damageEvent(hit, ctx, T, M, h, x, granted = false) {
     return memo(`dmgev|${hit.ord}|${M}|${h}|${x}|${granted}`, () => guarded(() => {
       const undo = patchAll([{ pokemon: T.pokemon, maxhp: M, hp: h }]);
-      const after = snapItems([T.pokemon]);
       try {
         restoreItems(ctx.items);
         return withRoll(0, () => battle.runEvent('Damage', T.pokemon, ctx.source, ctx.effect, x, true), granted ? null : ctx.dice);
       } finally {
-        restoreItems(after);
         undo();
       }
     }));
@@ -931,16 +1003,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
 
   /** An HP change whose amount the simulator computed from one number we can scale. */
   /** The HP `run` leaves one candidate on, with the battle handed back untouched. */
-  function dryHp(T, M, h, source, run) {
+  function dryHp(T, M, h, run) {
     return guarded(() => {
       const undo = patchAll([{ pokemon: T.pokemon, maxhp: M, hp: h }]);
-      const saved = {
-        faintQueued: T.pokemon.faintQueued,
-        switchFlag: T.pokemon.switchFlag,
-        hurtThisTurn: T.pokemon.hurtThisTurn,
-        sourceLast: source?.lastDamage,
-      };
-      const items = snapItems([T.pokemon]);
+      const queued = T.pokemon.faintQueued;
       // A candidate on `h` HP is standing, whatever the real Pokemon did: one
       // already queued to faint would skip `faint()`, which is what sets HP to 0.
       T.pokemon.faintQueued = false;
@@ -948,11 +1014,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         run();
         return T.pokemon.hp;
       } finally {
-        T.pokemon.faintQueued = saved.faintQueued;
-        T.pokemon.switchFlag = saved.switchFlag;
-        T.pokemon.hurtThisTurn = saved.hurtThisTurn;
-        if (source) source.lastDamage = saved.sourceLast;
-        restoreItems(items);
+        T.pokemon.faintQueued = queued;
         undo();
       }
     });
@@ -965,7 +1027,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const M = maxHp(T, hp);
       const out = new Set();
       for (const amount of amounts(M)) {
-        out.add(memo(`amt|${ord}|${M}|${h}|${amount}`, () => dryHp(T, M, h, ctx.source, () => withRoll(0, () => {
+        out.add(memo(`amt|${ord}|${M}|${h}|${amount}`, () => dryHp(T, M, h, () => withRoll(0, () => {
           if (kind === 'heal') battle.heal(amount, T.pokemon, ctx.source, ctx.effect);
           else if (ctx.direct) battle.directDamage(amount, T.pokemon, ctx.source, ctx.effect);
           else battle.spreadDamage([amount], [T.pokemon], ctx.source, ctx.effect);
@@ -982,7 +1044,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const table = new Map();
     for (const [g, [hp, , h]] of groupsOf(T, null)) {
       const M = maxHp(T, hp);
-      table.set(g, Int32Array.of(memo(`${tag}|${ord}|${M}|${h}`, () => dryHp(T, M, h, T.pokemon, run))));
+      table.set(g, Int32Array.of(memo(`${tag}|${ord}|${M}|${h}`, () => dryHp(T, M, h, run))));
     }
     return { dim: null, table, via: null, what };
   }
@@ -999,7 +1061,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const M = maxHp(T, hp);
       const pairs = [];
       for (const [a, amount] of amounts) {
-        const h2 = memo(`stat|${ord}|${M}|${h}|${amount}`, () => dryHp(T, M, h, ctx.source, () => {
+        const h2 = memo(`stat|${ord}|${M}|${h}|${amount}`, () => dryHp(T, M, h, () => {
           if (kind === 'heal') battle.heal(amount, T.pokemon, ctx.source, ctx.effect);
           else battle.spreadDamage([amount], [T.pokemon], ctx.source, ctx.effect);
         }));
@@ -1028,7 +1090,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       for (const [a, dealt] of last.byA) {
         if (!known && !S.flat[last.off][a]) continue;
         for (const d of dealt) {
-          const h2 = memo(`${tag}|${ord}|${M}|${h}|${d}`, () => dryHp(S, M, h, S.pokemon, () => run(d)));
+          const h2 = memo(`${tag}|${ord}|${M}|${h}|${d}`, () => dryHp(S, M, h, () => run(d)));
           pairs.push(a * HP_BITS + h2);
           amounts.push(d);
         }
@@ -1051,19 +1113,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
    */
   const drainChange = (S, last, what) => dealtChange(S, last, what, 'drn', (d) => {
     const V = last.victim.pokemon;
-    const saved = {
-      hp: V.hp, maxhp: V.maxhp, baseMaxhp: V.baseMaxhp,
-      hurtThisTurn: V.hurtThisTurn, faintQueued: V.faintQueued, switchFlag: V.switchFlag,
-    };
-    const items = snapItems([V]);
+    const undo = patchAll([{ pokemon: V, maxhp: Math.max(V.maxhp, d + 2), hp: d + 1 }]);
     try {
-      V.hp = d + 1;
-      V.maxhp = Math.max(V.maxhp, d + 2);
-      V.baseMaxhp = V.maxhp;
       battle.spreadDamage([d], [V], S.pokemon, last.move);
     } finally {
-      Object.assign(V, saved);
-      restoreItems(items);
+      undo();
     }
   });
 
@@ -1112,28 +1166,19 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
    * Run `run` as if the last hit `p` took from a foe had dealt `d`: the
    * simulator's record of it (`attackedBy`) is rewritten, and every volatile
    * that keeps its own record is told the hit again through its own
-   * `DamagingHit` handler - Counter's and Mirror Coat's. All of it is put back.
+   * `DamagingHit` handler - Counter's and Mirror Coat's. Run inside a dry run,
+   * which hands all of it back.
    */
   function asDealt(p, d, run) {
     const entry = p.getLastDamagedBy(true);
     if (!entry) return run();
-    const was = entry.damage;
-    const kept = Object.entries(p.volatiles)
-      .map(([id, st]) => [battle.dex.conditions.getByID(id), st])
-      .filter(([c]) => c?.onDamagingHit);
-    const saved = kept.map(([, st]) => ({ ...st }));
-    try {
-      entry.damage = d;
-      const move = battle.dex.moves.get(entry.move);
-      for (const [c, st] of kept) battle.singleEvent('DamagingHit', c, st, p, entry.source, move, d);
-      return run();
-    } finally {
-      entry.damage = was;
-      kept.forEach(([, st], i) => {
-        for (const k of Object.keys(st)) delete st[k];
-        Object.assign(st, saved[i]);
-      });
+    entry.damage = d;
+    const move = battle.dex.moves.get(entry.move);
+    for (const [id, st] of Object.entries(p.volatiles)) {
+      const c = battle.dex.conditions.getByID(id);
+      if (c?.onDamagingHit) battle.singleEvent('DamagingHit', c, st, p, entry.source, move, d);
     }
+    return run();
   }
 
   /**
@@ -1239,7 +1284,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         const table = new Map();
         for (const [g, [hp, , h]] of groupsOf(T, null)) {
           const M = maxHp(T, hp);
-          table.set(g, Int32Array.from(totals.map((t, i) => i * HP_BITS + memo(`bell|${ord}|${M}|${h}|${t}`, () => dryHp(T, M, h, T.pokemon,
+          table.set(g, Int32Array.from(totals.map((t, i) => i * HP_BITS + memo(`bell|${ord}|${M}|${h}|${t}`, () => dryHp(T, M, h,
             () => battle.singleEvent('AfterMoveSecondarySelf', e, T.pokemon.itemState, T.pokemon, hidden[0].pokemon, { ...move, totalDamage: t }))))));
         }
         const after = (passed) => {
@@ -1930,15 +1975,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   const itemFires = (rec, M, h) => guarded(() => {
     const p = rec.pokemon;
     const undo = patchAll([{ pokemon: p, maxhp: M, hp: h }]);
-    const items = snapItems([p]);
-    const boosts = { ...p.boosts };
     const held = p.item;
     try {
       battle.singleEvent('Update', p.getItem(), p.itemState, p);
       return p.item !== held;
     } finally {
-      restoreItems(items);
-      Object.assign(p.boosts, boosts);
       undo();
     }
   });
@@ -2193,12 +2234,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             }
             return { pokemon: rec.pokemon, stats };
           }));
-          const items = snapItems(involved.map(rec => rec.pokemon));
           try {
             run();
             return involved.map(rec => MOVABLE.map(s => rec.pokemon.storedStats[s]));
           } finally {
-            restoreItems(items);
             undo();
           }
         });
