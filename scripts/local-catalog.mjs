@@ -2327,13 +2327,20 @@ async function playFuzz(recipe) {
           }
           if (!ai.chosen) throw new Error(`chooser: no choice for ${side.id}`);
           const request = side.activeRequest;
+          const asked = JSON.stringify(request);
           const turn = battle.turn;
           await stream.write(`>${side.id} ${ai.chosen}`);
           if (!side.choice.error) {
             choices.push({ turn, side: side.id, choice: describeChoice(request, ai.chosen) });
             break;
           }
-          if (!side.choice.error.startsWith('[Unavailable choice]') || tries > 4) throw new Error(`chooser: ${side.id} "${ai.chosen}": ${side.choice.error}`);
+          // An unavailable choice (a trap the request could not show) updates
+          // the request in place, as for a player, and the random player asks
+          // again, free to undo the slots it had already chosen; an invalid
+          // one leaves the request as it was.
+          const updated = JSON.stringify(side.activeRequest) !== asked;
+          if (!updated || tries > 4) throw new Error(`chooser: ${side.id} "${ai.chosen}": ${side.choice.error}`);
+          side.choice.cantUndo = false;
         }
       }
     }
