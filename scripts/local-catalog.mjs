@@ -24,10 +24,13 @@
  *   npm run catalog -- --check                   a full run, compared with the reports
  *   npm run catalog -- --dump move:counter user-hidden/before def 32
  *                                                the battle behind one row, and its rebuild
+ *   npm run catalog -- --fuzz 100 --seed 1 --out <dir>
+ *                                                random battles, p2's Stat Points inferred
  *
  * Flags: --pool --list --only <ids> --kind <kind> --sheets open|closed --inputs <file>
  *        --out <dir> --no-coverage --check --threads <n> --verbose --records <file>...
  *        --dump <effect> <role/template> <stat|-> <value> [--control] [--hazard]
+ *        --fuzz <count> --seed <from> [--turns <n>]
  */
 
 import fs from 'fs';
@@ -39,12 +42,15 @@ import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 import { battleLines } from './lib/protocol.mjs';
 import './lib/rng-control.mjs';
 import { inferSpreads } from './lib/inference/infer.mjs';
-import { setsFromLog } from './lib/replay-source.mjs';
+import { loadSource, setsFromLog, setsFromSheet } from './lib/replay-source.mjs';
 
 const require = createRequire(import.meta.url);
 const { Battle, BattleStream, Dex, Teams, TeamValidator, toID } = require('pokemon-showdown');
 const { extractChannelMessages } = require('pokemon-showdown/dist/sim/battle.js');
+const { PRNG } = require('pokemon-showdown/dist/sim/prng.js');
+const { RandomPlayerAI } = require('pokemon-showdown/dist/sim/tools/random-player-ai.js');
 const FIXTURE = require('./fixtures/catalog.js');
+const TEAMS = require('./fixtures/teams.js');
 
 const ROOT = process.cwd();
 const FORMAT = 'gen9championsvgc2026regmc';
@@ -2149,6 +2155,407 @@ function renderClosed(records, pool) {
   return `${out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`;
 }
 
+// --------------------------------------------------------------- the fuzzer
+
+const FUZZ_ROLE = 'catalog-fuzz';
+const FUZZ_SOURCES = ['recordings/showdown/mine-open', 'recordings/showdown/full-sheets'];
+const FUZZ_TURNS = 12;
+
+/**
+ * The seed of one generator, four 16-bit words, from a battle's number and a
+ * salt: every choice a fuzz battle makes comes from its number alone.
+ */
+function seedFor(n, salt) {
+  let x = BigInt.asUintN(64, BigInt(n) * 0x9E3779B97F4A7C15n + BigInt(salt) * 0xD1B54A32D192ED03n);
+  const words = [];
+  for (let i = 0; i < 4; i++) {
+    x = BigInt.asUintN(64, x + 0x9E3779B97F4A7C15n);
+    let z = x;
+    z = BigInt.asUintN(64, (z ^ (z >> 30n)) * 0xBF58476D1CE4E5B9n);
+    z = BigInt.asUintN(64, (z ^ (z >> 27n)) * 0x94D049BB133111EBn);
+    z ^= z >> 31n;
+    words.push(Number(z & 0xFFFFn) || 1);
+  }
+  return words.join(',');
+}
+
+/**
+ * Every Reg M-C team the fuzzer draws from: the team sheets of the replays in
+ * recordings/showdown/mine-open/ and full-sheets/, and the fixture teams of
+ * scripts/fixtures/teams.js. A Mega forme is brought as the species it Mega
+ * Evolves from; a team the validator refuses (a Reg M-B game's) is left out,
+ * and one brought twice is kept once. Sorted by label, so the same files give
+ * the same pool.
+ */
+function fuzzTeams() {
+  const validator = TeamValidator.get(FORMAT);
+  const teams = [];
+  const refused = [];
+  const seen = new Set();
+  const add = (label, sets) => {
+    const team = sets.map((set) => {
+      const given = dex.species.get(set.species || set.name);
+      const species = given.battleOnly && given.requiredItem && toID(given.requiredItem) === toID(set.item)
+        ? dex.species.get(Array.isArray(given.battleOnly) ? given.battleOnly[0] : given.battleOnly) : given;
+      return {
+        name: species.baseSpecies, species: species.name, item: set.item || '', ability: set.ability || '',
+        moves: [...set.moves], nature: set.nature || 'Serious', gender: '', level: 50, evs: { ...BASE },
+      };
+    });
+    const sig = team.map(s => [s.species, s.item, s.ability, s.nature, [...s.moves].sort().join('/')].join(':')).sort().join(' ');
+    if (seen.has(sig)) return;
+    seen.add(sig);
+    const problems = validator.validateTeam(team.map(s => ({ ...s, gender: dex.species.get(s.species).gender || '' })));
+    if (problems?.length) refused.push({ label, problem: problems[0] });
+    else teams.push({ label, sets: team });
+  };
+  for (const dir of FUZZ_SOURCES) {
+    const at = path.join(ROOT, dir);
+    if (!fs.existsSync(at)) continue;
+    for (const file of fs.readdirSync(at).filter(f => /\.(html|json)$/.test(f)).sort()) {
+      const source = loadSource(path.join(at, file));
+      for (const [i, sheet] of source.sheets.entries()) if (sheet) add(`${path.basename(dir)}/${file} p${i + 1}`, setsFromSheet(sheet));
+    }
+  }
+  for (const [key, sides] of Object.entries(TEAMS.TEAM_SETS)) {
+    for (const [side, text] of Object.entries(sides)) add(`teams.js ${key} ${side}`, Teams.import(text));
+  }
+  teams.sort((a, b) => a.label.localeCompare(b.label));
+  return { teams, refused };
+}
+
+/**
+ * Random Stat Points for one Pokemon: `total` of them, each stat at most 32,
+ * dealt one at a time to stats weighted unevenly, so some spreads are lopsided
+ * and some even.
+ */
+function randomSpread(rng, total) {
+  const weight = STATS.map(() => rng.random() ** 2 + 0.05);
+  const evs = Object.fromEntries(STATS.map(s => [s, 0]));
+  for (let k = 0; k < total; k++) {
+    const open = STATS.filter(s => evs[s] < 32);
+    let r = rng.random() * open.reduce((t, s) => t + weight[STATS.indexOf(s)], 0);
+    const pick = open.find(s => (r -= weight[STATS.indexOf(s)]) < 0) || open[open.length - 1];
+    evs[pick]++;
+  }
+  return evs;
+}
+
+/**
+ * Everything one fuzz battle is, from its number: two different teams, a
+ * gender and random Stat Points for every Pokemon - in about half the battles
+ * every Pokemon spends all 66, in the rest each spends a random amount - the
+ * battle's seed and each player's.
+ */
+function fuzzRecipe(n, teams, cap) {
+  const rng = new PRNG(seedFor(n, 1));
+  const i = rng.random(teams.length);
+  let j = teams.length > 1 ? rng.random(teams.length - 1) : 0;
+  if (teams.length > 1 && j >= i) j++;
+  const spendAll = rng.random() < 0.5;
+  const build = team => team.sets.map((set) => {
+    const species = dex.species.get(set.species);
+    const gender = species.gender || (rng.random() < 0.5 ? 'M' : 'F');
+    return { ...set, moves: [...set.moves], gender, evs: randomSpread(rng, spendAll ? 66 : rng.random(0, 67)) };
+  });
+  return { n, labels: [teams[i].label, teams[j].label], spendAll, sides: [build(teams[i]), build(teams[j])], seed: seedFor(n, 2), ai: [seedFor(n, 3), seedFor(n, 4)], cap };
+}
+
+/**
+ * Pokemon Showdown's own random player: every choice it makes is one the
+ * request offers. It is asked directly, request by request, and its team
+ * preview brings four in a seeded order rather than `default`.
+ */
+class FuzzPlayer extends RandomPlayerAI {
+  constructor(seed) {
+    super({ write() {} }, { move: 0.85, mega: 0.5, seed });
+    this.chosen = null;
+  }
+
+  choose(choice) {
+    this.chosen = choice;
+  }
+
+  chooseTeamPreview(team) {
+    const order = team.map((_, i) => i + 1);
+    this.prng.shuffle(order);
+    return `team ${order.join('')}`;
+  }
+}
+
+/** One fuzz battle, in-process in the real format, up to the start of turn `cap + 1`. */
+async function playFuzz(recipe) {
+  const stream = new BattleStream({ keepAlive: true });
+  const drain = (async () => { for await (const chunk of stream) { /* discard */ } })();
+  const players = recipe.ai.map(seed => new FuzzPlayer(seed));
+  try {
+    await stream.write(`>start ${JSON.stringify({ formatid: FORMAT, seed: recipe.seed })}`);
+    const battle = stream.battle;
+    for (const [i, team] of recipe.sides.entries()) {
+      await stream.write(`>player p${i + 1} ${JSON.stringify({ name: i ? 'Hidden' : 'Known', team: Teams.pack(team) })}`);
+    }
+    for (let guard = 0; guard < 4000 && !battle.ended && battle.turn <= recipe.cap; guard++) {
+      const owing = battle.sides.filter(s => s.activeRequest && !s.activeRequest.wait && !s.isChoiceDone());
+      if (!owing.length) throw new Error('battle: no side owes a choice and the battle goes on');
+      for (const side of owing) {
+        const ai = players[side.n];
+        for (let tries = 0; ; tries++) {
+          ai.chosen = null;
+          try {
+            ai.receiveRequest(side.activeRequest);
+          } catch (err) {
+            throw new Error(`chooser: ${err.message}`);
+          }
+          if (!ai.chosen) throw new Error(`chooser: no choice for ${side.id}`);
+          await stream.write(`>${side.id} ${ai.chosen}`);
+          if (!side.choice.error) break;
+          if (!side.choice.error.startsWith('[Unavailable choice]') || tries > 4) throw new Error(`chooser: ${side.id} "${ai.chosen}": ${side.choice.error}`);
+        }
+      }
+    }
+    const channels = extractChannelMessages(battle.log.join('\n'), [1]);
+    return { ch1: channels[1], turns: battle.turn, ended: battle.ended };
+  } finally {
+    stream.destroy?.();
+    await Promise.race([drain, Promise.resolve()]);
+  }
+}
+
+/** Every name a fuzz battle prints a Pokemon under, longest first, so a signature can drop them. */
+function namesIn(recipe) {
+  const names = new Set();
+  for (const set of recipe.sides.flat()) {
+    const species = dex.species.get(set.species);
+    names.add(set.name);
+    names.add(species.name);
+    for (const forme of Object.values(dex.items.get(set.item).megaStone || {})) names.add(forme);
+  }
+  return [...names].filter(Boolean).sort((a, b) => b.length - a.length);
+}
+
+/** A line or a message with its Pokemon and its numbers taken out, so failures of one kind share it. */
+function normalised(text, names) {
+  let out = String(text ?? '');
+  for (const name of names) out = out.split(name).join('X');
+  return out.replace(/\d+/g, '#').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * The event that removed a real spread: the first, in the order the evidence
+ * pass applied them (each event's ranges are what every event before it left),
+ * that cut the Pokemon's range of a stat past its real value; or else the last
+ * that cut it at all, since a spread can be removed with every stat still in
+ * range; or none, when the spread was lost after the recorded pass - a later
+ * pass, or the search's own knowledge.
+ */
+function removedBy(inf, id, real) {
+  let last = null;
+  for (const e of inf.events) {
+    const cut = e.cuts.find(c => c.id === id);
+    if (!cut || !(cut.after < cut.before)) continue;
+    last = e;
+    const past = STATS.filter(s => cut.stats?.[s] && (real[s] < cut.stats[s].min || real[s] > cut.stats[s].max));
+    if (past.length) return { turn: e.turn, what: e.what, stats: past, how: 'range' };
+  }
+  return last ? { turn: last.turn, what: last.what, stats: [], how: 'last cut' } : null;
+}
+
+/**
+ * One fuzz battle and its rebuild: played, then p2's Stat Points inferred from
+ * p1's view with p1 known, as the catalog rebuilds a world and as
+ * `npm run reconstruct -- --infer p2` rebuilds a replay. Three things are
+ * checked - every real spread of p2 the log showed survives, the rebuild
+ * reproduces the whole log, nothing throws - and each failure gets a
+ * signature, so failures of one kind group together.
+ */
+async function fuzzOne(n, teams, cap, { detail = false } = {}) {
+  const recipe = fuzzRecipe(n, teams, cap);
+  const names = namesIn(recipe);
+  const result = {
+    seed: n, teams: recipe.labels, spendAll: recipe.spendAll,
+    spreads: recipe.sides.map(team => team.map(set => `${set.species} ${STATS.map(s => set.evs[s]).join('/')}`)),
+    turns: null, ended: null, complete: null, verifiedThroughTurn: null, diff: null, lost: [], error: null, signatures: [],
+  };
+  let played;
+  try {
+    played = await playFuzz(recipe);
+  } catch (err) {
+    const stage = /^chooser: /.test(err.message) ? 'chooser' : 'battle';
+    result.error = { stage, message: err.message };
+    result.signatures.push(`THROW (${stage}): ${normalised(err.message.split('\n')[0], names)}`);
+    return result;
+  }
+  result.turns = played.turns;
+  result.ended = played.ended;
+  let inf;
+  try {
+    inf = await inferSpreads({
+      formatid: FORMAT, sets: [recipe.sides[0], recipe.sides[1].map(({ evs, ...set }) => set)], known: [true, false],
+      playerNames: ['Known', 'Hidden'], observed: played.ch1, channel: 1, threads: 1,
+    });
+  } catch (err) {
+    result.error = { stage: 'inference', message: err.message, stack: String(err.stack || '').split('\n').slice(0, 4).join(' | ') };
+    result.signatures.push(`THROW (inference): ${normalised(err.message.split('\n')[0], names)}`);
+    return result;
+  }
+  const report = inf.built.report;
+  result.complete = inf.complete;
+  result.verifiedThroughTurn = report.verifiedThroughTurn ?? null;
+  const diff = report.diffs[0];
+  if (!inf.complete) {
+    result.diff = diff ? { turn: diff.turn, observed: diff.expected ?? null, rebuilt: diff.actual ?? null } : null;
+    const line = diff?.expected ?? diff?.actual ?? '';
+    const parts = String(line).split('|');
+    const from = parts.find(p => p.startsWith('[from]'));
+    result.signatures.push(`NO MATCH: ${diff?.expected ? '' : 'an extra '}${parts[1] || 'nothing'}${from ? ` ${normalised(from, names)}` : ''}`);
+  }
+  for (const [i, set] of recipe.sides[1].entries()) {
+    const p = inf.pokemon.find(x => x.id === `p2:${i}`);
+    if (!p?.seen || p.contains(set.evs)) continue;
+    const event = removedBy(inf, p.id, set.evs);
+    result.lost.push({ id: p.id, species: set.species, real: STATS.map(s => set.evs[s]).join('/'), spreads: p.spreads, event });
+    result.signatures.push(!event ? 'UNSOUND: no recorded event cut it'
+      : `UNSOUND${event.how === 'range' ? '' : ' (last cut)'}: ${normalised(event.what, names)}`);
+  }
+  result.signatures = [...new Set(result.signatures)];
+  if (detail) {
+    result.detail = {
+      log: battleLines(played.ch1),
+      pokemon: inf.pokemon.filter(p => !p.known).map(p => ({
+        id: p.id, species: p.species, seen: p.seen, spreads: p.spreads,
+        real: STATS.map(s => recipe.sides[1][Number(p.id.split(':')[1])].evs[s]).join('/'),
+        kept: p.contains(recipe.sides[1][Number(p.id.split(':')[1])].evs),
+        ranges: STATS.map(s => (p.stats[s] ? `${STAT_NAME[s]} ${p.stats[s].min}-${p.stats[s].max}` : `${STAT_NAME[s]} -`)).join(', '),
+      })),
+      events: inf.events.map(e => `T${e.turn} ${e.what}${e.cuts.filter(c => c.id.startsWith('p2:') && c.after < c.before).map(c => ` [${c.id} ${c.before} -> ${c.after}]`).join('')}`),
+      checks: (inf.checks || []).map(c => `T${c.turn} ${c.what} - ${c.reason}`),
+    };
+  }
+  return result;
+}
+
+/** The fuzz report: failures grouped by signature and ranked by count, then every battle. */
+function renderFuzz(results, { from, count, cap, teams, refused }) {
+  const out = [`# Fuzz — ${count} random Reg M-C battles from seed ${from}`, ''];
+  out.push(`Generated by \`npm run catalog -- --fuzz ${count} --seed ${from}${cap !== FUZZ_TURNS ? ` --turns ${cap}` : ''}\`. Battle k is seed ${from} + k;`);
+  out.push(`\`npm run catalog -- --fuzz 1 --seed <seed>${cap !== FUZZ_TURNS ? ` --turns ${cap}` : ''}\` replays one and prints what the inference made of it.`);
+  out.push(`Each battle is played by Pokemon Showdown's random player up to turn ${cap}, then p2's Stat Points are inferred from p1's`);
+  out.push('view with p1 known. Checked: every real spread of a p2 Pokemon the log showed survives; the rebuild is a MATCH;');
+  out.push('nothing throws.', '');
+  out.push(`**Teams** (${teams.length}): ${teams.map(t => t.label).join('; ')}.`);
+  if (refused.length) out.push(`Left out, refused by the validator: ${refused.map(r => `${r.label} (${r.problem})`).join('; ')}.`);
+  out.push('');
+  const n = results.length;
+  const match = results.filter(r => r.complete).length;
+  const kept = results.filter(r => !r.error && !r.lost.length).length;
+  const threw = results.filter(r => r.error).length;
+  out.push('| Battles | MATCH | Every real spread kept | Threw |', '|---|---|---|---|', `| ${n} | ${match} | ${kept} | ${threw} |`, '');
+  const groups = new Map();
+  for (const r of results) {
+    for (const sig of r.signatures) {
+      if (!groups.has(sig)) groups.set(sig, []);
+      groups.get(sig).push(r);
+    }
+  }
+  const ranked = [...groups].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+  out.push('## Failures, by signature', '');
+  if (!ranked.length) out.push('None.', '');
+  else {
+    out.push('| Rank | Signature | Battles | Seeds |', '|---|---|---|---|');
+    for (const [i, [sig, list]] of ranked.entries()) out.push(`| ${i + 1} | ${esc(sig)} | ${list.length} | ${list.slice(0, 8).map(r => r.seed).join(', ')}${list.length > 8 ? ', …' : ''} |`);
+    out.push('');
+    for (const [i, [sig, list]] of ranked.entries()) {
+      out.push(`### ${i + 1}. ${sig}`, '');
+      const r = list[0];
+      out.push(`${list.length} battle(s). Rerun the first: \`npm run catalog -- --fuzz 1 --seed ${r.seed}${cap !== FUZZ_TURNS ? ` --turns ${cap}` : ''}\`.`, '');
+      if (sig.startsWith('THROW')) out.push(`Seed ${r.seed}: ${code(r.error.message.split('\n')[0])}${r.error.stack ? ` at ${code(r.error.stack)}` : ''}`);
+      else if (sig.startsWith('NO MATCH')) out.push(`Seed ${r.seed}, turn ${r.diff?.turn ?? '—'} (verified through turn ${r.verifiedThroughTurn ?? '—'}): observed ${code(r.diff?.observed)}, rebuilt ${code(r.diff?.rebuilt)}.`);
+      else {
+        for (const x of r.lost) out.push(`Seed ${r.seed}: ${x.species} (${x.id}) on ${x.real} lost, ${x.spreads} spreads left; ${x.event ? `turn ${x.event.turn}, ${code(x.event.what)}${x.event.stats.length ? `, past its ${x.event.stats.map(s => STAT_NAME[s]).join(', ')}` : ' (the last event that cut it)'}` : 'no recorded event cut it'}.`);
+      }
+      out.push('');
+    }
+  }
+  out.push('## Every battle', '');
+  out.push('| Seed | Known team (p1) | Hidden team (p2) | Spent all 66 | Turns | MATCH | Real spreads | Signatures |', '|---|---|---|---|---|---|---|---|');
+  for (const r of results) {
+    out.push(`| ${r.seed} | ${esc(r.teams[0])} | ${esc(r.teams[1])} | ${r.spendAll ? 'yes' : 'no'} | ${r.turns ?? '—'} | ${r.complete === null ? '—' : r.complete ? 'yes' : `no, through ${r.verifiedThroughTurn}`} | ${r.error ? '—' : r.lost.length ? `${r.lost.length} lost` : 'kept'} | ${esc(r.signatures.join('; ')) || '—'} |`);
+  }
+  return `${out.join('\n').trimEnd()}\n`;
+}
+
+async function serveFuzz() {
+  const { teams, cap } = workerData;
+  parentPort.on('message', async (n) => {
+    try {
+      parentPort.postMessage({ n, result: await fuzzOne(n, teams, cap) });
+    } catch (err) {
+      parentPort.postMessage({ n, error: `${err.message}\n${err.stack}` });
+    }
+  });
+}
+
+/** `--fuzz <count> --seed <from>`: battles from..from+count-1 on the worker threads, then the report. */
+async function runFuzz({ count, from, cap, threads, outDir, verbose }) {
+  const { teams, refused } = fuzzTeams();
+  if (!teams.length) throw new Error('no team in the pool passes the validator');
+  console.error(`fuzz: ${count} battle(s) from seed ${from}, ${teams.length} teams, up to turn ${cap}, ${threads} thread(s)`);
+  if (count === 1) {
+    const r = await fuzzOne(from, teams, cap, { detail: true });
+    const { detail, ...rest } = r;
+    console.log(`seed ${from}: ${rest.teams[0]} (p1, known) against ${rest.teams[1]} (p2, inferred)${rest.spendAll ? ', every Pokemon spends 66' : ''}`);
+    for (const [s, list] of rest.spreads.entries()) for (const x of list) console.log(`  p${s + 1} ${x}`);
+    if (rest.error) console.log(`threw (${rest.error.stage}): ${rest.error.message}${rest.error.stack ? `\n  ${rest.error.stack}` : ''}`);
+    if (detail) {
+      if (verbose) for (const l of detail.log) console.log(l);
+      console.log(`played to turn ${rest.turns}${rest.ended ? ', the battle ended' : ''}; rebuild ${rest.complete ? 'MATCH' : `verified through turn ${rest.verifiedThroughTurn}`}`);
+      if (rest.diff) console.log(`  turn ${rest.diff.turn}: observed ${rest.diff.observed}\n          rebuilt  ${rest.diff.rebuilt}`);
+      for (const p of detail.pokemon) console.log(`  ${p.id} ${p.species.padEnd(16)} ${p.seen ? `${String(p.spreads).padStart(10)} spreads, real ${p.real} ${p.kept ? 'kept' : 'LOST'}  ${p.ranges}` : 'not seen'}`);
+      for (const e of detail.events) console.log(`  ${e}`);
+      for (const c of detail.checks) console.log(`  not used: ${c}`);
+    }
+    console.log(rest.signatures.length ? `signatures: ${rest.signatures.join('; ')}` : 'no failure');
+    if (outDir) {
+      const dir = path.resolve(ROOT, outDir);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, `fuzz-${from}.json`), `${JSON.stringify(r, null, 1)}\n`);
+      console.log(`wrote ${path.join(dir, `fuzz-${from}.json`)}`);
+    }
+    return;
+  }
+  const queue = Array.from({ length: count }, (_, k) => from + k);
+  const results = [];
+  const size = Math.max(1, Math.min(threads, queue.length));
+  const started = Date.now();
+  await Promise.all(Array.from({ length: size }, () => new Promise((resolve, reject) => {
+    const worker = new Worker(new URL(import.meta.url), { workerData: { role: FUZZ_ROLE, teams, cap } });
+    const next = () => {
+      const n = queue.shift();
+      if (n === undefined) { worker.terminate().then(resolve); return; }
+      worker.postMessage(n);
+    };
+    worker.on('message', (msg) => {
+      if (msg.error) { reject(new Error(`seed ${msg.n}: ${msg.error}`)); return; }
+      results.push(msg.result);
+      const r = msg.result;
+      console.error(`[${results.length}/${count}] seed ${r.seed}: ${r.error ? `threw (${r.error.stage})` : `${r.complete ? 'MATCH' : `through turn ${r.verifiedThroughTurn}`}, ${r.lost.length ? `${r.lost.length} real spread(s) LOST` : 'real spreads kept'}`} ${((Date.now() - started) / 1000).toFixed(0)}s`);
+      if (verbose) for (const s of r.signatures) console.error(`    ${s}`);
+      next();
+    });
+    worker.on('error', reject);
+    next();
+  })));
+  results.sort((a, b) => a.seed - b.seed);
+  const text = renderFuzz(results, { from, count, cap, teams, refused });
+  if (outDir) {
+    const dir = path.resolve(ROOT, outDir);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'fuzz.json'), `${JSON.stringify(results, null, 1)}\n`);
+    fs.writeFileSync(path.join(dir, 'fuzz.md'), text);
+    console.error(`wrote ${dir}: fuzz.md, fuzz.json`);
+  } else process.stdout.write(text);
+}
+
 // ----------------------------------------------------------- workers and main
 
 function loadEntries(extra) {
@@ -2255,6 +2662,17 @@ async function main() {
   };
   const inputs = argv.flatMap((a, i) => (a === '--inputs' && argv[i + 1] ? [argv[i + 1]] : []));
   const started = Date.now();
+  if (opt('--fuzz')) {
+    const count = Number(opt('--fuzz'));
+    const from = Number(opt('--seed', '1'));
+    const cap = Number(opt('--turns', String(FUZZ_TURNS)));
+    if (!Number.isInteger(count) || count < 1 || !Number.isInteger(from) || from < 0 || !Number.isInteger(cap) || cap < 1) {
+      throw new Error('--fuzz <count> --seed <from> [--turns <n>]: whole numbers, count and turns at least 1');
+    }
+    const threads = Number(opt('--threads', String(Math.max(1, os.availableParallelism() - 1))));
+    await runFuzz({ count, from, cap, threads, outDir: opt('--out'), verbose: flag('--verbose') });
+    return;
+  }
   const pool = buildPool();
   if (flag('--pool')) {
     const n = kind => pool.effects.filter(e => e.kind === kind).length;
@@ -2355,4 +2773,6 @@ if (isMainThread) {
   });
 } else if (workerData?.role === WORKER_ROLE) {
   serve();
+} else if (workerData?.role === FUZZ_ROLE) {
+  serveFuzz();
 }
