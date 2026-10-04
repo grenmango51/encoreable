@@ -166,13 +166,65 @@ function hpAccuracy(truthLines, builtLines, side) {
   };
 }
 
+// ------------------------------------------------------- sets read off a log
+
+const isNeutral = (dex, nature) => !nature || !dex.natures.get(nature).plus;
+
+/**
+ * One line per box of every Pokemon whose set was read off the log - item,
+ * ability, nature and each move - saying whether the log named it or it was
+ * assumed, and, where the truth is known (a recording's real sets, a fixture, a
+ * published sheet), whether it is right. `wrong` lists every assumption or
+ * reading the truth contradicts.
+ */
+function setReport(read, truth, formatid, side) {
+  const dex = Dex.forFormat(formatid);
+  const lines = [];
+  const wrong = [];
+  const row = (head, box, how, what, against) => lines.push(`     ${head.padEnd(14)} ${box.padEnd(8)} ${how.padEnd(9)}${what.padEnd(22)} ${against}`);
+  for (const [j, set] of read.sets.entries()) {
+    const real = truth?.find(t => sameSpecies(t.species || t.name, set.species)) || null;
+    const boxes = read.boxes[j];
+    const head = [set.name, ''];
+    let first = true;
+    const name = () => { const h = first ? head[0] : head[1]; first = false; return h; };
+    const verdict = (box, mine, theirs, same) => {
+      if (!real) return '';
+      if (same) return `truth ${theirs || 'none'}`;
+      wrong.push({ side, pokemon: set.name, species: set.species, box, how: boxes[box] || 'read', mine, truth: theirs || 'none' });
+      return `truth ${theirs || 'none'}  WRONG`;
+    };
+    row(name(), 'item', boxes.item, set.item || 'none',
+      verdict('item', set.item || 'none', real?.item && dex.items.get(real.item).name, toID(set.item) === toID(real?.item)));
+    const ruled = boxes.ruledOut?.length ? `  (${boxes.ruledOut.map(r => `${r.ability} ruled out${r.why ? `: ${r.why}` : ''}`).join('; ')})` : '';
+    row(name(), 'ability', boxes.ability === 'only' ? 'only one' : boxes.ability, set.ability,
+      `${verdict('ability', set.ability, real?.ability && dex.abilities.get(real.ability).name, toID(set.ability) === toID(real?.ability))}${ruled}`);
+    const natureOf = n => (isNeutral(dex, n) ? 'neutral' : dex.natures.get(n).name);
+    row(name(), 'nature', boxes.nature, natureOf(set.nature),
+      verdict('nature', natureOf(set.nature), real ? natureOf(real.nature) : null, !real || natureOf(set.nature) === natureOf(real.nature)));
+    const realMoves = (real?.moves || []).map(m => dex.moves.get(m).name);
+    for (const move of set.moves) {
+      const has = realMoves.some(m => toID(m) === toID(move));
+      row(name(), 'move', 'read', move, real ? (has ? 'truth has it' : verdict('move', move, realMoves.join(', '), false)) : '');
+    }
+    const unseen = realMoves.filter(m => !set.moves.some(s => toID(s) === toID(m)));
+    if (real && unseen.length) row(name(), 'move', 'unseen', '', `truth ${unseen.join(', ')}`);
+  }
+  return { lines, wrong };
+}
+
 // -------------------------------------------------------------- one run
 
-async function runOne({ file, rung: requestedRung, teamsKey, teamSet, sampleSeed, maxProbes, threads, write, outDir, infer, allSpent, showEvents, certify, outside }) {
+async function runOne({ file, rung: requestedRung, teamsKey, teamSet, sampleSeed, maxProbes, threads, write, outDir, infer, allSpent, showEvents, certify, outside, closed = false }) {
   let rung = requestedRung;
   const source = loadSource(file);
   const label = path.basename(file);
   const inferred = infer === 'both' ? ['p1', 'p2'] : infer ? [infer] : [];
+  const supplied = i => !inferred.includes(`p${i + 1}`);
+  // With closed sheets an inferred side's published sheet is withheld like its
+  // Stat Points: its sets are read off the log, and the sheet is only the truth.
+  const publishedSheets = source.sheets || [null, null];
+  source.sheets = publishedSheets.map((sheet, i) => (closed && !supplied(i) ? null : sheet));
 
   let packedTeams = source.packedTeams;
   let observed = source.lines;
@@ -215,7 +267,6 @@ async function runOne({ file, rung: requestedRung, teamsKey, teamSet, sampleSeed
   // Cross-check the supplied teams against what the replay published, before
   // anything else runs. A team from the wrong game is caught here. An inferred
   // side supplied nothing, so there is nothing of it to check.
-  const supplied = i => !inferred.includes(`p${i + 1}`);
   const problems = [];
   for (const [i, sheet] of (source.sheets || []).entries()) {
     if (!supplied(i) || !packedTeams[i]) continue;
@@ -258,29 +309,32 @@ async function runOne({ file, rung: requestedRung, teamsKey, teamSet, sampleSeed
   let certified = null;
   let truthSets = [null, null];
   const readOffLog = [false, false];
+  const setReports = [];
   if (inferred.length) {
     // What the inferred side's sheet publishes, and nothing else. Its real
     // spreads - a recording's own, or the fixture's - are kept only as the check.
-    // A replay with no sheet for that side says only what the battle showed: its
-    // sets are read off the log, and everything else is an assumption, named.
+    // A side with no sheet - a replay that published none, or any source read
+    // with closed sheets - says only what the battle showed: its sets are read
+    // off the log, and everything else is an assumption, named and held against
+    // the truth where one is known.
+    truthSets = [0, 1].map(i => (!supplied(i) && packedTeams[i] ? Teams.unpack(packedTeams[i]) : null));
     const sets = [0, 1].map((i) => {
-      readOffLog[i] = !supplied(i) && source.kind === 'replay' && !source.sheets?.[i];
+      readOffLog[i] = !supplied(i) && (closed || (source.kind === 'replay' && !source.sheets?.[i]));
       if (supplied(i)) return Teams.unpack(packedTeams[i]);
+      if (readOffLog[i]) {
+        const read = setsFromLog(observed, `p${i + 1}`, source.formatid);
+        const truth = truthSets[i] || publishedSheets[i];
+        say(`  p${i + 1}'s sets are read off the log${closed ? ', its team sheet withheld' : ' - it published no team sheet'}:`);
+        const report = setReport(read, truth, source.formatid, `p${i + 1}`);
+        for (const line of report.lines) say(line);
+        setReports.push(report);
+        return read.sets;
+      }
       if (source.kind === 'replay' && source.sheets?.[i]) {
         return withLogIdentity(setsFromSheet(source.sheets[i]), observed, `p${i + 1}`, source.formatid);
       }
-      if (source.kind === 'replay') {
-        const read = setsFromLog(observed, `p${i + 1}`, source.formatid);
-        say(`  p${i + 1} published no team sheet - its sets are read off the log:`);
-        for (const [j, set] of read.sets.entries()) {
-          const shown = [set.item && `@ ${set.item}`, set.ability, set.moves.join(' / ')].filter(Boolean).join('  ');
-          say(`     ${set.name.padEnd(14)} ${shown}${read.assumed[j].notes.length ? `   assumed: ${read.assumed[j].notes.join(', ')}` : ''}`);
-        }
-        return read.sets;
-      }
       return Teams.unpack(packedTeams[i]).map(s => ({ ...s, evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 } }));
     });
-    truthSets = [0, 1].map(i => (!supplied(i) && packedTeams[i] ? Teams.unpack(packedTeams[i]) : null));
     inferSets = sets;
     inference = await inferSpreads({
       formatid: source.formatid,
@@ -346,6 +400,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, teamSet, sampleSeed
   // Did every real spread survive? A spread the replay could have come from
   // must never be eliminated, so a miss here is a defect, not a hard replay.
   let truthKept = true;
+  const removed = [];
   if (inference && certify) {
     certified = await certifyRanges(inference, {
       formatid: source.formatid, sets: inferSets, playerNames: source.players, observed, channel, sampleSeed, threads, outside, onProgress: chatty,
@@ -360,7 +415,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, teamSet, sampleSeed
       const real = truthSets[side]?.find(s => toID(s.species || s.name).startsWith(toID(p.species))
         || toID(p.species).startsWith(toID(s.species || s.name)));
       const kept = real ? p.contains(real.evs) : null;
-      if (kept === false) truthKept = false;
+      if (kept === false) { truthKept = false; removed.push(`${p.side} ${p.species}`); }
       const wrong = Object.entries(certified?.[p.id] || {}).filter(([, c]) => c.outside?.length);
       if (wrong.length) truthKept = false;
       // With --certify, an end no rebuild proved carries a `?`.
@@ -422,6 +477,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, teamSet, sampleSeed
 
   return {
     file, label, rung, ok: r.complete && selfConsistent && truthKept, report: r, accuracy, selfConsistent, outFile, seconds,
+    removed, setWrong: setReports.flatMap(x => x.wrong), readOffLog: readOffLog.some(Boolean),
   };
 }
 
@@ -471,6 +527,31 @@ function savedJobs() {
   return { jobs, skipped };
 }
 
+/**
+ * What closed sheets cost across a run: every source whose real spread the sets
+ * read off the log removed, with the boxes the truth contradicts, and the
+ * sources that rebuilt only part of the way under them.
+ */
+function closedSummary(results) {
+  const read = results.filter(r => r.readOffLog);
+  const removed = read.filter(r => r.removed?.length);
+  const describe = w => `${w.pokemon} ${w.box} ${w.how} ${w.mine}, truth ${w.truth}`;
+  say('');
+  say(`closed sheets: ${read.length} source${read.length === 1 ? '' : 's'} read off the log, ` +
+      `${read.filter(r => r.setWrong.length).length} with a box the truth contradicts`);
+  say(`real spread removed under the sets read off the log: ${removed.length}`);
+  for (const r of removed) {
+    say(`  ${r.label}: ${r.removed.join(', ')}`);
+    const blamed = r.setWrong.filter(w => r.removed.some(x => x.startsWith(`${w.side} `) && sameSpecies(x.slice(3), w.species)));
+    for (const w of blamed) say(`      ${describe(w)}`);
+  }
+  const stopped = read.filter(r => r.report && !r.report.complete);
+  say(`rebuilt only part of the way under them: ${stopped.length}`);
+  for (const r of stopped) say(`  ${r.label}: verified through turn ${r.report.verifiedThroughTurn}/${r.report.turns}`);
+  const failed = read.length ? results.filter(r => r.error) : [];
+  for (const r of failed) say(`  ${r.label}: ERROR ${r.error}`);
+}
+
 // ------------------------------------------------------------------- main
 
 async function main() {
@@ -483,6 +564,10 @@ async function main() {
   const outDir = path.join(ROOT, 'recordings', 'reconstructed');
   const infer = opt('--infer') ? opt('--infer').toLowerCase() : null;
   if (infer && !['p1', 'p2', 'both'].includes(infer)) throw new Error('--infer takes p1, p2 or both');
+  const sheets = (opt('--sheets', 'open') || 'open').toLowerCase();
+  if (!['open', 'closed'].includes(sheets)) throw new Error('--sheets takes open or closed');
+  const closed = sheets === 'closed';
+  if (closed && !infer && !flag('--saved')) throw new Error('--sheets closed reads the inferred side off the log - pass --infer');
 
   const saved = flag('--saved') ? savedJobs() : null;
   let files;
@@ -504,7 +589,8 @@ async function main() {
   const inferredHeading = saved ? ', your side known and the other side\'s Stat Points inferred' :
     infer ? `, Stat Points of ${infer === 'both' ? 'both sides' : infer} inferred` : '';
   say(`reconstruct: rung ${heading}${inferredHeading}` +
-    `${(infer || saved) && flag('--all-spent') ? ', every point assumed spent' : ''}, ` +
+    `${(infer || saved) && flag('--all-spent') ? ', every point assumed spent' : ''}` +
+    `${closed ? ', the inferred side read off the log as if it published no team sheet' : ''}, ` +
     `${files.length} source${files.length === 1 ? '' : 's'}, sample seed ${sampleSeed}`);
 
   const results = [];
@@ -521,6 +607,7 @@ async function main() {
         showEvents: !many,
         certify: !!(job?.infer || infer) && flag('--certify'),
         outside: flag('--outside'),
+        closed,
       }));
     } catch (err) {
       say(`  ${path.basename(file)}: ERROR ${err.message}`);
@@ -535,9 +622,11 @@ async function main() {
     say(`scoreboard: ${results.filter(r => r.ok).length}/${results.length} of your saved games rebuilt line-for-line`);
     for (const r of results) {
       const verdict = r.error ? 'ERROR' : r.ok ? 'MATCH' : r.report?.complete ? 'FAIL' : `turn ${r.report?.verifiedThroughTurn}/${r.report?.turns}`;
-      say(`  ${verdict.padEnd(11)} ${r.seconds ? `${r.seconds}s`.padStart(7) : '      -'}  ${r.label}${r.error ? ` - ${r.error}` : ''}`);
+      const sets = closed && r.readOffLog ? `  (${r.setWrong.length} box${r.setWrong.length === 1 ? '' : 'es'} wrong against the truth)` : '';
+      say(`  ${verdict.padEnd(11)} ${r.seconds ? `${r.seconds}s`.padStart(7) : '      -'}  ${r.label}${r.error ? ` - ${r.error}` : ''}${sets}`);
     }
     for (const s of saved.skipped) say(`  skipped              ${s.label} - ${s.why}`);
+    if (closed) closedSummary(results);
     if (results.some(r => !r.ok)) process.exitCode = 1;
   } else if (results.length > 1) {
     const passed = results.filter(r => r.ok).length;
@@ -547,6 +636,7 @@ async function main() {
       say(`  FAIL ${r.label}${r.error ? ` - ${r.error}` : ''}` +
           `${r.report ? ` - verified through turn ${r.report.verifiedThroughTurn}/${r.report.turns}` : ''}`);
     }
+    if (closed) closedSummary(results);
     if (passed !== results.length) process.exitCode = 1;
   } else if (!results[0]?.ok) {
     process.exitCode = 1;

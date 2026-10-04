@@ -340,11 +340,17 @@ export function setsFromLog(lines, side, formatid) {
 
   const sets = [];
   const assumed = [];
+  const boxes = [];
   for (const mon of mons) {
     const species = dex.species.get(mon.species.replace(/-\*$/, ''));
     const abilities = Object.values(species.abilities || {});
     const notes = [];
     let ability = mon.ability;
+    boxes.push({
+      item: mon.item === null ? 'assumed' : 'read',
+      ability: ability ? 'read' : abilities.length === 1 ? 'only' : 'assumed',
+      nature: 'assumed',
+    });
     if (!ability && abilities.length === 1) ability = abilities[0];
     if (!ability) { ability = abilities[0] || ''; notes.push(`ability ${ability || 'none'} (one of ${abilities.join(', ')})`); }
     if (mon.item === null) notes.push('no item');
@@ -365,7 +371,7 @@ export function setsFromLog(lines, side, formatid) {
     });
     assumed.push({ name, notes });
   }
-  return { sets, assumed };
+  return { sets, assumed, boxes };
 }
 
 /**
