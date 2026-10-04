@@ -145,6 +145,8 @@ const quietAbilities = [
  *   templates  battles added to the auto templates, in the shape below
  *   unfireable why no battle in this format can make the effect act, citing
  *              node_modules/pokemon-showdown file:line
+ *   reason     why the effect cannot carry a Stat Point on an open sheet; the
+ *              card prints it, and NOT SHOWN with a reason is not work
  *   mechanism  { stat: 'M1'..'M9' } overriding the rule for that stat
  *   note       shown on the effect's card as written
  *
@@ -153,6 +155,14 @@ const quietAbilities = [
  * `control`: the same battle with the effect taken out, as a patch of the teams
  * and, where the effect is a choice, of the turns. `why` is quoted on the card.
  * `dice`, if given, are `>rng force` rules tried before the battle's own.
+ * What the probe varies, each optional:
+ *
+ *   stat       the one stat to vary; every stat when left out
+ *   worlds     the two values it takes, `[a, b]` with a < b, instead of 0 and
+ *              32; or 'sweep', every value 0-32, each two adjacent ones the
+ *              known side's view tells apart asked about as a pair (needs `stat`)
+ *   probe      'p2b' to vary the hidden Pokemon's ally instead of p2a; every
+ *              other hidden Stat Point stays at 2
  */
 const QUIET = { p1: 'move splash, move splash', p2: 'move splash, move splash' };
 const withMoves = (key, moves) => ({ ...cast[key], evs: { ...cast[key].evs }, moves });
@@ -244,7 +254,11 @@ const entries = {
       role: 'user-hidden',
       p1: [withMoves('known', ['Hypnosis', 'Splash']), 'knownAlly', 'knownBench'],
       p2: [withMoves('hidden', ['Sleep Talk', 'Strength']), 'hiddenAlly', 'hiddenBench'],
-      turns: [{ p1: 'move hypnosis 1, move splash', p2: 'move strength 1, move splash' }, { p1: 'move splash, move splash', p2: 'move sleeptalk, move splash' }, QUIET],
+      turns: [
+        { p1: 'move hypnosis 1, move splash', p2: 'move strength 1, move splash' },
+        { p1: 'move splash, move splash', p2: 'move sleeptalk, move splash' },
+        { p1: 'move splash, move splash', p2: 'move strength 1, move splash' },
+      ],
       control: { p2: [{ moves: ['Strength', 'Splash'] }], turns: [{ p1: 'move hypnosis 1, move splash', p2: 'move strength 1, move splash' }, QUIET, QUIET] },
       why: 'Put to sleep, the hidden Pokemon calls its other move through Sleep Talk, which hits like the move itself.',
     }],
@@ -357,6 +371,32 @@ const entries = {
       why: 'The known user is first halved by its own ally, so the heal is not capped at full HP and equals the hidden target\'s Attack.',
     }],
   },
+  'move:superfang': {
+    templates: [{
+      name: 'halved-from-full',
+      role: 'target-hidden',
+      stat: 'hp',
+      worlds: 'sweep',
+      p1: [withMoves('known', ['Super Fang', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: ['hidden', 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move superfang 1, move splash', p2: 'move splash, move splash' }, QUIET],
+      control: { turns: [QUIET, QUIET] },
+      why: 'From full HP Super Fang leaves the hidden Pokemon on half its max HP rounded up, which the display shades `50/100g` for an odd max HP and `50/100y` for an even one: a parity that 0 and 32 share.',
+    }],
+  },
+  'move:helpinghand': {
+    templates: [{
+      name: 'boosts-the-ally',
+      role: 'user-hidden',
+      probe: 'p2b',
+      stat: 'atk',
+      p1: ['known', 'knownAlly', 'knownBench'],
+      p2: [withMoves('hidden', ['Helping Hand', 'Splash']), withMoves('hiddenAlly', ['Strength', 'Splash']), 'hiddenBench'],
+      turns: [{ p1: 'move splash, move splash', p2: 'move helpinghand -2, move strength 1' }, QUIET],
+      control: { turns: [{ p1: 'move splash, move splash', p2: 'move splash, move strength 1' }, QUIET] },
+      why: "The hidden Pokemon's Helping Hand makes its ally's hit half again as strong, and the known Pokemon's exact HP shows the ally's Attack.",
+    }],
+  },
   'move:counter': {
     templates: [{
       name: 'known-user-hit-first',
@@ -464,5 +504,61 @@ const entries = {
     }],
   },
 };
+
+/**
+ * Effects that cannot carry a Stat Point on an open sheet, or cannot act in
+ * this format, with the handler that says so. Each is its entry's `reason`.
+ */
+const reasons = {
+  'ability:battlearmor': 'onCriticalHit:false is a crit gate; the hit that follows is an ordinary M1 line.',
+  'ability:battlebond': 'Cannot act: onSourceAfterFaint and onModifyMove need Greninja-Ash (species id greninjabond); Greninja-Bond is isNonstandard "Past", and plain Greninja can hold Battle Bond only in an event slot the validator refuses.',
+  'ability:corrosion': 'A status and type gate in Pokemon#setStatus (poison on Steel and Poison); the tick it allows is the ordinary poison channel.',
+  'ability:effectspore': 'onDamagingHit puts to sleep, paralyses or poisons by dice: a chance and a status. Its UNUSED cell is the order of two hidden Pokemon, both Speeds unknown, which no effect creates.',
+  'ability:flamebody': 'onDamagingHit burns by a 30% chance: a chance and a status; the burn\'s tick and halved Attack are the Will-O-Wisp witness.',
+  'ability:forecast': 'onWeatherChange changes only Castform\'s forme and type, on the same base stats: a type.',
+  'ability:gluttony': 'Only the quarter-HP Berries read abilityState.gluttony (Figy, Wiki, Aguav, Iapapa, Mago and the stat Berries), and none of them is in the legal item pool.',
+  'ability:grassysurge': 'O:Atk cell: the terrain heals the known Rillaboom by its own max HP / 16; the hidden Pokemon\'s Attack is carried only by the hit before it. The hidden side\'s HP and Def cells are USED.',
+  'ability:harvest': 'onResidual only gives the Berry back (setItem); eating it again is the Berry\'s own channel.',
+  'ability:infiltrator': 'onModifyMove sets infiltrates, which bypasses screens and Substitute and so only removes a multiplier; the hit is an ordinary M1 or M2 line.',
+  'ability:merciless': 'onModifyCritRatio makes a hit on a poisoned target crit: crit rate.',
+  'ability:mimicry': 'onTerrainChange changes only the holder\'s type: a type.',
+  'ability:mirrorarmor': 'onTryBoost bounces a stat drop (its source.hp read only asks whether the source is alive); the reflected drop is an ordinary stage change.',
+  'ability:pickup': 'onResidual only gives an item back (setItem); nothing reads a stat.',
+  'ability:poisonpoint': 'onDamagingHit poisons by a 30% chance: a chance and a status; the poison tick is the Toxic witness.',
+  'ability:poisontouch': 'onSourceDamagingHit poisons by a 30% chance: a chance and a status.',
+  'ability:purepower': 'O:Spe cell: the known holder doubles its own Attack; the hidden Pokemon\'s Splash line appears or not with its survival (HP and Def, USED), and the move reads no Speed.',
+  'ability:scrappy': 'onModifyMove lets Normal and Fighting hit Ghosts and blocks Intimidate: a type immunity gate; the damage it lets through is an ordinary M2 line.',
+  'ability:screencleaner': 'onStart removes Reflect, Light Screen and Aurora Veil and prints |-activate|, reading no stat; voluntary switch-ins go p1 then p2 whatever the Speed, so no order carries Speed either.',
+  'ability:shedskin': 'onResidual cures a status by a 33% chance; its hp read only asks whether the holder is alive.',
+  'ability:shellarmor': 'onCriticalHit:false is a crit gate; the hit that follows is an ordinary M1 line.',
+  'ability:skilllink': 'onModifyMove sets a multi-hit move to its most hits: a hit count; each hit is an ordinary M2 line.',
+  'ability:stamina': 'O:Atk cell: onDamagingHit raises the known holder\'s Defence, so a later hit repeats the Attack the first hit already showed. The hidden holder\'s HP and Def are USED.',
+  'ability:static': 'onDamagingHit paralyses by a 30% chance: a chance and a status; the halved Speed is the Thunder Wave witness.',
+  'ability:stench': 'onModifyMove adds a 10% flinch: a chance.',
+  'ability:stickyhold': 'onTakeItem blocks taking the item (and Knock Off\'s 1.5x): an item gate; its hp read only asks whether the holder is alive.',
+  'ability:superluck': 'onModifyCritRatio +1: crit rate.',
+  'ability:symbiosis': 'onAllyAfterUseItem only passes the holder\'s item to its ally (takeItem, setItem).',
+  'item:aspearberry': 'onUpdate and onEat cure a freeze: a status.',
+  'item:choicescarf': 'H:SpA cell: the Scarf reads only Speed (onModifySpe, USED); Special Attack is carried by the hit lines that masked it. Its witnesses that attack after a first Splash stay locked into Splash, which the card shows as overridden.',
+  'item:damprock': 'Lengthens rain, in the weather condition: a duration, no handler of its own.',
+  'item:ejectbutton': 'onAfterMoveSecondary reads target.hp only to ask whether the holder is alive, and switches it out; the holder\'s percentage is the hit\'s before it.',
+  'item:heatrock': 'Lengthens sun: a duration.',
+  'item:icyrock': 'Lengthens snow: a duration.',
+  'item:kingsrock': 'onModifyMove adds a 10% flinch: a chance.',
+  'item:leek': 'onModifyCritRatio +2 for Farfetch\'d and Sirfetch\'d: crit rate.',
+  'item:leftovers': 'O:Atk cell: the known holder heals its own max HP / 16; the hidden attacker\'s Attack is carried only by the hit before it. H:HP is USED.',
+  'item:leppaberry': 'onEat restores 10 PP; its hp read only asks whether the holder has fainted.',
+  'item:lightclay': 'Lengthens screens: a duration.',
+  'item:oranberry': 'H:Def cell: Oran heals a flat 10 (HP is USED); Defence is carried only by the hit before it.',
+  'item:redcard': 'onAfterMoveSecondary reads source.hp and target.hp only to ask whether both are alive, and forces a switch; the Atk channel is USED.',
+  'item:scopelens': 'onModifyCritRatio +1: crit rate.',
+  'item:smoothrock': 'Lengthens sand: a duration.',
+  'item:terrainextender': 'Lengthens terrain: a duration.',
+  'move:healingwish': 'onTryHit faints its user, and the replacement is healed to full (100/100 at any max HP) and cured; nothing it prints depends on a Stat Point.',
+  'move:recycle': 'onHit only gives back lastItem (setItem) and prints |-item|; nothing it does reads a stat, and a Berry eaten again is that Berry\'s own channel.',
+  'move:rest': 'Heals to full: a hidden user shows 100/100 at every max HP and a known one its own exact line; the sleep is a status.',
+  'move:sludgewave': 'Def cell: the move is special, so its own lines read SpD and HP (USED) and the target\'s poison tick; Defence is carried only by the physical witness hit that masked it.',
+};
+for (const [key, reason] of Object.entries(reasons)) entries[key] = { ...(entries[key] || {}), reason };
 
 module.exports = { cast, pacers, hits, witnessMoves, quietAbilities, entries };

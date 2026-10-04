@@ -27,7 +27,7 @@
  *
  * Flags: --pool --list --only <ids> --kind <kind> --sheets open|closed --inputs <file>
  *        --out <dir> --no-coverage --check --threads <n> --verbose --records <file>...
- *        --dump <effect> <role/template> <stat|-> <0|32> [--control] [--hazard]
+ *        --dump <effect> <role/template> <stat|-> <value> [--control] [--hazard]
  */
 
 import fs from 'fs';
@@ -98,6 +98,26 @@ function buildPool() {
     if (!item.exists) continue;
     for (const s of species) if (!validator.checkItem(blank(s, { item: item.name }), item, {})) add('item', item.id, s.id);
   }
+  // An ability only a Mega Evolution has is reached through its Stone: its
+  // holders are the species that Mega Evolve with a Stone in the pool, each
+  // with the forme it becomes.
+  const legal = new Set(species.map(s => s.id));
+  const megaOf = new Map();
+  for (const id of users.item.keys()) {
+    const stone = dex.items.get(id);
+    if (!stone.megaStone) continue;
+    for (const [base, forme] of Object.entries(stone.megaStone)) {
+      const from = dex.species.get(base);
+      if (!legal.has(from.id)) continue;
+      for (const name of Object.values(dex.species.get(forme).abilities)) {
+        const ability = dex.abilities.get(name);
+        if (!ability.exists || users.ability.has(ability.id)) continue;
+        if (!megaOf.has(ability.id)) megaOf.set(ability.id, []);
+        megaOf.get(ability.id).push({ species: from.id, forme: dex.species.get(forme).name, stone: stone.name });
+      }
+    }
+  }
+  for (const [id, list] of megaOf) for (const m of list) add('ability', id, m.species);
 
   // Weight is how many legal Pokemon can use an effect, until usage data
   // replaces it (plan.md §10). Every species can hold a Mega Stone or an item
@@ -112,6 +132,7 @@ function buildPool() {
       effects.push({
         key: `${kind}:${id}`, kind, id, name: data.name, weight: using.length, users: [...holders].sort(),
         ...(kind === 'move' ? { category: data.category, type: data.type } : {}),
+        ...(kind === 'ability' && megaOf.has(id) ? { mega: megaOf.get(id) } : {}),
       });
     }
   }
@@ -319,6 +340,44 @@ function fallbackChoice(side, wanted) {
   }).join(', ');
 }
 
+/**
+ * Why the battle could not take a scripted choice, where the battle itself
+ * decided it: the slot's Pokemon is locked into a move (a charge turn, a
+ * recharge, a rampage), cannot switch out because something traps it, has the
+ * move barred (Taunt, Disable, Gravity, a Choice lock), copied another's moves
+ * by transforming, or is not the Pokemon the turn was written for - the one it
+ * was written for fainted or was forced out, or the one it was to switch to has
+ * fainted. Null when none of these explains it: then the template asked for a
+ * choice the battle never offered, which is the template's defect.
+ */
+function whyRefused(side, wanted) {
+  const req = side.activeRequest;
+  if (!req?.active) return null;
+  const parts = String(wanted || '').split(',').map(s => s.trim());
+  for (const [i, slot] of req.active.entries()) {
+    const mon = side.active[i];
+    if (!mon || mon.fainted || !slot) continue;
+    const part = parts[i] || '';
+    const sw = /^switch (\d)/.exec(part);
+    if (sw) {
+      const to = req.side.pokemon[Number(sw[1]) - 1];
+      if (slot.trapped || slot.maybeTrapped) return `${mon.name} is trapped`;
+      if (to?.condition.endsWith(' fnt')) return `${to.ident.slice(4)}, to switch to, has fainted`;
+      continue;
+    }
+    const want = /^move ([^\s,]+)/.exec(part)?.[1];
+    if (!want || want === 'struggle') continue;
+    const offered = slot.moves.find(m => m.id === want);
+    if (offered && !offered.disabled) continue;
+    const locked = mon.getLockedMove();
+    if (locked && locked !== want) return locked === 'recharge' ? `${mon.name} must recharge` : `${mon.name} is locked into ${mon.battle.dex.moves.get(locked).name}`;
+    if (mon.transformed && !mon.moveSlots.some(m => m.id === want)) return `${mon.name} transformed and has another's moves`;
+    if (!mon.baseMoveSlots.some(m => m.id === want)) return `${mon.name} came in for the Pokemon the turn was written for`;
+    return `${mon.name}'s ${mon.battle.dex.moves.get(want).name} is barred`;
+  }
+  return null;
+}
+
 /** The switch-ins a side owes after a faint or a pivot: the first Pokemon able to come in. */
 function forcedChoice(side) {
   const req = side.activeRequest;
@@ -340,7 +399,8 @@ function forcedChoice(side) {
  * template that did not play as written says so.
  */
 async function runBattle(template, evs, { watch = false, speedAt = null } = {}) {
-  const teams = [template.p1, template.p2.map((set, i) => (i === 0 ? { ...set, evs: { ...evs } } : set))];
+  const probed = template.probeIndex || 0;
+  const teams = [template.p1, template.p2.map((set, i) => (i === probed ? { ...set, evs: { ...evs } } : set))];
   const stream = new BattleStream({ keepAlive: true });
   const drain = (async () => { for await (const chunk of stream) { /* discard */ } })();
   const refused = [];
@@ -381,7 +441,8 @@ async function runBattle(template, evs, { watch = false, speedAt = null } = {}) 
         await stream.write(`>${side.id} ${choice}`);
         if (side.choice.error) {
           const fallback = fallbackChoice(side, choice);
-          refused.push({ turn: t + 1, side: side.id, choice, error: side.choice.error.replace(/^\[[^\]]+\]\s*/, ''), fallback });
+          const error = side.choice.error.replace(/^\[[^\]]+\]\s*/, '');
+          refused.push({ turn: t + 1, side: side.id, choice, error, fallback, cause: whyRefused(side, choice) });
           await stream.write(`>${side.id} ${fallback}`);
           if (side.choice.error) await stream.write(`>${side.id} default`);
         }
@@ -402,7 +463,7 @@ async function runBattle(template, evs, { watch = false, speedAt = null } = {}) 
 const runCache = new Map();
 /** Battles are pure functions of their recipe, so a control shared by many effects runs once. */
 function cachedRun(template, evs) {
-  const sig = JSON.stringify([template.p1, template.p2, template.turns, template.dice, evs]);
+  const sig = JSON.stringify([template.p1, template.p2, template.turns, template.dice, template.probeIndex || 0, evs]);
   if (!runCache.has(sig)) {
     if (runCache.size > 6000) runCache.clear();
     runCache.set(sig, runBattle(template, evs));
@@ -675,11 +736,18 @@ const hiddenFrom = (species, ability, item, moves) => ({
   evs: { ...BASE }, moves: [...new Set(moves)].slice(0, 4),
 });
 
-/** A move's aim in a choice: its foe in slot a, itself, or its ally. */
-function aim(move) {
-  if (['normal', 'any', 'adjacentFoe'].includes(move.target)) return ' 1';
-  if (move.target === 'adjacentAlly') return ' -2';
-  if (move.target === 'adjacentAllyOrSelf') return ' -1';
+/**
+ * The target a request offers for a move: its own, except Curse, which a user
+ * that is not a Ghost type uses on itself (`getMoves`, sim/pokemon.ts).
+ */
+const offeredTarget = (move, user) => (move.id === 'curse' && !user.types.includes('Ghost') ? 'self' : move.target);
+
+/** A move's aim in a choice, by its user: its foe in slot a, itself, or its ally. */
+function aim(move, user) {
+  const target = offeredTarget(move, user);
+  if (['normal', 'any', 'adjacentFoe'].includes(target)) return ' 1';
+  if (target === 'adjacentAlly') return ' -2';
+  if (target === 'adjacentAllyOrSelf') return ' -1';
   return '';
 }
 
@@ -723,7 +791,7 @@ function moveTemplates(effect) {
       const toHidden = firstHit(W.physical, hiddenSpecies.name);
       const toKnown = firstHit(W.physical, knownName);
       const prio = name === 'before-special' ? W.prioritySpecial : W.priorityPhysical;
-      const use = `move ${move.id}${aim(move)}`;
+      const use = `move ${move.id}${aim(move, userHidden ? hiddenSpecies : dex.species.get(knownName))}`;
       const extra = { p1: [], p2: [] };
       const turns = [];
       const userSide = userHidden ? 'p2' : 'p1';
@@ -868,6 +936,12 @@ function batteryTemplates(effect) {
     const knownBase = holder
       ? { ...FIXTURE.cast.known, name: holder.baseSpecies, species: holder.name, gender: genderOf(holder) || '', ability: baselineAbility() }
       : { ...FIXTURE.cast.known };
+    // An ability only a Mega has: its holder carries the Stone and Mega Evolves
+    // on turn 1, and its control is the Mega forme itself from the start, with
+    // Run Away, so the two differ in the ability alone.
+    const megaFor = s => (s && effect.mega ? effect.mega.find(m => m.species === s.id) || null : null);
+    const hiddenMega = holderHidden ? megaFor(hiddenSpecies) : null;
+    const knownMega = holderHidden ? null : megaFor(holder);
     const apply = (withEffect) => {
       const hidden = hiddenFrom(hiddenSpecies, hiddenAbilityBase, '', []);
       const known = { ...knownBase, evs: { ...knownBase.evs } };
@@ -875,15 +949,21 @@ function batteryTemplates(effect) {
         if (holderHidden) hidden.item = withEffect ? effect.name : '';
         else known.item = withEffect ? effect.name : FIXTURE.cast.known.item;
       } else if (effect.kind === 'ability') {
-        if (holderHidden) hidden.ability = withEffect ? effect.name : baselineAbility();
+        const mega = hiddenMega || knownMega;
+        const set = holderHidden ? hidden : known;
+        if (mega) {
+          set.item = mega.stone;
+          set.ability = withEffect ? quietAbility(holderHidden ? hiddenSpecies : holder) : baselineAbility();
+          if (!withEffect) set.species = mega.forme;
+        } else if (holderHidden) hidden.ability = withEffect ? effect.name : baselineAbility();
         else known.ability = withEffect ? effect.name : knownBase.ability;
       } else if (effect.kind === 'nature') {
         hidden.nature = withEffect ? effect.name : 'Serious';
       }
       return { hidden, known };
     };
-    const hiddenName = hiddenSpecies.name;
-    const knownName = knownBase.species;
+    const hiddenName = hiddenMega ? hiddenMega.forme : hiddenSpecies.name;
+    const knownName = knownMega ? knownMega.forme : knownBase.species;
     const physTo = t => firstHit(FIXTURE.witnessMoves.physical, t);
     const specTo = t => firstHit(FIXTURE.witnessMoves.special, t);
     const W = FIXTURE.witnessMoves;
@@ -940,18 +1020,25 @@ function batteryTemplates(effect) {
           if (!pacer) return null;
           p1a = { ...pacer, moves: ['Splash'] };
         }
-        const mega = effect.kind === 'item' && holderHidden && withEffect && dex.items.get(effect.id).megaStone;
+        // The side whose Pokemon Mega Evolves on turn 1: the hidden holder of a
+        // Stone, or the holder of an ability only its Mega has.
+        const megaSide = !withEffect ? null
+          : (effect.kind === 'item' && holderHidden && dex.items.get(effect.id).megaStone) || hiddenMega ? 'p2' : knownMega ? 'p1' : null;
         return {
           p1: [p1a, castSet('knownAlly', ['Splash']), castSet('knownBench', ['Splash'])],
           p2: [{ ...hidden, moves: [...new Set(['Splash', ...(w.p2 || [])])].slice(0, 4) }, ...hiddenMates(hiddenSpecies)],
-          turns: mega ? turns.map((t, i) => (i === 0 ? { ...t, p2: t.p2.replace(/^(move \S+(?: -?\d)?)/, '$1 mega') } : t)) : turns,
+          turns: megaSide ? turns.map((t, i) => (i === 0 ? { ...t, [megaSide]: t[megaSide].replace(/^(move [^\s,]+(?: -?\d)?)/, '$1 mega') } : t)) : turns,
           dice: diceFor([...(w.p1 || []), ...(w.p2 || [])], hidden.name),
         };
       };
       const withEffect = build(true);
       const control = build(false);
       if (!withEffect || !control) continue;
-      out.push({ key: `${role}/${w.name}`, role, name: w.name, source: 'auto', why: null, effectTurn: 1, user: null, moveId: null, pace: w.pace || null, ...withEffect, control });
+      const mega = hiddenMega || knownMega;
+      out.push({
+        key: `${role}/${w.name}`, role, name: w.name, source: 'auto', why: null, effectTurn: 1, user: null, moveId: null, pace: w.pace || null, ...withEffect, control,
+        ...(mega ? { megaControl: { forme: mega.forme, base: dex.species.get(mega.forme).baseSpecies } } : {}),
+      });
     }
   }
   return out;
@@ -967,10 +1054,17 @@ function fixtureTemplate(effect, t) {
   const turns = t.turns;
   const dice = [...(t.dice || []), ...diceFor(moves.filter(m => toID(m) !== effect.id), p2[0].name)];
   const control = t.control ? { p1: patch(p1, t.control.p1), p2: patch(p2, t.control.p2), turns: t.control.turns || turns, dice } : null;
+  const probeIndex = t.probe === 'p2b' ? 1 : 0;
+  if (t.worlds && t.worlds !== 'sweep' && !(Array.isArray(t.worlds) && t.worlds.length === 2 && t.worlds.every(v => Number.isInteger(v) && v >= 0 && v <= 32) && t.worlds[0] < t.worlds[1])) {
+    throw new Error(`${effect.key} ${t.role}/${t.name}: worlds is two Stat Points, lower first, or 'sweep'`);
+  }
+  if (t.stat && !STATS.includes(t.stat)) throw new Error(`${effect.key} ${t.role}/${t.name}: no stat ${t.stat}`);
+  if (t.worlds === 'sweep' && !t.stat) throw new Error(`${effect.key} ${t.role}/${t.name}: a sweep names its stat`);
   return {
     key: `${t.role}/${t.name}`, role: t.role, name: t.name, source: 'fixture', why: t.why || null, effectTurn: t.effectTurn || 1,
     user: effect.kind === 'move' ? (t.role === 'user-hidden' ? 'p2a' : 'p1a') : null, moveId: effect.kind === 'move' ? effect.id : null,
     p1, p2, turns, dice, control,
+    stat: t.stat || null, worlds: t.worlds || null, probeIndex,
   };
 }
 
@@ -1061,13 +1155,29 @@ function spectatorOf(change, s0, s32) {
 }
 
 /**
+ * A battle of a Mega-only ability, or its control, written so the two compare
+ * line for line: the control is the Mega forme from the start, so the Mega
+ * Evolution's own lines are dropped and the forme's name reads as the base
+ * species'. Any other template's lines are returned as they are.
+ */
+function alike(template, lines) {
+  const m = template.megaControl;
+  if (!m) return lines;
+  return lines.filter(l => !/^\|(?:-mega|detailschange)\|/.test(l)).map(l => l.split(`${m.forme}, `).join(`${m.base}, `));
+}
+
+/**
  * Whether the effect acted at all in a template, read off the battle at base
  * Stat Points against its control: for a move, its own line printed and was not
  * followed by a failure; and in any case, the log differs from the control's by
  * more than the effect's own line.
  */
 function fired(template, base, control) {
-  const out = { acted: true, visible: false, failedBy: null, calls: 0, refused: base.refused.map(r => `T${r.turn} ${r.side}: ${r.error}`) };
+  const out = {
+    acted: true, visible: false, failedBy: null, calls: 0,
+    refused: base.refused.filter(r => !r.cause).map(r => `T${r.turn} ${r.side}: ${r.error}`),
+    overridden: base.refused.filter(r => r.cause).map(r => `T${r.turn} ${r.side}: ${r.cause}`),
+  };
   if (base.error) return { ...out, acted: false, failedBy: `battle error: ${base.error}` };
   const lines = battleLines(base.ch1);
   if (template.moveId) {
@@ -1098,29 +1208,50 @@ function fired(template, base, control) {
     const own = c => template.moveId && c.turn === template.effectTurn && c.printer.startsWith(`${template.user}: `)
       && (c.printer.endsWith(`>${template.moveId}`) || c.printer.endsWith('>splash'))
       && ['move', '-nothing', '-fail', '-miss', '-notarget', '-immune'].includes(c.kind);
-    out.visible = diffLogs(readLog(control.ch1), readLog(base.ch1)).some(c => c.type !== 'order' && !own(c));
+    out.visible = diffLogs(readLog(alike(template, control.ch1)), readLog(alike(template, base.ch1))).some(c => c.type !== 'order' && !own(c));
   }
   return out;
 }
 
 /**
- * One template through the probe: the base battle, and for every stat the two
- * worlds, each against the control's. What survives is the effect's.
+ * The pairs of worlds a template asks about one stat: 0 and 32 unless it names
+ * two values; for a sweep, every value 0-32 is played, and each two adjacent
+ * values the known side's view tells apart make a pair, so a boundary between
+ * two shares of max HP, or a parity, is asked about where it falls.
+ */
+async function worldPairs(template, stat) {
+  if (template.worlds !== 'sweep') return [template.worlds || [0, 32]];
+  const views = [];
+  for (let v = 0; v <= 32; v++) views.push(battleLines((await cachedRun(template, world(stat, v))).ch1).join('\n'));
+  const pairs = [];
+  for (let v = 0; v < 32; v++) if (views[v] !== views[v + 1]) pairs.push([v, v + 1]);
+  return pairs;
+}
+
+/**
+ * One template through the probe: the base battle, and for every stat it
+ * varies each pair of worlds, each against the control's. What survives is the
+ * effect's.
  */
 async function probeTemplate(template) {
   const base = await runBattle(template, BASE, { watch: true });
   const controlBase = template.control ? await cachedRun(template.control, BASE) : null;
   const stats = {};
-  for (const stat of STATS) {
-    const e0 = await runBattle(template, world(stat, 0));
-    const e32 = await runBattle(template, world(stat, 32));
-    const c0 = template.control ? await cachedRun(template.control, world(stat, 0)) : null;
-    const c32 = template.control ? await cachedRun(template.control, world(stat, 32)) : null;
-    const inEffect = diffLogs(readLog(e0.ch1), readLog(e32.ch1));
-    const inControl = c0 ? diffLogs(readLog(c0.ch1), readLog(c32.ch1)) : [];
-    const exact = [e0, e32, c0, c32].map(r => (r ? readLog(r.all) : null));
-    const changes = effectChanges(inEffect, inControl, exact);
-    stats[stat] = { e0, e32, changes, masked: inControl.length > 0, unstable: e0.draws !== e32.draws || !!e0.error || !!e32.error };
+  for (const stat of template.stat ? [template.stat] : STATS) {
+    stats[stat] = [];
+    // A sweep's worlds were played already, to find its pairs.
+    const play = template.worlds === 'sweep' ? cachedRun : runBattle;
+    for (const [lo, hi] of await worldPairs(template, stat)) {
+      const e0 = await play(template, world(stat, lo));
+      const e32 = await play(template, world(stat, hi));
+      const c0 = template.control ? await cachedRun(template.control, world(stat, lo)) : null;
+      const c32 = template.control ? await cachedRun(template.control, world(stat, hi)) : null;
+      const inEffect = diffLogs(readLog(e0.ch1), readLog(e32.ch1));
+      const inControl = c0 ? diffLogs(readLog(c0.ch1), readLog(c32.ch1)) : [];
+      const exact = [e0, e32, c0, c32].map(r => (r ? readLog(r.all) : null));
+      const changes = effectChanges(inEffect, inControl, exact);
+      stats[stat].push({ values: [lo, hi], e0, e32, changes, masked: inControl.length > 0, unstable: e0.draws !== e32.draws || !!e0.error || !!e32.error });
+    }
   }
   return { base, controlBase, stats };
 }
@@ -1137,7 +1268,7 @@ async function inferWorld(template, run) {
     const inf = await inferSpreads({
       formatid: FORMAT, sets, known: [true, false], playerNames: ['Known', 'Hidden'], observed: run.ch1, channel: 1, threads: 1,
     });
-    const p = inf.pokemon.find(x => x.id === 'p2:0');
+    const p = inf.pokemon.find(x => x.id === `p2:${template.probeIndex || 0}`);
     const diff = inf.built.report.diffs[0];
     return { inf, p, complete: inf.complete, diff: diff ? { turn: diff.turn, observed: diff.expected ?? null, rebuilt: diff.actual ?? null } : null };
   } catch (err) {
@@ -1157,17 +1288,19 @@ async function inferWorld(template, run) {
  */
 async function cover(template, stat, entry, effectName) {
   const worlds = [];
-  for (const [value, run, other] of [[0, entry.e0, 32], [32, entry.e32, 0]]) {
+  const [lo, hi] = entry.values;
+  const id = `p2:${template.probeIndex || 0}`;
+  for (const [value, run, other] of [[lo, entry.e0, hi], [hi, entry.e32, lo]]) {
     const r = await inferWorld(template, run);
     if (r.error) { worlds.push({ value, error: r.error }); continue; }
     const cutBy = [];
     for (const c of entry.changes) {
-      const line = (value === 0 ? c.at0 : c.at32) ?? '';
+      const line = (value === lo ? c.at0 : c.at32) ?? '';
       const kind = line.split('|')[1];
       const figure = HP_FIELD[kind] !== undefined ? String(line.split('|')[HP_FIELD[kind]] || '').split(' ')[0] : null;
       for (const e of r.inf.events) {
         if (e.turn !== c.turn) continue;
-        const cut = e.cuts.find(x => x.id === 'p2:0' && x.after < x.before);
+        const cut = e.cuts.find(x => x.id === id && x.after < x.before);
         if (!cut) continue;
         const named = !!effectName && e.what.includes(effectName);
         const match = c.type === 'order' ? /acted before|came before/.test(e.what) : named || (c.type === 'hp' ? e.shown === figure : true);
@@ -1183,7 +1316,7 @@ async function cover(template, stat, entry, effectName) {
       range: r.p.stats[stat] ? [r.p.stats[stat].min, r.p.stats[stat].max] : null,
       diff: r.diff,
       cutBy: [...new Set(cutBy)],
-      narrowedBy: [...new Set(r.inf.events.filter(e => e.cuts.some(x => x.id === 'p2:0' && x.narrowed.includes(stat))).map(e => e.what))],
+      narrowedBy: [...new Set(r.inf.events.filter(e => e.cuts.some(x => x.id === id && x.narrowed.includes(stat))).map(e => e.what))],
       setAside: (r.inf.checks || []).map(c => `${c.what} - ${c.reason}`),
     });
   }
@@ -1296,7 +1429,7 @@ async function silenceOf(effect, template, base, control, coverage) {
   if (namedAt >= 0) namedTurn = lines.slice(0, namedAt).filter(l => l.startsWith('|turn|')).length;
   // A line naming the control's own ability is the control's, not the effect's.
   const theirs = effect.kind === 'ability' ? template.control.p2[0].ability : null;
-  const changes = diffLogs(readLog(control.ch1), readLog(base.ch1))
+  const changes = diffLogs(readLog(alike(template, control.ch1)), readLog(alike(template, base.ch1)))
     .filter(c => !nameIn(c.at0 || '', effect.name) && !nameIn(c.at32 || '', effect.name))
     .filter(c => !theirs || !nameIn(c.at0 || '', theirs))
     .filter(c => namedTurn === null || c.turn < namedTurn);
@@ -1357,7 +1490,7 @@ async function catalogEffect(effect, { entry, coverage, sheets, say }) {
     },
     scan: effect.kind === 'nature' ? null : scan(effect.kind, effect.id),
     templates: [],
-    open: { outcome: null, stats: [], reason: entry?.unfireable || null },
+    open: { outcome: null, stats: [], reason: entry?.unfireable || null, why: entry?.reason || null },
     closed: { names: [], silence: [] },
     conditionsSeen: [],
     note: entry?.note || null,
@@ -1371,7 +1504,9 @@ async function catalogEffect(effect, { entry, coverage, sheets, say }) {
     template.conditionKey = effect.kind === 'move' ? `condition:${effect.id}` : null;
     const probe = await probeTemplate(template);
     const act = fired(template, probe.base, probe.controlBase);
-    const subject = battleLines(probe.base.ch1).find(l => l.startsWith('|switch|p2a: '))?.split('|')[2] || `p2a: ${template.p2[0].name}`;
+    const probed = template.probeIndex || 0;
+    const slot = probed === 1 ? 'p2b' : 'p2a';
+    const subject = battleLines(probe.base.ch1).find(l => l.startsWith(`|switch|${slot}: `))?.split('|')[2] || `${slot}: ${template.p2[probed].name}`;
     for (const l of battleLines(probe.base.ch1)) {
       const from = fromTag(l.split('|'));
       if (from && !from.includes(':')) seen.add(from);
@@ -1380,16 +1515,16 @@ async function catalogEffect(effect, { entry, coverage, sheets, say }) {
     }
     record.templates.push({
       key: template.key, role: template.role, name: template.name, source: template.source, why: template.why,
-      hidden: `${template.p2[0].species}${template.p2[0].item ? ` @ ${template.p2[0].item}` : ''} (${template.p2[0].ability}, ${template.p2[0].nature})`,
+      hidden: `${template.p2[probed].species}${template.p2[probed].item ? ` @ ${template.p2[probed].item}` : ''} (${template.p2[probed].ability}, ${template.p2[probed].nature})`,
+      ...(probed ? { probe: slot } : {}),
       known: `${template.p1[0].species}${template.p1[0].item ? ` @ ${template.p1[0].item}` : ''} (${template.p1[0].ability})`,
-      acted: act.acted, visible: act.visible, failedBy: act.failedBy, calls: act.calls, refused: act.refused,
-      unstable: STATS.filter(s => probe.stats[s].unstable),
+      acted: act.acted, visible: act.visible, failedBy: act.failedBy, calls: act.calls, refused: act.refused, overridden: act.overridden,
+      unstable: STATS.filter(s => probe.stats[s]?.some(e => e.unstable)),
     });
 
     if (sheets.open && effect.kind !== 'nature') {
       const wonderRoom = probe.base.ch1.some(l => l.includes('|-fieldstart|move: Wonder Room'));
-      for (const stat of STATS) {
-        const entryStat = probe.stats[stat];
+      for (const [stat, pairs] of Object.entries(probe.stats)) for (const entryStat of pairs) {
         // A pace battle asks about turn order; its other changes are the
         // other templates' to report, where nothing races the hidden Pokemon.
         if (template.pace) entryStat.changes = entryStat.changes.filter(c => c.type === 'order');
@@ -1407,11 +1542,14 @@ async function catalogEffect(effect, { entry, coverage, sheets, say }) {
         const covered = coverage && !failed ? await cover(template, stat, entryStat, effect.name) : null;
         const verdict = !covered ? (entryStat.unstable ? 'UNSTABLE' : null)
           : !entryStat.unstable || ['UNSOUND', 'ERROR'].includes(covered.verdict) ? covered.verdict : 'UNSTABLE';
+        // The hidden Pokemon's ally, probed, is a role of its own.
+        const [lo, hi] = entryStat.values;
         record.open.stats.push({
-          role: template.role, template: template.key, stat, masked: entryStat.masked, unstable: entryStat.unstable, rows,
-          verdict, worlds: covered?.worlds || null,
+          role: probed ? 'ally-hidden' : template.role, template: template.key, stat,
+          ...(lo !== 0 || hi !== 32 ? { values: [lo, hi] } : {}), ...(template.worlds === 'sweep' ? { sweep: true } : {}),
+          masked: entryStat.masked, unstable: entryStat.unstable, rows, verdict, worlds: covered?.worlds || null,
         });
-        say(`  ${effect.key} ${template.key} ${stat}: ${rows.length} change(s)${verdict ? `, ${verdict}` : ''}`);
+        say(`  ${effect.key} ${template.key} ${stat}${lo !== 0 || hi !== 32 ? ` ${lo}|${hi}` : ''}: ${rows.length} change(s)${verdict ? `, ${verdict}` : ''}`);
       }
     }
 
@@ -1494,7 +1632,10 @@ function conditionRecords(records, pool) {
 
 const esc = text => String(text ?? '').replace(/\|/g, '\\|');
 const code = text => (text === null || text === undefined ? '—' : `\`${esc(text)}\``);
-const ROLE_LETTER = { 'user-hidden': 'U', 'target-hidden': 'T', 'holder-hidden': 'H', 'other-hidden': 'O' };
+const ROLE_LETTER = { 'user-hidden': 'U', 'target-hidden': 'T', 'holder-hidden': 'H', 'other-hidden': 'O', 'ally-hidden': 'A' };
+/** A stat as a row names it: `HP`, or `HP 13|14` for two worlds other than 0 and 32. */
+const statLabel = s => `${STAT_NAME[s.stat]}${s.values ? ` ${s.values[0]}|${s.values[1]}` : ''}`;
+const pairOf = s => (s.values ? `${s.values[0]}|${s.values[1]}` : '0|32');
 const simCommit = () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   return (String(pkg.dependencies['pokemon-showdown']).split('#')[1] || '').slice(0, 7);
@@ -1600,20 +1741,40 @@ function openCard(record) {
     out.push(...grid(record), '');
     out.push('| Role | Stat | Template | Sink | Turn | At 0 | At 32 | Spectator | Mech | Line | Verdict | Worlds (range of the stat) | Used by |');
     out.push('|---|---|---|---|---|---|---|---|---|---|---|---|---|');
-    for (const s of [...record.open.stats].sort((a, b) => a.role.localeCompare(b.role) || STATS.indexOf(a.stat) - STATS.indexOf(b.stat) || a.template.localeCompare(b.template))) {
+    const printed = new Set();
+    for (const s of [...record.open.stats].sort((a, b) => a.role.localeCompare(b.role) || STATS.indexOf(a.stat) - STATS.indexOf(b.stat) || a.template.localeCompare(b.template) || (a.values?.[0] ?? 0) - (b.values?.[0] ?? 0))) {
+      // A sweep shows its first boundary of each verdict; the line under the
+      // table lists every one.
+      const key = `${s.role}|${s.template}|${s.stat}|${s.verdict}`;
+      if (s.sweep && printed.has(key)) continue;
+      printed.add(key);
       for (const [i, r] of s.rows.slice(0, 3).entries()) {
-        out.push(`| ${ROLE_LETTER[s.role]} | ${STAT_NAME[s.stat]} | ${s.template.split('/')[1]} | ${r.sink} | ${r.turn} | ${code(r.at0)} | ${code(r.at32)} | ${r.spectator} | ${r.mechanism} | ${r.own ? 'own' : 'modified'} | ${i === 0 ? `${s.verdict || 'not rebuilt'}${s.verdict === 'USED' && s.masked ? ' (own event)' : ''}` : '〃'} | ${i === 0 ? worldsText(s) : ''} | ${i === 0 ? usedByOf(s) : ''} |`);
+        out.push(`| ${ROLE_LETTER[s.role]} | ${esc(statLabel(s))} | ${s.template.split('/')[1]} | ${r.sink} | ${r.turn} | ${code(r.at0)} | ${code(r.at32)} | ${r.spectator} | ${r.mechanism} | ${r.own ? 'own' : 'modified'} | ${i === 0 ? `${s.verdict || 'not rebuilt'}${s.verdict === 'USED' && s.masked ? ' (own event)' : ''}` : '〃'} | ${i === 0 ? worldsText(s) : ''} | ${i === 0 ? usedByOf(s) : ''} |`);
       }
-      if (s.rows.length > 3) out.push(`| ${ROLE_LETTER[s.role]} | ${STAT_NAME[s.stat]} | ${s.template.split('/')[1]} | … | | ${s.rows.length - 3} more changed line(s) | | | | | | | |`);
+      if (s.rows.length > 3) out.push(`| ${ROLE_LETTER[s.role]} | ${esc(statLabel(s))} | ${s.template.split('/')[1]} | … | | ${s.rows.length - 3} more changed line(s) | | | | | | | |`);
     }
     out.push('');
   }
-  const shown = record.templates.filter(t => !t.acted || !t.visible || t.refused.length || t.unstable.length);
+  const shown = record.templates.filter(t => !t.acted || !t.visible || t.refused.length || t.overridden?.length || t.unstable.length);
   if (shown.length && record.kind !== 'condition') {
-    out.push('Templates: ' + record.templates.map(t => `${t.key}${t.source === 'fixture' ? ' (hand-set)' : ''}${!t.acted ? ` failed (${code(t.failedBy)})` : !t.visible ? ' changed nothing' : ''}${t.refused.length ? ` · refused ${esc(t.refused.join('; '))}` : ''}${t.unstable.length ? ` · dice differ for ${t.unstable.join(', ')}` : ''}`).join(' · '));
+    out.push('Templates: ' + record.templates.map(t => `${t.key}${t.source === 'fixture' ? ' (hand-set)' : ''}${!t.acted ? ` failed (${code(t.failedBy)})` : !t.visible ? ' changed nothing' : ''}${t.refused.length ? ` · refused ${esc(t.refused.join('; '))}` : ''}${t.overridden?.length ? ` · the battle overrode ${esc(t.overridden.join('; '))}` : ''}${t.unstable.length ? ` · dice differ for ${t.unstable.join(', ')}` : ''}`).join(' · '));
     out.push('');
   }
-  for (const t of record.templates.filter(x => x.why)) out.push(`Template ${t.key}: ${t.why}`, '');
+  // Every boundary a sweep found, by verdict.
+  const swept = new Map();
+  for (const s of record.open.stats.filter(x => x.sweep)) {
+    const k = `${s.template}|${s.stat}`;
+    if (!swept.has(k)) swept.set(k, []);
+    swept.get(k).push(s);
+  }
+  for (const [k, list] of swept) {
+    const [template, stat] = k.split('|');
+    const by = new Map();
+    for (const s of list) by.set(s.verdict || 'not rebuilt', [...(by.get(s.verdict || 'not rebuilt') || []), pairOf(s)]);
+    out.push(`Sweep of ${STAT_NAME[stat]} in ${template}, ${list.length} boundaries: ${[...by].map(([v, pairs]) => `${v} at ${pairs.join(', ')}`).join('; ')}.`, '');
+  }
+  for (const t of record.templates.filter(x => x.why)) out.push(`Template ${t.key}${t.probe ? ` (probes ${t.probe})` : ''}: ${t.why}`, '');
+  if (record.open.why) out.push(`Reason: ${record.open.why}`, '');
   if (record.note) out.push(`Note: ${record.note}`, '');
   return out;
 }
@@ -1666,21 +1827,26 @@ function renderOpen(records, pool) {
   out.push('line whose words changed. **Spectator:** how a published replay (channel 0) shows the change — `same`, `as %`,');
   out.push('`hidden` (it shows no change), `absent`. **Mechanisms** are `evidence-catalog.md` §2\'s, assigned by rule from what');
   out.push('printed the line; `M?` fits none. Roles: `U` user hidden, `T` target hidden, `H` holder hidden, `O` the known side');
-  out.push('holds it and acts on the hidden Pokemon. At most three changed lines per stat are shown. `npm run catalog -- --dump');
-  out.push('<effect> <role/template> <stat> <0|32>` prints the battle behind any row and what the rebuild made of it.');
+  out.push('holds it and acts on the hidden Pokemon, `A` a hand-set battle that varies the hidden Pokemon\'s ally (p2b) instead.');
+  out.push('A hand-set battle may also name its two worlds, or sweep a stat over every value 0–32 and ask about each two');
+  out.push('adjacent values the known side\'s view tells apart; such a row names its pair, `HP 13|14`. A card may carry a');
+  out.push('written **Reason** the effect cannot carry a Stat Point on an open sheet, and a template a choice **the battle');
+  out.push('overrode** — a lock, a trap, a barred move, a Pokemon that had left — with why. At most three changed lines per');
+  out.push('stat are shown. `npm run catalog -- --dump <effect> <role/template> <stat> <value>` prints the battle behind any');
+  out.push('row and what the rebuild made of it.');
   out.push('');
 
   // Summary.
   const VERDICTS = ['USED', 'UNUSED', 'UNSOUND', 'REBUILD-FAILED', 'MASKED', 'ERROR', 'UNSTABLE'];
   out.push('## 1. Summary', '', '### 1.1 By kind', '');
-  out.push(`| Kind | Effects | CHANNEL | NO CHANNEL | NOT SHOWN | UNFIREABLE | ${VERDICTS.join(' | ')} |`);
-  out.push(`|---|---|---|---|---|---|${VERDICTS.map(() => '---|').join('')}`);
+  out.push(`| Kind | Effects | CHANNEL | NO CHANNEL | NOT SHOWN | of them with a reason | UNFIREABLE | ${VERDICTS.join(' | ')} |`);
+  out.push(`|---|---|---|---|---|---|---|${VERDICTS.map(() => '---|').join('')}`);
   const all = open.flatMap(r => groupsOf(r).map(g => ({ r, ...g })));
   for (const kind of ['move', 'ability', 'item']) {
     const list = open.filter(r => r.kind === kind);
     const o = v => list.filter(r => r.open.outcome === v).length;
     const here = all.filter(g => g.r.kind === kind);
-    out.push(`| ${kind} | ${list.length} | ${o('CHANNEL')} | ${o('NO CHANNEL')} | ${o('NOT SHOWN')} | ${o('UNFIREABLE')} | ${VERDICTS.map(x => here.filter(g => g.verdict === x).length).join(' | ')} |`);
+    out.push(`| ${kind} | ${list.length} | ${o('CHANNEL')} | ${o('NO CHANNEL')} | ${o('NOT SHOWN')} | ${list.filter(r => r.open.outcome === 'NOT SHOWN' && r.open.why).length} | ${o('UNFIREABLE')} | ${VERDICTS.map(x => here.filter(g => g.verdict === x).length).join(' | ')} |`);
   }
   const conditions = open.filter(r => r.kind === 'condition');
   out.push('', `The verdict columns count (effect, role, stat, mechanism): a stat is judged once for each mechanism it showed through. Of the ${conditions.length} conditions, which have no battles of their own, ${conditions.filter(r => r.open.outcome === 'CHANNEL').length} had changes printed under their name, counted above under the effect that set them (§6).`, '');
@@ -1696,7 +1862,7 @@ function renderOpen(records, pool) {
   // Work lists, one row per effect, role, stat and mechanism, heaviest first.
   out.push('## 2. Work list', '');
   out.push('One row per effect, role, stat and mechanism, with the verdict §0 gives it. `Templates` names the battles that');
-  out.push('gave that verdict; `npm run catalog -- --dump <effect> <role>/<template> <stat> <0|32>` shows any of them.', '');
+  out.push('gave that verdict; `npm run catalog -- --dump <effect> <role>/<template> <stat> <value>` shows any of them.', '');
   const picked = verdicts => all.filter(g => verdicts.includes(g.verdict))
     .map(g => ({ ...g, those: g.list.filter(s => s.verdict === g.verdict) }))
     .sort((a, b) => b.r.weight - a.r.weight || a.r.key.localeCompare(b.r.key) || a.role.localeCompare(b.role) || STATS.indexOf(a.stat) - STATS.indexOf(b.stat) || a.mech.localeCompare(b.mech));
@@ -1755,15 +1921,23 @@ function renderOpen(records, pool) {
     out.push('');
   }
   out.push('### 2.5 NOT SHOWN — no template made the effect act where a replay would see it', '');
-  out.push('Each needs a hand-set template (`scripts/fixtures/catalog.js`), or a written reason that it cannot act in this format.', '');
+  out.push('Each needs a hand-set template (`scripts/fixtures/catalog.js`), or a written reason that it cannot carry a Stat Point on an open sheet.', '');
   const notShown = open.filter(r => r.open.outcome === 'NOT SHOWN').sort((a, b) => b.weight - a.weight || a.key.localeCompare(b.key));
-  if (!notShown.length) out.push('None.', '');
+  const work = notShown.filter(r => !r.open.why);
+  if (!work.length) out.push('None.', '');
   else {
     out.push('| Effect | Weight | Scan reads | Why, per template |', '|---|---|---|---|');
-    for (const r of notShown) {
+    for (const r of work) {
       const why = [...new Set(r.templates.map(t => (!t.acted ? `failed: ${t.failedBy}` : 'changed nothing')))].slice(0, 3).join('; ');
       out.push(`| \`${r.key}\` | ${r.weight} | ${r.scan?.reads.length ? r.scan.reads.join(', ') : '—'} | ${esc(why)} |`);
     }
+    out.push('');
+  }
+  const reasoned = notShown.filter(r => r.open.why);
+  if (reasoned.length) {
+    out.push('Not work — NOT SHOWN with a written reason:', '');
+    out.push('| Effect | Weight | Reason |', '|---|---|---|');
+    for (const r of reasoned) out.push(`| \`${r.key}\` | ${r.weight} | ${esc(r.open.why)} |`);
     out.push('');
   }
   out.push('### 2.6 Scan reads with no change', '');
@@ -1809,7 +1983,7 @@ function renderOpen(records, pool) {
       out.push('### 3.2 No channel and not shown', '');
       out.push('| Move | Cat | Users | Outcome | Templates |', '|---|---|---|---|---|');
       for (const r of rest.filter(x => x.open.outcome !== 'CHANNEL')) {
-        out.push(`| ${r.name} | ${r.meta.category} | ${r.meta.users} | ${r.open.outcome} | ${esc(r.templates.map(t => `${ROLE_LETTER[t.role]} ${t.name}: ${!t.acted ? `failed (${t.failedBy})` : t.visible ? 'acted' : 'changed nothing'}`).join('; '))} |`);
+        out.push(`| ${r.name} | ${r.meta.category} | ${r.meta.users} | ${r.open.outcome}${r.open.why ? `: ${esc(r.open.why)}` : ''} | ${esc(r.templates.map(t => `${ROLE_LETTER[t.role]} ${t.name}: ${!t.acted ? `failed (${t.failedBy})` : t.visible ? 'acted' : 'changed nothing'}`).join('; '))} |`);
       }
       out.push('', '### 3.3 Every other move', '');
       for (const r of rest.filter(x => x.open.outcome === 'CHANNEL')) out.push(...openCard(r));
@@ -1827,7 +2001,7 @@ function renderOpen(records, pool) {
       const num = title.split('.')[0];
       out.push(`### ${num}.1 No channel and not shown`, '');
       out.push(`| ${kind === 'item' ? 'Item' : 'Ability'} | Holders | Outcome | Scan reads |`, '|---|---|---|---|');
-      for (const r of list.filter(x => x.open.outcome !== 'CHANNEL')) out.push(`| ${r.name} | ${r.meta.users} | ${r.open.outcome} | ${r.scan?.reads.join(', ') || '—'} |`);
+      for (const r of list.filter(x => x.open.outcome !== 'CHANNEL')) out.push(`| ${r.name} | ${r.meta.users} | ${r.open.outcome}${r.open.why ? `: ${esc(r.open.why)}` : ''} | ${r.scan?.reads.join(', ') || '—'} |`);
       out.push('', `### ${num}.2 Cards`, '');
       for (const r of list.filter(x => x.open.outcome === 'CHANNEL')) out.push(...openCard(r));
     }
@@ -2031,7 +2205,7 @@ async function runAll(effects, { threads, inputs, coverage, sheets, verbose }) {
 /**
  * The battle behind one row, for working the list: the template, the known
  * side's view of one world, and what the rebuild made of it.
- * `--dump <effect> <role/template> <stat> <0|32> [--control] [--hazard]`; a stat
+ * `--dump <effect> <role/template> <stat> <value> [--control] [--hazard]`; a stat
  * of `-` is the base spread, and `--hazard` rebuilds it the way a closed-sheet
  * replay is rebuilt, from the sets `setsFromLog` reads.
  */
@@ -2047,12 +2221,12 @@ async function dumpWorld(pool, [key, templateKey, stat, value], { control, entri
   const evs = STATS.includes(stat) ? world(stat, Number(value)) : BASE;
   const show = set => `${set.name} (${set.species}) @ ${set.item || 'no item'}, ${set.ability}, ${set.nature}, ${STATS.map(s => `${set.evs[s]} ${STAT_NAME[s]}`).join(' / ')}: ${set.moves.join(', ')}`;
   console.log(`${key} ${templateKey}${control ? ' (control)' : ''}, hidden Pokemon on ${STATS.map(s => evs[s]).join('/')}`);
-  for (const [i, team] of [template.p1, template.p2].entries()) for (const set of team) console.log(`  p${i + 1} ${show(i === 1 && set === team[0] ? { ...set, evs } : set)}`);
+  for (const [i, team] of [template.p1, template.p2].entries()) for (const set of team) console.log(`  p${i + 1} ${show(i === 1 && set === team[template.probeIndex || 0] ? { ...set, evs } : set)}`);
   for (const [i, t] of template.turns.entries()) console.log(`  T${i + 1}: p1 ${t.p1} | p2 ${t.p2}`);
   console.log(`  dice: ${template.dice.join('; ')}`);
   const run = await runBattle(template, evs);
   if (run.error) console.log(`battle error: ${run.error}`);
-  for (const r of run.refused) console.log(`  refused T${r.turn} ${r.side} "${r.choice}": ${r.error} -> ${r.fallback}`);
+  for (const r of run.refused) console.log(`  ${r.cause ? 'overridden' : 'refused'} T${r.turn} ${r.side} "${r.choice}": ${r.error}${r.cause ? ` (${r.cause})` : ''} -> ${r.fallback}`);
   console.log('--- channel 1');
   for (const line of battleLines(run.ch1)) console.log(line);
   const r = hazard ? await (async () => {
