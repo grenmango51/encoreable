@@ -397,6 +397,42 @@ const entries = {
       why: "The hidden Pokemon's Helping Hand makes its ally's hit half again as strong, and the known Pokemon's exact HP shows the ally's Attack.",
     }],
   },
+  'ability:unseenfist': {
+    templates: [{
+      name: 'through-protect',
+      role: 'holder-hidden',
+      stat: 'atk',
+      p1: [withMoves('known', ['Protect', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [{ ...member('Golurk', 'F', 'No Guard', 'Golurkite', {}), moves: ['Drain Punch', 'Splash'] }, 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move protect, move splash', p2: 'move drainpunch 1 mega, move splash' }, QUIET],
+      control: { turns: [{ p1: 'move protect, move splash', p2: 'move splash mega, move splash' }, QUIET] },
+      why: "Mega Evolved, the hidden Golurk's contact move ignores the known Pokemon's Protect and hits it in full, so its exact HP shows Golurk's Attack.",
+    }],
+  },
+  'ability:piercingdrill': {
+    templates: [{
+      name: 'through-protect',
+      role: 'holder-hidden',
+      stat: 'atk',
+      p1: [withMoves('known', ['Protect', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [{ ...member('Excadrill', 'F', 'Sand Rush', 'Excadrite', {}), moves: ['Iron Head', 'Splash'] }, 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move protect, move splash', p2: 'move ironhead 1 mega, move splash' }, QUIET],
+      control: { turns: [{ p1: 'move protect, move splash', p2: 'move splash mega, move splash' }, QUIET] },
+      why: "Mega Evolved, the hidden Excadrill's contact move hits through the known Pokemon's Protect for a quarter of its damage, so its exact HP shows Excadrill's Attack.",
+    }],
+  },
+  'ability:megasol': {
+    templates: [{
+      name: 'weather-ball-in-its-own-sun',
+      role: 'holder-hidden',
+      stat: 'spa',
+      p1: ['known', 'knownAlly', 'knownBench'],
+      p2: [{ ...member('Meganium', 'F', 'Overgrow', 'Meganiumite', {}), moves: ['Weather Ball', 'Splash'] }, 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move splash, move splash', p2: 'move weatherball 1 mega, move splash' }, QUIET],
+      control: { turns: [{ p1: 'move splash, move splash', p2: 'move splash mega, move splash' }, QUIET] },
+      why: "With no sun on the field, Mega Meganium's Weather Ball is a 100-power Fire move boosted as in sun, and the known Pokemon's exact HP shows its Special Attack.",
+    }],
+  },
   'move:counter': {
     templates: [{
       name: 'known-user-hit-first',
@@ -529,6 +565,7 @@ const reasons = {
   'ability:purepower': 'O:Spe cell: the known holder doubles its own Attack; the hidden Pokemon\'s Splash line appears or not with its survival (HP and Def, USED), and the move reads no Speed.',
   'ability:scrappy': 'onModifyMove lets Normal and Fighting hit Ghosts and blocks Intimidate: a type immunity gate; the damage it lets through is an ordinary M2 line.',
   'ability:screencleaner': 'onStart removes Reflect, Light Screen and Aurora Veil and prints |-activate|, reading no stat; voluntary switch-ins go p1 then p2 whatever the Speed, so no order carries Speed either.',
+  'ability:shadowtag': 'onFoeTrapPokemon and onFoeMaybeTrapPokemon only trap an adjacent foe (tryTrap, maybeTrapped): a switch gate; nothing it does reads a stat.',
   'ability:shedskin': 'onResidual cures a status by a 33% chance; its hp read only asks whether the holder is alive.',
   'ability:shellarmor': 'onCriticalHit:false is a crit gate; the hit that follows is an ordinary M1 line.',
   'ability:skilllink': 'onModifyMove sets a multi-hit move to its most hits: a hit count; each hit is an ordinary M2 line.',
