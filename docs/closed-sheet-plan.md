@@ -261,7 +261,7 @@ The Bo1 replay already there (Reg M-B), and from the user, as they find time:
   and Stat Points — filed in `showdown/full-sheets/` (`recordings/README.md`: both complete sheets
   win over what the replay shows). These are the only real closed replays with a truth to check.
 
-Downloaded from the battle room, as for open sheets. A closed replay without a shared sheet has no
+As links or battle-room downloads, as for open sheets. A closed replay without a shared sheet has no
 truth for the opponent, so it passes when it is a MATCH, nothing is emptied, and `--certify` proves
 at least one witness per surviving item and ability; a shared one must also keep the true set and
 spread.

@@ -267,11 +267,78 @@ Quiet Nature
 - Sludge Wave
 `.trim();
 
+// cundangcap, Reg M-C — Charizardite Y sun with Venusaur, Scarf Garchomp,
+// Incineroar, Toxapex and Sylveon. The games in recordings/showdown/mine-open/.
+const MC_SUN_EXPORT = `
+Charizard @ Charizardite Y
+Ability: Blaze
+Level: 50
+EVs: 12 HP / 14 Def / 8 SpA / 32 Spe
+Timid Nature
+- Protect
+- Heat Wave
+- Weather Ball
+- Ancient Power
+
+Garchomp @ Choice Scarf
+Ability: Rough Skin
+Level: 50
+EVs: 30 Atk / 4 Def / 32 Spe
+Adamant Nature
+- Dragon Claw
+- Earthquake
+- Rock Slide
+- Stomping Tantrum
+
+Incineroar @ Sitrus Berry
+Ability: Intimidate
+Level: 50
+EVs: 32 HP / 26 Def / 6 SpD / 2 Spe
+Impish Nature
+- Flare Blitz
+- Fake Out
+- Throat Chop
+- Parting Shot
+
+Venusaur @ Life Orb
+Ability: Chlorophyll
+Level: 50
+EVs: 2 HP / 32 SpA / 32 Spe
+Modest Nature
+- Protect
+- Leaf Storm
+- Sludge Bomb
+- Earth Power
+
+Toxapex @ Leftovers
+Ability: Regenerator
+Level: 50
+EVs: 32 HP / 18 Def / 16 SpD
+Relaxed Nature
+- Baneful Bunker
+- Wide Guard
+- Toxic
+- Infestation
+
+Sylveon @ Fairy Feather
+Ability: Pixilate
+Level: 50
+EVs: 19 HP / 30 Def / 14 SpA / 3 Spe
+Modest Nature
+- Detect
+- Yawn
+- Hyper Voice
+- Quick Attack
+`.trim();
+
 // Named matchups. `fixture` is the scripted harness pair; `alt` is a
-// full-length battle between two real teams.
+// full-length battle between two real teams. The rest are your own teams for
+// replays against someone who did not share a sheet: one side only, which
+// `--teams` gives to whichever side its species match.
 const TEAM_SETS = {
   fixture: { p1: P1_EXPORT, p2: P2_EXPORT },
   alt: { p1: P1_ALT_EXPORT, p2: P2_ALT_EXPORT },
+  'mc-sun': { p1: MC_SUN_EXPORT },
 };
 
-module.exports = { P1_EXPORT, P2_EXPORT, P1_ALT_EXPORT, P2_ALT_EXPORT, TEAM_SETS };
+module.exports = { P1_EXPORT, P2_EXPORT, P1_ALT_EXPORT, P2_ALT_EXPORT, MC_SUN_EXPORT, TEAM_SETS };

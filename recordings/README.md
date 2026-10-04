@@ -11,7 +11,8 @@ Answer these in order and stop at the first yes.
 
 1. **Is it a video?** → `video/`, then `tournament/` for a broadcast or `champions/` for a capture
    from Pokémon Champions itself.
-2. **Is it a replay page saved from play.pokemonshowdown.com (`.html`)?** → `showdown/`:
+2. **Is it a replay page saved from play.pokemonshowdown.com (`.html`), or a replay link's `.json`?**
+   → `showdown/`:
 
    | | Open team sheets (`\|showteam\|` in the replay) | Closed team sheets |
    |---|---|---|
@@ -38,7 +39,7 @@ Answer these in order and stop at the first yes.
 |---|---|---|---|---|
 | `local/` | `.log.json` with the input log | yes | both, exact | `live`, `replay --from`, `reconstruct --rung s1`–`s3`, `reconstruct --all` |
 | `reconstructed/` | `.log.json` with a rebuilt input log | dice chosen, opponent HP sampled | as supplied or inferred | `live`, `replay --from` |
-| `showdown/` | `.html` replay page | no seed, HP as a percentage | depends on the folder | `reconstruct --from` (rung S4) |
+| `showdown/` | `.html` replay page, or a replay link's `.json` | no seed, HP as a percentage | depends on the folder | `reconstruct --from` (rung S4) |
 | `video/` | video file | no | no | nothing yet |
 
 ## How the commands find them

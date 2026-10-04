@@ -1,7 +1,7 @@
 /**
  * Where an observed battle comes from.
  *
- * Two shapes arrive here and both reduce to the same thing: a format id, both
+ * Three shapes arrive here and all reduce to the same thing: a format id, both
  * players' names, both packed teams, and the protocol lines someone watched.
  *
  *   - a `.log.json` written by our own server. Carries the input log, so the
@@ -12,6 +12,9 @@
  *     Champions percentage for the other. Teams come from the `|showteam|`
  *     lines, which carry species, item, ability, four moves, nature, gender and
  *     level - but an EMPTY EVs field, so stat points must be supplied.
+ *   - a replay link's `.json` (the link with `.json` appended), as
+ *     replay.pokemonshowdown.com serves it. The same log as a saved page, from
+ *     the spectator's view: both sides as percentages.
  *
  * Nothing here interprets a battle. It only normalises the source.
  */
@@ -473,8 +476,10 @@ export function loadSource(file) {
     };
   }
 
-  if (file.endsWith('.html')) {
-    const lines = logFromReplayHtml(raw);
+  if (file.endsWith('.html') || file.endsWith('.json')) {
+    const lines = file.endsWith('.html')
+      ? logFromReplayHtml(raw)
+      : String(JSON.parse(raw).log || '').split('\n').map(line => line.replace(/\r$/, ''));
     return {
       kind: 'replay',
       file,
@@ -488,5 +493,5 @@ export function loadSource(file) {
     };
   }
 
-  throw new Error(`unsupported source "${file}" - expected a .log.json or a saved .html replay`);
+  throw new Error(`unsupported source "${file}" - expected a .log.json, a saved .html replay or a replay link's .json`);
 }

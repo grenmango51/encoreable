@@ -176,8 +176,11 @@ The user will supply, as they find time:
 - for each team of theirs, the teambuilder's export text with Stat Points. It goes into
   `scripts/fixtures/teams.js` as a new entry of `TEAM_SETS`, so `--teams <key>` can name it.
 
-Each replay is the one downloaded from the battle room after the game, which shows the uploader's
-own HP exactly, not the page on the public replay server, which shows both sides as percentages.
+A replay arrives as a link, saved as its `.json` (`recordings/showdown/README.md`), or as a page
+downloaded from the battle room. A link is the spectator's view, both sides as percentages; the
+download shows the user's own HP exactly and gives the inference more. Both rebuild: the first set,
+three games against one opponent with the team `mc-sun`, is in `mine-open/` and each game is a
+MATCH under `--infer p1`.
 Across all of them, not in each: Trick Room, Tailwind, rain or sun, Intimidate, Fake Out, a Mega
 Evolution, a Choice Scarf, a Leftovers or Sitrus heal, Protect turns, a game of eight turns or more,
 and a game with many switches. Real games that never meet one of these are still welcome; the list
@@ -346,9 +349,16 @@ for example "Clefable HP: exactly its real value, through Moonlight from 49/100"
 
 ### Phase 7 — Real replays
 
-With the replays and teams from the user (§3.3), run `--infer p2 --certify --outside` on each. Every
-failure is a defect: find the line, add an effect battle that shows it (Phase 2 style), fix it
-(Phase 5 style), and rerun everything.
+With the replays and teams from the user (§3.3), run `--infer <their side> --certify --outside` on
+each. Every failure is a defect: find the line, add an effect battle that shows it (Phase 2 style),
+fix it (Phase 5 style), and rerun everything.
+
+The games of one Bo3 set share the opponent's sheet, so what survives for a Pokemon in one game
+must also survive in the others. Read a set together: `--from` repeatable on `npm run reconstruct`,
+each game inferred as today, then each Pokemon's surviving spreads intersected across the games and
+fed back as the starting knowledge of each, until nothing moves. The first set shows why: game 2
+pins the opponent's Staraptor to Speed 32 and Ceruledge to HP 32, where game 1 alone leaves them at
+22–32 and 30–32, and game 3 narrows Raichu, Gholdengo and Rillaboom, whom game 2 never touched.
 
 **Done when:** every replay the user gave passes §3.3.
 
@@ -373,6 +383,7 @@ Every file this plan writes, and why the table allows it.
 | `scripts/fixtures/catalog.js` | Phases 1–4: hand-set battles | existing fixture |
 | `scripts/lib/inference/*.mjs` | Phase 5: new hooks | existing machinery |
 | `scripts/fixtures/teams.js` | Phase 7: the user's teams, one key each | existing fixture |
+| `scripts/local-reconstruct.mjs` | Phase 7: `--from` repeatable, a Bo3 set read together | existing command |
 | `recordings/local/probes/<battleid>.log.json` | Phase 6 | battle our local server recorded, worth keeping |
 | `recordings/local/probes/README.md` | Phase 6: one row per recording | existing README |
 | `recordings/showdown/mine-open/`, `full-sheets/` | Phase 7: replays the user gives, as downloaded | replay page saved from play.pokemonshowdown.com |

@@ -12,6 +12,11 @@ Do not delete one expecting to download it again: its owner can take a replay do
 `<Format>-<date>-<player 1>-<player 2>.html`. A browser adds ` (1)` to a second download with the
 same name; that is a different game of the same set, not a duplicate.
 
+A replay you have only as a link goes here as its `.json`: the link with `.json` appended, saved as
+the site serves it, under the link's id (`gen9championsvgc2026regmcbo3-2692546803.json`). It holds
+the same log as a downloaded page, from the spectator's view: both sides as percentages, where a
+page downloaded in the battle room shows the uploader's own HP exactly.
+
 ## Which folder
 
 Two things decide it: whether you played in it, and how much of each team you know.

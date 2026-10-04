@@ -13,7 +13,7 @@
  *   s1  a recording's log, both teams, and the real seed   -> choices only
  *   s2  the same, seed withheld                            -> choices + RNG
  *   s3  the same, observed as p1's view (opponent as %)     -> + exact HP
- *   s4  a saved .html replay                               -> everything
+ *   s4  a saved replay: .html, or a replay link's .json      -> everything
  *
  * `--infer p1|p2|both` withholds one more thing: that side's Stat Points. They
  * are inferred from the replay (docs/engineering.md 7.5) instead of read from a
@@ -33,6 +33,7 @@
  *   node scripts/local-reconstruct.mjs --rung s1 --all
  *   node scripts/local-reconstruct.mjs --from "recordings/showdown/full-sheets/<replay>.html" --teams alt
  *   node scripts/local-reconstruct.mjs --from "recordings/showdown/full-sheets/<replay>.html" --infer p2
+ *   node scripts/local-reconstruct.mjs --from "recordings/showdown/mine-open/<replay id>.json" --teams <yours> --infer p1
  *   node scripts/local-reconstruct.mjs --rung s3 --all --infer p2
  *
  * Flags: --from <file> --rung s1|s2|s3 --all --teams <fixture> --infer p1|p2|both
@@ -387,7 +388,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, sampleSeed, maxProb
 
   let outFile = null;
   if (write) {
-    const base = path.basename(file).replace(/\.log\.json$|\.html$/i, '');
+    const base = path.basename(file).replace(/\.log\.json$|\.html$|\.json$/i, '');
     outFile = opt('--out') || path.join(outDir, `reconstructed-${base}.log.json`);
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
     fs.writeFileSync(outFile, `${JSON.stringify({
@@ -443,7 +444,7 @@ async function main() {
   // A saved replay is always S4 whatever `--rung` said - the rung only chooses
   // how much of a recording to withhold, and a replay withholds everything by
   // being what it is. Naming it here keeps the header from claiming otherwise.
-  const heading = files.every(f => f.toLowerCase().endsWith('.html')) ? 's4' : rung;
+  const heading = files.every(f => /\.html$/i.test(f) || (/\.json$/i.test(f) && !/\.log\.json$/i.test(f))) ? 's4' : rung;
   say(`reconstruct: rung ${heading}${infer ? `, Stat Points of ${infer === 'both' ? 'both sides' : infer} inferred` : ''}` +
     `${infer && flag('--all-spent') ? ', every point assumed spent' : ''}, ` +
     `${files.length} source${files.length === 1 ? '' : 's'}, sample seed ${sampleSeed}`);

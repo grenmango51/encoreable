@@ -1248,8 +1248,8 @@ replay control row, which does the same thing as `npm run live` for the turn on 
 Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 `npm run live` takes `--at <turn>`, `--dry-run` and `--verify <log.json>`.
 `npm run reconstruct` takes `--all`, `--rung s1|s2|s3`, `--teams <key>`, `--infer p1|p2|both`,
-`--all-spent`, `--certify`, `--outside`, `--sample <n>`, `--max-probes <n>`, `--threads <n>` and `--dry-run`; a `.html`
-source is always S4, and `--threads` only changes how long the search takes, never what it finds
+`--all-spent`, `--certify`, `--outside`, `--sample <n>`, `--max-probes <n>`, `--threads <n>` and `--dry-run`; a saved
+replay — a `.html` page, or a replay link's `.json` — is always S4, and `--threads` only changes how long the search takes, never what it finds
 (§7.3).
 `npm run replay` takes `--force "<outcome> <subject> [move]"` (repeatable), with `--at <turn>`,
 `--always` and `--seed <seed>`: it replays the recording twice from that turn under one shared

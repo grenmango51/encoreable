@@ -27,6 +27,7 @@ the table does not already place. Ask for that file, by name, on its own, and wa
 | Battle our local server recorded, worth keeping | `recordings/local/<scripted, probes, self-play or branched>/<battleid>.log.json` — tracked, cannot be regenerated; `recordings/README.md` picks the folder |
 | Input log rebuilt from a replay | `recordings/reconstructed/reconstructed-<replay name>.log.json` — written there by `npm run reconstruct` |
 | Replay page saved from play.pokemonshowdown.com | `recordings/showdown/<full-sheets, mine-open, mine-closed, others-open or others-closed>/<name as downloaded>.html` |
+| Replay known only by its link on replay.pokemonshowdown.com | the link's `.json`, as served, in the same folder as a page would go: `recordings/showdown/<folder>/<replay id>.json` |
 | Battle video | `recordings/video/<tournament or champions>/` — gitignored; list it in that folder's `README.md` |
 | Rendered replay page | `replays/` — written by the commands, gitignored, never hand-authored |
 | Local Showdown server file | `runtime/` — generated from `node_modules`, never edited by hand |
