@@ -257,7 +257,7 @@ function standInMove(dex, species) {
   for (const id of [species.id, toID(species.baseSpecies)]) {
     const pool = [...(dex.species.getMovePool(id) || [])].sort();
     const move = pool.map(m => dex.moves.get(m)).find(m => m.exists && !m.isNonstandard && m.category !== 'Status'
-      && m.priority === 0 && m.target === 'normal' && !m.selfSwitch
+      && m.priority === 0 && m.target === 'normal' && !m.selfSwitch && !m.onDisableMove
       && !['sound', 'heal', 'charge', 'recharge', 'gravity'].some(f => m.flags[f]));
     if (move) return move.name;
   }
