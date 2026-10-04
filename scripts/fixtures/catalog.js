@@ -186,7 +186,295 @@ const race = (setter, holder, pacer, why) => ({
   }],
 });
 
+/**
+ * An ability that changes a hit: the hidden holder's hit on the known p1a, or
+ * the known p1a's hit on the hidden holder, after the turns in `before`; the
+ * control is the same battle with the holder on Run Away. `stat` is the one the
+ * hit carries.
+ */
+const abilityHit = ({ name, stat, p1 = ['known', 'knownAlly', 'knownBench'], p2, before = [], hit, after = [], control, why }) => ({
+  templates: [{
+    name,
+    role: 'holder-hidden',
+    stat,
+    p1,
+    p2: p2.length === 3 ? p2 : [...p2, 'hiddenAlly', 'hiddenBench'].slice(0, 3),
+    turns: [...before, hit, ...after, QUIET],
+    control: control || { p2: [{ ability: 'Run Away' }] },
+    why,
+  }],
+});
+const hiddenHits = use => ({ p1: 'move splash, move splash', p2: `move ${use} 1, move splash` });
+const knownHits = use => ({ p1: `move ${use} 1, move splash`, p2: 'move splash, move splash' });
+
 const entries = {
+  'ability:ironfist': abilityHit({
+    name: 'punch', stat: 'atk',
+    p2: [set('Conkeldurr', 'M', 'Iron Fist', 'Smooth Rock', {}, ['Mach Punch', 'Splash'])],
+    hit: hiddenHits('machpunch'),
+    why: "Iron Fist makes the hidden Conkeldurr's Mach Punch 1.2 times as strong, and the known Pokemon's exact HP shows its Attack.",
+  }),
+  'ability:sheerforce': abilityHit({
+    name: 'secondary-dropped', stat: 'atk',
+    p2: [set('Mawile', 'F', 'Sheer Force', 'Smooth Rock', {}, ['Iron Head', 'Splash'])],
+    hit: hiddenHits('ironhead'),
+    why: "Sheer Force drops Iron Head's flinch and makes it 1.3 times as strong; the known Pokemon's exact HP shows the hidden Mawile's Attack.",
+  }),
+  'ability:strongjaw': abilityHit({
+    name: 'bite', stat: 'atk',
+    p2: [set('Tyrantrum', 'M', 'Strong Jaw', 'Smooth Rock', {}, ['Crunch', 'Splash'])],
+    hit: hiddenHits('crunch'),
+    why: "Strong Jaw makes the hidden Tyrantrum's Crunch 1.5 times as strong; the known Pokemon's exact HP shows its Attack.",
+  }),
+  'ability:sharpness': abilityHit({
+    name: 'slice', stat: 'atk',
+    p2: [set('Gallade', 'M', 'Sharpness', 'Smooth Rock', {}, ['Psycho Cut', 'Splash'])],
+    hit: hiddenHits('psychocut'),
+    why: "Sharpness makes the hidden Gallade's Psycho Cut 1.5 times as strong; the known Pokemon's exact HP shows its Attack.",
+  }),
+  'ability:adaptability': abilityHit({
+    name: 'stab', stat: 'atk',
+    p2: [set('Basculegion', 'M', 'Adaptability', 'Smooth Rock', {}, ['Waterfall', 'Splash'])],
+    hit: hiddenHits('waterfall'),
+    why: "Adaptability makes the hidden Basculegion's same-type Waterfall twice, not 1.5 times, as strong; the known Pokemon's exact HP shows its Attack.",
+  }),
+  'ability:reckless': abilityHit({
+    name: 'recoil-move', stat: 'atk',
+    p2: [set('Staraptor', 'M', 'Reckless', 'Smooth Rock', {}, ['Brave Bird', 'Splash'])],
+    hit: hiddenHits('bravebird'),
+    why: "Reckless makes the hidden Staraptor's Brave Bird 1.2 times as strong; the known Pokemon's exact HP shows its Attack, and the recoil its share of that.",
+  }),
+  'ability:megalauncher': abilityHit({
+    name: 'pulse', stat: 'spa',
+    p2: [set('Clawitzer', 'M', 'Mega Launcher', 'Smooth Rock', {}, ['Dragon Pulse', 'Splash'])],
+    hit: hiddenHits('dragonpulse'),
+    why: "Mega Launcher makes the hidden Clawitzer's Dragon Pulse 1.5 times as strong; the known Pokemon's exact HP shows its Special Attack.",
+  }),
+  'ability:stakeout': abilityHit({
+    name: 'fresh-target', stat: 'spa',
+    p2: [set('Thievul', 'M', 'Stakeout', 'Smooth Rock', {}, ['Dark Pulse', 'Splash'])],
+    hit: { p1: 'switch 3, move splash', p2: 'move darkpulse 1, move splash' },
+    why: "The known Mudsdale switches in and is hit the same turn, so Stakeout doubles the hidden Thievul's Special Attack against it; its exact HP shows the hidden Special Attack.",
+  }),
+  'ability:contrary': abilityHit({
+    name: 'leaf-storm-twice', stat: 'spa',
+    p2: [set('Serperior', 'M', 'Contrary', 'Smooth Rock', {}, ['Leaf Storm', 'Splash'])],
+    hit: hiddenHits('leafstorm'),
+    after: [hiddenHits('leafstorm')],
+    why: "Contrary turns Leaf Storm's drop into a +2, so the hidden Serperior's second Leaf Storm hits at twice its Special Attack; both exact lines show it.",
+  }),
+  'ability:sandforce': abilityHit({
+    name: 'in-sand', stat: 'atk',
+    p1: [set('Tyranitar', 'M', 'Sand Stream', 'Heat Rock', { hp: 20, def: 20 }, ['Splash']), 'knownAlly', 'knownBench'],
+    p2: [set('Excadrill', 'M', 'Sand Force', 'Smooth Rock', {}, ['Iron Head', 'Splash'])],
+    hit: hiddenHits('ironhead'),
+    why: "In the known Tyranitar's sand, Sand Force makes the hidden Excadrill's Iron Head 1.3 times as strong; Tyranitar's exact HP shows its Attack.",
+  }),
+  'ability:heavymetal': abilityHit({
+    name: 'heavier-slam', stat: 'atk',
+    p1: ['knownAlt', 'knownAlly', 'knownBench'],
+    p2: [set('Aggron', 'M', 'Heavy Metal', 'Smooth Rock', {}, ['Heavy Slam', 'Splash'])],
+    hit: hiddenHits('heavyslam'),
+    why: "Heavy Metal doubles the hidden Aggron's weight, so its Heavy Slam on the known Slowbro has 120 power instead of 100; Slowbro's exact HP shows Aggron's Attack.",
+  }),
+  'ability:defiant': abilityHit({
+    name: 'intimidated', stat: 'atk',
+    p1: [set('Gyarados', 'M', 'Intimidate', 'Heat Rock', { hp: 20, def: 20 }, ['Splash']), 'knownAlly', 'knownBench'],
+    p2: [set('Kingambit', 'M', 'Defiant', 'Smooth Rock', {}, ['Iron Head', 'Splash'])],
+    hit: hiddenHits('ironhead'),
+    why: "The known Gyarados's Intimidate sets off Defiant, so the hidden Kingambit hits at +1 where its control hits at -1; Gyarados's exact HP shows its Attack.",
+  }),
+  'ability:guarddog': abilityHit({
+    name: 'intimidated', stat: 'atk',
+    p1: [set('Gyarados', 'M', 'Intimidate', 'Heat Rock', { hp: 20, def: 20 }, ['Splash']), 'knownAlly', 'knownBench'],
+    p2: [set('Mabosstiff', 'M', 'Guard Dog', 'Smooth Rock', {}, ['Crunch', 'Splash'])],
+    hit: hiddenHits('crunch'),
+    why: "Guard Dog turns the known Gyarados's Intimidate into +1 Attack for the hidden Mabosstiff; Gyarados's exact HP shows its Attack.",
+  }),
+  'ability:competitive': abilityHit({
+    name: 'intimidated', stat: 'spa',
+    p1: [set('Gyarados', 'M', 'Intimidate', 'Heat Rock', { hp: 20, def: 20 }, ['Splash']), 'knownAlly', 'knownBench'],
+    p2: [set('Milotic', 'F', 'Competitive', 'Smooth Rock', {}, ['Ice Beam', 'Splash'])],
+    hit: hiddenHits('icebeam'),
+    why: "The known Gyarados's Intimidate sets off Competitive, so the hidden Milotic's Ice Beam comes at +2 Special Attack; Gyarados's exact HP shows it.",
+  }),
+  'ability:plus': abilityHit({
+    name: 'with-minus', stat: 'spa',
+    p2: [set('Ampharos', 'M', 'Plus', 'Smooth Rock', {}, ['Thunderbolt', 'Splash']), set('Manectric', 'M', 'Minus', 'Icy Rock', { hp: 32, def: 32 }, ['Splash']), 'hiddenBench'],
+    hit: hiddenHits('thunderbolt'),
+    why: "With a Minus ally, Plus makes the hidden Ampharos's Special Attack 1.5 times as high; the known Pokemon's exact HP shows it.",
+  }),
+  'ability:minus': abilityHit({
+    name: 'with-plus', stat: 'spa',
+    p2: [set('Manectric', 'M', 'Minus', 'Smooth Rock', {}, ['Thunderbolt', 'Splash']), set('Ampharos', 'M', 'Plus', 'Icy Rock', { hp: 32, def: 32 }, ['Splash']), 'hiddenBench'],
+    hit: hiddenHits('thunderbolt'),
+    why: "With a Plus ally, Minus makes the hidden Manectric's Special Attack 1.5 times as high; the known Pokemon's exact HP shows it.",
+  }),
+  'ability:solidrock': abilityHit({
+    name: 'super-effective', stat: 'spd',
+    p1: [withMoves('known', ['Water Pulse', 'Splash']), 'knownAlly', 'knownBench'],
+    p2: [set('Rhyperior', 'M', 'Solid Rock', 'Smooth Rock', {}, ['Splash'])],
+    hit: knownHits('waterpulse'),
+    why: "Solid Rock takes a quarter off the known Snorlax's four-times effective Water Pulse; the hidden Rhyperior's percentage shows its Special Defence and HP.",
+  }),
+  'ability:filter': abilityHit({
+    name: 'super-effective', stat: 'spd',
+    p1: [set('Gengar', 'M', 'Cursed Body', 'Heat Rock', { hp: 20, spa: 20 }, ['Sludge Bomb', 'Splash']), 'knownAlly', 'knownBench'],
+    p2: [set('Mr. Mime', 'M', 'Filter', 'Smooth Rock', {}, ['Splash'])],
+    hit: knownHits('sludgebomb'),
+    why: "Filter takes a quarter off the known Gengar's super-effective Sludge Bomb; the hidden Mr. Mime's percentage shows its Special Defence and HP.",
+  }),
+  'ability:unaware': abilityHit({
+    name: 'ignores-bulk-up', stat: 'def',
+    p1: [set('Machamp', 'M', 'Guts', 'Heat Rock', { hp: 20, atk: 20 }, ['Bulk Up', 'Strength', 'Splash']), 'knownAlly', 'knownBench'],
+    p2: [set('Clefable', 'F', 'Unaware', 'Smooth Rock', {}, ['Splash'])],
+    before: [{ p1: 'move bulkup, move splash', p2: 'move splash, move splash' }],
+    hit: knownHits('strength'),
+    why: "Unaware ignores the known Machamp's +1 Attack when it hits the hidden Clefable; the percentage shows Clefable's Defence and HP.",
+  }),
+  'ability:grasspelt': abilityHit({
+    name: 'on-grass', stat: 'def',
+    p1: [set('Rillaboom', 'M', 'Grassy Surge', 'Heat Rock', { hp: 20, atk: 20 }, ['Strength', 'Splash']), 'knownAlly', 'knownBench'],
+    p2: [set('Gogoat', 'M', 'Grass Pelt', 'Smooth Rock', {}, ['Splash'])],
+    hit: knownHits('strength'),
+    why: "On the known Rillaboom's Grassy Terrain, Grass Pelt makes the hidden Gogoat's Defence 1.5 times as high; its percentage shows Defence and HP.",
+  }),
+  'ability:marvelscale': abilityHit({
+    name: 'paralysed', stat: 'def',
+    p1: [withMoves('known', ['Thunder Wave', 'Strength', 'Splash']), 'knownAlly', 'knownBench'],
+    p2: [set('Milotic', 'F', 'Marvel Scale', 'Smooth Rock', {}, ['Splash'])],
+    before: [{ p1: 'move thunderwave 1, move splash', p2: 'move splash, move splash' }],
+    hit: knownHits('strength'),
+    why: "Paralysed, the hidden Milotic's Marvel Scale makes its Defence 1.5 times as high; its percentage after the known Snorlax's Strength shows Defence and HP.",
+  }),
+  'ability:friendguard': abilityHit({
+    name: 'guards-the-ally', stat: 'def',
+    p1: [withMoves('known', ['Strength', 'Splash']), 'knownAlly', 'knownBench'],
+    p2: ['hidden', set('Vivillon', 'M', 'Friend Guard', 'Icy Rock', { hp: 32, def: 32 }, ['Splash']), 'hiddenBench'],
+    hit: knownHits('strength'),
+    control: { p2: [{}, { ability: 'Run Away' }] },
+    why: "The hidden Vivillon's Friend Guard takes a quarter off the known Snorlax's Strength on its ally Blastoise, whose percentage shows its Defence and HP.",
+  }),
+  'ability:galewings': {
+    templates: [{
+      name: 'priority-race',
+      role: 'holder-hidden',
+      stat: 'spe',
+      p1: [set('Weavile', 'M', 'Pressure', 'Heat Rock', { spe: 7 }, ['Ice Shard', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [set('Talonflame', 'M', 'Gale Wings', 'Smooth Rock', {}, ['Tailwind', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move iceshard 1, move splash', p2: 'move tailwind, move splash' }, QUIET],
+      control: { p2: [{ ability: 'Run Away' }] },
+      why: "At full HP Gale Wings gives the hidden Talonflame's Tailwind +1, the priority of the known Weavile's Ice Shard, so the two race: Talonflame's 146 to 178 against Weavile's 152.",
+    }],
+  },
+  'ability:prankster': {
+    templates: [{
+      name: 'priority-race',
+      role: 'holder-hidden',
+      stat: 'spe',
+      p1: [set('Weavile', 'M', 'Pressure', 'Heat Rock', { spe: 7 }, ['Ice Shard', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [set('Whimsicott', 'M', 'Prankster', 'Smooth Rock', {}, ['Tailwind', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move iceshard 1, move splash', p2: 'move tailwind, move splash' }, QUIET],
+      control: { p2: [{ ability: 'Run Away' }] },
+      why: "Prankster gives the hidden Whimsicott's Tailwind +1, the priority of the known Weavile's Ice Shard, so the two race: Whimsicott's 136 to 168 against Weavile's 152.",
+    }],
+  },
+  'ability:rattled': {
+    templates: [{
+      name: 'race-after-a-bite',
+      role: 'holder-hidden',
+      stat: 'spe',
+      p1: [withMoves('known', ['Crunch', 'Splash']), set('Regieleki', '', 'Transistor', 'Heat Rock', { spe: 6 }, ['Splash']), 'knownBench'],
+      p2: [set('Persian-Alola', 'M', 'Rattled', 'Smooth Rock', {}, ['Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move crunch 1, move splash', p2: 'move splash, move splash' }, QUIET, QUIET],
+      control: { p2: [{ ability: 'Run Away' }] },
+      why: "Hit by a Dark move, Rattled raises the hidden Persian's Speed a stage, 135 to 167 becoming 202 to 250, around the known Regieleki's 226.",
+    }],
+  },
+  'ability:steadfast': {
+    templates: [{
+      name: 'race-after-a-flinch',
+      role: 'holder-hidden',
+      stat: 'spe',
+      p1: [set('Dragapult', 'M', 'Clear Body', 'Heat Rock', { spe: 27 }, ['Splash']), set('Incineroar', 'M', 'Blaze', 'Damp Rock', { hp: 32 }, ['Fake Out', 'Splash']), 'knownBench'],
+      p2: [set('Lucario', 'M', 'Steadfast', 'Smooth Rock', {}, ['Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move splash, move fakeout 1', p2: 'move splash, move splash' }, QUIET, QUIET],
+      control: { p2: [{ ability: 'Run Away' }] },
+      why: "Flinched by the known Incineroar's Fake Out, Steadfast raises the hidden Lucario's Speed a stage, 110 to 142 becoming 165 to 213, around the known Dragapult's 189.",
+    }],
+  },
+  'ability:unburden': {
+    templates: [{
+      name: 'race-after-knock-off',
+      role: 'holder-hidden',
+      stat: 'spe',
+      p1: [withMoves('known', ['Knock Off', 'Splash']), set('Regieleki', '', 'Transistor', 'Heat Rock', { spe: 12 }, ['Splash']), 'knownBench'],
+      p2: [set('Slurpuff', 'M', 'Unburden', 'Smooth Rock', {}, ['Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move knockoff 1, move splash', p2: 'move splash, move splash' }, QUIET, QUIET],
+      control: { p2: [{ ability: 'Run Away' }] },
+      why: "Its item knocked off, Unburden doubles the hidden Slurpuff's Speed, 92 to 124 becoming 184 to 248, around the known Regieleki's 232.",
+    }],
+  },
+  'ability:surgesurfer': {
+    templates: [{
+      name: 'race-on-electric-terrain',
+      role: 'holder-hidden',
+      stat: 'spe',
+      p1: [withMoves('known', ['Electric Terrain', 'Splash']), { ...set('Regieleki', '', 'Transistor', 'Heat Rock', { spe: 24 }, ['Splash']), nature: 'Timid' }, 'knownBench'],
+      p2: [set('Raichu-Alola', 'M', 'Surge Surfer', 'Smooth Rock', {}, ['Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move electricterrain, move splash', p2: 'move splash, move splash' }, QUIET, QUIET],
+      control: { p2: [{ ability: 'Run Away' }] },
+      why: "On the known Snorlax's Electric Terrain, Surge Surfer doubles the hidden Raichu's Speed, 130 to 162 becoming 260 to 324, around the known Regieleki's 268.",
+    }],
+  },
+  'item:whiteherb': {
+    templates: [{
+      name: 'restored-after-overheat',
+      role: 'holder-hidden',
+      stat: 'spa',
+      p1: ['known', 'knownAlly', 'knownBench'],
+      p2: [set('Charizard', 'M', 'Blaze', 'White Herb', {}, ['Overheat', 'Flamethrower', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [hiddenHits('overheat'), hiddenHits('flamethrower'), QUIET],
+      control: { p2: [{ item: '' }] },
+      why: "White Herb restores the hidden Charizard's Special Attack after Overheat, so its Flamethrower hits at full where its control's hits at -2; the known Pokemon's exact HP shows it.",
+    }],
+  },
+  'move:snore': {
+    templates: [{
+      name: 'snores-asleep',
+      role: 'user-hidden',
+      stat: 'spa',
+      p1: [withMoves('known', ['Hypnosis', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [withMoves('hidden', ['Snore', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move hypnosis 1, move splash', p2: 'move splash, move splash' }, hiddenHits('snore'), QUIET],
+      control: { turns: [{ p1: 'move hypnosis 1, move splash', p2: 'move splash, move splash' }, QUIET, QUIET] },
+      why: 'Put to sleep, the hidden Pokemon can still Snore, a special hit the known Pokemon\'s exact HP reads.',
+    }],
+  },
+  'move:belch': {
+    templates: [{
+      name: 'after-a-berry',
+      role: 'user-hidden',
+      stat: 'spa',
+      p1: ['known', 'knownAlly', 'knownBench'],
+      p2: [set('Swalot', 'M', 'Gluttony', 'Sitrus Berry', {}, ['Stuff Cheeks', 'Belch', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move splash, move splash', p2: 'move stuffcheeks, move splash' }, hiddenHits('belch'), QUIET],
+      control: { turns: [{ p1: 'move splash, move splash', p2: 'move stuffcheeks, move splash' }, QUIET, QUIET] },
+      why: 'Once the hidden Swalot has eaten its Berry with Stuff Cheeks it can Belch, a special hit the known Pokemon\'s exact HP reads.',
+    }],
+  },
+  'move:spitup': {
+    templates: [{
+      name: 'after-stockpile',
+      role: 'user-hidden',
+      stat: 'spa',
+      p1: ['known', 'knownAlly', 'knownBench'],
+      p2: [set('Swalot', 'M', 'Gluttony', 'Smooth Rock', {}, ['Stockpile', 'Spit Up', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move splash, move splash', p2: 'move stockpile, move splash' }, hiddenHits('spitup'), QUIET],
+      control: { turns: [{ p1: 'move splash, move splash', p2: 'move stockpile, move splash' }, QUIET, QUIET] },
+      why: 'After one Stockpile the hidden Swalot\'s Spit Up is a 100-power special hit, which the known Pokemon\'s exact HP reads.',
+    }],
+  },
   'ability:swiftswim': race(
     set('Pelipper', 'M', 'Drizzle', 'Heat Rock', {}, ['Splash']),
     set('Basculegion', 'M', 'Swift Swim', 'Smooth Rock', {}, ['Splash']),
