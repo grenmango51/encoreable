@@ -31,5 +31,8 @@ Run it with `npm run reconstruct -- --from <file> --teams <set> --infer <their s
 | `Gen9ChampionsVGC2026RegMCBo3-2026-10-04-cundangcap-noob13032 (1).html` | the same set, game 2 | p1 | `mc-sand` | Won in 9 turns: noob13032 forfeited at the start of turn 9. Your view. `--infer p2`: every played turn reproduces; the forfeit does not (`docs/open-sheet-plan.md` Phase 7) |
 | `Gen9ChampionsVGC2026RegMCBo3-2026-10-04-cundangcap-noob13032 (2).html` | the same set, game 3 | p1 | `mc-sand` | Lost in 6 turns, the set 1–2. Your view. `--infer p2`: MATCH in 22 s |
 
+| `Gen9ChampionsVGC2026RegMCBo3-2026-10-04-cundangcap-krapfenallacream (1).html` | Reg M-C Bo3 against krapfenallacream, **game 1** | p1 | `mc-perish` | Lost in 10 turns. Your view. `--infer p2`: PARTIAL, through turn 0 — their Garchomp Mega Evolves (to Garchomp-Mega-Z) before your Gengar on turn 1; the rebuild has it the other way (`docs/open-sheet-plan.md` Phase 7) |
+| `Gen9ChampionsVGC2026RegMCBo3-2026-10-04-cundangcap-krapfenallacream.html` | the same set, **game 2** | p1 | `mc-perish` | Lost in 14 turns, the set 0–2. Your view. `--infer p2`: PARTIAL, through turn 0 — the same two Mega Evolutions in the same order |
+
 A browser numbers downloads in the order they were saved, not the order they were played: the
 Game column is the game number the replay itself prints (`|uhtml|bestof|`).

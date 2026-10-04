@@ -368,8 +368,8 @@ fed back as the starting knowledge of each, until nothing moves. The first set s
 pins the opponent's Staraptor to Speed 32 and Ceruledge to HP 32, where game 1 alone leaves them at
 22–32 and 30–32, and game 3 narrows Raichu, Gholdengo and Rillaboom, whom game 2 never touched.
 
-**Found so far.** Of the user's first 13 games (`mine-open/README.md`), 8 rebuild line for line
-under `--infer`. The other five, each a test case:
+**Found so far.** Of the user's first 15 games (`mine-open/README.md`), 8 rebuild line for line
+under `--infer`. The other seven, each a test case:
 
 | Game | Where it stops | Why |
 |---|---|---|
@@ -377,6 +377,7 @@ under `--infer`. The other five, each a test case:
 | Grizzlemunch, game 2 | before turn 1's end | the sandstorm hits the two hidden Pokemon in Speed order, Milotic before Rillaboom: the order between two hidden Pokemon is not read (Phase 5) |
 | Vicarina22, game 1 | "inference perturbed the battle" at Rotom's Chesto Berry | `itemFires` (`evidence.mjs`) runs a held item's `onUpdate` dry to find a Berry's edge, and restores the item, HP and boosts but not the status: checked while Rotom slept after Rest, the Chesto Berry cured it for real, and the battle never printed the eat. Restore the status, and whatever else eating writes, like the item |
 | noob13032, game 1 | at the start of turn 8 | the opponent's Gholdengo switches out before your Tyranitar; the rebuild has it the other way. No Trick Room or Tailwind was up. Cause not found yet |
+| krapfenallacream, games 1 and 2 | at the start of turn 1, both games | the opponent's Garchomp Mega Evolves (to Garchomp-Mega-Z) before your Gengar; the rebuild orders them the other way and no later round corrects it. Mega Evolution is one of the queued actions `speed.mjs` reads, so the order should narrow Garchomp's Speed. Cause not found yet; it fails the same way in two games |
 | noob13032, game 2 | at the start of turn 9 | all 8 turns played reproduce; the replay then forfeits at the start of turn 9 and the rebuild plays the turn instead. The forfeits of Vicarina22 game 2 and VoltCh4mp1on game 1, which also come at the start of a turn, rebuild. A `reconstruct` defect, not the inference's |
 
 **Done when:** every replay the user gave passes §3.3.

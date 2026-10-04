@@ -127,7 +127,7 @@ differ only in a stat no event of the battle read are one class for this battle.
 | Kind | What it is | How it is evaluated | Example |
 |---|---|---|---|
 | **Named** | a line names the item or ability | `setsFromLog`, fixed to read the right box (Phase 1) | `[from] item: Leftovers` |
-| **Would have named** | with the candidate in the battle, the simulator prints a line naming it that the replay does not have, or the replay names something it would have stopped | replay with the candidate; the first divergence is a naming line, and its presence does not depend on the spread (below) | no Leftovers heal at a turn's end while below 100%, so not Leftovers |
+| **Would have named** | with the candidate in the battle, the simulator prints a line naming it that the replay does not have, or the replay names something it would have stopped | replay with the candidate; the first divergence is a naming line, and its presence does not depend on the spread (below) | no Leftovers heal at a turn's end while below 100%, so not Leftovers. In a real game (`mine-closed/…-pokescilabbot-cundangcap.html`) today's assumption gives a lead Sneasler Pressure, the rebuild prints `\|-ability\|…\|Pressure` on switch-in, and the replay does not: Pressure is out |
 | **Illegal choice** | with the candidate, a choice the replay shows is refused | replay with the candidate; the simulator refuses the input log's choice | two different moves without a switch, so no Choice item |
 | **Silent** | the candidate changes a damage, a speed, an HP amount, without naming itself | the evidence pass, with the candidate set during each dry run, per candidate spread | Muscle Band's hit is 1.1 times larger; Choice Scarf's Pokemon outspeeds |
 | **Impossible die** | the replay shows an outcome that has no chance under the candidate | replay with the candidate: the dice search cannot produce the line, since a roll that always succeeds cannot be made to fail (`chanceEntry` in `reconstruct.mjs`) | a 100%-accurate move missed: Bright Powder, Sand Veil in sand, Snow Cloak in snow or Tangled Feet; Skill Link with fewer than five hits; a guaranteed crit absent: Battle Armor, Shell Armor |
@@ -251,6 +251,11 @@ A recording passes when it is a MATCH, the true set of every unknown Pokemon sur
 spread, and every box the README row names is narrowed as far as written there.
 
 ### 4.3 Real replays — `recordings/showdown/mine-closed/`
+
+**In hand:** ten Bo1 Reg M-C games of the user's, played 2026-10-04, in `mine-closed/`; eight have
+their sheet in `teams.js` (`mc-sun`, `mc-rain`, `mc-sand`, `mc-perish`), two wait for theirs. Read
+with today's assumptions, one of the eight rebuilds and seven stop between turn 0 and turn 4; the
+README gives each one's first wrong line. That is Phase 0's baseline on real games.
 
 The Bo1 replay already there (Reg M-B), and from the user, as they find time:
 
