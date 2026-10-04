@@ -468,9 +468,11 @@ function choiceFor(side, plan, state, notes) {
  * Pokemon decided it: a forfeit or the timer leaves `|win|` (or `|tie`) as the
  * last line while the simulator is still waiting for choices. The room's own
  * announcement is filtered by `battleLines`; the recipe says `>forcelose`.
+ * `|player|` is room noise wherever it appears - a Bo3 room re-issues it after
+ * `|win|` while it waits for the next game - so it never ends a battle.
  */
 function forcedEnding(segment, sides) {
-  const lines = battleLines(segment);
+  const lines = battleLines(segment).filter(l => !l.startsWith('|player|'));
   const last = lines[lines.length - 1] || '';
   if (last === '|tie') return '>forcetie';
   const won = /^\|win\|(.*)$/.exec(last);
@@ -1167,6 +1169,9 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
       }
       const before = `${battle.turn}:${battle.log.length}:${battle.sides.map(s => s.requestState).join('')}`;
       for (const side of waiting) {
+        // A side whose choice an earlier round already made is left waiting
+        // once the other side's choice resolves the turn: nothing to write.
+        if (!side.requestState) continue;
         written[side.id] = choiceFor(side, plans[k], state, notes);
         await stream.write(`>${side.id} ${written[side.id]}`);
       }
