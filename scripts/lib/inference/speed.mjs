@@ -104,6 +104,20 @@ export function attachSpeed(battle, {
   const priorityState = p => [p.hp === p.maxhp, p.item, p.ability, p.types.join('/'), Object.keys(p.volatiles).sort().join('/'),
     battle.field.terrain, Object.keys(battle.field.pseudoWeather).sort().join('/')].join('|');
 
+  // The lowest priority a queued move's Pokemon could have been sorted at,
+  // over every move it has and Struggle, which it uses when none is left to
+  // it, asked of the simulator the way the queue asks it of the move it
+  // chose. Run dry, and keyed by sort so it outlives the pass.
+  const lowestPriority = (a) => memo(`low|${sortOrdinal}|${a.pokemon.side.id}${a.pokemon.position}`, () => guarded(() => {
+    let low = Infinity;
+    for (const id of [...a.pokemon.moveSlots.map(slot => slot.id), 'struggle']) {
+      const asked = { ...a, move: battle.dex.getActiveMove(id) };
+      battle.getActionSpeed(asked);
+      low = Math.min(low, asked.priority);
+    }
+    return low;
+  }));
+
   const queue = battle.queue;
   const origSort = queue.sort;
   queue.sort = function () {
@@ -118,6 +132,7 @@ export function attachSpeed(battle, {
           action: a, order: a.order, priority: a.priority || 0, pokemon: a.pokemon || null,
           side: a.pokemon?.side?.id ?? null, slot: a.pokemon ? a.pokemon.position : -1,
           state: a.pokemon ? priorityState(a.pokemon) : null,
+          lowest: a.choice === 'move' && a.pokemon ? lowestPriority(a) : null,
         })),
         speeds: new Map(),
       };
@@ -279,7 +294,44 @@ export function attachSpeed(battle, {
         tainted.add(executed.find(ex => ex.start <= view[i].at && view[i].at < ex.end)?.sort?.turn);
       }
     }
-    const shown = new Map(executed.map(ex => [ex.action, { ex, on: visible(ex) }]));
+    // A move a Pokemon used of its own choice: its move line, with no `[from]`
+    // but a lock, naming that move - not one another effect called, nor one a
+    // flinch or full paralysis kept it from showing.
+    const ownMove = (line, rec, id) => {
+      const parts = String(line).split('|');
+      if (parts[1] !== 'move' || !new RegExp(`^${rec.side}[a-d]: `).test(parts[2] || '') || identName(parts[2]) !== rec.name) return false;
+      const from = tagsOf(String(line)).from;
+      return (!from || from === 'lockedmove') && String(parts[3]).toLowerCase().replace(/[^a-z0-9]/g, '') === id;
+    };
+    // An Encore begun on the Pokemon earlier in the turn, in the lines shown
+    // before raw index `at`: its move line then shows the encored move, not the
+    // one it chose.
+    const encoredBefore = (rec, at) => {
+      for (let i = firstAt(at) - 1; i >= 0; i--) {
+        const parts = view[i].line.split('|');
+        if (parts[1] === 'turn') return false;
+        if (parts[1] === '-start' && /Encore$/.test(parts[3] || '') && identSide(parts[2]) === rec.side && identName(parts[2]) === rec.name) return true;
+      }
+      return false;
+    };
+    // The rebuild sorted the action at the priority the real one had: it is
+    // no move, or the replay shows its Pokemon using the very move the rebuild
+    // queued, of its own choice. A move the rebuild chose in place of one the
+    // replay never shows sorts at a priority of its own.
+    const sorted = (ex) => {
+      if (ex.action?.choice !== 'move') return true;
+      const rec = byPokemon.get(ex.pokemon);
+      const id = ex.action.move?.id;
+      if (!rec || !id || encoredBefore(rec, ex.start)) return false;
+      for (let i = firstAt(ex.start); i < view.length && view[i].at < Math.min(ex.end, upTo); i++) {
+        if (ownMove(view[i].line, rec, id)) return true;
+      }
+      return false;
+    };
+    const shown = new Map(executed.map((ex) => {
+      const seen = visible(ex);
+      return [ex.action, { ex, seen, on: seen && sorted(ex) }];
+    }));
     const order = new Map(executed.map((ex, i) => [ex.action, i]));
     const rules = [];
     for (const [i, ex] of executed.entries()) {
@@ -291,7 +343,11 @@ export function attachSpeed(battle, {
       for (const y of S.list.slice(at + 1)) {
         if (!y.pokemon || y.pokemon === x.pokemon || y.order !== x.order || y.priority !== x.priority) continue;
         const later = order.get(y.action);
-        if (later === undefined || later <= i || !shown.get(y.action)?.on) continue;
+        // The one that went second need not show its move: X went first, so
+        // its real priority was no higher than X's, and no move it has sorts
+        // below that.
+        const second = shown.get(y.action);
+        if (later === undefined || later <= i || !(second?.on || (second?.seen && y.lowest !== null && y.lowest >= x.priority))) continue;
         const X = byPokemon.get(x.pokemon);
         const Y = byPokemon.get(y.pokemon);
         const rule = ruleOf(X, Y, S.speeds, S.turn, `${label(X)} ${verbOf(x.action)} before ${label(Y)}`);
@@ -353,20 +409,40 @@ export function attachSpeed(battle, {
     const cutAt = cut ? view.indexOf(cut) : -1;
     const got = cut ? opens(cut.line, view[cutAt + 1]?.line) : null;
     // The move P really chose this turn: its first own move line from here
-    // to the turn's end. A rebuild that chose another for it sorted another
-    // priority, and then the order says nothing about speed.
+    // to the turn's end, unless an Encore begun on it this turn before then
+    // put another in its place. A rebuild that chose another for it sorted
+    // another priority, and then the order says nothing about speed.
+    const encore = (line, rec) => {
+      const parts = String(line || '').split('|');
+      return parts[1] === '-start' && /Encore$/.test(parts[3] || '') && identSide(parts[2]) === rec.side && identName(parts[2]) === rec.name;
+    };
     const chosen = () => {
+      const P = named(was.ident);
+      if (!P || encoredBefore(P, prefix.cutoffAt)) return null;
       for (const line of [prefix.observedLine, ...(prefix.observedAfter || [])]) {
         const parts = String(line || '').split('|');
-        if (parts[1] === 'turn') return null;
+        if (parts[1] === 'turn' || encore(line, P)) return null;
         if (parts[1] === 'move' && parts[2] === was.ident && !String(line).includes('[from]')) return String(parts[3]).toLowerCase().replace(/[^a-z0-9]/g, '');
       }
       return null;
     };
+    // Q's queued move is the one Q really chose when the replay, later in the
+    // turn, shows Q using that very move of its own choice, with no Encore
+    // begun on it before.
+    const realLater = (rec, id) => {
+      if (!rec || !id || encoredBefore(rec, prefix.cutoffAt)) return false;
+      for (const line of [prefix.observedLine, ...(prefix.observedAfter || [])]) {
+        const parts = String(line || '').split('|');
+        if (parts[1] === 'turn' || encore(line, rec)) return false;
+        if (ownMove(line, rec, id)) return true;
+      }
+      return false;
+    };
     // The queued action the replay's line opens: P's move, P's Mega
     // Evolution, or the switch out of the slot the line names. A move P never
-    // used - it flinched, or was fully paralysed - shows no move to say which
-    // it chose; `between` then says whether its priority is proved anyway.
+    // used - it flinched, or was fully paralysed - or one an Encore replaced
+    // shows no move to say which it chose; `between` then says whether its
+    // priority is proved anyway.
     const opened = (item, between) => {
       if (!ofKind(item.action, was.kind)) return false;
       if (was.kind === 'switch') return item.side === identSide(was.ident) && item.slot === 'abcd'.indexOf(String(was.ident)[2]);
@@ -395,7 +471,13 @@ export function attachSpeed(battle, {
           && (item.priority === x.priority || unseen) && opened(item, between)) : null;
       const P = y && byPokemon.get(y.pokemon);
       const Q = x && byPokemon.get(x.pokemon);
-      const rule = P && Q && P !== Q && !tainted.has(S.turn) ? ruleOf(P, Q, S.speeds, S.turn, `${label(P)} ${verbOf(y.action)} before ${label(Q)}`) : null;
+      // Q's real priority is the one the rebuild sorted it at when the replay
+      // shows it using the move the rebuild queued, or when P's move is seen
+      // and no move Q has sorts below P's priority: P went first, so Q's real
+      // priority was no higher than P's.
+      const real = x && (x.action?.choice !== 'move' || realLater(Q, x.action.move?.id)
+        || (!unseen && y && x.lowest !== null && x.lowest >= y.priority));
+      const rule = P && Q && P !== Q && real && !tainted.has(S.turn) ? ruleOf(P, Q, S.speeds, S.turn, `${label(P)} ${verbOf(y.action)} before ${label(Q)}`) : null;
       if (rule) rules.push(rule);
     }
 
