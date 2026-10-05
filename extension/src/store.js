@@ -53,6 +53,8 @@ export function describe(text) {
     reconstructed: !!data.reconstructed,
     complete: data.complete ?? null,
     verifiedThroughTurn: data.verifiedThroughTurn ?? null,
+    set: data.bestOf?.set || null,
+    game: data.bestOf?.game ?? null,
   };
 }
 
@@ -72,6 +74,12 @@ export async function list() {
 
 export async function get(id) {
   return tx('readonly', s => s.get(id));
+}
+
+/** Every recording of one best-of set (`bestOf.set`), name and text. */
+export async function ofSet(set) {
+  const rows = await tx('readonly', s => s.getAll());
+  return rows.filter(r => set && r.set === set).map(({ name, text }) => ({ name, text }));
 }
 
 export async function remove(id) {

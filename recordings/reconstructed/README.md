@@ -5,7 +5,9 @@ battle in `../local/` (rungs S1–S3), plus team sheets. **Not played here:** th
 transcribed, the dice are chosen rather than rolled, and the opponent's HP is sampled from inside
 the percentage the replay shows (`docs/engineering.md` §7). Each file carries `"reconstructed": true`
 and `reconstructedFrom`, and every command that loads one says so. Where a side's Stat Points were
-inferred, they are one spread the replay allows, not the real ones.
+inferred, they are one spread the replay allows, not the real ones. A game of a best-of set also
+carries `bestOf`, the set it belongs to, so another game of the set can be combined with it
+(`--with`, `docs/engineering.md` §7.5).
 
 A reconstruction reproduces its source line for line. It is a faithful reading of that battle, not
 a record of one this server ran, so it is never ground truth for testing reconstruction itself:

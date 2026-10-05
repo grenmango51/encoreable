@@ -27,6 +27,12 @@
  * `--outside` with it also rebuilds one Stat Point beyond each end, which no
  * rebuild should reproduce: one that does is a spread removed wrongly.
  *
+ * A game of a best-of set is written with the set it belongs to (`bestOf`).
+ * `--with <file>`, once per other game, names a `.log.json` this command wrote
+ * for another game of the same set: both games are one team, so what both
+ * leave is printed after what this one leaves (`combineGames`). The file
+ * written keeps this game's own.
+ *
  * Usage:
  *   node scripts/local-reconstruct.mjs --rung s1
  *   node scripts/local-reconstruct.mjs --rung s3 --from recordings/local/scripted/<x>.log.json
@@ -34,6 +40,7 @@
  *   node scripts/local-reconstruct.mjs --from "recordings/showdown/full-sheets/<replay>.html" --teams alt
  *   node scripts/local-reconstruct.mjs --from "recordings/showdown/full-sheets/<replay>.html" --infer p2
  *   node scripts/local-reconstruct.mjs --from "recordings/showdown/mine-open/<replay id>.json" --teams <yours> --infer p1
+ *   node scripts/local-reconstruct.mjs --from "<game 2>.html" --infer p2 --with "<game 1>.log.json"
  *   node scripts/local-reconstruct.mjs --rung s3 --all --infer p2
  *   node scripts/local-reconstruct.mjs --saved
  *   node scripts/local-reconstruct.mjs --rung s3 --all --infer p2 --sheets closed
@@ -53,7 +60,8 @@
  * inferred again under the next.
  *
  * Flags: --from <file> --rung s1|s2|s3 --all --saved --sheets open|closed --teams <fixture> --infer p1|p2|both
- *        --all-spent --certify --outside --sample <n> --max-probes <n> --threads <n> --out <file> --dry-run --verbose
+ *        --all-spent --certify --outside --with <file> --sample <n> --max-probes <n> --threads <n> --out <file>
+ *        --dry-run --verbose
  */
 
 import fs from 'fs';
@@ -62,10 +70,11 @@ import { createRequire } from 'module';
 
 import { battleLines } from './lib/protocol.mjs';
 import { listLogFiles, newestLogFile, posix as toPosix } from './lib/recordings.mjs';
-import { certifyRanges, inferSpreads, inferenceRecord } from './lib/inference/infer.mjs';
+import { certifyRanges, combineGames, inferSpreads, inferenceRecord } from './lib/inference/infer.mjs';
+import { containsSpread, unpackKnowledge } from './lib/inference/knowledge.mjs';
 import { reconstruct, splitTurns, tagsOf, unpackTeams } from './lib/reconstruct.mjs';
 import {
-  alignSpeciesToSheet, crossCheckLog, crossCheckSheet, loadSource, maxHpFromLog, sameSpecies, setsFromLog, setsFromSheet,
+  alignSpeciesToSheet, bestOfFromLog, crossCheckLog, crossCheckSheet, loadSource, maxHpFromLog, sameSpecies, setsFromLog, setsFromSheet,
   teamsForSides, unreplayableChoices, withLogIdentity,
 } from './lib/replay-source.mjs';
 
@@ -276,7 +285,10 @@ function announcedAbility(diff, reads, observed, formatid) {
 
 // -------------------------------------------------------------- one run
 
-async function runOne({ file, rung: requestedRung, teamsKey, teamSet, sampleSeed, maxProbes, threads, write, outDir, infer, allSpent, showEvents, certify, outside, closed = false }) {
+async function runOne({
+  file, rung: requestedRung, teamsKey, teamSet, sampleSeed, maxProbes, threads, write, outDir, infer, allSpent, showEvents, certify, outside,
+  closed = false, withFiles = [],
+}) {
   let rung = requestedRung;
   const source = loadSource(file);
   const label = path.basename(file);
@@ -286,6 +298,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, teamSet, sampleSeed
   // Stat Points: its sets are read off the log, and the sheet is only the truth.
   const publishedSheets = source.sheets || [null, null];
   source.sheets = publishedSheets.map((sheet, i) => (closed && !supplied(i) ? null : sheet));
+  const bestOf = source.kind === 'replay' ? bestOfFromLog(source.lines, source.replayId) : null;
 
   let packedTeams = source.packedTeams;
   let observed = source.lines;
@@ -525,6 +538,35 @@ async function runOne({ file, rung: requestedRung, teamsKey, teamSet, sampleSeed
     }
   }
 
+  // The other games of its best-of set: one team, so what every game leaves.
+  if (inference && withFiles.length) {
+    const others = withFiles.map(f => ({ recording: toPosix(ROOT, f), ...JSON.parse(fs.readFileSync(f, 'utf8')) }));
+    const game = {
+      recording: label, bestOf, complete: r.complete, p1: source.players[0], p2: source.players[1], format: source.formatid,
+      inference: inferenceRecord(inference, inferred),
+    };
+    const set = combineGames(game, others);
+    for (const o of others) {
+      if (!bestOf || o.bestOf?.set !== bestOf.set) say(`     ${o.recording}: not combined - ${bestOf ? 'it is not a game of this set' : 'this replay names no best-of set'}`);
+    }
+    for (const s of set.skipped) say(`     game ${s.game} (${s.recording}): not combined - ${s.reason}`);
+    if (set.combined.length) {
+      say(`     game ${bestOf.game} of this best-of-${bestOf.of} with ${set.combined.map(g => `game ${g.game} (${g.recording})`).join(' and ')}:`);
+      for (const p of set.inference.pokemon) {
+        if (!p.seen) continue;
+        const side = Number(p.side[1]) - 1;
+        const real = truthSets[side]?.find(s => toID(s.species || s.name).startsWith(toID(p.species))
+          || toID(p.species).startsWith(toID(s.species || s.name)));
+        const kept = real ? containsSpread(unpackKnowledge(p.knowledge), real.evs) : null;
+        if (kept === false) truthKept = false;
+        const ranges = ['hp', 'atk', 'def', 'spa', 'spd', 'spe']
+          .map(s => (p.stats[s] ? `${s} ${p.stats[s].min}-${p.stats[s].max}` : `${s} -`)).join('  ');
+        say(`       ${p.side} ${p.species.padEnd(14)} ${p.spreads.toLocaleString('en')} of ${p.from.toLocaleString('en')} left  ${ranges}` +
+            `${kept === null ? '' : kept ? '  (real spread survives)' : '  REAL SPREAD ELIMINATED'}`);
+      }
+    }
+  }
+
   let outFile = null;
   if (write) {
     const base = path.basename(file).replace(/\.log\.json$|\.html$|\.json$/i, '');
@@ -542,6 +584,7 @@ async function runOne({ file, rung: requestedRung, teamsKey, teamSet, sampleSeed
       turns: r.turns,
       p1: source.players[0],
       p2: source.players[1],
+      bestOf: bestOf || undefined,
       p1team: unpackTeams(packedTeams)[0],
       p2team: unpackTeams(packedTeams)[1],
       inference: inference ? inferenceRecord(inference, inferred, certified) : undefined,
@@ -650,6 +693,8 @@ async function main() {
   if (!['open', 'closed'].includes(sheets)) throw new Error('--sheets takes open or closed');
   const closed = sheets === 'closed';
   if (closed && !infer && !flag('--saved')) throw new Error('--sheets closed reads the inferred side off the log - pass --infer');
+  const withFiles = argv.flatMap((a, i) => (a === '--with' && argv[i + 1] ? [path.resolve(ROOT, argv[i + 1])] : []));
+  if (withFiles.length && !infer) throw new Error('--with combines inferred Stat Points, so it needs --infer');
 
   const saved = flag('--saved') ? savedJobs() : null;
   let files;
@@ -690,6 +735,7 @@ async function main() {
         certify: !!(job?.infer || infer) && flag('--certify'),
         outside: flag('--outside'),
         closed,
+        withFiles,
       }));
     } catch (err) {
       say(`  ${path.basename(file)}: ERROR ${err.message}`);

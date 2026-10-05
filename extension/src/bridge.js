@@ -36,6 +36,13 @@ if (location.hostname === 'play.pokemonshowdown.com') {
       .then(result => toPage({ type: 'saved', replyId, result }))
       .catch(err => toPage({ type: 'saved', replyId, error: err.message }));
   });
+
+  // The other games of a best-of set the store holds, to combine with the one opened.
+  fromPage('set-games', ({ replyId, set }) => {
+    send({ op: 'set', set })
+      .then(result => toPage({ type: 'set-games-found', replyId, result }))
+      .catch(err => toPage({ type: 'set-games-found', replyId, error: err.message }));
+  });
 }
 
 if (location.hostname === 'replay.pokemonshowdown.com') {

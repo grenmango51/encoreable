@@ -374,11 +374,12 @@ each. Every failure is a defect: find the line, add an effect battle that shows 
 fix it (Phase 5 style), and rerun everything.
 
 The games of one Bo3 set share the opponent's sheet, so what survives for a Pokemon in one game
-must also survive in the others. Read a set together: `--from` repeatable on `npm run reconstruct`,
-each game inferred as today, then each Pokemon's surviving spreads intersected across the games and
-fed back as the starting knowledge of each, until nothing moves. The first set shows why: game 2
-pins the opponent's Staraptor to Speed 32 and Ceruledge to HP 32, where game 1 alone leaves them at
-22–32 and 30–32, and game 3 narrows Raichu, Gholdengo and Rillaboom, whom game 2 never touched.
+must also survive in the others. `npm run reconstruct -- --with <file>` reads a set together: each
+game is inferred as today, and each Pokemon's surviving spreads are intersected with what the other
+games' `.log.json` files leave (`engineering.md` §7.5, *A best-of set is one team*). The first set
+shows why: with game 1, game 2 pins the opponent's Staraptor to Speed 32 and Ceruledge to HP 32.
+Not built: feeding what the set leaves back into each game's rebuild as its starting knowledge,
+until nothing moves.
 
 **The user's games.** All 15 open games (`mine-open/README.md`) rebuild line for line under
 `--infer`. Seven of them each test one mechanism no other game reaches:
@@ -396,7 +397,7 @@ pins the opponent's Staraptor to Speed 32 and Ceruledge to HP 32, where game 1 a
 The fallback's gap report on these games is empty: a hook reads every line they show. With the
 order, recoil and dry-run hooks taken out it names those lines, so the games also test the report.
 
-What is left of Phase 7 is reading a Bo3 set together, and `--certify --outside` on each game.
+What is left of Phase 7 is `--certify --outside` on each game.
 
 **Done when:** every replay the user gave passes §3.3.
 

@@ -26,6 +26,7 @@ async function openInPlay(request) {
 const handlers = {
   list: () => store.list(),
   get: ({ id }) => store.get(id),
+  set: ({ set }) => store.ofSet(set),
   put: ({ name, text, source }) => store.put({ name, text, source }),
   remove: ({ id }) => store.remove(id),
   open: ({ recordingId, replay, turn }) => openInPlay({ recordingId, replay, turn: Number(turn) || 1, at: Date.now() }),
