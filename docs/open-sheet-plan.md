@@ -380,22 +380,21 @@ fed back as the starting knowledge of each, until nothing moves. The first set s
 pins the opponent's Staraptor to Speed 32 and Ceruledge to HP 32, where game 1 alone leaves them at
 22–32 and 30–32, and game 3 narrows Raichu, Gholdengo and Rillaboom, whom game 2 never touched.
 
-**Found so far.** All 15 of the user's open games (`mine-open/README.md`) rebuild line for line
-under `--infer`. Seven failed first; each is a test case for what fixed it:
+**The user's games.** All 15 open games (`mine-open/README.md`) rebuild line for line under
+`--infer`. Seven of them each test one mechanism no other game reaches:
 
-| Game | Where it stopped | What fixed it |
-|---|---|---|
-| good pov, game 2 | after turn 1: Mega Kangaskhan's two-hit Double-Edge recoil | recoil read over every hit; the turn-6 Roost on the hidden Corviknight then rebuilds |
-| Grizzlemunch, game 2 | turn 1: sandstorm hits Milotic before Rillaboom, both hidden | orders between two hidden Pokemon, applied to a fixpoint |
-| Vicarina22, game 1 | "inference perturbed the battle" at Rotom's Chesto Berry | every dry run hands back the whole battle, status included |
-| noob13032, game 1 | turn 8: Gholdengo switches out before your Tyranitar | switches read at their own order, on the speed of the Pokemon going out |
-| krapfenallacream, game 1 | turn 1: their Garchomp Mega Evolves before your Gengar | Mega Evolution read at its own order, on the speed before the forme change |
-| krapfenallacream, game 2 | the same, then turn 5: Politoed's Encore forces Incineroar's Fake Out | as game 1, and an Encored Pokemon's move line read as no choice |
-| noob13032, game 2 | the forfeit at the start of turn 9 | `>forcelose` when the room prints `\|player\|` again after the `\|win\|` |
+| Game | What it tests |
+|---|---|
+| good pov, game 2 | recoil off Mega Kangaskhan's two-hit Double-Edge, which narrows the hidden Sneasler's HP; Roost on the hidden Corviknight |
+| Grizzlemunch, game 2 | sandstorm hitting Milotic before Rillaboom: an order between two hidden Pokemon |
+| Vicarina22, game 1 | Rotom eating a Chesto Berry asleep after Rest: a dry run has to hand the whole battle back |
+| noob13032, game 1 | Gholdengo switching out before your Tyranitar: a switch's order, on the speed of the Pokemon going out |
+| krapfenallacream, game 1 | their Garchomp Mega Evolving before your Gengar: Mega Evolution's order, on the speed before the forme change; a `\|cant\|…\|flinch` order |
+| krapfenallacream, game 2 | the same Mega Evolutions, and an Encored Incineroar's Fake Out, which is not its choice |
+| noob13032, game 2 | a forfeit at the start of a turn in a Bo3, where the room prints `\|player\|` again after the `\|win\|` |
 
-Before those hooks, the fallback alone rebuilt four of these games and named the lines they needed:
-the two-hit recoil, the sandstorm order, the Mega Evolution and switch orders, and a `|cant|…|flinch`
-order in krapfenallacream game 1. With the hooks in, it fires on none of the 15.
+The fallback's gap report on these games is empty: a hook reads every line they show. With the
+order, recoil and dry-run hooks taken out it names those lines, so the games also test the report.
 
 What is left of Phase 7 is reading a Bo3 set together, and `--certify --outside` on each game.
 
