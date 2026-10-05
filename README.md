@@ -56,7 +56,8 @@ same thing as `npm run live` for whichever turn is on screen.
 Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 `npm run live` also takes `--at <turn>`, `--dry-run`, `--verify <log.json>`.
 `npm run reconstruct` takes `--all`, `--saved`, `--rung s1|s2|s3`, `--teams <key>`, `--infer p1|p2|both`,
-`--all-spent`, `--certify`, `--outside`, `--sample <n>`, `--max-probes <n>`, `--threads <n>`, `--dry-run`.
+`--sheets closed`, `--all-spent`, `--certify`, `--outside`, `--sample <n>`, `--max-probes <n>`, `--threads <n>`,
+`--dry-run`. `--sheets closed` reads the inferred side as if it published no team sheet.
 `npm run reconstruct -- --saved` is the scoreboard over your own saved games (`recordings/showdown/mine-open/`
 and `mine-closed/`): each is rebuilt with your team from `scripts/fixtures/teams.js` and the other side
 inferred, one line per game.
@@ -71,7 +72,9 @@ named), `--headful` and `--verbose`.
 `--records <file>` (repeatable) renders the reports again from saved runs — the pool run a kind
 at a time, say — without running a battle.
 `--dump <effect> <role/template> <stat> <0|32>` prints the battle behind one row of the reports
-and what the rebuild made of it.
+and what the rebuild made of it. `--fuzz <n> --seed <s>` plays n random legal Reg M-C battles with
+random Stat Points, rebuilds each from p1's view with p2 inferred, and ranks what went wrong, each
+with the command that reruns that one battle.
 
 > Note the bare `--` in `npm run live -- --at 4`. It tells npm the flags are for the
 > script, not for npm. `live.bat --at 4` needs no such thing.

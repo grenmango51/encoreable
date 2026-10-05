@@ -10,6 +10,11 @@ allows and removes every spread it rules out, and prove it with battles built fo
 **Verified against:** `pokemon-showdown` at `a5df827`, `scripts/lib/inference/` and the catalog
 reports as of 2026-10-03, and the by-hand review in `evidence-by-hand.md` (commit `e7f3322`).
 **After this:** `closed-sheet-plan.md`, which builds on the harness this plan finishes.
+**Status (2026-10-05):** Phase 1 is built, short of the full run that regenerates the reports;
+Phase 2 is under way; in Phase 5 the two-hit recoil, the order between two hidden Pokemon and R1's
+rounded heals are read; Phase 7: all 15 of the user's open games rebuild line for line. A line no
+hook reads no longer stops a rebuild: the inference searches the guess for a spread that passes it
+and lists the line as a gap (`engineering.md` §7.5, *When the evidence cannot move the guess*).
 
 ---
 
@@ -44,7 +49,8 @@ From the catalog run of 2026-10-03 (`evidence-catalog.md` §5):
   an unsettled Illusion switch-in); 26 MASKED rows; 129 effects NOT SHOWN; 22 handlers that read a
   stat no battle changed a line with (`evidence-open-sheets.md` §2.6).
 
-**What the catalog cannot see yet**, each of which this plan fixes:
+**What the catalog could not see before Phase 1.** `local-catalog.mjs` now asks all five; the
+committed reports still show them until a full run regenerates them:
 
 1. **1,053 template runs never ran, on 81 Mega Stone cards.** Every Mega Stone witness in which the
    hidden Pokemon uses a move with no target was refused: `Unrecognized choice: mega move splash`. In
@@ -97,7 +103,9 @@ reads nothing unless the rebuild's current guess of max HP divides evenly — wh
 3. **One hook per mechanism, never one per move.** A fix that names a move is the wrong fix.
 4. **After every step:** `npm run reconstruct -- --all --rung s3 --infer p2` keeps every real spread
    (83 today, plus every probe recording added since), and `npm run reconstruct -- --saved` matches
-   no fewer of your saved games than before (9 of 24 today). Before a commit that changes the catalog or
+   no fewer of your saved games than before (17 of 24 today: every open game and two closed ones).
+   `npm run catalog -- --fuzz 100 --seed 1` finds random battles the inference gets wrong before a
+   real game does. Before a commit that changes the catalog or
    the inference, the affected kinds are rerun (`npm run catalog -- --kind <kind> --out <dir>`) and
    nothing new is UNSOUND. A change to `scripts/lib/inference/` also runs `npm run extension --
    --check`: the extension bundles the inference with browser stand-ins, so a new hook can break it.
@@ -222,6 +230,14 @@ All in `scripts/local-catalog.mjs` and `scripts/fixtures/catalog.js`.
 8. **Keep `--check` honest.** Make the reports carry the new fields, then rerun the full catalog and
    commit the reports.
 
+**Status:** steps 1–7 are built: every Mega Stone witness runs, the Mega-only abilities have cards
+that Mega Evolve on turn 1 against the Mega forme, no card prints `refused` (a choice the battle
+overrode prints its cause), and hand-set templates take `stat`, `worlds`, `worlds: 'sweep'`,
+`probe: 'p2b'` and `reason`. Step 8 is left: the full run takes many hours (the 81 Mega effects
+alone about 91 minutes on 3 threads), and until it runs `--check` disagrees with the committed
+reports. The regenerated closed report will gain about 20 HAZARD rows on the new templates, where
+the first-ability assumption meets a damage-changing ability; they are expected.
+
 **Done when:** no card prints `refused` without a written reason; the Mega-only abilities have cards;
 a hand-set Super Fang battle with `worlds: 'sweep'` on HP shows the `50/100g`/`50/100y` boundary; a
 hand-set Helping Hand battle with `probe: 'p2b'` shows the ally's Attack; `npm run catalog -- --check`
@@ -233,6 +249,9 @@ Write the hand-set battles of Appendix A §A.1 whose Catalog column says NOT SHO
 and give each effect of §A.2 its `reason`. Most battles change nothing in the inference: the effect
 runs inside `getDamage`, an HP change or a speed sort, and the battle only proves that. Every one
 that is not USED becomes Phase 5 work.
+
+**Status:** about 70 effects act in hand-set battles and 36 carry their reason; the full run says
+how many are left.
 
 **Done when:** no effect in `evidence-open-sheets.md` §2.5 is NOT SHOWN without a written reason,
 and every battle added is USED or has its reason.
@@ -269,29 +288,21 @@ battle in Appendix A §A.1, where its Hook column names it. Known already:
   knocked it out. When the attacker is shown exactly, its line names the hidden holder's HP before
   the hit. Read it the way the Counter family is read (`engineering.md` §7.5, *Damage handed
   back*): the amount is carried, and the holder is narrowed to the HPs that print the attacker's line.
-- **Recoil off a move that hit twice.** Recoil is read only off a move that hit once, but Parental
-  Bond (Mega Kangaskhan) makes every recoil move hit twice, and the recoil is a share of both hits
-  together. Found by a real replay: in `mine-open/gen9championsvgc2026regmcbo3-2692553871.json`
+- **Recoil off a move that hit twice — read.** Parental Bond (Mega Kangaskhan) makes every recoil
+  move hit twice, and the recoil is a share of both hits together; it is read off the simulator's
+  total over every hit (`engineering.md` §7.5). Found by a real replay: in `mine-open/gen9championsvgc2026regmcbo3-2692553871.json`
   turn 2, Mega Kangaskhan's Double-Edge knocks out a full-HP Sneasler in two hits, so the recoil
   (`68/100 [from] Recoil` on a known 194 max HP) is a third of Sneasler's whole max HP and names its
-  HP Stat Points. Unread, the rebuild cannot get past turn 1. Read it the way Shell Bell over a
-  double hit is read: each hit keeps the amounts some amount of the other completes to the total
-  the recoil line allows.
-- **The order between the two hidden Pokemon.** Today it says nothing, because each is narrowed
-  alone. A sound use is interval propagation: if A acted before B in the same bracket, no Speed of A
-  below B's lowest surviving Speed survives, and no Speed of B above A's highest survives. Repeat
-  until nothing moves. This also takes the Effect Spore row off the UNUSED list.
-- **R1 — Rounded shares of max HP.** `effectChange` scales an HP change only when its amount equals
-  `baseMaxhp × f`, and keeps both roundings when that is whole. An effect that rounds before it heals
-  or hurts — the `heal: [n, d]` moves Recover, Roost, Slack Off, Milk Drink and Life Dew
-  (`Math.round`, `battle-actions.ts`), Heal Pulse and Shed Tail (`ceil`), Swallow, Moonlight, Morning
-  Sun and Synthesis (`this.modify`; in sun two thirds, not a listed fraction) — matches only when
-  `max × f` is whole at the scaffold's max HP, so for the rest the line reads nothing. Verified:
-  Slack Off at HP Stat Points 4 against 5 cut nothing in the even world, and Shed Tail at 0 against
-  1 cut nothing in the odd world. The fix is the one
-  `runChange` already uses for `applyRecoilDamage`: re-run the effect's own amount per candidate
-  max HP instead of matching a fraction. The same change tightens a share that divides the real max
-  HP evenly (Aftermath at max HP 184, Spikes at 160), where both roundings are kept today.
+  HP Stat Points.
+- **The order between the two hidden Pokemon — read.** Every order is applied, then applied again
+  until no bound moves, so two hidden Pokemon ordered against each other narrow each other. The
+  catalog's Effect Spore row should leave the UNUSED list on the next full run.
+- **R1 — Rounded shares of max HP.** A move's own heal or cost — the `heal: [n, d]` moves Recover,
+  Roost, Slack Off, Milk Drink and Life Dew (`Math.round`), Heal Pulse and Shed Tail (`ceil`),
+  the Moonlight family (`this.modify`), Belly Drum — is re-run per candidate max HP, the
+  way `runChange` re-runs `applyRecoilDamage` (`engineering.md` §7.5). Left: a share that is not a
+  move's own still keeps both roundings where the real max HP divides evenly (Aftermath at max HP
+  184, Spikes at 160); re-run those the same way.
 - **Shed Tail's Substitute.** The Substitute it hands the replacement holds half the *shedder's* max
   HP, rounded down; `subChange` only reads a fresh Substitute of a quarter of its own owner's. At
   HP Stat Points 25 against 27 the replacement's first hit prints `-end` in one world and
@@ -369,17 +380,24 @@ fed back as the starting knowledge of each, until nothing moves. The first set s
 pins the opponent's Staraptor to Speed 32 and Ceruledge to HP 32, where game 1 alone leaves them at
 22–32 and 30–32, and game 3 narrows Raichu, Gholdengo and Rillaboom, whom game 2 never touched.
 
-**Found so far.** Of the user's first 15 games (`mine-open/README.md`), 8 rebuild line for line
-under `--infer`. The other seven, each a test case:
+**Found so far.** All 15 of the user's open games (`mine-open/README.md`) rebuild line for line
+under `--infer`. Seven failed first; each is a test case for what fixed it:
 
-| Game | Where it stops | Why |
+| Game | Where it stopped | What fixed it |
 |---|---|---|
-| good pov, game 2 | after turn 1 | Mega Kangaskhan's two-hit recoil is not read (Phase 5) |
-| Grizzlemunch, game 2 | before turn 1's end | the sandstorm hits the two hidden Pokemon in Speed order, Milotic before Rillaboom: the order between two hidden Pokemon is not read (Phase 5) |
-| Vicarina22, game 1 | "inference perturbed the battle" at Rotom's Chesto Berry | `itemFires` (`evidence.mjs`) runs a held item's `onUpdate` dry to find a Berry's edge, and restores the item, HP and boosts but not the status: checked while Rotom slept after Rest, the Chesto Berry cured it for real, and the battle never printed the eat. Restore the status, and whatever else eating writes, like the item |
-| noob13032, game 1 | at the start of turn 8 | the opponent's Gholdengo switches out before your Tyranitar; the rebuild has it the other way. No Trick Room or Tailwind was up. Cause not found yet |
-| krapfenallacream, games 1 and 2 | at the start of turn 1, both games | the opponent's Garchomp Mega Evolves (to Garchomp-Mega-Z) before your Gengar; the rebuild orders them the other way and no later round corrects it. Mega Evolution is one of the queued actions `speed.mjs` reads, so the order should narrow Garchomp's Speed. Cause not found yet; it fails the same way in two games |
-| noob13032, game 2 | at the start of turn 9 | all 8 turns played reproduce; the replay then forfeits at the start of turn 9 and the rebuild plays the turn instead. The forfeits of Vicarina22 game 2 and VoltCh4mp1on game 1, which also come at the start of a turn, rebuild. A `reconstruct` defect, not the inference's |
+| good pov, game 2 | after turn 1: Mega Kangaskhan's two-hit Double-Edge recoil | recoil read over every hit; the turn-6 Roost on the hidden Corviknight then rebuilds |
+| Grizzlemunch, game 2 | turn 1: sandstorm hits Milotic before Rillaboom, both hidden | orders between two hidden Pokemon, applied to a fixpoint |
+| Vicarina22, game 1 | "inference perturbed the battle" at Rotom's Chesto Berry | every dry run hands back the whole battle, status included |
+| noob13032, game 1 | turn 8: Gholdengo switches out before your Tyranitar | switches read at their own order, on the speed of the Pokemon going out |
+| krapfenallacream, game 1 | turn 1: their Garchomp Mega Evolves before your Gengar | Mega Evolution read at its own order, on the speed before the forme change |
+| krapfenallacream, game 2 | the same, then turn 5: Politoed's Encore forces Incineroar's Fake Out | as game 1, and an Encored Pokemon's move line read as no choice |
+| noob13032, game 2 | the forfeit at the start of turn 9 | `>forcelose` when the room prints `\|player\|` again after the `\|win\|` |
+
+Before those hooks, the fallback alone rebuilt four of these games and named the lines they needed:
+the two-hit recoil, the sandstorm order, the Mega Evolution and switch orders, and a `|cant|…|flinch`
+order in krapfenallacream game 1. With the hooks in, it fires on none of the 15.
+
+What is left of Phase 7 is reading a Bo3 set together, and `--certify --outside` on each game.
 
 **Done when:** every replay the user gave passes §3.3.
 

@@ -296,9 +296,15 @@ No probe battle is kept in `recordings/`: every one is rebuilt from the fixture 
    item or ability on the known one, through a battery of witnesses: hits dealt and taken, a trade,
    each status, a one-hit KO, three order witnesses, a pivot, two moves in a row, and a hit of every
    type its handlers name. A few effects also have a battle set up by hand, where no general battle
-   reaches their edge (Focus Sash, Substitute breaking, Strength Sap on a hurt user).
-5. **Worlds and changes.** Each battle is run with one hidden Stat Point at 0 and then at 32, the
-   rest at 2, and so is its control, the same battle without the effect; for an ability, its holder
+   reaches their edge (Focus Sash, Substitute breaking, Strength Sap on a hurt user). A hand-set
+   battle may name the stat it varies (`stat`) and its two worlds (`worlds: [a, b]`), play every
+   value 0–32 and judge one adjacent pair across each boundary of what the known side sees
+   (`worlds: 'sweep'`), or vary the hidden ally instead (`probe: 'p2b'`). An entry with a written
+   `reason` and no battle says why the effect cannot carry a Stat Point, and is no longer work. A
+   Mega Stone's battles, and those of an ability only a Mega Evolution has, Mega Evolve the holder
+   on turn 1; no battle is refused, and a choice the battle overrode prints its cause.
+5. **Worlds and changes.** Each battle is run with one hidden Stat Point at 0 and then at 32 —
+   or at the worlds a hand-set battle names — the rest at 2, and so is its control, the same battle without the effect; for an ability, its holder
    has Run Away instead, which does nothing in a trainer battle, where any other ability might stop
    a witness — Own Tempo the confusion one. A change is a line of the
    known side's view that differs between the worlds and not the same way in the control. Lines
@@ -322,6 +328,19 @@ No probe battle is kept in `recordings/`: every one is rebuilt from the fixture 
    as the battle's defect, not the effect's.
 8. **Reports** are rendered from the records alone and sorted, with no timestamps, so `--check`
    can compare a fresh run with them line for line. `--dump` prints the battle behind any row.
+9. **Fuzzing** (`--fuzz <n> --seed <s>`) asks the other way round: not what one effect shows, but
+   whether whole battles rebuild. It plays random legal battles with teams from the published
+   sheets of the user's saved replays and the fixture teams, random Stat Points (each at most 32, at
+   most 66 in all) and the simulator's `RandomPlayerAI` choosing, and checks that every real spread
+   survives, that the rebuild is a MATCH and that nothing throws. A battle that is no MATCH is rebuilt
+   again with the real Stat Points: if that fails too, the fault is the rebuild's, not the
+   inference's. Failures are ranked by the kind of their first wrong line, each with its seed. On
+   `--fuzz 100 --seed 1` (2026-10-05): 91 MATCH, every real spread kept in all 100, nothing thrown.
+   The inference settled on a spread the log rules out in six — an HP line a point off (seeds 44, 56,
+   68), which of two Tyranitars' Sand Stream announces first (24, 73), a start-of-turn switch order
+   under Trick Room (88) — and the rebuild fails with the real Stat Points too in three, each on the order
+   of a `|cant|` line: a flinched Pokemon's unseen priority move that ordered the turn (2; 19 fails on a `|cant|` too), and a
+   sleeping Pokemon against a paralysed one (83).
 
 ---
 
@@ -400,8 +419,8 @@ use, it uses. What is left:
   by hand. The static scan flags handlers that read a stat no battle showed.
 - **MASKED is not a verdict on the inference.** It means the battle's own lines already told the
   worlds apart, so the effect's line could not be seen being used or ignored.
-- **One hidden Pokemon, one stat at a time**, at 0 and 32. A stat that only matters jointly with
-  another, or away from the extremes, is not probed. 0 and 32 also share a parity: Super Fang from
+- **One hidden Pokemon, one stat at a time**, at 0 and 32 unless a hand-set battle names its
+  worlds or sweeps them. A stat that only matters jointly with another is not probed. 0 and 32 also share a parity: Super Fang from
   full HP leaves its target on half its max HP rounded up, which the Champions display shades
   `50/100g` when that max HP is odd and `50/100y` when it is even — a parity of the HP Stat Points
   that both worlds print alike, so Super Fang is NO CHANNEL here. USED says the inference tells the
@@ -410,12 +429,13 @@ use, it uses. What is left:
   replay of someone else's battle shows both sides as percentages, so a row whose sink is
   `known exact` says more than such a replay does.
 - **The partner and the bench are fixed.** What an effect shows about the hidden Pokemon's ally —
-  Helping Hand's boost, an ally's heal, the order of the two hidden Pokemon — is not probed.
+  Helping Hand's boost, an ally's heal, the order of the two hidden Pokemon — is probed only where a
+  hand-set battle sets `probe: 'p2b'`.
 - **A diff shows that a stat can be observed, not how to use it.** Each new mechanism is still
   real work. What this plan changes is that the list is known before it starts.
-- **Interactions between two effects** are not probed. They mostly come for free, because the
-  hooks sit inside shared simulator code (Foul Play under Wonder Room needed no hook of its own).
-  The probe finds missing hooks, not missing combinations.
+- **Interactions between two effects** are not probed by the catalog's battles. They mostly come
+  for free, because the hooks sit inside shared simulator code (Foul Play under Wonder Room needed
+  no hook of its own). The probe finds missing hooks; `--fuzz` finds combinations, at random.
 - **Possible under the pinned simulator.** As in `engineering.md` §9, a server running different
   mechanics makes every row a statement about the wrong battle.
 - **Cost.** The battles are fast — every move's, without the rebuilds, in 75 s on 13 threads.

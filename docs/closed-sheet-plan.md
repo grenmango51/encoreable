@@ -11,6 +11,9 @@ multiply every open-sheet gap by the number of sets a Pokemon could have.
 **Done when:** every item in §7 holds.
 **Verified against:** `pokemon-showdown` at `a5df827`, `scripts/lib/replay-source.mjs` and
 `scripts/lib/inference/` as of 2026-10-03.
+**Status (2026-10-05):** Phase 0 is built, with its baseline (§5). Phase 1 is built in
+`setsFromLog`, short of the catalog's closed battles for each §B.1 shape. The assumed ability is
+already the first the log does not rule out. Phase 2 is next.
 
 ---
 
@@ -57,13 +60,12 @@ seen), `--infer both`, and a stranger's replay.
 
 | What | Today | Source |
 |---|---|---|
-| Names read | species, forme, moves used, an item or ability a line names | `setsFromLog` |
-| Misread | Rocky Helmet put on the Pokemon it hurt; a Mega's ability put on the base set (Snow Warning, Speed Boost, Protean, Intimidate); a move named in an Armor Tail or Queenly Majesty `\|cant\|` read as the blocked Pokemon's; Illusion's moves on the disguise | `evidence-closed-sheets.md` §2.1 |
-| Missed | the ability Entrainment, Role Play, Skill Swap, Simple Beam, Worry Seed, Trace, Mummy or Wandering Spirit replaced or showed; the item Poltergeist names or Magician takes; Armor Tail, Queenly Majesty, Aroma Veil, Sweet Veil, Flash Fire | §2.2 |
-| Also wrong, found by the review | Covet's item; both items of a Trick; any item that moved and was named later; a Flung or stolen Berry; Symbiosis's item; Receiver's, Damp's and Flower Veil's lines; Prankster's `-hint`; a contact ability credited to the attacker | Appendix B §B.1 |
+| Names read | species, forme, moves used, an item or ability a line names, credited to the Pokemon that brought it: every shape in Appendix B §B.1, which includes `evidence-closed-sheets.md` §2.1–§2.2 | `setsFromLog` |
+| Misread or missed | none known on the saved replays and recordings. Each §B.1 shape was checked in a battle the simulator generated; the catalog has no closed battle for them yet, and the committed `evidence-closed-sheets.md` predates the fix | Phase 1 |
+| Assumed | an ability its species has only one of; otherwise the first it lists that the log does not rule out, an ability announced on switch-in that never showed being out; no item; a neutral nature | `setsFromLog`, `local-reconstruct.mjs` |
 | Silent | 129 abilities, 47 items and every nature change the log before a line names them; the review adds the duration items (Light Clay, the weather rocks, Terrain Extender), Binding Band, Spell Tag, Acrobatics' no-item doubling and Choice Scarf's forced Struggle, which no witness reached | §2.4, Appendix B §B.2 |
 | Hazard | the assumption removes the real spread in 56 ability, 67 item and 28 nature witnesses, and breaks the rebuild in 11 more ability witnesses; in every one the true set rebuilds | §2.3 |
-| Inference | one fixed set per Pokemon; nature only in the first guess | `infer.mjs`, `knowledge.mjs` |
+| Inference | one fixed set per Pokemon; nature only in the first guess. At a closed game's first wrong line the fallback (`engineering.md` §7.5) reports that no Stat Point it tries changes the line, which points at the assumed set | `infer.mjs`, `knowledge.mjs` |
 
 The by-hand review in `evidence-by-hand.md` also gives a Closed answer per effect. It was
 checked the same way as the Open answers (`open-sheet-plan.md` §1); what survived is in Appendix B.
@@ -254,8 +256,9 @@ spread, and every box the README row names is narrowed as far as written there.
 
 **In hand:** ten Bo1 Reg M-C games of the user's, played 2026-10-04, in `mine-closed/`; eight have
 their sheet in `teams.js` (`mc-sun`, `mc-rain`, `mc-sand`, `mc-perish`), two wait for theirs. Read
-with today's assumptions, one of the eight rebuilds and seven stop between turn 0 and turn 4; the
-README gives each one's first wrong line. That is Phase 0's baseline on real games.
+with today's assumptions, two of the eight rebuild (PokeJackxy, and PokeSciLabBot once its Sneasler's
+Pressure is ruled out for never announcing itself) and six stop between turn 0 and turn 4; the README
+gives each one's first wrong line. That is Phase 0's baseline on real games.
 
 The Bo1 replay already there (Reg M-B), and from the user, as they find time:
 
@@ -283,6 +286,13 @@ report line per box: read, assumed, or (later) inferred, against the truth.
 **Done when:** `npm run reconstruct -- --all --rung s3 --infer p2 --sheets closed` runs and lists
 every recording whose real spread today's assumptions remove. That list is the baseline.
 
+**Status:** built. Of the 21 recordings, none rebuilds line for line, no box read off the log
+contradicts the truth, and 12 lose their real spread to an assumed box: regmb-23, -25, -34, -46, -69,
+-100, -111, -122, -144 and -145 through p2's Glalie (Glalitite, Jolly) and Whimsicott (Focus Sash,
+Bold), and regmb-199 and -200 through Blastoise (Rain Dish, Quiet) and Pelipper (Focus Sash, Calm).
+`--saved --sheets closed` turns the user's open games into closed tests with their published sheets
+as the truth.
+
 ### Phase 1 — Read every name right
 
 Fix `setsFromLog` for every line in Appendix B §B.1, which includes `evidence-closed-sheets.md`
@@ -302,6 +312,16 @@ and MISREAD verdicts cover it.
 
 **Done when:** `evidence-closed-sheets.md` §2.1 and §2.2 are empty after a catalog run, Appendix B
 §B.1 is read, and Phase 0's baseline has not grown.
+
+**Status:** `setsFromLog` reads every §B.1 shape, and Flash Fire's `-start`, Poltergeist and
+Prankster's `-hint` too. Left: the closed effect battles in `scripts/fixtures/catalog.js` — Trick and
+Switcheroo, Thief and Covet, Magician, Pickpocket, Symbiosis, Fling, Bug Bite and Pluck, Recycle,
+Poltergeist; Skill Swap, Role Play, Entrainment, Simple Beam, Worry Seed, Trace, Receiver, Mummy,
+Wandering Spirit; Rocky Helmet, Rough Skin, Static, Flame Body, Liquid Ooze, Poison Touch and Frisk
+naming their holder; Armor Tail, Queenly Majesty and Damp in `|cant|`, Aroma Veil and Sweet Veil in
+`-block`; an ability seen after Mega Evolution on the inferred side. The user's replays already
+cover the weather and terrain setters, the Mega abilities Fairy Aura and Snow Warning, Scrappy,
+Cursed Body and Skill Swap.
 
 ### Phase 2 — Candidates, named and illegal-choice evidence
 

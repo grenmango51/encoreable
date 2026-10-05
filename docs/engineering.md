@@ -795,8 +795,10 @@ entry too, and a worker loads the simulator's data before it takes a probe.
 slots; a turn's choices are read back to the slot each Pokemon chose from (`planSegment`).
 
 **A battle that ended without a Pokemon deciding it** — a forfeit, the timer — ends in the
-rebuild with `>forcelose` for the loser once everything before its `|win|` has printed. The
-room's announcement is room text, and `battleLines` drops it.
+rebuild with `>forcelose` for the loser once everything before its `|win|` has printed — in a
+Bo3 game too, where the room prints `|player|` again after the `|win|`. The room's announcement is
+room text, and `battleLines` drops it. A Pokemon Encored before it moves uses the Encored move, so
+its move line is not its choice: the turn's plan leaves that choice unread.
 
 **Illusion** prints one Pokemon as another — that one's name and details — until a hit breaks it
 and `|replace|` names the real one. Who was really sent in, and who really acted, is read from
@@ -978,6 +980,13 @@ only where the two can be compared and agree:
   a Transform changes every stat but HP; a Pokemon whose max HP its Stat Points do not give has
   its HP lines read without them.
 
+Every dry run goes through one snapshot of the battle and is handed back in full: each Pokemon on
+the field — HP, status and its state, volatiles and their states, item and ability with their
+states, boosts, stored stats, forme, types, flags such as `ateBerry` — both sides' and slots'
+conditions, weather, terrain, pseudo-weather, the faint and action queues, and the log. So a
+Chesto Berry asked whether it would fire does not wake its holder for real. Benched Pokemon are not
+in the snapshot; no dry run touches one.
+
 Every line set aside is recorded — `inference.checks` in the written `.log.json`, printed as
 "not used" — and costs precision, never a spread that fits. The S3 suite sets none aside.
 
@@ -989,7 +998,12 @@ Every line set aside is recorded — `inference.checks` in the written `.log.jso
   amount for drain. The attacker's line then also says which amounts the victim really took,
   and while that hit is still the last thing that moved the victim's HP, the victim is narrowed
   to them on the spot; the whole-path walk checks the same over every turn. Wave Crash recoil on
-  turn 4 of the Bo3 game is what pins Blastoise's Defence.
+  turn 4 of the Bo3 game is what pins Blastoise's Defence. Recoil is read off the simulator's
+  total over every hit and target of one use of the move, so Parental Bond's two hits and a
+  multi-hit move narrow the Pokemon they hit: a hit on a Pokemon shown exactly dealt what its line
+  says, one shown as a percentage one of the amounts its display allows (or its HP before less its
+  HP after, when it took the other hits and nothing else moved it). A recoil a Substitute took, or
+  whose hits the scaffold did not all read, is set aside.
 - **Attacker HP.** Water Spout, Eruption and pinch abilities read the attacker's own HP. The
   dependence is detected by asking (does the row move when HP does?), and then the victim's line
   also filters which HP the attacker could have been on.
@@ -1011,16 +1025,27 @@ Every line set aside is recorded — `inference.checks` in the written `.log.jso
   priority ran fastest first, so a Pokemon whose line came first had at least the other's speed.
   The speed compared is the simulator's at that moment — `getActionSpeed` for the queue, the
   cached `speed` for event handlers, re-taken when `setSpecies` resets it on Mega Evolution — so
-  Tailwind, Trick Room's reversal, paralysis and Choice Scarf are all the simulator's. A tie can go
-  either way, so every bound is `>=`. Gen 9 re-sorts before each move, so the last sort before an
-  action is the one that decided it. After You, Quash and Instruct taint their turn's queue.
-  Where the rebuild diverges on order, the replay's order is used only when it is proved: a move
+  Tailwind, Trick Room's reversal, paralysis and Choice Scarf are all the simulator's. Mega
+  Evolution is queued at order 104 and sorted on the speed before the forme change; switches at
+  order 103, on the speed of the Pokemon going out, and the replay's switch line is matched by the
+  slot it went into. A tie can go either way, so every bound is `>=`. Gen 9 re-sorts before each
+  move, so the last sort before an action is the one that decided it. After You, Quash and
+  Instruct taint their turn's queue.
+  Where the rebuild diverges on order, the replay's order is used only when it is proved. A move
   line always prints, and so do a `|cant|` and what only `onBeforeMove` prints before a move —
-  the confusion check, waking up, thawing out — each opening its Pokemon's action, and the move
-  the rebuild chose for that Pokemon has to be the one the replay shows it using, since another
-  move can have another priority; a handler's
-  line counts only if the replay shows the rebuilt Pokemon's line later in the same phase — a
-  Leftovers heal at full HP prints nothing.
+  the confusion check, waking up, thawing out — each opening its Pokemon's action; a
+  `detailschange` and `-mega` pair opens its Mega Evolution, and a switch no effect caused opens
+  the switch out of that slot. An order is read only at a priority the replay proves: it shows the
+  Pokemon using, of its own choice, the exact move the rebuild queued — no `[from]` but a locked
+  move, no Encore started on it earlier that turn — or, for the Pokemon that went second, no move
+  it has, Struggle included, sorts below the first one's priority, asked of the simulator per move
+  at that sort. A Pokemon that never showed its move — flinched, fully paralysed, asleep — or whose
+  move an Encore replaced is read when the action shown just before it was sorted at the same
+  order and priority as the Pokemon the rebuild moved instead, and nothing a priority handler reads
+  changed between the two sorts. A handler's line counts only if the replay shows the rebuilt
+  Pokemon's line later in the same phase — a Leftovers heal at full HP prints nothing. Every order
+  is applied once, then again until no bound moves, so two hidden Pokemon ordered against each
+  other narrow each other.
 - **Pinch Berries.** After each HP change the simulator's own check is asked, per max HP, up to
   which HP the item fires; a bisection finds the edge. Champions already shades the percentage at
   a half, so a Sitrus seldom adds anything; a quarter Berry does.
@@ -1102,12 +1127,16 @@ Every line set aside is recorded — `inference.checks` in the written `.log.jso
   and Pelipper from 1.86M to 180,297, and the S3 suite keeps all 83 real spreads under it.
 
 **What is not used, and costs precision only.** An HP change of unknown shape lets the candidate
-move anywhere its next printed line allows. Recoil is read only off a move that hit once, which
-every recoil move does.
+move anywhere its next printed line allows.
 An effect written as a fraction of max HP — Leech Seed's drain and a move's HP cost through
 `directDamage` included — is scaled only when its amount proves the fraction: a non-integer
 amount was passed unrounded; a whole one could have been rounded either way, so both roundings
-are kept. Toxic's nth tick is n sixteenths with the sixteenth rounded down first, and is scaled
+are kept. A move's own whole-number HP effect — Recover, Roost, Slack Off, Milk Drink, Life Dew,
+the Moonlight family through `this.modify`, Heal Pulse's ceiling, Shed Tail's and Belly Drum's
+cost — is run again for every max HP and HP a candidate could have, where at the scaffold's own
+Stat Points it lands where the real run did, reads no stat that stands on a spread, and moves with
+no other hidden Pokemon's HP; otherwise both roundings are kept. Rest is set aside: it puts its
+user to sleep before it heals. Toxic's nth tick is n sixteenths with the sixteenth rounded down first, and is scaled
 that way. A move's cost to its user that the simulator rounds from the user's max HP — Struggle's
 quarter, Mind Blown's, Chloroblast's and Steel Beam's half — is `applyRecoilDamage` run for each
 candidate. Wish heals half its maker's max HP, so it is scaled only when the Pokemon healed made
@@ -1139,6 +1168,29 @@ diverged, move the guess inside what survived, repeat. Three choices keep that f
 
 The reconstruction also blames the *other* hidden Pokemon a failing line depends on, on
 alternate backtracks: the attacker for Water Spout, the victim for recoil (§7.3).
+
+**When the evidence cannot move the guess.** A line no evidence hook reads leaves the next guess
+where it was, and more dice cannot fix a wrong spread. So when a round leaves the guesses
+unchanged, the evidence learned nothing, or the same line stops a rebuild again, `inferSpreads`
+runs a fallback before it raises the dice budget. If the unchanged guess passes the failing turn
+under a bigger search, the turn is left to the dice. Otherwise the fallback rebuilds that turn
+with one stat of one inferred Pokemon the turn names changed at a time, to values the surviving
+knowledge allows — the ends first, Speed first for an order, halving where one end stops before
+the line and the other leaves it unchanged, then the middles — then searches every surviving value
+of the stats that moved the line, then pairs of them, and takes the first spread that gets past
+the line as the next guess. It only chooses a witness: every spread it tries is built from the
+surviving knowledge, with the 66-point budget and the HP × Def × SpD keys that survive together,
+and it removes nothing. It is bounded at 8 rebuilds per line and 32 per inference, shared with the
+Illusion re-readings, with ceilings of 120 s per line and 240 s per inference behind them.
+
+Each firing is a check, printed as `not used, turn N: <line> … - <reason>`, so the engine lists
+the hooks it is missing. The reason says which: the fallback found a spread that reproduces the
+line; no value it tried of a Stat Point of a Pokemon the turn names changes the line — the cause
+is not a Stat Point, as with a closed sheet's assumed item; no surviving value of the stats that
+move it reproduces it within the search; or a spread the evidence removed reproduces every turn
+the evidence read where no surviving one reproduces this line — a possible spread was removed, the
+alarm `--outside` raises. A rejected choice and turn 0 have no Stat Point to search and write no
+check.
 
 **Results.** The fixture teams supply the truth to check against; a real spread eliminated is a
 defect. It happened once, in a synthetic battle: a Pokemon Leech Seed knocked out was already
@@ -1212,12 +1264,15 @@ replay: the unknown side's sets are read off the log (`setsFromLog`, `scripts/li
 |---|---|
 | species, level, gender | the preview (`\|poke\|`) and each Pokemon's details; a forme the preview hides (`Urshifu-*`) from the Pokemon sent in |
 | moves | every move each one chose; one with a `[from]` tag was called by something else, except a locked move |
-| item | the first it showed: a Mega Stone, an item used up or knocked off, one announced or frisked, an effect credited to it. Rocky Helmet and the retaliation Berries hurt the attacker and name their holder in `[of]`; an item received by Trick is not the one it brought |
-| ability | the first it showed, and only as its species could have it: `[of]` owns Rough Skin and Hospitality but is the attacker for Volt Absorb, so the species decides. An ability shown only after Mega Evolution belongs to the Mega forme; a Traced one is Trace |
+| item | the first it brought: a Mega Stone, an item used up or knocked off, one announced or frisked, an effect credited to it. An item that moves — Trick, Switcheroo, Thief, Covet, Magician, Pickpocket, Symbiosis, Fling, Bug Bite, Pluck — is credited to the Pokemon that brought it to the battle. Rocky Helmet and the retaliation Berries hurt the attacker and name their holder in `[of]` |
+| ability | the first it showed, and only as its species could have it: `[of]` owns Rough Skin and Hospitality but is the attacker for Volt Absorb, so the species decides. An ability that moves — Skill Swap, Role Play, Entrainment, Simple Beam, Worry Seed, Trace, Mummy, Wandering Spirit, Receiver — is followed the same way; `\|cant\|…\|ability: X` and `-block` name the blocker's, Flash Fire's `-start` and Prankster's `-hint` name theirs. An ability shown only after Mega Evolution belongs to the Mega forme |
 
 What the log never showed is assumed, and the command names every assumption before it runs: an
-ability the species has only one of is known by elimination, otherwise the first it lists; an
-unseen item is none; an unseen nature is neutral. The known side has no sheet either, so it is
+ability the species has only one of is known by elimination, otherwise the first it lists that the
+log does not rule out — an ability the simulator announces on switch-in (one with an `onStart` or
+`onSwitchIn` handler) that the replay never shows is out, and the report names it; an unseen item
+is none; an unseen nature is neutral. A Pokemon that never used a move is given a damaging
+stand-in, never one that can be disabled at choice time, so that it can still Mega Evolve. The known side has no sheet either, so it is
 checked against the log instead — every Pokemon it previewed and every move each used has to be
 in the supplied team — and since a player's own team can sit on either side of someone else's
 replay, a fixture's two teams go to the sides whose previews they match. A replay the server
@@ -1228,7 +1283,18 @@ a spread. On the Bo1 replay (`recordings/showdown/mine-closed/…-mercifulbird-�
 Gardevoir moves before the user's Charizard-Mega-Y on turn 1, which no spread allows with a
 neutral nature and no item: Gardevoir ends with nothing, and the event that removed it is the
 speed order. It used Moonblast every turn, and a Choice Scarf would explain both. Ruling items and
-natures in or out is the next step (§9).
+natures in or out is the next step (§9, `closed-sheet-plan.md` Phase 2).
+
+`--sheets closed` reads any source this way: the inferred side's sheet is withheld and its sets are
+read off the log, with every box — item, ability, nature, each move — reported as read or assumed
+and checked against the truth where one is known (a recording's real sets, a published sheet, a
+fixture). Over the 21 recordings no box read off the log contradicts the truth; every wrong box is
+an assumed one, none rebuilds line for line, and in 12 the assumptions remove the real spread:
+regmb-23, -25, -34, -46, -69, -100, -111, -122, -144 and -145 through p2's Glalie and Whimsicott,
+whose items (Glalitite, Focus Sash) and natures (Jolly, Bold) are assumed away, and regmb-199 and
+-200 through Blastoise and Pelipper (Rain Dish, Focus Sash, Quiet, Calm). That list is the closed
+baseline. The fallback above says the same of the user's closed games: at each one's first wrong
+line, no Stat Point it tries changes the line.
 
 ---
 
@@ -1248,7 +1314,8 @@ replay control row, which does the same thing as `npm run live` for the turn on 
 Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 `npm run live` takes `--at <turn>`, `--dry-run` and `--verify <log.json>`.
 `npm run reconstruct` takes `--all`, `--saved`, `--rung s1|s2|s3`, `--teams <key>`, `--infer p1|p2|both`,
-`--all-spent`, `--certify`, `--outside`, `--sample <n>`, `--max-probes <n>`, `--threads <n>` and `--dry-run`. `--saved`
+`--sheets closed`, `--all-spent`, `--certify`, `--outside`, `--sample <n>`, `--max-probes <n>`, `--threads <n>`
+and `--dry-run`. `--sheets closed` reads the inferred side as if it published no sheet (§7.6). `--saved`
 rebuilds every saved game of yours in `recordings/showdown/mine-open/` and `mine-closed/` whose one side is a team in
 `scripts/fixtures/teams.js`, with the other side inferred, and prints one line per game: the scoreboard. A saved
 replay — a `.html` page, or a replay link's `.json` — is always S4, and `--threads` only changes how long the search takes, never what it finds
@@ -1262,6 +1329,15 @@ moved. That is the headless proof for §4; `/rng` is the same engine driven from
 `--dump <effect> <role/template> <stat> <0|32>` for the battle behind one row, and
 `--records <file>` (repeatable) to render saved runs again; only records covering the whole pool
 write the reports in `docs/`, and `--check` fails when a fresh full run disagrees with them.
+`--fuzz <n> --seed <s>` (with `--turns <n>`, `--out <dir>`) plays n random legal Reg M-C battles
+in-process: teams from the published sheets in `recordings/showdown/mine-open/` and `full-sheets/` and
+from `scripts/fixtures/teams.js`, random Stat Points (each at most 32, at most 66 in all, every point
+spent in about half the battles), choices from the simulator's `RandomPlayerAI`. It infers p2 from
+p1's view with p1 known and checks that every real spread survives, that the rebuild is a MATCH and
+that nothing throws; a battle that is no MATCH is rebuilt again with p2's real Stat Points, which
+says whether the inference or the rebuild is at fault. Failures are ranked by the kind of the first
+wrong line, each with the one command that reruns it, in `fuzz.md` and `fuzz.json`; a seed always
+plays the same battle.
 `replay.bat`, `live.bat`, `battle.bat` and `catalog.bat` are the double-click entry points.
 
 | File | Role |
