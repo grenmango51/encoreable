@@ -20,20 +20,28 @@ the table does not already place. Ask for that file, by name, on its own, and wa
 | Script that runs in the browser, served over HTTP | `scripts/client/<name>.js` — never runnable with `node` |
 | Code that runs inside the Showdown server process | `scripts/server/<name>.js` — CommonJS, copied into `runtime/config/` by provisioning, never `.mjs` |
 | Team or format fixture loaded by Node | `scripts/fixtures/<name>.js` — CommonJS, not ESM |
-| Recorded battle worth keeping | `recordings/<battleid>.log.json` — tracked, cannot be regenerated |
-| Public-ladder replay kept as test material | `samples/<name>.html` |
+| Chrome extension code — a content script, the simulator Worker, the service worker, an extension page | `extension/src/<name>.js`, with `<name>.html` beside it for a page — bundled by `npm run extension`, never runnable with `node`; a new entry point is added to `ENTRIES` in `scripts/local-extension.mjs` and, if Chrome loads it, to `extension/manifest.json` |
+| Browser stand-in for a Node built-in that reused `scripts/lib` code imports | `extension/src/node/<built-in>.js` |
+| Check that proves the built extension against the Node reference | `extension/check/<name>.mjs` — Node, run by `npm run extension -- --check <name>`, named in `CHECKS` there |
+| Built extension | `extension/dist/` — written by `npm run extension`, gitignored, never hand-edited |
+| Battle our local server recorded, worth keeping | `recordings/local/<scripted, probes, self-play or branched>/<battleid>.log.json` — tracked, cannot be regenerated; `recordings/README.md` picks the folder |
+| Input log rebuilt from a replay | `recordings/reconstructed/reconstructed-<replay name>.log.json` — written there by `npm run reconstruct` |
+| Replay page saved from play.pokemonshowdown.com | `recordings/showdown/<full-sheets, mine-open, mine-closed, others-open or others-closed>/<name as downloaded>.html` |
+| Replay known only by its link on replay.pokemonshowdown.com | the link's `.json`, as served, in the same folder as a page would go: `recordings/showdown/<folder>/<replay id>.json` |
+| Battle video | `recordings/video/<tournament or champions>/` — gitignored; list it in that folder's `README.md` |
 | Rendered replay page | `replays/` — written by the commands, gitignored, never hand-authored |
 | Local Showdown server file | `runtime/` — generated from `node_modules`, never edited by hand |
 | Upstream client file | `vendor/` — a clone of someone else's repo, never edited |
 | Explanation of a directory whose contents are not self-evident | `<that-directory>/README.md` |
-| Document answering a question none of `PLAN.MD`, `ENGINEERING.md`, `BRANCHING.md` owns | the repo root, as `<NAME>.md` — first check whether it belongs *inside* one of those three |
-| Scratch file, experiment, probe, or one-off diagnostic | nowhere in this repo — use the session scratchpad and delete it |
+| Document answering a question no document in `docs/` owns | `docs/<name>.md`, lowercase — first check whether it belongs *inside* one of those |
+| Scratch file, experiment, probe, or one-off diagnostic | nowhere in this repo — use the session scratchpad and delete it; only a battle it recorded that is worth keeping goes to `recordings/local/probes/` |
 
 ## Extensions carry meaning
 
 `.mjs` is a Node ES module. `.js` under `scripts/client/` is browser code. `.js` under
-`scripts/fixtures/` and `scripts/server/` is CommonJS. Picking the wrong one breaks the file at
-load time, not at review time.
+`scripts/fixtures/` and `scripts/server/` is CommonJS. `.js` under `extension/src/` is browser
+code, bundled for Chrome; `.mjs` under `extension/check/` is Node. Picking the wrong one breaks
+the file at load time, not at review time.
 
 ## Before adding anything
 

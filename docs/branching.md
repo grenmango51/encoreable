@@ -1,9 +1,9 @@
 # Branching — play a recorded battle forward from any turn, both sides, in the real battle UI
 
-**Read first:** `ENGINEERING.md` — §3 (channels), §5.6–5.10 (branching), §6 (traps),
+**Read first:** `engineering.md` — §3 (channels), §5.6–5.10 (branching), §6 (traps),
 §7 (where a battle comes from when we did not record it).
 **Verified against:** the checkout in `runtime/`, the upstream `replay-embed.js` the vendored
-client is built from, Node v24.19.0, npm `pokemon-showdown@0.11.11`.
+client is built from, Node v24.19.0, `pokemon-showdown` at upstream commit `a5df827`.
 
 ---
 
@@ -16,7 +16,7 @@ sitting at that exact position — and play forward, choosing moves for **both**
 
 The battle does not have to be one we recorded. A saved public-ladder replay plus both team
 sheets is enough: `npm run reconstruct` rebuilds the input log those replays never carried
-(`ENGINEERING.md` §7), and everything below then works on it unchanged.
+(`engineering.md` §7), and everything below then works on it unchanged.
 
 - **Simultaneous, not alternating.** Both sides commit blind and the turn resolves once both
   are in. Native Showdown behaviour; no work was needed for it.
@@ -38,7 +38,7 @@ behind both.
 ```
 npm run live                     newest recorded battle, turn 4
 npm run live -- --at 3
-npm run live -- --from recordings/gen9championsvgc2026regmb-34.log.json --at 4
+npm run live -- --from recordings/local/scripted/gen9championsvgc2026regmb-34.log.json --at 4
 npm run live -- --at 4 --dry-run                  truncate and print the position only
 npm run live -- --at 4 --verbose                  echo every protocol frame
 npm run live -- --at 4 --verify <new log.json>    check a branch that was played out
@@ -46,9 +46,10 @@ npm run live -- --at 4 --verify <new log.json>    check a branch that was played
 
 `live.bat` is the double-click entry point. The servers start themselves if they are not up.
 
-Recordings are found in both `recordings/` and `runtime/logs/` (`scripts/lib/recordings.mjs`),
-newest first, and on a name collision the archived copy in `recordings/` wins. `runtime/` is
-generated and rebuilding it is routine, so a battle worth keeping is archived to `recordings/`,
+Recordings are found in both `recordings/`, at any depth, and `runtime/logs/`
+(`scripts/lib/recordings.mjs`), newest first, and on a name collision the archived copy in
+`recordings/` wins. `runtime/` is generated and rebuilding it is routine, so a battle worth keeping
+is archived to the `recordings/local/` folder for how it was played (`recordings/README.md`),
 which is tracked.
 
 ### From the replay view
@@ -104,10 +105,10 @@ call it, so there is one implementation to keep verified.
 
 The log is replayed **one line at a time**, stopping when `battle.turn` reaches the target.
 Choice lines do not map one-per-side-per-turn — a faint replacement adds an extra
-`>pN switch …` mid-turn — so index arithmetic cuts in the wrong place. `ENGINEERING.md` §5.8.
+`>pN switch …` mid-turn — so index arithmetic cuts in the wrong place. `engineering.md` §5.8.
 
 An input log containing a `default` choice is rejected up front: those are unreplayable
-(`ENGINEERING.md` §6.1).
+(`engineering.md` §6.1).
 
 Truncation stops at the **start** of the target turn, before either side has committed, so the
 last recorded turn is a real position — the one whose choices ended the battle, and usually the
@@ -142,30 +143,30 @@ So `provision-local-server.mjs` grants that permission to the **default group** 
 entirely in `config/`.
 
 `MAX_MESSAGE_LENGTH` is not in play: the 1000-character cap is enforced inside `checkChat`
-(`server/chat.ts:1246`), which `importinputlog` never calls. The 1.7KB import goes through as
+(`server/chat.ts:1252`), which `importinputlog` never calls. The 1.7KB import goes through as
 one frame — `/importinputlog ` is registered as a multi-line command
-(`chat-commands/core.ts:1849`), and that path is only taken when the text contains a newline.
-The import itself screens only for `>eval` (`chat-commands/core.ts:899`), so a `>reseed` line
+(`chat-commands/core.ts:1833`), and that path is only taken when the text contains a newline.
+The import itself screens only for `>eval` (`chat-commands/core.ts:881`), so a `>reseed` line
 passes — and so does `>rng`, which is why nothing in this project needs console access:
-RNG control and reconstruction both travel as `>rng`, never as `>eval` (ENGINEERING.md 4).
+RNG control and reconstruction both travel as `>rng`, never as `>eval` (engineering.md 4).
 
 ### 2.4 Getting the players into their slots
 
 `/importinputlog` parses the player names out of the input log and sets `hasTeam = true`
 (`server/room-battle.ts:593-603`). That unlocks the direct path: `invitebattle`
-(`chat-commands/core.ts:1236`) skips the invite handshake and calls `joinGame` outright when the
+(`chat-commands/core.ts:1218`) skips the invite handshake and calls `joinGame` outright when the
 target is **already in the room** and the slot has a team. `restoreplayers` (`:1320`) issues one
 per slot using those names.
 
 So both browsers join the room first — under the names the input log carried — and then a single
 `/restoreplayers` fills both slots with no popups and no clicking.
 
-One user cannot hold both slots (`server/room-battle.ts:665`), which is why there are two
+One user cannot hold both slots (`server/room-battle.ts:666`), which is why there are two
 Chrome `--user-data-dir` profiles rather than two tabs.
 
 ### 2.5 The one thing that breaks it
 
-`sim/battle.ts:3245`:
+`sim/battle.ts:3248`:
 
 ```ts
 if (options.team) throw new Error(`Player ${slot} already has a team!`);
@@ -292,27 +293,27 @@ look-at-it check.
 - **No branch tree.** One linear continuation from one chosen turn, one per click. No rewind, no
   re-branch, no variation list. To try a different turn 6, run the command again or click the
   button again.
-- **No RNG control here.** It matters, and the mechanism is specified in `ENGINEERING.md` §4,
-  but that mechanism patches an in-process `Battle` while a live branch runs in the server's
-  simulator worker. Forcing a crit inside a live room is a separate problem — §9 there.
+- **No RNG control here.** Forcing an outcome inside the live room is `/rng` and its tooltips,
+  `engineering.md` §4.
 - **No CLI move-picker.** The deliverable is the native browser battle UI.
 - **No custom battle UI.** If you find yourself writing a move button, stop.
 - **The replay view does not become the battle.** It stays a replay.
 - **No channel −1 server patch.** Two windows already show every exact value (§1).
 - **No AI, no engine, no evaluation, no opponent bot.**
-- **Fetching a replay over the network.** A replay page has to be saved to `samples/` by hand.
+- **Fetching a replay over the network.** A replay page has to be saved into
+  `recordings/showdown/` by hand.
   Once it is there it is no longer out of scope: it carries no input log and no seed, but
-  `npm run reconstruct` builds one from it and both team sheets (`ENGINEERING.md` §7), and the
+  `npm run reconstruct` builds one from it and both team sheets (`engineering.md` §7), and the
   result branches like any recording. What a reconstruction cannot recover is the opponent's
   *exact* HP — the replay only ever showed a percentage — so it samples uniformly from inside
   the band the percentage allows, and every command that loads one says so. With `--infer`, the
   Stat Points are not recovered either: the log carries one spread the replay allows
-  (`ENGINEERING.md` §7.5), and the banner says that too.
+  (`engineering.md` §7.5), and the banner says that too.
 - **No auto-verify.** `verify-branch` needs a battle that *ended*, and analysis branches are
   abandoned; the launcher prints the command instead.
 - **The button does not start the servers.** Reading the page over 8080 means they are up.
 - **No build of the vendored client.** The player still comes from upstream
-  (`ENGINEERING.md` §6.3).
+  (`engineering.md` §6.3).
 - **No fork of Showdown.** `runtime/` is the server we run; read it freely, change only
   `config/`, and only through `provision-local-server.mjs`.
 
@@ -320,23 +321,23 @@ look-at-it check.
 
 ## 7. Line-number index
 
-Verified against `pokemon-showdown@0.11.11`, the version pinned in `package.json`; re-check
-every row on any upgrade.
+Verified against `pokemon-showdown` at upstream commit `a5df827`, the commit pinned in
+`package.json`; re-check every row on any upgrade.
 
 | What | Where |
 |---|---|
-| `importinputlog` creates the room | `runtime/server/chat-commands/core.ts:893-915` |
-| `importinputlog` screens only `>eval` | `runtime/server/chat-commands/core.ts:899` |
-| registered as a multi-line command | `runtime/server/chat-commands/core.ts:1849` |
+| `importinputlog` creates the room | `runtime/server/chat-commands/core.ts:875-897` |
+| `importinputlog` screens only `>eval` | `runtime/server/chat-commands/core.ts:881` |
+| registered as a multi-line command | `runtime/server/chat-commands/core.ts:1833` |
 | input log written to the stream | `runtime/server/room-battle.ts:577` |
 | player names + `hasTeam` parsed from log | `runtime/server/room-battle.ts:593-603` |
-| one user cannot hold two slots | `runtime/server/room-battle.ts:665` |
-| `onConnect` on join sends the request | `runtime/server/room-battle.ts:704`, `:933-950` |
-| join writes `>player` with no team | `runtime/server/room-battle.ts:1146-1164` |
+| one user cannot hold two slots | `runtime/server/room-battle.ts:666` |
+| `onConnect` on join sends the request | `runtime/server/room-battle.ts:705`, `:934-951` |
+| join writes `>player` with no team | `runtime/server/room-battle.ts:1147-1165` |
 | timer defaults (`timeoutAutoChoose: false`) | `runtime/server/room-battle.ts:195-206` |
-| `setPlayer` edit branch / team throw | `runtime/sim/battle.ts:3223-3245` |
-| `invitebattle` direct-join path | `runtime/server/chat-commands/core.ts:1236` |
-| `restoreplayers` | `runtime/server/chat-commands/core.ts:1320` |
+| `setPlayer` edit branch / team throw | `runtime/sim/battle.ts:3226-3248` |
+| `invitebattle` direct-join path | `runtime/server/chat-commands/core.ts:1218` |
+| `restoreplayers` | `runtime/server/chat-commands/core.ts:1302` |
 | `>reseed` handling, recorded to the input log | `runtime/sim/battle-stream.ts:113-117` |
 | `resetRNG` announces itself | `runtime/sim/battle.ts:360-363` |
 | a throw drops the rest of a chunk | `runtime/sim/battle-stream.ts:35-47` |
@@ -345,7 +346,7 @@ every row on any upgrade.
 | the 18-character name cap | `runtime/server/users.ts:746` |
 | permission resolution off the group object | `runtime/server/user-groups.ts:118-155` |
 | default group in `grouplist` | `runtime/config/config-example.js`, entry with `symbol: ' '` |
-| `MAX_MESSAGE_LENGTH`, only inside `checkChat` | `runtime/server/chat.ts:151`, `:1246` |
+| `MAX_MESSAGE_LENGTH`, only inside `checkChat` | `runtime/server/chat.ts:156`, `:1252` |
 | the control row is rebuilt from `update()` | `replay-embed.ts:167-184` |
 | the delegated `data-action` dispatch | `replay-embed.ts:75-78` |
 | `Replays` as a top-level `var` | `replay-embed.ts:58` |

@@ -3,23 +3,21 @@
  *
  * Brings up the local server and the client host, then opens two browser windows
  * under separate profiles - one user cannot hold both slots of a battle
- * (server/room-battle.ts:665). `scripts/client/autobattle.js` rides along in each
+ * (server/room-battle.ts:666). `scripts/client/autobattle.js` rides along in each
  * page: it names the guest, loads a fixture team, and issues or accepts the
  * challenge, so a battle is running without anything being clicked.
  *
  * The finished battle lands in runtime/logs with its inputLog intact, which
- * requires Config.logchallenges - see provision-local-server.mjs. `npm run replay`
- * archives it to recordings/.
+ * requires Config.logchallenges - see provision-local-server.mjs.
+ * `npm run replay -- --from <that file>` archives it to recordings/local/self-play/.
  *
  * Usage:
  *   npm run battle
  */
 
 import { spawn } from 'child_process';
-import path from 'path';
-import fs from 'fs';
-import os from 'os';
 import http from 'http';
+import { launchPair } from './lib/browser.mjs';
 
 const ROOT_DIR = process.cwd();
 
@@ -40,24 +38,6 @@ async function waitForPort(port, host = '127.0.0.1', timeoutMs = 15000) {
     await new Promise(r => setTimeout(r, 150));
   }
   return false;
-}
-
-function findBrowser() {
-  const candidates = [
-    { type: 'chrome', path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' },
-    { type: 'chrome', path: 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe' },
-    { type: 'chrome', path: path.join(os.homedir(), 'AppData\\Local\\Google\\Chrome\\Application\\chrome.exe') },
-    { type: 'edge', path: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' },
-    { type: 'edge', path: 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe' },
-    { type: 'firefox', path: 'C:\\Program Files\\Mozilla Firefox\\firefox.exe' }
-  ];
-
-  for (const item of candidates) {
-    if (fs.existsSync(item.path)) {
-      return item;
-    }
-  }
-  return null;
 }
 
 async function main() {
@@ -93,56 +73,14 @@ async function main() {
   const p1Url = `http://127.0.0.1:8080/testclient.html?~~127.0.0.1:8000&autoname=${p1Name}&autoteam=p1&autochallenge=${p2Name}`;
   const p2Url = `http://127.0.0.1:8080/testclient.html?~~127.0.0.1:8000&autoname=${p2Name}&autoteam=p2&autoaccept=${p1Name}`;
 
-  const browser = findBrowser();
-  const profileDirP1 = path.join(os.tmpdir(), `encoreable_p1_${uid}`);
-  const profileDirP2 = path.join(os.tmpdir(), `encoreable_p2_${uid}`);
-
-  fs.mkdirSync(profileDirP1, { recursive: true });
-  fs.mkdirSync(profileDirP2, { recursive: true });
-
   console.log('Opening two browser windows side-by-side (Left & Right)...');
-
-  if (browser && (browser.type === 'chrome' || browser.type === 'edge')) {
-    const browserName = browser.type === 'chrome' ? 'Google Chrome' : 'Microsoft Edge';
-    console.log(`Launching via ${browserName}...`);
-
-    // Player 2 (Right Window)
-    spawn(browser.path, [
-      `--user-data-dir=${profileDirP2}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--window-position=960,10',
-      '--window-size=940,1020',
-      p2Url
-    ], { detached: true, stdio: 'ignore' });
-
-    await new Promise(r => setTimeout(r, 600));
-
-    // Player 1 (Left Window)
-    spawn(browser.path, [
-      `--user-data-dir=${profileDirP1}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--window-position=10,10',
-      '--window-size=940,1020',
-      p1Url
-    ], { detached: true, stdio: 'ignore' });
-
-  } else if (browser && browser.type === 'firefox') {
-    console.log(`Launching via Mozilla Firefox...`);
-    spawn(browser.path, ['-new-instance', '-profile', profileDirP2, p2Url], { detached: true, stdio: 'ignore' });
-    await new Promise(r => setTimeout(r, 600));
-    spawn(browser.path, ['-new-instance', '-profile', profileDirP1, p1Url], { detached: true, stdio: 'ignore' });
-  } else {
-    console.log('Launching via default system browser...');
-    spawn('cmd.exe', ['/c', 'start', 'msedge', p2Url], { detached: true, stdio: 'ignore' });
-    await new Promise(r => setTimeout(r, 600));
-    spawn('cmd.exe', ['/c', 'start', 'chrome', p1Url], { detached: true, stdio: 'ignore' });
-  }
+  const via = await launchPair({ left: p1Url, right: p2Url, tag: String(uid) });
+  const browserName = { chrome: 'Google Chrome', edge: 'Microsoft Edge', firefox: 'Mozilla Firefox' }[via];
+  console.log(`Launched via ${browserName || 'the default system browser'}.`);
 
   console.log('\n--- BATTLE READY ---');
-  console.log(`Left Window:  ${p1Name} (Champions Reg M-B Sand / TrickRoom)`);
-  console.log(`Right Window: ${p2Name} (Champions Reg M-B Rain / Sun)`);
+  console.log(`Left Window:  ${p1Name} (Champions Reg M-C Sand / TrickRoom)`);
+  console.log(`Right Window: ${p2Name} (Champions Reg M-C Rain / Sun)`);
   console.log('\nBoth windows will connect, load teams, and join the battle automatically.');
   console.log('Enjoy your battle! To stop the servers later, run: npm run stop\n');
 }

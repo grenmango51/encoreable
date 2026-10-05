@@ -21,7 +21,7 @@ fs.mkdirSync(path.join(DEST, 'config', 'chat-plugins'), { recursive: true });
 
 // 3. Copy the in-process server code into config/, the only directory the
 // scope guard allows changing. config.js hands its command tables to
-// Chat.loadPlugin(Config, 'config') (server/chat.ts:2089).
+// Chat.loadPlugin(Config, 'config') (server/chat.ts:2046).
 for (const file of fs.readdirSync(SERVER_SRC)) {
   if (!file.endsWith('.js')) continue;
   fs.copyFileSync(path.join(SERVER_SRC, file), path.join(DEST, 'config', file));
@@ -33,7 +33,7 @@ exports.bindaddress = '127.0.0.1';
 exports.port = 8000;
 exports.ssl = null;
 // 0 puts every process type - the simulator included - in the main process
-// (server/config-loader.ts:91, room-battle.ts:1368, lib/process-manager.ts:633).
+// (server/config-loader.ts:91, room-battle.ts:1369, lib/process-manager.ts:632).
 // That is what makes room.battle.stream.battle a live Battle object the /rng
 // command can reach directly, with no >eval and no worker in between.
 exports.subprocesses = 0;
@@ -45,7 +45,7 @@ exports.noguestsecurity = true;
 exports.nothrottle = true;
 exports.noipchecks = true;
 // Unrated challenge battles only reach logBattle() when this is on
-// (server/room-battle.ts:850). Without it, logData - and the inputLog with it -
+// (server/room-battle.ts:851). Without it, logData - and the inputLog with it -
 // is discarded the moment the battle ends.
 exports.logchallenges = true;
 
@@ -58,7 +58,7 @@ exports.logchallenges = true;
 // leaves no other rank in play.
 //
 // "console" is deliberately NOT granted. The only thing it bought was the >eval
-// gate on /importinputlog (chat-commands/core.ts:847), and nothing this project
+// gate on /importinputlog (chat-commands/core.ts:881), and nothing this project
 // writes contains a >eval any more: RNG control travels as >rng and
 // reconstruction pins its dice the same way. A log from elsewhere that carries
 // one will be refused, which is the correct answer to untrusted code.

@@ -5,12 +5,12 @@
  *
  * This file runs inside the Showdown server process. Provisioning copies it to
  * `runtime/config/rng-command.js`, and `config/config.js` hands its `commands`
- * table to `Chat.loadPlugin(Config, 'config')` (`server/chat.ts:2089`). Nothing
+ * table to `Chat.loadPlugin(Config, 'config')` (`server/chat.ts:2046`). Nothing
  * outside `config/` is touched.
  *
  * `Config.subprocesses = 0` puts the simulator in the main process
- * (`server/config-loader.ts:91` -> `room-battle.ts:1368` ->
- * `lib/process-manager.ts:633`), so `room.battle.stream.battle` is a live
+ * (`server/config-loader.ts:91` -> `room-battle.ts:1369` ->
+ * `lib/process-manager.ts:632`), so `room.battle.stream.battle` is a live
  * `Battle` object this command can read and mutate synchronously. There is no
  * `>eval`, no payload string and no worker in between.
  *
@@ -39,7 +39,7 @@
  *     something nobody has.
  *   - by **ordinal** (`>rng at 3=5 17=0`), which names the nth draw since
  *     installation and the value it takes. This is what reconstruction needs
- *     (ENGINEERING.md 7): rebuilding someone else's battle means choosing dice
+ *     (docs/engineering.md 7): rebuilding someone else's battle means choosing dice
  *     that have no names yet, one at a time, against the log they produced.
  *
  * Every rule-matched draw identifies itself from a stack frame plus the context
@@ -408,11 +408,21 @@ function hook(st, p) {
 		} else { off = Math.floor(from); d = Math.floor(to) - off; }
 
 		// A dry run must not touch the generator (§4.4). Only `randomizer` gets
-		// the requested band; anything else takes the bottom of its range.
+		// the requested band. Any other draw takes the value the real run's draw
+		// of the same range took, when the dry run was handed those (`draws`),
+		// and otherwise the bottom of its range.
 		if (st.dry) {
 			if (!d) return 0;
 			const site = leaf(framesOf()[0] || '');
-			return off + (site === 'randomizer' ? Math.min(st.dry.roll, d - 1) : 0);
+			if (site === 'randomizer') return off + Math.min(st.dry.roll, d - 1);
+			const f = from === undefined ? -1 : from;
+			const t = to === undefined ? -1 : to;
+			const same = st.dry.draws && st.dry.draws.find(x => !x.used && x.from === f && x.to === t);
+			if (same) {
+				same.used = true;
+				return same.value;
+			}
+			return off;
 		}
 
 		const prevD = st.d;
@@ -431,6 +441,8 @@ function hook(st, p) {
 					to: to === undefined ? -1 : to,
 					value: out,
 					mark: st.mark,
+					// A chance - `random(d) < n` - has two outcomes whatever d is.
+					chance: st.n !== undefined && st.n !== null,
 				});
 			}
 			return out;
@@ -591,7 +603,7 @@ function arm(battle, parts, record) {
  * Ordinals count from installation, so the pinning line has to sit at the same
  * point in the recipe that it sat at when the values were found - for
  * reconstruction that is between `>start` and `>player`, which is what puts the
- * gender roll of a genderless set under control too (ENGINEERING.md 7.2).
+ * gender roll of a genderless set under control too (docs/engineering.md 7.2).
  */
 function pin(battle, pairs, record) {
 	const st = install(battle);

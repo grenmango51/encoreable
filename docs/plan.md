@@ -38,7 +38,7 @@ backwards.
 
 Showdown is the *vehicle*, not the target — it is where we develop, validate mechanics, and
 find our first users. To keep the two aligned, we build against Showdown's
-`[Gen 9 Champions] VGC 2026 Reg M-A / M-B` formats from day one, not against any other
+`[Gen 9 Champions] VGC 2026` formats (Reg M-C now, after M-A and M-B) from day one, not against any other
 ruleset. Same rules, same legality, same stat model. Only the **input source** changes
 between phases:
 
@@ -135,7 +135,7 @@ Self-play is the default mode of the API, not a workaround. No second account, n
 
 **The UI is Showdown's own client, unmodified.** A local server holds the position as a real
 room; two browser windows join it, one per side. We write no battle UI at all — that is a hard
-scope guard (`ENGINEERING.md` §0), and a move button written by us is a bug.
+scope guard (`engineering.md` §0), and a move button written by us is a bug.
 
 This is not the Showdex shape, and the analogy is weaker than it looks. Showdex augments a
 battle you are currently playing, injecting into a live client. Encoreable takes a finished
@@ -165,7 +165,7 @@ it had crit" is a coin we flip, not a state we author.
 **B is the eventual necessity, and the hardest.** Needed for positions that never happened,
 for manual setup, and for Champions input where there is no log at all. **Use
 `[Gen 9 Champions] Doubles Custom Game` as the vehicle** — it already exists, keeps Champions
-mechanics, and turns validation and the 66-point cap off (`ENGINEERING.md` §9). Deferred
+mechanics, and turns validation and the 66-point cap off (`engineering.md` §10). Deferred
 because a position is not HP and weather — it is the volatile layer: consecutive-Protect
 counter, Encore turns remaining, Taunt turns, Fake Out eligibility, Choice lock, `lastMove`,
 disabled slots, Tailwind / Trick Room counters, consumed-item flags, the pending action queue.
@@ -180,7 +180,7 @@ study, so by the time we author one from scratch we know exactly what shape it s
 
 **Status: the research is closed.** Four spikes resolved, one deferred with the path it belongs
 to; the PCBL request at the foot of the list is an action item, not a research question, and it
-is still open. Findings are in `ENGINEERING.md` §2, and the scripts that establish them are
+is still open. Findings are in `engineering.md` §2, and the scripts that establish them are
 checked in and re-runnable.
 
 - [x] **Input log availability.** **Yes on a server we host; no on the public ladder.** A
@@ -198,7 +198,7 @@ checked in and re-runnable.
       fallback — the input log is complete and the omniscient log carries exact HP for both
       sides. If the ladder path is ever revisited, state gets rebuilt from the plain protocol
       log; `@pkmn/client` is purpose-built for it. Different work, still viable.
-      See `ENGINEERING.md` §9.
+      See `engineering.md` §10.
 - [x] **Browser sim.** **Not a blocker.** Only `sim/dex.ts` reaches for `fs`/`path`, and only to
       load data off disk.
 - [x] **Stat Point rounding.** **No rounding exists.** The SP→stat map is exact and invertible.
@@ -210,7 +210,7 @@ checked in and re-runnable.
 
 ## 7a. Confirmed findings
 
-The verified findings live in `ENGINEERING.md` §2 — read off the Showdown source and re-checked
+The verified findings live in `engineering.md` §2 — read off the Showdown source and re-checked
 against a running server. Three of them shape this plan.
 
 **Stat Points are exact and perfectly invertible.** At level 50, one Stat Point is one point of
@@ -249,11 +249,11 @@ that started this project.
 **Status: shipped for battles we host.** `npm run live` cuts a recording at any turn, imports
 the position as a live room, and opens the real battle UI on both sides; the replay page's
 **Play from here** button does the same for the turn on screen. RNG control reaches inside the
-live room (`ENGINEERING.md` §4), and a saved ladder replay becomes a branchable battle through
-`npm run reconstruct` (`ENGINEERING.md` §7) without the consent-gated input log. Deterministic
+live room (`engineering.md` §4), and a saved ladder replay becomes a branchable battle through
+`npm run reconstruct` (`engineering.md` §7) without the consent-gated input log. Deterministic
 inference ships for replays that publish team sheets: `--infer p2` narrows the opponent's Stat
 Points to every spread the replay allows and names the move that removed the rest
-(`ENGINEERING.md` §7.5). Still outstanding: showing those ranges inline, and the probabilistic
+(`engineering.md` §7.5). Still outstanding: showing those ranges inline, and the probabilistic
 layer (§10) that ranks what survives.
 
 **Deliverable:** paste a replay, land in the position, play it differently.
@@ -414,9 +414,9 @@ Nobody has built rewind → edit → play forward. That gap is the wedge.
   local server holds the position as a real room and two browser windows join it, one per side.
   No custom battle UI gets built. See §6.
 - **Stat Points** — native, exact, no rounding anywhere in the VGC path. The SP→stat map is
-  perfectly invertible, which is the best case for §10. See `ENGINEERING.md` §2.
+  perfectly invertible, which is the best case for §10. See `engineering.md` §2.
 - **Can the sim run in a browser** — yes. Only `sim/dex.ts` has Node dependencies, and only
-  for data loading. See `ENGINEERING.md` §2.
+  for data loading. See `engineering.md` §2.
 - **Is the input log enough to rebuild a position** — yes, on a server we host. It round-trips
   byte-identically and truncating it at turn N yields a position the server will accept as a
   live room. The public ladder is a separate, consent-gated problem (§7).

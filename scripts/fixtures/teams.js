@@ -74,7 +74,7 @@ Modest Nature
 `.trim();
 
 // p2 — the first four Pokemon exist to remove themselves from the field quickly.
-// Reg M-B requires a six-Pokemon team, but Team Preview brings only four, so the
+// Reg M-C requires a six-Pokemon team, but Team Preview brings only four, so the
 // last two are there for legality and are never selected.
 const P2_EXPORT = `
 Glalie @ Glalitite
@@ -267,11 +267,278 @@ Quiet Nature
 - Sludge Wave
 `.trim();
 
+// cundangcap, Reg M-C — Charizardite Y sun with Venusaur, Scarf Garchomp,
+// Incineroar, Toxapex and Sylveon. The games in recordings/showdown/mine-open/.
+const MC_SUN_EXPORT = `
+Charizard @ Charizardite Y
+Ability: Blaze
+Level: 50
+EVs: 12 HP / 14 Def / 8 SpA / 32 Spe
+Timid Nature
+- Protect
+- Heat Wave
+- Weather Ball
+- Ancient Power
+
+Garchomp @ Choice Scarf
+Ability: Rough Skin
+Level: 50
+EVs: 30 Atk / 4 Def / 32 Spe
+Adamant Nature
+- Dragon Claw
+- Earthquake
+- Rock Slide
+- Stomping Tantrum
+
+Incineroar @ Sitrus Berry
+Ability: Intimidate
+Level: 50
+EVs: 32 HP / 26 Def / 6 SpD / 2 Spe
+Impish Nature
+- Flare Blitz
+- Fake Out
+- Throat Chop
+- Parting Shot
+
+Venusaur @ Life Orb
+Ability: Chlorophyll
+Level: 50
+EVs: 2 HP / 32 SpA / 32 Spe
+Modest Nature
+- Protect
+- Leaf Storm
+- Sludge Bomb
+- Earth Power
+
+Toxapex @ Leftovers
+Ability: Regenerator
+Level: 50
+EVs: 32 HP / 18 Def / 16 SpD
+Relaxed Nature
+- Baneful Bunker
+- Wide Guard
+- Toxic
+- Infestation
+
+Sylveon @ Fairy Feather
+Ability: Pixilate
+Level: 50
+EVs: 19 HP / 30 Def / 14 SpA / 3 Spe
+Modest Nature
+- Detect
+- Yawn
+- Hyper Voice
+- Quick Attack
+`.trim();
+
+// cundangcap, Reg M-C — Pelipper rain and Farigiraf Trick Room behind Armor
+// Tail, Mega Kangaskhan and Mega Mawile, Archaludon, Grapploct.
+const MC_RAIN_EXPORT = `
+Farigiraf @ Sitrus Berry
+Ability: Armor Tail
+Level: 50
+EVs: 32 HP / 21 Def / 1 SpA / 12 SpD
+Relaxed Nature
+- Psychic
+- Rain Dance
+- Helping Hand
+- Trick Room
+
+Archaludon @ Leftovers
+Ability: Stamina
+Level: 50
+EVs: 32 HP / 9 SpA / 25 SpD
+Modest Nature
+- Flash Cannon
+- Dragon Pulse
+- Electro Shot
+- Protect
+
+Pelipper @ Damp Rock
+Ability: Drizzle
+Level: 50
+EVs: 32 HP / 32 SpA / 2 SpD
+Modest Nature
+- Weather Ball
+- Hurricane
+- Tailwind
+- Protect
+
+Mawile @ Mawilite
+Ability: Hyper Cutter
+Level: 50
+Shiny: Yes
+EVs: 32 HP / 32 Atk / 2 SpD
+Adamant Nature
+- Iron Head
+- Play Rough
+- Sucker Punch
+- Protect
+
+Kangaskhan @ Kangaskhanite
+Ability: Scrappy
+Level: 50
+EVs: 14 HP / 32 Atk / 12 Def / 8 SpD
+Adamant Nature
+- Double-Edge
+- Hammer Arm
+- Crunch
+- Fake Out
+
+Grapploct @ Life Orb
+Ability: Technician
+Level: 50
+Shiny: Yes
+EVs: 32 HP / 32 Atk / 2 SpD
+Adamant Nature
+- Storm Throw
+- Stomping Tantrum
+- Mach Punch
+- Detect
+`.trim();
+
+// cundangcap, Reg M-C — Tyranitar sand with Sand Rush Excadrill, Mega
+// Salamence, Sinistcha's Trick Room and Rage Powder, Primarina, Gholdengo.
+const MC_SAND_EXPORT = `
+Tyranitar @ Tyranitarite
+Ability: Sand Stream
+Level: 50
+EVs: 12 HP / 26 Atk / 1 SpD / 27 Spe
+Adamant Nature
+- Rock Slide
+- Knock Off
+- Low Kick
+- Protect
+
+Excadrill @ Focus Sash
+Ability: Sand Rush
+Level: 50
+EVs: 2 HP / 32 Atk / 32 Spe
+Adamant Nature
+- High Horsepower
+- Swords Dance
+- Iron Head
+- Protect
+
+Salamence @ Salamencite
+Ability: Intimidate
+Level: 50
+EVs: 1 HP / 32 SpA / 1 SpD / 32 Spe
+Timid Nature
+- Hyper Voice
+- Flamethrower
+- Tailwind
+- Protect
+
+Sinistcha @ Sitrus Berry
+Ability: Hospitality
+Level: 50
+EVs: 31 HP / 10 Def / 25 SpD
+Calm Nature
+- Matcha Gotcha
+- Rage Powder
+- Trick Room
+- Protect
+
+Primarina @ Life Orb
+Ability: Liquid Voice
+Level: 50
+EVs: 26 HP / 3 Def / 14 SpA / 23 Spe
+Modest Nature
+- Moonblast
+- Hyper Voice
+- Dazzling Gleam
+- Protect
+
+Gholdengo @ Leftovers
+Ability: Good as Gold
+Level: 50
+EVs: 31 HP / 2 Def / 17 SpA / 1 SpD / 15 Spe
+Modest Nature
+- Make It Rain
+- Shadow Ball
+- Nasty Plot
+- Protect
+`.trim();
+
+// cundangcap, Reg M-C — Politoed rain with Perish Song from Politoed and Mega
+// Gengar, Vivillon's Sleep Powder and Rage Powder, Incineroar, Rillaboom,
+// Kommo-o.
+const MC_PERISH_EXPORT = `
+Vivillon @ Focus Sash
+Ability: Compound Eyes
+Level: 50
+EVs: 9 Def / 25 SpA / 32 Spe
+Timid Nature
+- Sleep Powder
+- Rage Powder
+- Hurricane
+- Protect
+
+Politoed @ Sitrus Berry
+Ability: Drizzle
+Level: 50
+EVs: 32 HP / 24 Def / 10 SpD
+Calm Nature
+- Weather Ball
+- Perish Song
+- Encore
+- Protect
+
+Gengar @ Gengarite
+Ability: Cursed Body
+Level: 50
+EVs: 30 HP / 18 Def / 11 SpD / 7 Spe
+Modest Nature
+- Shadow Ball
+- Sludge Bomb
+- Perish Song
+- Protect
+
+Incineroar @ Passho Berry
+Ability: Intimidate
+Level: 50
+EVs: 31 HP / 21 Def / 14 SpD
+Relaxed Nature
+- Protect
+- Fake Out
+- Flare Blitz
+- Parting Shot
+
+Rillaboom @ Occa Berry
+Ability: Grassy Surge
+Level: 50
+EVs: 32 HP / 5 Atk / 29 SpD
+Adamant Nature
+- Fake Out
+- Grassy Glide
+- U-turn
+- Protect
+
+Kommo-o @ Leftovers
+Ability: Soundproof
+Level: 50
+EVs: 10 HP / 1 Def / 22 SpA / 1 SpD / 32 Spe
+Modest Nature
+- Clanging Scales
+- Clangorous Soul
+- Aura Sphere
+- Protect
+`.trim();
+
 // Named matchups. `fixture` is the scripted harness pair; `alt` is a
-// full-length battle between two real teams.
+// full-length battle between two real teams. The rest are your own teams for
+// replays against someone who did not share a sheet: one side only, which
+// `--teams` gives to whichever side its species match.
 const TEAM_SETS = {
   fixture: { p1: P1_EXPORT, p2: P2_EXPORT },
   alt: { p1: P1_ALT_EXPORT, p2: P2_ALT_EXPORT },
+  'mc-sun': { p1: MC_SUN_EXPORT },
+  'mc-rain': { p1: MC_RAIN_EXPORT },
+  'mc-sand': { p1: MC_SAND_EXPORT },
+  'mc-perish': { p1: MC_PERISH_EXPORT },
 };
 
-module.exports = { P1_EXPORT, P2_EXPORT, P1_ALT_EXPORT, P2_ALT_EXPORT, TEAM_SETS };
+module.exports = {
+  P1_EXPORT, P2_EXPORT, P1_ALT_EXPORT, P2_ALT_EXPORT, MC_SUN_EXPORT, MC_RAIN_EXPORT, MC_SAND_EXPORT, MC_PERISH_EXPORT, TEAM_SETS,
+};

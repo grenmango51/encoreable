@@ -61,7 +61,7 @@ export function armLine(spec) {
  *
  * The split point comes from `truncateAtTurn`, which replays the log one line at
  * a time rather than counting - a faint replacement adds an extra `>pN switch`
- * mid-turn, so index arithmetic cuts in the wrong place (ENGINEERING.md 5.8).
+ * mid-turn, so index arithmetic cuts in the wrong place (docs/engineering.md 5.8).
  *
  * The header is trimmed the same way the cut was: a reconstructed recording
  * carries its dice as `>rng at` pins, and the ones belonging to turns after the
@@ -153,7 +153,7 @@ export async function replayControlled(inputLog) {
 
 /**
  * `CLEAN` / `TRUNCATED` / `REJECTED`, the three ways a branch can end
- * (ENGINEERING.md 5.2).
+ * (docs/engineering.md 5.2).
  */
 export function verdict(run) {
   if (run.errors.length) return 'REJECTED';

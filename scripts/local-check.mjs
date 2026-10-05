@@ -24,9 +24,9 @@ if (fs.existsSync(configPath)) {
 // Test format loading dynamically from the provisioned runtime
 import('file://' + path.join(RUNTIME_DIR, 'dist', 'sim', 'dex.js')).then((mod) => {
   const Dex = mod.default.Dex;
-  const format = Dex.formats.get('gen9championsvgc2026regmb');
+  const format = Dex.formats.get('gen9championsvgc2026regmc');
   if (!format.exists) {
-    console.error('FAIL: Format gen9championsvgc2026regmb not found in the simulator.');
+    console.error('FAIL: Format gen9championsvgc2026regmc not found in the simulator.');
     process.exit(1);
   }
   console.log('PASS: loopback configuration and format verification successful.');

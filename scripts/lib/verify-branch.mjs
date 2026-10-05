@@ -10,9 +10,9 @@
  *      line for line, so the position on screen was the position in the sim.
  *
  * `>player` lines are compared separately: joining a slot writes a fresh
- * `>player pN {...}` into the stream (`server/room-battle.ts:1146`), so they turn
+ * `>player pN {...}` into the stream (`server/room-battle.ts:1147`), so they turn
  * up interleaved with choices. They replay cleanly - `setPlayer` takes an edit
- * branch for a side that already exists (`sim/battle.ts:3223`) - and are not
+ * branch for a side that already exists (`sim/battle.ts:3226`) - and are not
  * corruption.
  *
  * `>reseed` is treated the same way. A branch launched from the replay button

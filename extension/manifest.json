@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Encoreable",
+  "version": "0.1.0",
+  "description": "Replay the position, not the video: restore a Showdown battle to any turn and play it forward, both sides, in the real battle UI.",
+  "minimum_chrome_version": "111",
+  "permissions": ["storage"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Encoreable recordings" },
+  "content_scripts": [
+    {
+      "matches": ["https://play.pokemonshowdown.com/*", "https://replay.pokemonshowdown.com/*"],
+      "js": ["bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://play.pokemonshowdown.com/*"],
+      "js": ["room.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://play.pokemonshowdown.com/*"],
+      "js": ["rng-panel.js"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://replay.pokemonshowdown.com/*"],
+      "js": ["replay-page.js"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["sim-worker.js"],
+      "matches": ["https://play.pokemonshowdown.com/*"]
+    }
+  ]
+}
