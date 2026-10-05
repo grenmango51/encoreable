@@ -42,7 +42,9 @@ const ROOT = process.cwd();
 const EXT = path.join(ROOT, 'extension');
 const SRC = path.join(EXT, 'src');
 const DIST = path.join(EXT, 'dist');
-const PS = path.join(ROOT, 'node_modules', 'pokemon-showdown', 'dist');
+// Resolved the way Node resolves it, so a checkout whose node_modules sits in a parent folder builds too.
+const packageDir = name => path.dirname(require.resolve(`${name}/package.json`));
+const PS = path.join(packageDir('pokemon-showdown'), 'dist');
 
 /** Mods whose data is embedded. Every mod is still listed, so every format loads. */
 const BUNDLED_MODS = ['champions', 'championsregmb'];
@@ -203,8 +205,8 @@ const ENTRIES = [
 const STATIC = [
   { from: path.join(EXT, 'manifest.json'), to: 'manifest.json' },
   { from: path.join(SRC, 'recordings.html'), to: 'recordings.html' },
-  { from: path.join(ROOT, 'node_modules', 'pokemon-showdown', 'LICENSE'), to: 'licenses/pokemon-showdown.txt' },
-  { from: path.join(ROOT, 'node_modules', 'ts-chacha20', 'LICENSE'), to: 'licenses/ts-chacha20.txt' },
+  { from: path.join(packageDir('pokemon-showdown'), 'LICENSE'), to: 'licenses/pokemon-showdown.txt' },
+  { from: path.join(packageDir('ts-chacha20'), 'LICENSE'), to: 'licenses/ts-chacha20.txt' },
 ];
 
 export async function build({ quiet = false } = {}) {

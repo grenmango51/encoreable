@@ -875,6 +875,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
     }
     const targetStates = hit.targetHp ? [...tStates.values()] : [null];
+    // An attacker no spread fits has no states, and its hit narrows no attacker.
     hit.sStates = sStates.length ? sStates : [null];
 
     hit.rows = new Map();
@@ -984,7 +985,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       rollAt: hit.rollAt,
       via,
       dealtBy: S,
-      sourceStates: hit.sourceHp || hit.extra ? hit.sStates : null,
+      sourceStates: (hit.sourceHp || hit.extra) && hit.sStates[0] !== null ? hit.sStates : null,
       extra: hit.extra || null,
       move: ctx.effect,
       // Recoil and drain read the user's own attacking stat off the same hit;
@@ -1940,7 +1941,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       : hit.offDim ? { rec: hit.A, dim: hit.off } : { rec: hit.A, stat: hit.off };
     return {
       dim: hit.def, table, rolls, rollAt: hit.rollAt, via, noDealt: true,
-      dealtBy: hit.S, sourceStates: hit.sourceHp || hit.extra ? hit.sStates : null, extra: hit.extra || null,
+      dealtBy: hit.S, sourceStates: (hit.sourceHp || hit.extra) && hit.sStates[0] !== null ? hit.sStates : null, extra: hit.extra || null,
       turn: battle.turn, what: `${named(hit.S)}'s ${hit.clone.name} ${broke ? 'broke' : 'did not break'} ${named(T)}'s Substitute`,
     };
   }

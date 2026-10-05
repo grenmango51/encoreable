@@ -117,6 +117,9 @@ function planSegment(segment, dex) {
   // Ally Switch moves two Pokemon between slots mid-turn, and the lines after
   // it name the new slots; a choice belongs to the slot its Pokemon chose from.
   const startOf = { p1: [0, 1, 2], p2: [0, 1, 2] };
+  // A Pokemon Encored before it moves uses the Encored move, not the one it
+  // chose, so its move line says nothing about its choice.
+  const encored = new Set();
 
   for (const [i, line] of segment.entries()) {
     const parts = line.split('|');
@@ -146,7 +149,13 @@ function planSegment(segment, dex) {
       continue;
     }
 
+    if (kind === '-start' && /Encore$/.test(parts[3] || '')) {
+      encored.add(parts[2]);
+      continue;
+    }
+
     if (kind === 'move') {
+      if (encored.has(parts[2])) continue;
       const from = tagsOf(line).from;
       // A `[from]` move was executed by something other than a fresh choice -
       // Copycat, Instruct, Dancer, Magic Bounce, Sleep Talk. `lockedmove` is the
