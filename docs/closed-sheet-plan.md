@@ -4,7 +4,7 @@
 **Task:** infer the opponent's item, ability and nature, and its Stat Points under each, from a
 replay with no team sheet, by elimination with the simulator deciding, the way `engineering.md`
 §7.5 infers Stat Points from an open one; and prove it with battles built for the purpose.
-**Read first:** `CLAUDE.md`, `engineering.md` §7.5–§7.6 and §9, `evidence-catalog.md` §4,
+**Read first:** `AGENTS.md`, `engineering.md` §7.5–§7.6 and §9, `evidence-catalog.md` §4,
 `evidence-closed-sheets.md` §0–§2, and `open-sheet-plan.md`, whose harness this plan uses.
 **Starts after:** `open-sheet-plan.md` Phase 1 at the least, and ideally all of it: closed sheets
 multiply every open-sheet gap by the number of sets a Pokemon could have.
@@ -397,7 +397,7 @@ command table for `--sheets closed`, and regenerate both reports.
 
 ## 6. Files
 
-| File | Change | `CLAUDE.md` row |
+| File | Change | `AGENTS.md` row |
 |---|---|---|
 | `scripts/local-reconstruct.mjs` | Phase 0: `--sheets closed`; the report of sets | existing command |
 | `scripts/lib/replay-source.mjs` | Phase 1: `setsFromLog`; Phase 2: candidate lists | existing machinery |

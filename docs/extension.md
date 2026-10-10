@@ -109,7 +109,7 @@ come from upstream. Injecting into the live page is the plan.
 ## 4. Step 0 — probe the live site
 
 **The go/no-go.** Each probe names what it decides. Probe scripts are scratch and live outside
-the repo (`CLAUDE.md`). Run by hand in DevTools, or from headless Chrome over the DevTools
+the repo (`AGENTS.md`). Run by hand in DevTools, or from headless Chrome over the DevTools
 protocol. P1–P8 send nothing to the server beyond the page's ordinary guest connection.
 
 - [x] **P1 — which client is live.** `typeof app`, `typeof PS` on the default page.
@@ -244,7 +244,7 @@ Two things the checks rest on:
 
 ## 7. Where the code goes
 
-In `extension/`, each part with its own row in the `CLAUDE.md` file table:
+In `extension/`, each part with its own row in the `AGENTS.md` file table:
 - `src/`: browser code, bundled by `npm run extension` (`scripts/local-extension.mjs`, `extension.bat`)
 - `src/node/`: the Node stand-ins
 - `check/`: the checks in §5

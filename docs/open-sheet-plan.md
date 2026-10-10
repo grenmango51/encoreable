@@ -4,7 +4,7 @@
 **Task:** finish Stat Point inference for replays that publish team sheets, so that
 `npm run reconstruct -- --infer p2` on any Reg M-C replay you played in keeps every spread the replay
 allows and removes every spread it rules out, and prove it with battles built for the purpose.
-**Read first:** `CLAUDE.md` (where a file goes), `engineering.md` §7.5 and §9, `evidence-catalog.md`,
+**Read first:** `AGENTS.md` (where a file goes), `engineering.md` §7.5 and §9, `evidence-catalog.md`,
 `evidence-open-sheets.md` §0–§2.
 **Done when:** every item in §6 holds.
 **Verified against:** `pokemon-showdown` at `a5df827`, `scripts/lib/inference/` and the catalog
@@ -109,7 +109,7 @@ reads nothing unless the rebuild's current guess of max HP divides evenly — wh
    the inference, the affected kinds are rerun (`npm run catalog -- --kind <kind> --out <dir>`) and
    nothing new is UNSOUND. A change to `scripts/lib/inference/` also runs `npm run extension --
    --check`: the extension bundles the inference with browser stand-ins, so a new hook can break it.
-5. **Files.** Every file this plan touches is listed in §5 with its row in `CLAUDE.md`. Anything else
+5. **Files.** Every file this plan touches is listed in §5 with its row in `AGENTS.md`. Anything else
    is a new file the table does not place: stop and ask the user for it by name, one file at a time.
    A scratch script that builds a battle lives in the session scratchpad and is deleted.
 6. **Commits.** One per step, the message saying what now happens, like the existing history ("Read
@@ -416,7 +416,7 @@ reports with a full run.
 
 Every file this plan writes, and why the table allows it.
 
-| File | Change | `CLAUDE.md` row |
+| File | Change | `AGENTS.md` row |
 |---|---|---|
 | `scripts/local-catalog.mjs` | Phase 1: the Mega choice, refused templates, Mega abilities, `worlds`, sweep, `probe` | existing command |
 | `scripts/fixtures/catalog.js` | Phases 1–4: hand-set battles | existing fixture |

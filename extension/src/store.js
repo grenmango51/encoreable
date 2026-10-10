@@ -4,7 +4,7 @@
  * content scripts run on.
  *
  * A recording is kept as the exact text of its `.log.json`, so exporting gives
- * back the bytes that were imported. It cannot be regenerated (`CLAUDE.md`), so
+ * back the bytes that were imported. It cannot be regenerated (`AGENTS.md`), so
  * the only way one leaves is an explicit delete.
  */
 

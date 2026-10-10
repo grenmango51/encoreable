@@ -117,7 +117,7 @@ with the command that reruns that one battle.
 | `docs/evidence-by-hand.md` | Every move, ability and item read by hand: in what situation each can reveal a Stat Point, an item, an ability or a nature. Hypotheses; the plans below hold what was checked. |
 | `docs/open-sheet-plan.md` | What is left to build for Stat Point inference on open team sheets, in order, with the battles that test it. |
 | `docs/closed-sheet-plan.md` | How to infer item, ability and nature on closed team sheets, in order, with the battles that test it. |
-| `CLAUDE.md` | Where a new file goes. Read it before adding one. |
+| `AGENTS.md` | Where a new file goes. Read it before adding one. |
 
 ---
 
