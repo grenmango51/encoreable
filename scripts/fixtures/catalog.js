@@ -1341,6 +1341,15 @@ const cells = {
   'move:healingwish': {
     'read:HP': 'onTryHit faints its user, and the replacement is healed to full (100/100 at any max HP) and cured; nothing it prints depends on a Stat Point.',
   },
+  'ability:angerpoint': {
+    'read:HP': 'onHit reads target.hp only to ask whether the holder is still alive (data/abilities.ts:133) before a critical hit maximises its Attack; the Atk channel is USED.',
+  },
+  'ability:receiver': {
+    'read:HP': 'onAllyFaint reads the holder\'s hp only to ask whether it is alive (data/abilities.ts:3789) before it takes the fainted ally\'s ability; the Atk channel is USED.',
+  },
+  'ability:galewings': {
+    'read:HP': 'onModifyPriority asks whether the holder is at full HP (data/abilities.ts:1590), which its own percentage already says: the Champions display prints 100/100 only at hp === maxhp (Math.floor in getHealth, sim/pokemon.ts:2068), so the gate depends on no Stat Point; the Spe channel is USED.',
+  },
 };
 for (const [key, cell] of Object.entries(cells)) entries[key] = { ...(entries[key] || {}), cells: cell };
 
