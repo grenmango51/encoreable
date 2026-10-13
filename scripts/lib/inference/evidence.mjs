@@ -1473,7 +1473,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   /**
    * `oozed` is the heal a Liquid Ooze damage replaced: the same amount, read
    * the same way, through the simulator's own Liquid Ooze. `dice` are what the
-   * real `Damage` event threw; `wisher` made the Wish a heal came from;
+   * real `Damage` event threw; `wisher` is the maker of the effect a heal
+   * came from, `{ pokemon, stored }`, with the tag of the heal it stored;
    * `before` is the HP the Pokemon was on before the change.
    */
   function effectChange(T, kind, raw, effect, other, direct = false, oozed = null, dice = null, wisher = null, before = null) {
@@ -1496,17 +1497,33 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         || (active.chloroblastRecoil && id === 'recoil'))) {
       return runChange(T, 'cost', () => actions.applyRecoilDamage(0, active, T.pokemon), `${active.name}'s cost to ${named(T)}`);
     }
-    // Wish heals half its maker's max HP: the Pokemon's own share when it made
-    // it, a fixed amount when its maker's HP stat is known, and otherwise one
-    // amount per HP Stat Point its maker could have, which the healed
-    // Pokemon's display narrows both ways.
-    if (id === 'wish' && kind === 'heal' && wisher && wisher !== T.pokemon) {
-      const W = byPokemon.get(wisher);
+    // Wish heals the number its maker's `onStart` stored, half the maker's max
+    // HP, tagged per candidate (`STORED`): a fixed amount when nothing hidden
+    // moves it; when the maker is the healed Pokemon itself, the amount its
+    // own max HP stored, exact for each candidate; and otherwise one amount
+    // per HP Stat Point the maker could have, which the healed Pokemon's
+    // display narrows both ways. A number with no tag is read as half the
+    // maker's max HP at each of its Stat Points.
+    const W = id === 'wish' && kind === 'heal' && wisher ? byPokemon.get(wisher.pokemon) : null;
+    const tag = W ? wisher.stored : null;
+    if (tag && (!tag.owner || tag.owner === W)
+      && (tag.owner ? tag.at(fullEvs(W.pokemon.set.evs).hp) : tag.start) === raw) {
+      if (!tag.owner) return amountChange(T, kind, () => [tag.start], ctx, what);
+      if (W === T) {
+        const at = new Map();
+        for (let v = 0; v < SPAN; v++) if (!at.has(maxHp(T, v))) at.set(maxHp(T, v), tag.at(v));
+        return amountChange(T, kind, M => [at.get(M)], ctx, `Wish from ${named(T)} on itself`);
+      }
+      const hps = [...new Set([...(W.chain ? W.chain.keys() : W.knKeys)].map(k => KEY_HP[k]))];
+      return statAmountChange(T, kind, new Map(hps.map(v => [v, tag.at(v)])), { rec: W, dim: 'hp' }, ctx, `Wish from ${named(W)} on ${named(T)}`);
+    }
+    if (W) note(what, 'the heal its maker stored was not asked per candidate, so it was not read off that');
+    if (id === 'wish' && kind === 'heal' && wisher && wisher.pokemon !== T.pokemon) {
       if (!W) return band(dir, what);
       if (W.kn.known) return amountChange(T, kind, () => [raw], ctx, what);
       const hps = [...new Set([...(W.chain ? W.chain.keys() : W.knKeys)].map(k => KEY_HP[k]))];
       const amounts = new Map(hps.map(v => [v, maxHp(W, v) / 2]));
-      if (amounts.get(fullEvs(wisher.set.evs).hp) !== raw) {
+      if (amounts.get(fullEvs(W.pokemon.set.evs).hp) !== raw) {
         note(what, 'its maker\'s max HP at its own Stat Points did not give the amount healed, so it was not used');
         return band(dir, what);
       }
@@ -2255,7 +2272,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       let e = effect;
       if (this.event) { t ||= this.event.target; s ||= this.event.source; e ||= this.effect; }
       if (t && byPokemon.has(t)) {
-        const ctx = { raw: damage, source: s, effect: e, wisher: this.effectState?.source ?? null };
+        // The state of the effect healing, when it has a maker: a Wish's, with
+        // the number it stored.
+        const made = this.effectState?.source;
+        const wisher = made ? { pokemon: made, stored: this.effectState[STORED]?.hp ?? null } : null;
+        const ctx = { raw: damage, source: s, effect: e, wisher };
         healContext.set(t, ctx);
         const healed = origHeal.call(this, damage, target, source, effect);
         if (!healed && healContext.get(t) === ctx) healContext.delete(t);
