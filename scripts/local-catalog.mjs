@@ -1734,7 +1734,11 @@ function worldsText(s) {
   }).join(' · ');
 }
 
-function openCard(record) {
+/** The written reasons an entry gives for single rows of its card, by `<role letter>:<Stat>` or `read:<Stat>`. */
+const cellsOf = (entries, key) => entries?.[key]?.cells || {};
+const cellOf = g => `${ROLE_LETTER[g.role]}:${STAT_NAME[g.stat]}`;
+
+function openCard(record, entries) {
   const out = [];
   const meta = record.kind === 'move' ? `${record.meta.category} · ${record.meta.type} · ${record.meta.users} users` : `${record.meta.users} ${record.kind === 'condition' ? 'setters' : 'holders'}`;
   out.push(`#### ${record.name} · \`${record.key}\``, '');
@@ -1781,6 +1785,7 @@ function openCard(record) {
   }
   for (const t of record.templates.filter(x => x.why)) out.push(`Template ${t.key}${t.probe ? ` (probes ${t.probe})` : ''}: ${t.why}`, '');
   if (record.open.why) out.push(`Reason: ${record.open.why}`, '');
+  for (const [cell, why] of Object.entries(cellsOf(entries, record.key))) out.push(`Reason for ${cell}: ${why}`, '');
   if (record.note) out.push(`Note: ${record.note}`, '');
   return out;
 }
@@ -1792,9 +1797,10 @@ function unreadStats(record) {
   return record.scan.stats.filter(s => !shown.has(s));
 }
 
-function renderOpen(records, pool) {
+function renderOpen(records, pool, entries = FIXTURE.entries) {
   const out = header('Evidence, open team sheets — what every legal effect lets reach the log about Stat Points', pool);
   const open = records.filter(r => r.kind !== 'nature');
+  const cellReason = (r, cell) => cellsOf(entries, r.key)[cell] || null;
   out.push('## 0. How to read a card', '');
   out.push('Each effect was put in small battles in the real format, its **templates**. In each, the hidden Pokemon (p2a)');
   out.push('had every Stat Point at 2 except one, set to 0 in one world and 32 in the other. A **change** is a line of the');
@@ -1836,10 +1842,11 @@ function renderOpen(records, pool) {
   out.push('holds it and acts on the hidden Pokemon, `A` a hand-set battle that varies the hidden Pokemon\'s ally (p2b) instead.');
   out.push('A hand-set battle may also name its two worlds, or sweep a stat over every value 0–32 and ask about each two');
   out.push('adjacent values the known side\'s view tells apart; such a row names its pair, `HP 13|14`. A card may carry a');
-  out.push('written **Reason** the effect cannot carry a Stat Point on an open sheet, and a template a choice **the battle');
-  out.push('overrode** — a lock, a trap, a barred move, a Pokemon that had left — with why. At most three changed lines per');
-  out.push('stat are shown. `npm run catalog -- --dump <effect> <role/template> <stat> <value>` prints the battle behind any');
-  out.push('row and what the rebuild made of it.');
+  out.push('written **Reason** the effect cannot carry a Stat Point on an open sheet, or a **Reason for** one row of it —');
+  out.push('`T:Spe` for a verdict row, `read:HP` for a stat its handlers read unseen — which takes that row off the work list;');
+  out.push('and a template a choice **the battle overrode** — a lock, a trap, a barred move, a Pokemon that had left — with');
+  out.push('why. At most three changed lines per stat are shown. `npm run catalog -- --dump <effect> <role/template> <stat>');
+  out.push('<value>` prints the battle behind any row and what the rebuild made of it.');
   out.push('');
 
   // Summary.
@@ -1865,6 +1872,25 @@ function renderOpen(records, pool) {
   }
   out.push('', 'Counted per (effect, role, stat, mechanism), as in 1.1.', '');
 
+  // What is left, against what has a written reason it cannot carry a Stat Point.
+  const left = verdict => all.filter(g => g.verdict === verdict);
+  const reasonedRow = g => !!cellReason(g.r, cellOf(g));
+  const notShownAll = open.filter(r => r.open.outcome === 'NOT SHOWN');
+  const reads = open.filter(r => r.kind !== 'condition' && r.open.outcome !== 'NOT SHOWN').flatMap(r => unreadStats(r).map(stat => ({ r, stat })));
+  const reasonedRead = x => !!cellReason(x.r, `read:${STAT_NAME[x.stat]}`);
+  out.push('### 1.3 What is left', '');
+  out.push('| List | Rows | With a written reason | Work |', '|---|---|---|---|');
+  for (const [label, list, reasoned] of [
+    ['UNUSED (§2.2)', left('UNUSED'), reasonedRow],
+    ['MASKED (§2.4)', left('MASKED'), reasonedRow],
+    ['NOT SHOWN (§2.5)', notShownAll, r => !!r.open.why],
+    ['Scan reads with no change (§2.6)', reads, reasonedRead],
+  ]) {
+    const n = list.filter(reasoned).length;
+    out.push(`| ${label} | ${list.length} | ${n} | ${list.length - n} |`);
+  }
+  out.push('', 'UNUSED and MASKED count (effect, role, stat, mechanism), as in 1.1; NOT SHOWN counts effects; a scan read counts (effect, stat). A row with a written reason is listed under its section apart from the work.', '');
+
   // Work lists, one row per effect, role, stat and mechanism, heaviest first.
   out.push('## 2. Work list', '');
   out.push('One row per effect, role, stat and mechanism, with the verdict §0 gives it. `Templates` names the battles that');
@@ -1873,6 +1899,13 @@ function renderOpen(records, pool) {
     .map(g => ({ ...g, those: g.list.filter(s => s.verdict === g.verdict) }))
     .sort((a, b) => b.r.weight - a.r.weight || a.r.key.localeCompare(b.r.key) || a.role.localeCompare(b.role) || STATS.indexOf(a.stat) - STATS.indexOf(b.stat) || a.mech.localeCompare(b.mech));
   const names = those => [...new Set(those.map(s => s.template.split('/')[1]))].join(', ');
+  const withReason = (list) => {
+    if (!list.length) return;
+    out.push('Not work — with a written reason:', '');
+    out.push('| Effect | Weight | Role | Stat | Mech | Templates | Reason |', '|---|---|---|---|---|---|---|');
+    for (const u of list) out.push(`| \`${u.r.key}\` | ${u.r.weight} | ${ROLE_LETTER[u.role]} | ${STAT_NAME[u.stat]} | ${u.mech} | ${names(u.those)} | ${esc(cellReason(u.r, cellOf(u)))} |`);
+    out.push('');
+  };
   out.push('### 2.1 UNSOUND — fix before anything else', '');
   const unsound = picked(['UNSOUND']);
   if (!unsound.length) out.push('None.', '');
@@ -1887,7 +1920,7 @@ function renderOpen(records, pool) {
   }
   out.push('### 2.2 UNUSED, by score', '');
   out.push('Score = weight × information: 3 for a `known exact` line, 2 for `hidden %`, 1 otherwise.', '');
-  const unused = picked(['UNUSED']).map(u => ({ ...u, info: Math.max(...u.those.flatMap(s => s.rows.map(x => INFO[x.sink] || 1))) }))
+  const unused = picked(['UNUSED']).filter(u => !reasonedRow(u)).map(u => ({ ...u, info: Math.max(...u.those.flatMap(s => s.rows.map(x => INFO[x.sink] || 1))) }))
     .map(u => ({ ...u, score: u.r.weight * u.info }))
     .sort((a, b) => b.score - a.score || a.r.key.localeCompare(b.r.key) || a.role.localeCompare(b.role) || STATS.indexOf(a.stat) - STATS.indexOf(b.stat));
   if (!unused.length) out.push('None.', '');
@@ -1899,6 +1932,7 @@ function renderOpen(records, pool) {
     }
     out.push('');
   }
+  withReason(picked(['UNUSED']).filter(reasonedRow));
   out.push('### 2.3 REBUILD-FAILED and ERROR', '');
   out.push('The first line the rebuild got wrong, as its last round compared it: turns the inference had already pinned are compared on exact HP, so a hidden figure can show exactly here.', '');
   const failed = picked(['REBUILD-FAILED', 'ERROR']);
@@ -1916,7 +1950,7 @@ function renderOpen(records, pool) {
   }
   out.push('### 2.4 MASKED — told apart by the battle itself; the effect\'s own line cut nothing more', '');
   out.push('Each needs a battle in which nothing else carries the stat, to say whether the inference reads the line.', '');
-  const masked = picked(['MASKED']);
+  const masked = picked(['MASKED']).filter(u => !reasonedRow(u));
   if (!masked.length) out.push('None.', '');
   else {
     out.push('| Effect | Weight | Role | Stat | Mech | Templates | The effect\'s line, at 0 |', '|---|---|---|---|---|---|---|');
@@ -1926,6 +1960,7 @@ function renderOpen(records, pool) {
     }
     out.push('');
   }
+  withReason(picked(['MASKED']).filter(reasonedRow));
   out.push('### 2.5 NOT SHOWN — no template made the effect act where a replay would see it', '');
   out.push('Each needs a hand-set template (`scripts/fixtures/catalog.js`), or a written reason that it cannot carry a Stat Point on an open sheet.', '');
   const notShown = open.filter(r => r.open.outcome === 'NOT SHOWN').sort((a, b) => b.weight - a.weight || a.key.localeCompare(b.key));
@@ -1948,11 +1983,18 @@ function renderOpen(records, pool) {
   }
   out.push('### 2.6 Scan reads with no change', '');
   out.push('The handlers read the stat and no battle here changed a line with it: a template that reaches the read, or a written reason.', '');
-  const flagged = open.filter(r => r.kind !== 'condition' && r.open.outcome !== 'NOT SHOWN' && unreadStats(r).length);
+  const flagged = [...new Set(reads.filter(x => !reasonedRead(x)).map(x => x.r))];
   if (!flagged.length) out.push('None.', '');
   else {
     out.push('| Effect | Outcome | Stats read, unseen |', '|---|---|---|');
-    for (const r of flagged) out.push(`| \`${r.key}\` | ${r.open.outcome} | ${unreadStats(r).map(s => STAT_NAME[s]).join(', ')} |`);
+    for (const r of flagged) out.push(`| \`${r.key}\` | ${r.open.outcome} | ${reads.filter(x => x.r === r && !reasonedRead(x)).map(x => STAT_NAME[x.stat]).join(', ')} |`);
+    out.push('');
+  }
+  const readReasons = reads.filter(reasonedRead);
+  if (readReasons.length) {
+    out.push('Not work — with a written reason:', '');
+    out.push('| Effect | Outcome | Stat | Reason |', '|---|---|---|---|');
+    for (const x of readReasons) out.push(`| \`${x.r.key}\` | ${x.r.open.outcome} | ${STAT_NAME[x.stat]} | ${esc(cellReason(x.r, `read:${STAT_NAME[x.stat]}`))} |`);
     out.push('');
   }
   out.push('### 2.7 Set aside by the inference\'s own check', '');
@@ -1992,7 +2034,7 @@ function renderOpen(records, pool) {
         out.push(`| ${r.name} | ${r.meta.category} | ${r.meta.users} | ${r.open.outcome}${r.open.why ? `: ${esc(r.open.why)}` : ''} | ${esc(r.templates.map(t => `${ROLE_LETTER[t.role]} ${t.name}: ${!t.acted ? `failed (${t.failedBy})` : t.visible ? 'acted' : 'changed nothing'}`).join('; '))} |`);
       }
       out.push('', '### 3.3 Every other move', '');
-      for (const r of rest.filter(x => x.open.outcome === 'CHANNEL')) out.push(...openCard(r));
+      for (const r of rest.filter(x => x.open.outcome === 'CHANNEL')) out.push(...openCard(r, entries));
     } else if (kind === 'condition') {
       out.push('A condition has no battle of its own. Its rows are the changes other effects\' battles printed with it in `[from]`.', '');
       out.push('A line tagged with a condition\'s name is `[from] <it>`, or one that starts it; a condition that acts through `|cant|` or `-singleturn` (a flinch, Protect) is never tagged, and says nothing here either way.', '');
@@ -2009,7 +2051,7 @@ function renderOpen(records, pool) {
       out.push(`| ${kind === 'item' ? 'Item' : 'Ability'} | Holders | Outcome | Scan reads |`, '|---|---|---|---|');
       for (const r of list.filter(x => x.open.outcome !== 'CHANNEL')) out.push(`| ${r.name} | ${r.meta.users} | ${r.open.outcome}${r.open.why ? `: ${esc(r.open.why)}` : ''} | ${r.scan?.reads.join(', ') || '—'} |`);
       out.push('', `### ${num}.2 Cards`, '');
-      for (const r of list.filter(x => x.open.outcome === 'CHANNEL')) out.push(...openCard(r));
+      for (const r of list.filter(x => x.open.outcome === 'CHANNEL')) out.push(...openCard(r, entries));
     }
   }
   return `${out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`;
@@ -2791,7 +2833,7 @@ async function main() {
     const conditions = partial ? [] : conditionRecords(records, pool);
     all = [...records, ...conditions].sort((a, b) => KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind) || a.key.localeCompare(b.key));
   }
-  const open = renderOpen(all, pool);
+  const open = renderOpen(all, pool, loadEntries(inputs));
   const closed = renderClosed(all, pool);
   console.log(`done in ${((Date.now() - started) / 1000).toFixed(0)}s`);
 

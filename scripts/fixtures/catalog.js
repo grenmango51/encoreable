@@ -147,6 +147,11 @@ const quietAbilities = [
  *              node_modules/pokemon-showdown file:line
  *   reason     why the effect cannot carry a Stat Point on an open sheet; the
  *              card prints it, and NOT SHOWN with a reason is not work
+ *   cells      why one row of the effect's card cannot carry its Stat Point,
+ *              keyed by the row as the report names it: '<role letter>:<Stat>'
+ *              for a verdict row ('O:SpD', 'T:Spe'), 'read:<Stat>' for a stat
+ *              a handler reads that no battle changed a line with ('read:HP');
+ *              the card prints it, and the row is no longer work
  *   mechanism  { stat: 'M1'..'M9' } overriding the rule for that stat
  *   note       shown on the effect's card as written
  *
@@ -1274,5 +1279,14 @@ const reasons = {
   'move:sludgewave': 'Def cell: the move is special, so its own lines read SpD and HP (USED) and the target\'s poison tick; Defence is carried only by the physical witness hit that masked it.',
 };
 for (const [key, reason] of Object.entries(reasons)) entries[key] = { ...(entries[key] || {}), reason };
+
+/**
+ * Rows of an effect's card that cannot carry their Stat Point, with why: a
+ * MASKED or UNUSED row by '<role letter>:<Stat>', a stat a handler reads that
+ * no battle changed a line with by 'read:<Stat>'. Each is its entry's `cells`.
+ */
+const cells = {
+};
+for (const [key, cell] of Object.entries(cells)) entries[key] = { ...(entries[key] || {}), cells: cell };
 
 module.exports = { cast, pacers, hits, witnessMoves, quietAbilities, entries };
