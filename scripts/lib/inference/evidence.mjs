@@ -1559,6 +1559,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       if (!sapped || sap?.rec !== sapped) return band(dir, what);
       return statAmountChange(T, kind, sap.amounts, { rec: sapped, stat: 'atk' }, ctx, `Strength Sap on ${named(sapped)}'s Attack`);
     }
+    // A handler handed the damage a hit just dealt, which works out its amount
+    // from it - Innards Out hands its holder's last HP back to the attacker.
+    const relayed = relayChange(T, kind, raw, ctx, before, what);
+    if (relayed) return relayed;
     // An amount the effect's own code writes as a number - Oran Berry's 10 HP -
     // is the same whatever the spread.
     if (Number.isInteger(raw) && fixedAmounts(e).has(raw)) return amountChange(T, kind, () => [raw], ctx, what);
@@ -1608,6 +1612,50 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       if (k === undefined) return band(way, said);
     }
     return handOn(scaled());
+  }
+
+  /**
+   * An HP change the innermost handler made when the relay value it was
+   * handed is the damage `T` just dealt that handler's holder with this use of
+   * its move - Innards Out hands its holder's last HP, and what the use dealt
+   * before, back to the attacker. The holder's line said what it lost:
+   * exactly where its HP is shown exactly, so the amount is the same for
+   * every spread; and otherwise as one of the amounts `T`'s hit could have
+   * dealt it, each handed to the handler again in place of the real one, so
+   * that `T`'s line keeps the amounts that print it and narrows the holder to
+   * them, as with drain (`dealtChange`). Read only where this use hit the
+   * holder once and every earlier hit of it fell on a Pokemon shown exactly,
+   * where what the handler hands `T` moves with what it was handed, and where
+   * the handler run again with the real amount lands where the real one did.
+   * Null otherwise, and the change is read as any other.
+   */
+  function relayChange(T, kind, raw, ctx, before, what) {
+    const frame = frames.at(-1);
+    if (kind === 'sethp' || !frame || typeof frame.relay !== 'number' || typeof before !== 'number') return null;
+    const V = byPokemon.get(frame.holder);
+    const last = T.lastDealt;
+    const move = battle.activeMove;
+    if (!V || V === T || !last || last.victim !== V || last.move !== move || last.turn !== battle.turn) return null;
+    const log = T.moveHits?.move === move ? T.moveHits.all : null;
+    if (!log?.length || log.at(-1).victim !== V || log.at(-1).dealt !== frame.relay) return null;
+    const ord = changeOrdinal;
+    const ok = memo(`relay|${ord}`, () => {
+      const M = T.pokemon.maxhp;
+      const real = traced(T, M, before, () => frame.rerun({ relay: frame.relay }));
+      if (real.hp !== T.pokemon.hp) return 'running its handler again did not land where the real one did';
+      if (traced(T, M, before, () => frame.rerun({ relay: frame.relay + 1 })).handed === real.handed) return false;
+      if (last.hitsOn !== 1 || log.slice(0, -1).some(x => !x.victim.exact)) {
+        return 'it carries what more than one hit dealt, and not every one of them is shown exactly';
+      }
+      return true;
+    });
+    if (ok === false) return null;
+    if (ok !== true) {
+      note(what, `${ok}, so the damage it was handed was not read`);
+      return null;
+    }
+    if (V.exact) return amountChange(T, kind, () => [raw], ctx, what);
+    return dealtChange(T, last, what, 'relay', d => frame.rerun({ relay: d }));
   }
 
   /** An HP set to each amount `amounts` gives a max HP, through the simulator's `sethp`. */

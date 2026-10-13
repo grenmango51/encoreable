@@ -563,6 +563,41 @@ const entries = {
       why: "Halved by Super Fang, the hidden Slowbro switches out and heals a third of its max HP on the bench with no line of its own; the switch line that brings it back shows it: 170 and 202 print 82/100 and 83/100.",
     })),
   },
+  'ability:innardsout': {
+    templates: [
+      ...[[0, 32, false], ['sweep', null, false], [0, 32, true]].map(([lo, hi, chip]) => ({
+        name: `handed-back-${chip ? 'after-a-toss' : 'from-full'}${lo === 'sweep' ? '-swept' : ''}`,
+        role: 'holder-hidden',
+        stat: 'hp',
+        worlds: lo === 'sweep' ? 'sweep' : [lo, hi],
+        p1: [withMoves('known', ['Seismic Toss', 'Fissure', 'Splash']), 'knownAlly', 'knownBench'],
+        p2: [{ ...member('Victreebel', 'M', 'Chlorophyll', 'Victreebelite', {}), moves: ['Splash'] }, 'hiddenAlly', 'hiddenBench'],
+        turns: [
+          { p1: chip ? 'move seismictoss 1, move splash' : 'move splash, move splash', p2: 'move splash mega, move splash' },
+          { p1: 'move fissure 1, move splash', p2: 'move splash, move splash' },
+          QUIET,
+        ],
+        control: {
+          p2: [{ item: 'Smooth Rock' }],
+          turns: [{ p1: chip ? 'move seismictoss 1, move splash' : 'move splash, move splash', p2: 'move splash, move splash' }, { p1: 'move fissure 1, move splash', p2: 'move splash, move splash' }, QUIET],
+        },
+        why: chip
+          ? "Mega Evolved and tossed for 50, the hidden Victreebel is knocked out by the known Snorlax's Fissure, and Innards Out hands the HP it had left back: Snorlax's exact HP shows it."
+          : "Mega Evolved, the hidden Victreebel is knocked out from full HP by the known Snorlax's Fissure, and Innards Out hands its whole max HP back: Snorlax's exact HP shows it.",
+      })),
+      {
+        name: 'hands-back-a-known-hp',
+        role: 'other-hidden',
+        stat: 'hp',
+        worlds: [0, 32],
+        p1: [{ ...member('Victreebel', 'M', 'Chlorophyll', 'Victreebelite', {}), moves: ['Splash'] }, 'knownAlly', 'knownBench'],
+        p2: [set('Snorlax', 'M', 'Gluttony', 'Smooth Rock', {}, ['Fissure', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+        turns: [{ p1: 'move splash mega, move splash', p2: 'move splash, move splash' }, { p1: 'move splash, move splash', p2: 'move fissure 1, move splash' }, QUIET],
+        control: { p1: [{ item: 'Heat Rock' }], turns: [QUIET, { p1: 'move splash, move splash', p2: 'move fissure 1, move splash' }, QUIET] },
+        why: "The hidden Snorlax's Fissure knocks out the known Mega Victreebel, whose Innards Out hands its exact HP back: a fixed amount, which Snorlax's percentage then shows against its own max HP.",
+      },
+    ],
+  },
   'ability:sniper': {
     templates: [{
       name: 'critical-hit',
