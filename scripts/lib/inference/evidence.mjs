@@ -1668,7 +1668,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       change = rec.painSplit;
       rec.painSplit = null;
     } else {
-      change = band('any', `HP set on ${named(rec)}`);
+      change = effectChange(rec, 'sethp', info.d, null, null, false, null, null, null, info.before);
     }
     change.turn = battle.turn;
     changeOrdinal++;
@@ -2366,7 +2366,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     override(p, 'sethp', function (d) {
       const before = this.hp;
       const out = sethp.call(this, d);
-      if (!state.dry && !state.ended && this.hp !== before) onChange(rec, 'sethp', { d });
+      if (!state.dry && !state.ended && this.hp !== before) onChange(rec, 'sethp', { d, before });
       return out;
     });
   }
