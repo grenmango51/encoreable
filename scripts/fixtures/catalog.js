@@ -1286,6 +1286,61 @@ for (const [key, reason] of Object.entries(reasons)) entries[key] = { ...(entrie
  * no battle changed a line with by 'read:<Stat>'. Each is its entry's `cells`.
  */
 const cells = {
+  'item:shellbell': {
+    'O:SpD': 'onAfterMoveSecondarySelf heals the known holder by an eighth of what its hit dealt (data/items.ts:5657-5659); at a fixed HP that heal falls in the same step at every Special Defence the hidden Pokemon\'s percentage leaves, so telling two values apart needs HP and Special Defence swept together, which no hand-set battle does.',
+  },
+  'move:transform': {
+    'T:Spe': 'The known user takes the hidden target\'s stored Speed (transformInto, sim/pokemon.ts:1302), so the copy and its original race at one Speed: a tie the dice settle, which says nothing. The copied Speed is raced against a known pacer instead.',
+    'U:Spe': 'The hidden user takes the known target\'s stored Speed (transformInto, sim/pokemon.ts:1302) and keeps none of its own, so the copy and its original race at one Speed: a tie the dice settle, which says nothing.',
+  },
+  'ability:imposter': {
+    'H:Spe': 'onSwitchIn transforms the hidden holder into the foe opposite (data/abilities.ts:2116-2123), whose stored Speed it takes (sim/pokemon.ts:1302), so the copy and its original race at one Speed: a tie the dice settle, which says nothing. A hidden Speed a known Imposter copies is raced against a known pacer instead.',
+  },
+  'ability:illusion': {
+    'H:Spe': 'The disguised holder\'s order lines name the Pokemon it poses as (onBeforeSwitchIn, data/abilities.ts:2056-2069); where no later |replace| in its slot settles who switched in, a line naming the disguise is read for neither Pokemon.',
+  },
+  'ability:moody': {
+    'O:Atk': 'onResidual raises one of the known holder\'s stats two stages and lowers another one, by dice (data/abilities.ts:2704-2728), so a later hit on it repeats the Attack the first hit already showed.',
+  },
+  'ability:regenerator': {
+    'H:Def': 'Defence is carried by the physical hit before the switch, not by the heal: onSwitchOut heals a third of the holder\'s max HP (data/abilities.ts:3834-3835), which reads no Defence.',
+  },
+  'item:choicescarf': {
+    'H:SpA': 'The Scarf reads only Speed (onModifySpe, USED); Special Attack is carried by the hit lines that masked it.',
+  },
+  'item:ejectbutton': {
+    'H:HP': 'onAfterMoveSecondary reads target.hp only to ask whether the holder is alive, and switches it out; the holder\'s percentage is the hit\'s before it.',
+  },
+  'item:leftovers': {
+    'O:Atk': 'The known holder heals its own max HP / 16; the hidden attacker\'s Attack is carried only by the hit before it.',
+  },
+  'item:oranberry': {
+    'H:Def': 'Oran heals a flat 10 (HP is USED); Defence is carried only by the hit before it.',
+  },
+  'move:sludgewave': {
+    'T:Def': 'The move is special, so its own lines read SpD and HP (USED) and the target\'s poison tick; Defence is carried only by the physical witness hit that masked it.',
+  },
+  'ability:stamina': {
+    'O:Atk': 'onDamagingHit raises the known holder\'s Defence, so a later hit repeats the Attack the first hit already showed.',
+  },
+  'ability:grassysurge': {
+    'O:Atk': 'The terrain heals the known Rillaboom by its own max HP / 16; the hidden Pokemon\'s Attack is carried only by the hit before it.',
+  },
+  'ability:purepower': {
+    'O:Spe': 'The known holder doubles its own Attack; the hidden Pokemon\'s Splash line appears or not with its survival (HP and Def, USED), and the move reads no Speed.',
+  },
+  'item:redcard': {
+    'read:HP': 'onAfterMoveSecondary reads source.hp and target.hp only to ask whether both are alive, and forces a switch; the Atk channel is USED.',
+  },
+  'ability:shedskin': {
+    'read:HP': 'onResidual cures a status by a 33% chance; its hp read only asks whether the holder is alive.',
+  },
+  'move:rest': {
+    'read:HP': 'Heals to full: a hidden user shows 100/100 at every max HP and a known one its own exact line; the sleep is a status.',
+  },
+  'move:healingwish': {
+    'read:HP': 'onTryHit faints its user, and the replacement is healed to full (100/100 at any max HP) and cured; nothing it prints depends on a Stat Point.',
+  },
 };
 for (const [key, cell] of Object.entries(cells)) entries[key] = { ...(entries[key] || {}), cells: cell };
 
