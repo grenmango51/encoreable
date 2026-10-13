@@ -129,6 +129,21 @@ function verifiedPrefix(view, observed) {
 
 const HP_FIELD = { '-damage': 3, '-heal': 3, '-sethp': 3, switch: 4, drag: 4, replace: 4 };
 
+/**
+ * Two lines that differ at most in the HP a Pokemon is shown on, its status
+ * included: the same handler writing for the same Pokemon.
+ */
+function sameButHp(a, b) {
+  if (a === b) return true;
+  const x = String(a || '').split('|');
+  const y = String(b || '').split('|');
+  const at = HP_FIELD[x[1]];
+  if (at === undefined || x.length !== y.length || x[1] !== y[1]) return false;
+  const status = token => String(token || '').split(' ').slice(1).join(' ');
+  return x.every((part, i) => (i === at ? status(part) === status(y[i]) : part === y[i]));
+}
+const sameLines = (a, b) => a.length === b.length && a.every((line, i) => sameButHp(line, b[i]));
+
 function hpLine(line) {
   const parts = String(line || '').split('|');
   const at = HP_FIELD[parts[1]];
@@ -921,13 +936,22 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     return out;
   }
 
-  /** The simulator's own `Damage` event for one candidate: Focus Sash, Sturdy, Endure. */
+  /** Lines as the observing channel shows them: the public half of another side's `|split|`. */
+  const shownLines = raw => channelView(raw, channel).map(e => e.line);
+
+  /**
+   * The simulator's own `Damage` event for one candidate - Focus Sash, Sturdy,
+   * Endure - as the value it hands on and the lines it printed, as the
+   * observing channel shows them.
+   */
   function damageEvent(hit, ctx, T, M, h, x, granted = false) {
     return memo(`dmgev|${hit.ord}|${M}|${h}|${x}|${granted}`, () => guarded(() => {
       const undo = patchAll([{ pokemon: T.pokemon, maxhp: M, hp: h }]);
+      const from = battle.log.length;
       try {
         restoreItems(ctx.items);
-        return withRoll(0, () => battle.runEvent('Damage', T.pokemon, ctx.source, ctx.effect, x, true), granted ? null : ctx.dice);
+        const value = withRoll(0, () => battle.runEvent('Damage', T.pokemon, ctx.source, ctx.effect, x, true), granted ? null : ctx.dice);
+        return { value, lines: shownLines(battle.log.slice(from)) };
       } finally {
         undo();
       }
@@ -935,14 +959,49 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   }
 
   /**
+   * What a real `Damage` event printed, where the replay shows exactly that:
+   * every line of it is verified, and so is the line after it, the hit's own
+   * HP line - or that line is the cutoff, and the replay prints the same
+   * Pokemon's HP line in its place. Null otherwise: a replay that shows an
+   * announcement where the scaffold printed its HP line printed more.
+   */
+  function provenLines(seen) {
+    if (!seen) return null;
+    let i = view.findIndex(e => e.at >= seen.from);
+    if (i < 0) return null;
+    for (; i < view.length && view[i].at < seen.to; i++) if (view[i].at >= prefix.cutoffAt) return null;
+    const next = view[i];
+    const mine = next && hpLine(next.line);
+    if (!mine || mine.kind !== '-damage' || next.at > prefix.cutoffAt) return null;
+    if (next.at === prefix.cutoffAt) {
+      const want = hpLine(prefix.observedLine);
+      if (!want || want.side !== mine.side || want.name !== mine.name || want.kind !== mine.kind) return null;
+    }
+    return seen.lines;
+  }
+
+  /**
    * A hit on `T`, as every (attacking stat, attacker HP state) it could have
    * come through. The two are packed into one `via`: `a + SPAN * state`.
+   *
+   * Where the replay shows what the hit's `Damage` event printed, a candidate
+   * whose own `Damage` event, run in the same position on the same dice,
+   * prints something else - a Focus Sash, Sturdy or Endure announcing itself
+   * where the replay shows none, or none where it shows one - could not have
+   * printed the replay, and is dropped.
    */
   function moveChange(T, hit, dealt, ctx) {
     const clamp = x => (typeof x === 'number' && x !== 0 ? Math.max(1, x) : x);
     const modified = clamp(hit.real) !== clamp(dealt);
     const table = new Map();
     const rolls = new Map();
+    let shown = provenLines(ctx.lines);
+    if (shown && typeof ctx.before === 'number'
+      && !sameLines(damageEvent(hit, ctx, T, T.pokemon.maxhp, ctx.before, clamp(hit.real)).lines, shown)) {
+      note(hit.what || `${named(hit.S)}'s ${hit.clone.name} hit ${named(T)}`,
+        'its Damage event run again at its own Stat Points did not print what the real one did, so what it printed was not read');
+      shown = null;
+    }
     // Which pairs a display that says the Pokemon survived a lethal hit allows:
     // lethal before the `Damage` event, and left standing by it with every
     // chance in it granted - each die at the bottom of its range, where
@@ -960,13 +1019,20 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           if (!row) continue;
           const v = (a + SPAN * si) * HP_BITS;
           for (const [r, value] of row.entries()) {
-            rs.push(r);
             let x = clamp(value);
-            fatal.push(typeof x === 'number' && x >= h && h - Math.trunc(clamp(damageEvent(hit, ctx, T, M, h, x, true))) >= 1 ? 1 : 0);
-            if (typeof x !== 'number' || x <= 0) { pairs.push(v + h); continue; }
-            if (modified || x >= h) x = clamp(damageEvent(hit, ctx, T, M, h, x));
-            if (typeof x !== 'number' || x <= 0) { pairs.push(v + h); continue; }
-            pairs.push(v + Math.max(0, h - Math.trunc(x)));
+            let left = h;
+            if (typeof x === 'number' && x > 0) {
+              if (modified || x >= h) {
+                const ev = damageEvent(hit, ctx, T, M, h, x);
+                if (shown && !sameLines(ev.lines, shown)) continue;
+                x = clamp(ev.value);
+              }
+              if (typeof x === 'number' && x > 0) left = Math.max(0, h - Math.trunc(x));
+            }
+            const raw = clamp(value);
+            rs.push(r);
+            fatal.push(typeof raw === 'number' && raw >= h && h - Math.trunc(clamp(damageEvent(hit, ctx, T, M, h, raw, true).value)) >= 1 ? 1 : 0);
+            pairs.push(v + left);
           }
         }
       }
@@ -1550,9 +1616,12 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const ctx = {
         ...(damageContext.get(rec.pokemon) || { effect: info.effect, source: info.source, items: snapItems([rec.pokemon]) }),
         dice: damageDice.get(rec.pokemon) || null,
+        lines: damageLines.get(rec.pokemon) || null,
+        before: info.before,
       };
       damageContext.delete(rec.pokemon);
       damageDice.delete(rec.pokemon);
+      damageLines.delete(rec.pokemon);
       const effect = typeof ctx.effect === 'string' ? battle.dex.conditions.getByID(ctx.effect) : ctx.effect;
       const hit = pendingHits.get(rec.pokemon);
       pendingHits.delete(rec.pokemon);
@@ -2217,8 +2286,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     return lo;
   };
   // The dice a real `Damage` event throws - Focus Band's - per Pokemon, for
-  // every dry re-run of it to throw alike.
+  // every dry re-run of it to throw alike, and the lines it printed: where in
+  // the log, and as the observing channel shows them.
   const damageDice = new Map();
+  const damageLines = new Map();
   let itemChecks = 0;
   const origUpdate = battle.runEvent;
   battle.runEvent = function (eventid, target, ...rest) {
@@ -2252,8 +2323,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   const runEventBefore = battle.runEvent;
   battle.runEvent = function (eventid, target, ...rest) {
     if (eventid !== 'Damage' || state.dry || state.ended || !byPokemon.has(target)) return runEventBefore.call(this, eventid, target, ...rest);
+    const from = battle.log.length;
     const { value, thrown } = withDice(st, () => runEventBefore.call(this, eventid, target, ...rest));
     damageDice.set(target, thrown);
+    damageLines.set(target, { from, to: battle.log.length, lines: shownLines(battle.log.slice(from)) });
     return value;
   };
 
