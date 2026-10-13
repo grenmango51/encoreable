@@ -299,10 +299,11 @@ const SIDE_SHALLOW = new Set(['team', 'pokemon', 'activeRequest', 'choice']);
  * one's state, item, ability and their states, boosts, stored stats, forme,
  * types and flags such as `ateBerry` - both sides' conditions and slot
  * conditions, the field's weather, terrain and pseudo-weather, the faint
- * queue, the action queue, the hints already given, and the log. Returns the
- * restore.
+ * queue, the action queue, the hints already given, and the log - and each
+ * Pokemon of `extra` that is off the field, as a revive hands one back:
+ * whether it fainted, its status and its HP. Returns the restore.
  */
-function snapshot(battle) {
+function snapshot(battle, extra = []) {
   const log = saveLog(battle);
   const fields = BATTLE_FIELDS.map(k => battle[k]);
   const hints = battle.hints.size;
@@ -310,6 +311,9 @@ function snapshot(battle) {
   for (const side of battle.sides) {
     parts.push(keep(side, 3, SIDE_SHALLOW));
     for (const p of side.active) if (p) parts.push(keep(p, 3, POKEMON_SHALLOW));
+  }
+  for (const p of extra) {
+    if (p && !p.side.active.includes(p)) parts.push(keep(p, 3, POKEMON_SHALLOW));
   }
   return () => {
     log();
@@ -572,13 +576,14 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
    * Run `fn` dry: whatever it does to the battle is handed back afterwards
    * (`snapshot`), and no die it throws touches the generator - each takes the
    * bottom of its range, unless a caller handed it the real run's (`withRoll`).
-   * Every dry run of the evidence pass goes through here.
+   * Every dry run of the evidence pass goes through here. `extra` names
+   * Pokemon off the field that the run may change.
    */
-  function guarded(fn) {
+  function guarded(fn, extra = []) {
     state.dry++;
     const dry = st.dry;
     st.dry ||= { roll: 0, draws: null };
-    const restore = snapshot(battle);
+    const restore = snapshot(battle, extra);
     try {
       return fn();
     } finally {
@@ -995,8 +1000,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     };
   }
 
-  /** An HP change whose amount the simulator computed from one number we can scale. */
-  /** The HP `run` leaves one candidate on, with the battle handed back untouched. */
+  /**
+   * The HP `run` leaves one candidate on, with the battle handed back
+   * untouched - the Pokemon too when it is off the field, as one a revive
+   * brings back is.
+   */
   function dryHp(T, M, h, run) {
     return guarded(() => {
       const undo = patchAll([{ pokemon: T.pokemon, maxhp: M, hp: h }]);
@@ -1011,7 +1019,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         T.pokemon.faintQueued = queued;
         undo();
       }
-    });
+    }, [T.pokemon]);
   }
 
   function amountChange(T, kind, amounts, ctx, what) {
@@ -2125,11 +2133,110 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     if (state.dry || state.ended) return origEffects.call(this, damage, targets, source, move, moveData, isSecondary, isSelf);
     const was = effectsCall;
     effectsCall = { damage: damage.slice(), targets: targets.slice(), source, move, moveData, isSecondary, isSelf };
+    const frame = {
+      kind: 'effects',
+      effect: move,
+      holder: source,
+      args: [damage.slice(), targets.slice(), source, move, moveData, isSecondary, isSelf],
+      fn: origEffects,
+      // Run again for one target only, when the Pokemon asked about is one.
+      call(args, only) {
+        let [dealt, hit] = args;
+        const at = only ? hit.indexOf(only) : -1;
+        if (at >= 0) [dealt, hit] = [[dealt[at]], [only]];
+        return origEffects.call(actions, dealt.slice(), hit.slice(), ...args.slice(2));
+      },
+    };
     try {
-      return origEffects.call(this, damage, targets, source, move, moveData, isSecondary, isSelf);
+      return framed(frame, () => origEffects.call(this, damage, targets, source, move, moveData, isSecondary, isSelf));
     } finally {
       effectsCall = was;
     }
+  };
+
+  /**
+   * The code running right now, innermost last, kept only in the real run: a
+   * queued action ('action'), a move's effects ('effects'), a handler an event
+   * applies ('handler'), and an effect's own handler that a direct
+   * `singleEvent` runs ('event'). A frame is `{ kind, effect, state, holder,
+   * event, args, relay, fn, rerun }`: `effect`, `state` and `event` are the
+   * effect, effect state and event it was entered with (`state` null for an
+   * action or a move's effects), `holder` the Pokemon, side or field whose
+   * effect it is, `args` what `fn` was handed, and `relay` the relay value it
+   * was handed, where its event had one. `rerun({ relay, only })` runs `fn`
+   * again as it was entered, on a copy of `args`: `relay` in place of the relay
+   * value, and for a move's effects `only` that one of its targets. It hands
+   * back what `fn` returned, pushes no frame, and is called only inside
+   * `guarded`.
+   */
+  const frames = [];
+  function framed(frame, run) {
+    const entered = {
+      effect: battle.effect, state: battle.effectState, event: battle.event ? { ...battle.event } : battle.event, depth: battle.eventDepth,
+    };
+    const ran = frame.kind === 'handler' || frame.kind === 'event';
+    frame.state = ran ? entered.state : null;
+    frame.event = entered.event;
+    if (ran && frame.args.length === 4) frame.relay = frame.args[0];
+    frame.rerun = (opts = {}) => rerunFrame(frame, entered, opts);
+    frames.push(frame);
+    try {
+      return run();
+    } finally {
+      frames.splice(frames.lastIndexOf(frame), 1);
+    }
+  }
+
+  function rerunFrame(frame, entered, { relay, only } = {}) {
+    const saved = [battle.effect, battle.effectState, battle.event, battle.eventDepth];
+    const args = frame.args.slice();
+    if (relay !== undefined && 'relay' in frame) args[0] = relay;
+    // What the code can change that no snapshot holds: the move in flight,
+    // what it was handed, and the effect state it was entered with.
+    const held = [...new Set([battle.activeMove, entered.state, ...frame.args])]
+      .filter(x => x && typeof x === 'object' && !Object.isFrozen(x) && (isPlain(x) || x.effectType === 'Move'))
+      .map(x => keep(x, 2));
+    battle.effect = entered.effect;
+    battle.effectState = entered.state;
+    battle.event = entered.event ? { ...entered.event } : entered.event;
+    battle.eventDepth = entered.depth;
+    try {
+      return frame.call ? frame.call(args, only) : frame.fn.apply(battle, args);
+    } finally {
+      [battle.effect, battle.effectState, battle.event, battle.eventDepth] = saved;
+      for (const k of held) putBack(k);
+    }
+  }
+
+  // Every handler an event applies is built by `resolvePriority`: `runEvent`
+  // calls it, and `fieldEvent` hands it to `singleEvent` as its callback.
+  const origResolve = battle.resolvePriority;
+  battle.resolvePriority = function (h, callbackName) {
+    const handler = origResolve.call(this, h, callbackName);
+    const fn = handler.callback;
+    if (state.dry || state.ended || typeof fn !== 'function') return handler;
+    const { effect, effectHolder } = handler;
+    handler.callback = function (...args) {
+      if (state.dry || state.ended) return fn.apply(this, args);
+      return framed({ kind: 'handler', effect, holder: effectHolder, args, fn }, () => fn.apply(this, args));
+    };
+    return handler;
+  };
+  // A direct `singleEvent` runs the effect's own handler.
+  const origSingleEvent = battle.singleEvent;
+  battle.singleEvent = function (eventid, effect, effectState, target, source, sourceEffect, relayVar, customCallback) {
+    const fn = customCallback === undefined && effect ? effect[`on${eventid}`] : undefined;
+    if (state.dry || state.ended || typeof fn !== 'function') return origSingleEvent.apply(this, arguments);
+    return origSingleEvent.call(this, eventid, effect, effectState, target, source, sourceEffect, relayVar, function (...args) {
+      if (state.dry || state.ended) return fn.apply(this, args);
+      return framed({ kind: 'event', effect, holder: target, args, fn }, () => fn.apply(this, args));
+    });
+  };
+  const origRunAction = battle.runAction;
+  battle.runAction = function (action) {
+    if (state.dry || state.ended) return origRunAction.call(this, action);
+    return framed({ kind: 'action', effect: null, holder: action.pokemon || null, args: [action], fn: origRunAction },
+      () => origRunAction.call(this, action));
   };
 
   // A move's HP cost - Substitute's quarter, Belly Drum's half - goes through
@@ -2558,6 +2665,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
 
   const speed = attachSpeed(battle, {
     state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label: named, measure, cutOf, note, depOf, ownValue,
+    frames,
   });
 
   /**
