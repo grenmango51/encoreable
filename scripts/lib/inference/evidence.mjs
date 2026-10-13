@@ -1980,16 +1980,23 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
 
   /**
    * Whether a hit broke a Substitute, for every candidate. A fresh Substitute
-   * holds a quarter of its owner's max HP, rounded down (Substitute's
-   * `onStart`), and breaks when the hit deals at least that: so the line that
-   * says whether it broke narrows the owner's HP and the hit's two stats, with
-   * the owner's HP left where it was.
+   * holds the number its `onStart` stored, a quarter of its maker's max HP
+   * rounded down, tagged per candidate (`hit.hold`), and breaks when the hit
+   * deals at least that: so the line that says whether it broke narrows the
+   * hit's two stats and the maker's HP, with the holder's HP left where it was.
+   * Shed Tail hands its Substitute to the Pokemon that replaces it; then the
+   * maker is another Pokemon, and each keeps only the values some value of the
+   * other completes: the holder's pairs here, the maker's HP in `maker`.
    */
   function subChange(T, hit, broke) {
+    const { hold } = hit;
+    const O = hold.owner && hold.owner !== T ? hold.owner : null;
+    const oVals = O ? [...new Set([...(O.chain ? O.chain.keys() : O.knKeys)].map(k => KEY_HP[k]))] : null;
+    const ok = O ? new Uint8Array(SPAN) : null;
     const table = new Map();
     const rolls = new Map();
     for (const [g, [hp, d, h]] of groupsOf(T, hit.def)) {
-      const holds = Math.floor(maxHp(T, hp) / 4);
+      const holds = O ? oVals.map(v => hold.at(v)) : [hold.owner ? hold.at(hp) : hold.start];
       const pairs = [];
       const rs = [];
       for (const a of hit.aVals) {
@@ -1997,7 +2004,15 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           const row = hit.rows.get(rowKey(a, d, hit.targetHp ? hp : null, hit.targetHp ? h : null, si));
           if (!row) continue;
           for (const [r, value] of row.entries()) {
-            if ((typeof value === 'number' && Math.max(1, value) >= holds) !== broke) continue;
+            const x = typeof value === 'number' ? Math.max(1, value) : null;
+            let fits = false;
+            for (let i = 0; i < holds.length; i++) {
+              if ((x !== null && x >= holds[i]) !== broke) continue;
+              fits = true;
+              if (!ok) break;
+              ok[oVals[i]] = 1;
+            }
+            if (!fits) continue;
             pairs.push((a + SPAN * si) * HP_BITS + h);
             rs.push(r);
           }
@@ -2011,6 +2026,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     return {
       dim: hit.def, table, rolls, rollAt: hit.rollAt, via, noDealt: true,
       dealtBy: hit.S, sourceStates: (hit.sourceHp || hit.extra) && hit.sStates[0] !== null ? hit.sStates : null, extra: hit.extra || null,
+      maker: O ? { rec: O, ok } : null,
       turn: battle.turn, what: `${named(hit.S)}'s ${hit.clone.name} ${broke ? 'broke' : 'did not break'} ${named(T)}'s Substitute`,
     };
   }
@@ -2071,7 +2087,16 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         if (hit) {
           subGates.delete(rec.pokemon);
           for (const change of rec.pending.splice(0)) apply(rec, change, null);
-          apply(rec, subChange(rec, hit, broke), rec.lastToken ?? null);
+          const change = subChange(rec, hit, broke);
+          apply(rec, change, rec.lastToken ?? null);
+          if (change.maker) {
+            const O = change.maker.rec;
+            const before = record ? measure(O) : null;
+            if (!O.chain) initChain(O);
+            narrowVia({ rec: O, dim: 'hp' }, change.maker.ok);
+            const cut = record ? cutOf(O, before) : null;
+            if (cut) events.push({ turn: change.turn, what: change.what, cuts: [cut] });
+          }
         }
       }
       if (atCut) { state.ended = true; break; }
@@ -2116,15 +2141,22 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const hit = analyseHit(source, target, move, clone, crit, real, pre, origGetDamage, thrown, hpBefore);
       hit.rollAt = draws.length === 1 ? draws[0] : null;
       // A hit a Substitute takes moves no HP; the line after it says whether it
-      // broke. Only the first hit on a Substitute is read: after it, what the
-      // Substitute holds depends on the damage it already took.
+      // broke. Only the first hit on a Substitute is read, while it still holds
+      // the number its `onStart` stored: after a hit, what it holds depends on
+      // the damage it already took.
       const sub = target.volatiles.substitute;
       if (sub && source !== target && !move.flags?.bypasssub && !move.infiltrates) {
         const T = byPokemon.get(target);
-        const fresh = T.sub !== sub && sub.hp === Math.floor(target.maxhp / 4);
+        const hold = sub[STORED]?.hp;
+        const fresh = T.sub !== sub && !!hold && sub.hp === hold.start;
+        if (T.sub !== sub && !hold) note(`${named(T)}'s Substitute`, 'what it holds was not asked per candidate, so whether a hit broke it was not read');
         T.sub = sub;
-        if (fresh && hit.supported) subGates.set(target, hit);
-        else subGates.delete(target);
+        if (fresh && hit.supported) {
+          hit.hold = hold;
+          subGates.set(target, hit);
+        } else {
+          subGates.delete(target);
+        }
       } else {
         pendingHits.set(target, hit);
       }
@@ -2594,6 +2626,139 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const written = [...new Map(writes.map(([rec, s]) => [`${rec.id}|${s}`, [rec, s]])).values()];
       writes = outer;
       settleWrites(written, asked, effect.name);
+    }
+  };
+
+  // A number a handler stores in its effect state - a Substitute's hold, a
+  // Wish's heal - is asked the same way when the handler works it out from a
+  // max HP: run dry on a copy of the state once per HP Stat Point of each
+  // hidden Pokemon it runs for, with each Pokemon's current HP and every other
+  // active Pokemon's HP and max HP moved once to see that none of them moves
+  // it. A number that moves with exactly one of those values is tagged on the
+  // state, under `STORED`, as `{ owner, stat, at(v), start }`, checked at the
+  // owner's own value: a copy of the state carries it, so a Substitute Shed
+  // Tail hands on still says whose max HP made it. A number that moves with
+  // two, with anything else, or after a stat that stands on a spread was read,
+  // is not tagged, and what reads it is set aside. Any other write of a
+  // tagged number drops its tag. Tags are written only in real runs.
+  const STORED = Symbol('stored numbers');
+  const storer = new Map();
+  const STORES = /effectState\.\w+\s*=(?!=)/;
+  /** 0: stores nothing; 1: stores into its effect state; 2: and reads a max HP doing so. */
+  const storesState = (effect, eventid) => {
+    const handler = effect?.[`on${eventid}`];
+    if (typeof handler !== 'function') return 0;
+    if (!storer.has(handler)) {
+      const text = String(handler);
+      storer.set(handler, !STORES.test(text) ? 0 : /maxhp/i.test(text) ? 2 : 1);
+    }
+    return storer.get(handler);
+  };
+  const numbersOf = obj => Object.fromEntries(Object.keys(obj).filter(k => typeof obj[k] === 'number').map(k => [k, obj[k]]));
+  let storeOrdinal = 0;
+  function askStored(involved, effectState, runOn) {
+    const reads = [];
+    const dry = (patches, watch = false) => guarded(() => {
+      const undo = patchAll(patches);
+      const off = [];
+      if (watch) {
+        for (const side of battle.sides) {
+          for (const q of side.active) {
+            if (!q) continue;
+            const calc = q.calculateStat;
+            const get = q.getStat;
+            off.push(override(q, 'calculateStat', function (stat, ...rest) { reads.push([q, toID(stat)]); return calc.call(this, stat, ...rest); }));
+            off.push(override(q, 'getStat', function (stat, ...rest) { reads.push([q, toID(stat)]); return get.call(this, stat, ...rest); }));
+          }
+        }
+      }
+      const copy = { ...effectState };
+      try {
+        runOn(copy);
+        return numbersOf(copy);
+      } finally {
+        for (const u of off.reverse()) u();
+        undo();
+      }
+    });
+    const base = dry([], true);
+    const keys = Object.keys(base).filter(k => base[k] !== effectState[k]);
+    if (!keys.length) return null;
+    for (const [q, s] of reads) {
+      const r = byPokemon.get(q);
+      const dep = r && depOf(r, s);
+      if (!dep || dep.owner) return null;
+    }
+    const moved = new Set();
+    const probe = (patch) => {
+      const got = dry([patch]);
+      for (const k of keys) if (got[k] !== base[k]) moved.add(k);
+    };
+    for (const rec of involved) {
+      const p = rec.pokemon;
+      for (const h of new Set([1, p.hp - 1, Math.ceil(p.hp / 2)])) if (h >= 1 && h !== p.hp) probe({ pokemon: p, hp: h });
+    }
+    for (const side of battle.sides) {
+      for (const q of side.active) {
+        const r = q ? byPokemon.get(q) : null;
+        if (!r || involved.includes(r) || r.exact || !q.hp) continue;
+        for (const h of new Set([1, q.maxhp - 1, Math.ceil(q.maxhp / 2), Math.floor(q.maxhp / 4)])) if (h >= 1 && h !== q.hp) probe({ pokemon: q, hp: h });
+        probe({ pokemon: q, maxhp: q.maxhp + 1 });
+      }
+    }
+    const byVar = [];
+    for (const rec of involved) {
+      if (rec.kn.known || rec.fixedHp !== undefined) continue;
+      const values = Object.fromEntries(keys.map(k => [k, new Array(SPAN)]));
+      for (let v = 0; v < SPAN; v++) {
+        const M = maxHp(rec, v);
+        const got = M === rec.pokemon.maxhp ? base : dry([{ pokemon: rec.pokemon, maxhp: M }]);
+        for (const k of keys) values[k][v] = got[k];
+      }
+      byVar.push([rec.id, values]);
+    }
+    return { keys: keys.filter(k => !moved.has(k)), base, byVar };
+  }
+
+  /** Tag each number the handler stored, checked at the replay's own Stat Points; drop the tag of any other it rewrote. */
+  function settleStored(effectState, before, asked, what) {
+    const after = numbersOf(effectState);
+    const changed = Object.keys(after).filter(k => after[k] !== before[k]);
+    if (!changed.length && !asked) return;
+    const tags = { ...(effectState[STORED] || {}) };
+    for (const k of changed) delete tags[k];
+    for (const k of asked?.keys || []) {
+      if (!(k in after)) continue;
+      const moving = asked.byVar.filter(([, values]) => values[k].some(x => x !== values[k][0]));
+      let tag = null;
+      if (!moving.length && asked.base[k] === after[k]) tag = { owner: null, stat: 'hp', start: after[k], at: () => after[k] };
+      if (moving.length === 1) {
+        const [id, values] = moving[0];
+        const owner = byId.get(id);
+        if (values[k][fullEvs(owner.pokemon.set.evs).hp] === after[k]) tag = { owner, stat: 'hp', start: after[k], at: v => values[k][v] };
+      }
+      if (tag) tags[k] = tag;
+      else note(`${what}'s stored ${k}`, 'no one candidate value says what it stored, so what reads it is set aside');
+    }
+    effectState[STORED] = tags;
+  }
+
+  const storedSingle = battle.singleEvent;
+  battle.singleEvent = function (eventid, effect, effectState, target, source, ...rest) {
+    const runOn = s => storedSingle.call(battle, eventid, effect, s, target, source, ...rest);
+    const kind = state.dry || state.ended || !effectState || typeof effectState !== 'object' ? 0 : storesState(effect, eventid);
+    if (!kind) return storedSingle.call(this, eventid, effect, effectState, target, source, ...rest);
+    const before = numbersOf(effectState);
+    let asked = null;
+    if (kind === 2) {
+      const involved = [...new Set([target, source])].filter(p => p && typeof p === 'object' && byPokemon.has(p)).map(p => byPokemon.get(p));
+      const ord = storeOrdinal++;
+      asked = memo(`stored|${ord}`, () => askStored(involved, effectState, runOn));
+    }
+    try {
+      return storedSingle.call(this, eventid, effect, effectState, target, source, ...rest);
+    } finally {
+      settleStored(effectState, before, asked, effect.name);
     }
   };
 
