@@ -822,6 +822,43 @@ const entries = {
       why: "Nothing breaks the hidden Zoroark's disguise as the hidden Persian, which could have made the same order lines at 135 to 167, so Zoroark's 125 to 157 against the known Arcanine's 141 stays unread.",
     }],
   },
+  'ability:moody': {
+    templates: [{
+      name: 'race-after-the-boost',
+      role: 'holder-hidden',
+      stat: 'spe',
+      p1: [set('Regieleki', '', 'Transistor', 'Heat Rock', { spe: 12 }, ['Splash']), 'knownAlly', 'knownBench'],
+      p2: [set('Glalie', 'M', 'Moody', 'Smooth Rock', {}, ['Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [QUIET, QUIET],
+      dice: ['moody=max p2:glalie - -'],
+      control: { p2: [{ ability: 'Run Away' }] },
+      why: "Moody, its draw forced to Speed, raises the hidden Glalie's Speed two stages at the end of the first turn, 100 to 132 becoming 200 to 264, around the known Regieleki's 232.",
+    }],
+  },
+  'move:transform': {
+    templates: [{
+      name: 'race-the-copy',
+      role: 'target-hidden',
+      stat: 'spe',
+      p1: [set('Ditto', '', 'Limber', 'Heat Rock', {}, ['Transform', 'Splash']), set('Gardevoir', 'F', 'Telepathy', 'Damp Rock', { spe: 14 }, ['Splash']), 'knownBench'],
+      p2: [set('Blastoise', 'F', 'Torrent', 'Smooth Rock', {}, ['Protect', 'Aqua Jet', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move transform 1, move splash', p2: 'move protect, move splash' }, { p1: 'move splash, move splash', p2: 'move aquajet 2, move splash' }],
+      control: { turns: [{ p1: 'move splash, move splash', p2: 'move protect, move splash' }, { p1: 'move splash, move splash', p2: 'move aquajet 2, move splash' }] },
+      why: "The known Ditto's Transform copies the hidden Blastoise's Speed, 98 to 130, and Ditto then races the known Gardevoir's 114; Blastoise itself moves first each turn, with Protect and Aqua Jet, so only the copy races.",
+    }],
+  },
+  'ability:imposter': {
+    templates: [{
+      name: 'race-the-copy',
+      role: 'other-hidden',
+      stat: 'spe',
+      p1: [set('Gardevoir', 'F', 'Telepathy', 'Heat Rock', { spe: 14 }, ['Splash']), set('Ditto', '', 'Imposter', 'Damp Rock', {}, ['Splash']), 'knownBench'],
+      p2: ['hidden', 'hiddenAlly', 'hiddenBench'],
+      turns: [QUIET, QUIET],
+      control: { p1: [{}, { ability: 'Limber' }] },
+      why: "The known Ditto's Imposter copies the hidden Blastoise across from it on switching in, Speed 98 to 130 included, and Ditto then races the known Gardevoir's 114.",
+    }],
+  },
   'item:whiteherb': {
     templates: [{
       name: 'restored-after-overheat',
