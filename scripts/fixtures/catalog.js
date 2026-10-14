@@ -1046,6 +1046,19 @@ const entries = {
       why: "The known Ditto's Imposter copies the hidden Blastoise across from it on switching in, Speed 98 to 130 included, and Ditto then races the known Gardevoir's 114.",
     }],
   },
+  'ability:magician': {
+    templates: [{
+      name: 'takes-from-the-faster',
+      role: 'other-hidden',
+      stat: 'spe',
+      worlds: [21, 23],
+      p1: [set('Delphox', 'M', 'Magician', '', {}, ['Heat Wave', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [set('Blastoise', 'F', 'Torrent', 'Smooth Rock', {}, ['Aqua Jet', 'Splash']), set('Charizard', 'M', 'Blaze', 'Heat Rock', {}, ['Splash']), 'hiddenBench'],
+      turns: [{ p1: 'move heatwave, move splash', p2: 'move aquajet 2, move splash' }],
+      control: { p1: [{ ability: 'Blaze' }] },
+      why: "The known Delphox's Heat Wave hits the hidden Blastoise and the hidden Charizard, and Magician takes the item of whichever is faster: Blastoise's 119 or 121 against Charizard's 120, which moves after Delphox's 124. Blastoise's Aqua Jet keeps it out of the turn order.",
+    }],
+  },
   'item:whiteherb': {
     templates: [{
       name: 'restored-after-overheat',

@@ -59,7 +59,7 @@ function sameButHp(a, b) {
 
 export function attachSpeed(battle, {
   state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label, measure, cutOf, note, depOf, ownValue,
-  unmaskedAfter,
+  unmaskedAfter, frames,
 }) {
   const byId = new Map(recs.map(rec => [rec.id, rec]));
   const sorts = [];
@@ -125,8 +125,15 @@ export function attachSpeed(battle, {
 
   const queue = battle.queue;
   const origSort = queue.sort;
+  let queueSorting = 0;
   queue.sort = function () {
-    const out = origSort.call(this);
+    let out;
+    queueSorting++;
+    try {
+      out = origSort.call(this);
+    } finally {
+      queueSorting--;
+    }
     if (!state.dry && !state.ended) {
       sync();
       // Where each acting Pokemon stands as the queue is sorted: a switch line
@@ -246,6 +253,12 @@ export function attachSpeed(battle, {
   const open = [];
   const origSpeedSort = battle.speedSort;
   battle.speedSort = function (list, comparator) {
+    // A handler run again dry by `readHandlerSort` gets the order it asks for.
+    if (forcing && state.dry && sameItems(list, forcing.keys)) {
+      putInOrder(list, forcing.order);
+      forcing = null;
+      return undefined;
+    }
     const out = origSpeedSort.call(this, list, comparator);
     const top = open[open.length - 1];
     if (top && !top.entry.items && !state.dry) {
@@ -260,9 +273,12 @@ export function attachSpeed(battle, {
         };
       });
       for (const it of top.entry.items) if (it.rec && it.rec.cachedSpeed) top.entry.speeds.set(it.rec, it.rec.cachedSpeed);
+    } else if (frames && !queueSorting && !state.dry && !state.ended) {
+      readHandlerSort(list, comparator || ((a, b) => battle.comparePriority(a, b)));
     }
     return out;
   };
+
   for (const [name, dispatch] of [['fieldEvent', 'singleEvent'], ['eachEvent', 'runEvent']]) {
     const orig = battle[name];
     battle[name] = function (eventid, ...rest) {
@@ -297,6 +313,127 @@ export function attachSpeed(battle, {
     };
   }
 
+  // Every other sort a handler makes by speed - Magician's of the Pokemon its
+  // move hit, a nested event's of its handlers - read by asking what the
+  // other order would have printed. `frames` (evidence.mjs) is the code
+  // running, innermost last; each frame is told the log length it was entered
+  // and left at, so what it printed can be compared afterwards.
+  const handlerSorts = [];
+  let forcing = null;
+  let handlerSortCount = 0;
+  if (frames) {
+    const push = frames.push;
+    frames.push = function (...added) {
+      for (const frame of added) frame.logAt = battle.log.length;
+      return push.apply(this, added);
+    };
+    const splice = frames.splice;
+    frames.splice = function (...args) {
+      const removed = splice.apply(this, args);
+      for (const frame of removed) frame.logEnd = battle.log.length;
+      return removed;
+    };
+  }
+  // The Pokemon whose speed a sorted item carries: a Pokemon itself, or the
+  // one holding a handler's effect.
+  const pokemonOf = item => (byPokemon.has(item) ? item : byPokemon.has(item?.effectHolder) ? item.effectHolder : null);
+  // An item as running the same code again builds it anew: its Pokemon or
+  // holder, and its effect.
+  const keyOf = (item) => {
+    const p = pokemonOf(item);
+    return `${p ? byPokemon.get(p).id : item?.effectHolder?.id ?? ''}|${item?.effect?.id ?? ''}`;
+  };
+  const sameItems = (list, keys) => list.length === keys.length && list.map(keyOf).sort().join('\n') === [...keys].sort().join('\n');
+  const putInOrder = (list, keys) => {
+    const pool = list.slice();
+    list.splice(0, list.length, ...keys.map(key => pool.splice(pool.findIndex(item => keyOf(item) === key), 1)[0]));
+  };
+  const varies = speeds => speeds.table.some(v => v !== speeds.table[0]);
+  const alike = (a, b) => a.owner === b.owner && a.table.every((v, s) => v === b.table[s]);
+  // Whether a table gives, at the replay's own Stat Points, the speed an item
+  // was sorted by.
+  const sortedBy = (speeds, item) => speeds.table[ownValue({ owner: byId.get(speeds.owner), stat: 'spe' })] === item.speed;
+
+  /**
+   * A sort a handler made: each two neighbours of different Pokemon, one of
+   * them hidden, that the comparator ties at equal speed, so that speed alone
+   * put them in this order. The handler runs again dry from where it was
+   * entered, once in this sort's order and once per such pair with the two
+   * swapped, and `speedRules` compares what each run printed.
+   */
+  function readHandlerSort(list, comparator) {
+    const frame = frames[frames.length - 1];
+    if (!frame || (frame.kind !== 'handler' && frame.kind !== 'event')) return;
+    const atSpeed = item => Object.create(item, { speed: { value: 0 } });
+    const pairs = [];
+    for (let i = 0; i + 1 < list.length; i++) {
+      const X = byPokemon.get(pokemonOf(list[i]));
+      const Y = byPokemon.get(pokemonOf(list[i + 1]));
+      const fx = X?.cachedSpeed;
+      const fy = Y?.cachedSpeed;
+      if (!fx || !fy || X === Y || !(varies(fx) || varies(fy)) || alike(fx, fy)) continue;
+      if (!sortedBy(fx, list[i]) || !sortedBy(fy, list[i + 1])) continue;
+      if (comparator(atSpeed(list[i]), atSpeed(list[i + 1])) === 0) pairs.push({ i, X, Y });
+    }
+    if (!pairs.length) return;
+    const keys = list.map(keyOf);
+    const runs = memo(`hsort|${handlerSortCount++}`, () => {
+      const kept = list.slice();
+      const run = order => guarded(() => {
+        const at = battle.log.length;
+        forcing = { keys, order };
+        try {
+          frame.rerun();
+          return battle.log.slice(at);
+        } catch {
+          return null;
+        } finally {
+          forcing = null;
+        }
+      });
+      try {
+        return {
+          sorted: run(keys),
+          swapped: pairs.map(({ i }) => run([...keys.slice(0, i), keys[i + 1], keys[i], ...keys.slice(i + 2)])),
+        };
+      } finally {
+        list.splice(0, list.length, ...kept);
+      }
+    });
+    const speeds = new Map(pairs.flatMap(({ X, Y }) => [[X, X.cachedSpeed], [Y, Y.cachedSpeed]]));
+    handlerSorts.push({ frame, pairs, runs, speeds, turn: battle.turn, name: frame.effect?.name || 'a handler' });
+  }
+
+  // Whether the channel the replay was seen from reads `side`'s secret half of
+  // a `|split|` line, as the replay's view of the log shows.
+  const secrets = new Map();
+  const readsSecret = (side) => {
+    if (!secrets.has(side)) {
+      let seen = false;
+      for (const e of view) {
+        if (battle.log[e.at - 1] === `|split|${side}`) { seen = true; break; }
+        if (battle.log[e.at - 2] === `|split|${side}`) break;
+      }
+      secrets.set(side, seen);
+    }
+    return secrets.get(side);
+  };
+  // Raw lines that start at raw index `base`, as that channel shows them,
+  // each with its raw index.
+  const shownOf = (raw, base) => {
+    const out = [];
+    for (let i = 0; i < raw.length; i++) {
+      const split = /^\|split\|(p[1-4])$/.exec(raw[i]);
+      if (split) {
+        const at = readsSecret(split[1]) ? i + 1 : i + 2;
+        if (raw[at]) out.push({ line: raw[at], at: base + at });
+        i += 2;
+        continue;
+      }
+      if (raw[i]) out.push({ line: raw[i], at: base + i });
+    }
+    return out;
+  };
   /**
    * "X went first, Y after" as a bound between the Pokemon whose Stat Points
    * each one's speed stands on - the two themselves, unless a Speed Swap
@@ -446,6 +583,38 @@ export function attachSpeed(battle, {
       const shown = matched(entry).filter(m => m.item.rec && shownIn(m.span)).map(m => m.item);
       for (let a = 0; a < shown.length; a++) {
         for (let b = a + 1; b < shown.length; b++) eventRule(entry, shown[a], shown[b]);
+      }
+    }
+
+    // A sort a handler made, read off what the other order would have
+    // printed. The run in the sort's own order must print what the handler
+    // printed. Then, at the first line where the run with a pair swapped
+    // prints something else, the replay showing the handler's own line proves
+    // the pair's order, and the replay showing the swapped run's line there,
+    // at the cutoff, proves the other.
+    for (const read of handlerSorts) {
+      const { frame, runs } = read;
+      if (frame.logAt === undefined || frame.logEnd === undefined || frame.logAt > upTo) continue;
+      const real = battle.log.slice(frame.logAt, frame.logEnd);
+      if (!runs.sorted || runs.sorted.length !== real.length || runs.sorted.some((line, i) => line !== real[i])) {
+        note(`${read.name}'s order`, 'running the handler again did not print what it printed, so the order it sorted was not used');
+        continue;
+      }
+      const mine = shownOf(runs.sorted, frame.logAt);
+      for (const [k, { X, Y }] of read.pairs.entries()) {
+        const theirs = runs.swapped[k] && shownOf(runs.swapped[k], frame.logAt);
+        if (!theirs) continue;
+        let j = 0;
+        while (j < mine.length && j < theirs.length && sameButHp(mine[j].line, theirs[j].line)) j++;
+        if (j >= mine.length || j >= theirs.length) continue;
+        const what = (P, Q) => `${label(P)} came before ${label(Q)} in ${read.name}'s order`;
+        let rule = null;
+        if (mine[j].at < upTo) rule = ruleOf(X, Y, read.speeds, read.turn, what(X, Y));
+        else if (mine[j].at === prefix.cutoffAt && prefix.observedLine) {
+          const replayed = line => sameButHp(battleLines([line])[0], prefix.observedLine);
+          if (replayed(theirs[j].line) && !replayed(mine[j].line)) rule = ruleOf(Y, X, read.speeds, read.turn, what(Y, X));
+        }
+        if (rule) rules.push(rule);
       }
     }
 
