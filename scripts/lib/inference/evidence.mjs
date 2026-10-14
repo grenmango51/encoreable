@@ -299,10 +299,11 @@ const SIDE_SHALLOW = new Set(['team', 'pokemon', 'activeRequest', 'choice']);
  * one's state, item, ability and their states, boosts, stored stats, forme,
  * types and flags such as `ateBerry` - both sides' conditions and slot
  * conditions, the field's weather, terrain and pseudo-weather, the faint
- * queue, the action queue, the hints already given, and the log. Returns the
- * restore.
+ * queue, the action queue, the hints already given, and the log - and each
+ * Pokemon of `extra` that is off the field, as a revive hands one back:
+ * whether it fainted, its status and its HP. Returns the restore.
  */
-function snapshot(battle) {
+function snapshot(battle, extra = []) {
   const log = saveLog(battle);
   const fields = BATTLE_FIELDS.map(k => battle[k]);
   const hints = battle.hints.size;
@@ -310,6 +311,9 @@ function snapshot(battle) {
   for (const side of battle.sides) {
     parts.push(keep(side, 3, SIDE_SHALLOW));
     for (const p of side.active) if (p) parts.push(keep(p, 3, POKEMON_SHALLOW));
+  }
+  for (const p of extra) {
+    if (p && !p.side.active.includes(p)) parts.push(keep(p, 3, POKEMON_SHALLOW));
   }
   return () => {
     log();
@@ -572,13 +576,14 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
    * Run `fn` dry: whatever it does to the battle is handed back afterwards
    * (`snapshot`), and no die it throws touches the generator - each takes the
    * bottom of its range, unless a caller handed it the real run's (`withRoll`).
-   * Every dry run of the evidence pass goes through here.
+   * Every dry run of the evidence pass goes through here. `extra` names
+   * Pokemon off the field that the run may change.
    */
-  function guarded(fn) {
+  function guarded(fn, extra = []) {
     state.dry++;
     const dry = st.dry;
     st.dry ||= { roll: 0, draws: null };
-    const restore = snapshot(battle);
+    const restore = snapshot(battle, extra);
     try {
       return fn();
     } finally {
@@ -995,8 +1000,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     };
   }
 
-  /** An HP change whose amount the simulator computed from one number we can scale. */
-  /** The HP `run` leaves one candidate on, with the battle handed back untouched. */
+  /**
+   * The HP `run` leaves one candidate on, with the battle handed back
+   * untouched - the Pokemon too when it is off the field, as one a revive
+   * brings back is.
+   */
   function dryHp(T, M, h, run) {
     return guarded(() => {
       const undo = patchAll([{ pokemon: T.pokemon, maxhp: M, hp: h }]);
@@ -1011,7 +1019,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         T.pokemon.faintQueued = queued;
         undo();
       }
-    });
+    }, [T.pokemon]);
   }
 
   function amountChange(T, kind, amounts, ctx, what) {
@@ -1044,75 +1052,126 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   }
 
   /**
-   * An HP change a move's own effect made (`runMoveEffects`), run again for
-   * every max HP and HP the Pokemon could be on, so the amount the effect
-   * works out and rounds is the simulator's whatever rounding it uses. Used
-   * only where, at the scaffold's own max HP and the HP it was on `before`,
-   * the run lands where the real one did, and where nothing else a spread
-   * decides moves it: no stat that stands on a spread is read, and no other
-   * Pokemon whose HP is shown as a percentage changes it when its HP does.
-   * Returns `{ change }`, or `{ reason }` it was not used, or null where the
-   * Pokemon is not one the effect ran on.
+   * One dry run of `run` with the Pokemon on max HP `M` and HP `h`, and
+   * `patch` on another Pokemon: the HP it leaves the Pokemon on, what the code
+   * handed the Pokemon's own `damage`, `heal` and `sethp`, and every stat read
+   * before the last of those - a stat read after it cannot have moved it.
    */
-  function effectsChange(T, call, before, what) {
+  function traced(T, M, h, run, patch = null) {
     const p = T.pokemon;
-    if (typeof before !== 'number') return null;
-    const at = call.targets.indexOf(p);
-    if (at < 0 && p !== call.source) return null;
-    const targets = at >= 0 ? [p] : call.targets;
-    const damage = at >= 0 ? [call.damage[at]] : call.damage;
-    const moves = [...new Set([call.move, call.moveData])];
-    const run = () => {
-      const kept = moves.map(m => keep(m, 2));
-      try {
-        origEffects.call(actions, damage.slice(), targets, call.source, call.move, call.moveData, call.isSecondary, call.isSelf);
-      } finally {
-        for (const k of kept) putBack(k);
-      }
+    const handed = [];
+    const reads = [];
+    let upTo = 0;
+    const undo = [];
+    const watched = new Set([p]);
+    for (const side of battle.sides) for (const q of side.active) if (q) watched.add(q);
+    for (const q of watched) {
+      const calc = q.calculateStat;
+      const get = q.getStat;
+      undo.push(override(q, 'calculateStat', function (stat, ...rest) { reads.push([q, toID(stat)]); return calc.call(this, stat, ...rest); }));
+      undo.push(override(q, 'getStat', function (stat, ...rest) { reads.push([q, toID(stat)]); return get.call(this, stat, ...rest); }));
+    }
+    for (const name of ['damage', 'heal', 'sethp']) {
+      const own = p[name];
+      undo.push(override(p, name, function (d, ...rest) {
+        handed.push(`${name}:${d}`);
+        try { return own.call(this, d, ...rest); } finally { upTo = reads.length; }
+      }));
+    }
+    let hp;
+    try {
+      hp = dryHp(T, M, h, () => {
+        const back = patch ? patchAll([patch]) : null;
+        try { run(); } finally { back?.(); }
+      });
+    } finally {
+      for (const u of undo.reverse()) u();
+    }
+    return { hp, handed: handed.join(' '), reads: reads.slice(0, upTo) };
+  }
+
+  /**
+   * An HP change some code of the simulator's made - a handler an event
+   * applied, an effect's own handler, a move's effects, a queued action - run
+   * again for every max HP and HP the Pokemon could be on, so the amount the
+   * code works out and rounds is the simulator's whatever rounding it uses.
+   * The code running when the change was made (`frames`) is tried innermost
+   * first, and the first whose run, at the scaffold's own max HP and the HP
+   * the Pokemon was on `before`, lands where the real change did is the one
+   * asked; an action is asked only when nothing runs inside it. It is used
+   * only where nothing else a spread decides moves it: no stat that stands on
+   * a spread is read, and no other Pokemon whose HP is shown as a percentage
+   * changes it when its HP does. Returns `{ change, moves }` - `moves` says
+   * whether what the code handed the Pokemon moves with its own max HP or HP,
+   * so that the code worked the amount out from them there and then rather
+   * than carrying one worked out earlier - or `{ reason }` it was not used.
+   */
+  function framesChange(T, before, what) {
+    const p = T.pokemon;
+    if (typeof before !== 'number') return { reason: 'the HP it was on before is not known' };
+    const stack = frames.slice();
+    // A move's effects run again on this Pokemon alone when it is one of
+    // their targets, and not at all when it is neither a target nor the user.
+    const runOf = (frame) => {
+      if (frame.kind !== 'effects') return () => frame.rerun();
+      const [, targets, source] = frame.args;
+      if (targets.includes(p)) return () => frame.rerun({ only: p });
+      return source === p ? () => frame.rerun() : null;
     };
     const ord = changeOrdinal;
-    const ok = memo(`mfxok|${ord}`, () => {
+    const asked = memo(`frm|${ord}`, () => {
       const M = p.maxhp;
       const after = p.hp;
-      const reads = [];
-      const undo = [];
-      for (const side of battle.sides) {
-        for (const q of side.active) {
-          if (!q) continue;
-          const calc = q.calculateStat;
-          const get = q.getStat;
-          undo.push(override(q, 'calculateStat', function (stat, ...rest) { reads.push([q, toID(stat)]); return calc.call(this, stat, ...rest); }));
-          undo.push(override(q, 'getStat', function (stat, ...rest) { reads.push([q, toID(stat)]); return get.call(this, stat, ...rest); }));
+      if (after === before) return { reason: 'it moved no HP' };
+      for (let i = stack.length - 1; i >= 0; i--) {
+        if (stack[i].kind === 'action' && i < stack.length - 1) break;
+        const run = runOf(stack[i]);
+        if (!run) continue;
+        let own;
+        try { own = traced(T, M, before, run); } catch { continue; }
+        if (own.hp !== after) continue;
+        for (const [q, s] of own.reads) {
+          const r = byPokemon.get(q);
+          const dep = r && depOf(r, s);
+          if (!dep || dep.owner) return { reason: 'the code that moved it read a stat that stands on a spread' };
         }
-      }
-      let landed;
-      try { landed = dryHp(T, M, before, run); } finally { for (const u of undo.reverse()) u(); }
-      if (landed !== after) return 'running its effect again did not land where the real one did';
-      for (const [q, s] of reads) {
-        const r = byPokemon.get(q);
-        const dep = r && depOf(r, s);
-        if (!dep || dep.owner) return 'its effect read a stat that stands on a spread';
-      }
-      for (const side of battle.sides) {
-        for (const q of side.active) {
-          const r = q && q !== p ? byPokemon.get(q) : null;
-          if (!r || r.exact || !q.hp) continue;
-          const probes = [...new Set([q.maxhp, q.maxhp - 1, Math.ceil(q.maxhp / 2), Math.floor(q.maxhp / 2), Math.floor(q.maxhp / 3), Math.floor(q.maxhp / 4), 1])]
-            .filter(h => h >= 1).map(h => ({ pokemon: q, hp: h }));
-          probes.push({ pokemon: q, maxhp: q.maxhp + 1 });
-          for (const patch of probes) {
-            const moved = dryHp(T, M, before, () => {
-              const back = patchAll([patch]);
-              try { run(); } finally { back(); }
-            });
-            if (moved !== after) return `${label(r)}'s HP moved what its effect did`;
+        for (const side of battle.sides) {
+          for (const q of side.active) {
+            const r = q && q !== p ? byPokemon.get(q) : null;
+            if (!r || r.exact || !q.hp) continue;
+            const probes = [...new Set([q.maxhp, q.maxhp - 1, Math.ceil(q.maxhp / 2), Math.floor(q.maxhp / 2), Math.floor(q.maxhp / 3), Math.floor(q.maxhp / 4), 1])]
+              .filter(h => h >= 1).map(h => ({ pokemon: q, hp: h }));
+            probes.push({ pokemon: q, maxhp: q.maxhp + 1 });
+            for (const patch of probes) {
+              if (traced(T, M, before, run, patch).hp !== after) return { reason: `${label(r)}'s HP moved what the code that moved it did` };
+            }
           }
         }
+        const others = [[M + 1, before], [2 * M, before]];
+        if (before > 1) others.push([M, before - 1]);
+        else if (before < M) others.push([M, before + 1]);
+        const moves = others.some(([Mx, hx]) => traced(T, Mx, hx, run).handed !== own.handed);
+        return { at: i, moves };
       }
-      return true;
+      return { reason: 'no code running then landed where the real change did when it was run again' };
     });
-    return ok === true ? { change: runChange(T, 'mfx', run, what) } : { reason: ok };
+    if (asked.reason) return asked;
+    return { change: runChange(T, 'frm', runOf(stack[asked.at]), what), moves: asked.moves };
   }
+
+  /** Whether every HP `a` leaves a candidate on is one `b` leaves it on too. */
+  const within = (a, b) => [...a.table].every(([g, hs]) => {
+    const others = b.table.get(g);
+    return !!others && hs.every(h => others.includes(h));
+  });
+
+  /** Every HP either change leaves a candidate on. */
+  const union = (a, b) => {
+    const table = new Map();
+    for (const [g, hs] of a.table) table.set(g, Int32Array.from(new Set([...hs, ...(b.table.get(g) || [])])));
+    for (const [g, hs] of b.table) if (!table.has(g)) table.set(g, hs);
+    return { dim: null, table, via: null, what: a.what };
+  };
 
   /**
    * An HP change whose amount is another Pokemon's stat: `amounts` maps each
@@ -1500,6 +1559,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       if (!sapped || sap?.rec !== sapped) return band(dir, what);
       return statAmountChange(T, kind, sap.amounts, { rec: sapped, stat: 'atk' }, ctx, `Strength Sap on ${named(sapped)}'s Attack`);
     }
+    // A handler handed the damage a hit just dealt, which works out its amount
+    // from it - Innards Out hands its holder's last HP back to the attacker.
+    const relayed = relayChange(T, kind, raw, ctx, before, what);
+    if (relayed) return relayed;
     // An amount the effect's own code writes as a number - Oran Berry's 10 HP -
     // is the same whatever the spread.
     if (Number.isInteger(raw) && fixedAmounts(e).has(raw)) return amountChange(T, kind, () => [raw], ctx, what);
@@ -1515,28 +1578,102 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
 
     // Everything else that scales is written as a fraction of max HP. A raw
     // amount that is not a whole number proves the fraction was passed
-    // unrounded. A whole one was rounded, and a move's own effect that rounds
-    // it - Recover's and Roost's `heal`, Heal Pulse's ceiling, Moonlight's
-    // `modify`, Shed Tail's cost - is that effect run again for each candidate
-    // (`effectsChange`). Where that cannot be done, a whole amount that is a
-    // listed fraction keeps both roundings.
+    // unrounded. A whole one was rounded, and the code that rounded it - a
+    // hazard's, a Berry's, Recover's `heal`, Heal Pulse's ceiling, Moonlight's
+    // `modify` - is run again for each candidate (`framesChange`). Where that
+    // reads what the code handed the Pokemon as an amount carried from earlier
+    // - Wish's - or leaves a candidate on an HP the fraction does not, the
+    // change keeps every HP either reading allows. Where the code cannot be
+    // run again, a whole amount that is a listed fraction keeps both
+    // roundings. A set HP - a revive's half - is set through `sethp`, which
+    // truncates.
+    const way = kind === 'sethp' ? 'any' : dir;
+    const said = kind === 'sethp' ? `HP set on ${named(T)}` : what;
     const k = FRACTIONS.find(f => Math.abs(raw - M0 * f) < 1e-9);
     const whole = Number.isInteger(raw);
-    if (k === undefined || whole) {
-      const call = effectsCall && (shown === effectsCall.move || shown === effectsCall.moveData) ? effectsCall : null;
-      const rerun = call ? effectsChange(T, call, before, what) : null;
-      if (rerun?.change) return rerun.change;
-      if (k === undefined) {
-        if (rerun?.reason) note(what, `${rerun.reason}, so it was not run again for each candidate`);
-        return band(dir, what);
-      }
-    }
-    const change = amountChange(T, kind, M => (whole ? [...new Set([Math.floor(M * k), Math.ceil(M * k)])] : [M * k]), ctx, what);
+    const amounts = M => (whole ? [...new Set([Math.floor(M * k), Math.ceil(M * k)])] : [M * k]);
+    const scaled = () => (kind === 'sethp' ? setChange(T, amounts, said) : amountChange(T, kind, amounts, ctx, said));
     // What Leech Seed takes from a Pokemon shown as a percentage is what its
     // seeder gets back, so the amounts that fit this line are handed on.
     const seeder = id === 'leechseed' && kind === 'damage' && !T.exact ? byPokemon.get(other) : null;
-    if (seeder) Object.assign(change, { dealtBy: seeder, move: e, off: null });
-    return change;
+    const handOn = change => (seeder ? Object.assign(change, { dealtBy: seeder, move: e, off: null }) : change);
+    if (k === undefined || whole) {
+      const read = framesChange(T, before, said);
+      if (read.change && k === undefined) {
+        if (read.moves) return handOn(read.change);
+        note(said, 'what the code handed it did not move with its own max HP or HP, so it was not run again for each candidate');
+        return band(way, said);
+      }
+      if (read.change) {
+        const today = scaled();
+        return handOn(read.moves && within(read.change, today) ? read.change : union(read.change, today));
+      }
+      note(said, `${read.reason}, so it was not run again for each candidate`);
+      if (k === undefined) return band(way, said);
+    }
+    return handOn(scaled());
+  }
+
+  /**
+   * An HP change the innermost handler made when the relay value it was
+   * handed is the damage `T` just dealt that handler's holder with this use of
+   * its move - Innards Out hands its holder's last HP, and what the use dealt
+   * before, back to the attacker. The holder's line said what it lost:
+   * exactly where its HP is shown exactly, so the amount is the same for
+   * every spread; and otherwise as one of the amounts `T`'s hit could have
+   * dealt it, each handed to the handler again in place of the real one, so
+   * that `T`'s line keeps the amounts that print it and narrows the holder to
+   * them, as with drain (`dealtChange`). Read only where this use hit the
+   * holder once and every earlier hit of it fell on a Pokemon shown exactly,
+   * where what the handler hands `T` moves with what it was handed, and where
+   * the handler run again with the real amount lands where the real one did.
+   * Null otherwise, and the change is read as any other.
+   */
+  function relayChange(T, kind, raw, ctx, before, what) {
+    const frame = frames.at(-1);
+    if (kind === 'sethp' || !frame || typeof frame.relay !== 'number' || typeof before !== 'number') return null;
+    const V = byPokemon.get(frame.holder);
+    const last = T.lastDealt;
+    const move = battle.activeMove;
+    if (!V || V === T || !last || last.victim !== V || last.move !== move || last.turn !== battle.turn) return null;
+    const log = T.moveHits?.move === move ? T.moveHits.all : null;
+    if (!log?.length || log.at(-1).victim !== V || log.at(-1).dealt !== frame.relay) return null;
+    const ord = changeOrdinal;
+    const ok = memo(`relay|${ord}`, () => {
+      const M = T.pokemon.maxhp;
+      const real = traced(T, M, before, () => frame.rerun({ relay: frame.relay }));
+      if (real.hp !== T.pokemon.hp) return 'running its handler again did not land where the real one did';
+      if (traced(T, M, before, () => frame.rerun({ relay: frame.relay + 1 })).handed === real.handed) return false;
+      if (last.hitsOn !== 1 || log.slice(0, -1).some(x => !x.victim.exact)) {
+        return 'it carries what more than one hit dealt, and not every one of them is shown exactly';
+      }
+      return true;
+    });
+    if (ok === false) return null;
+    if (ok !== true) {
+      note(what, `${ok}, so the damage it was handed was not read`);
+      return null;
+    }
+    if (V.exact) return amountChange(T, kind, () => [raw], ctx, what);
+    return dealtChange(T, last, what, 'relay', d => frame.rerun({ relay: d }));
+  }
+
+  /** An HP set to each amount `amounts` gives a max HP, through the simulator's `sethp`. */
+  function setChange(T, amounts, what) {
+    const ord = changeOrdinal;
+    const table = new Map();
+    for (const [g, [hp, , h]] of groupsOf(T, null)) {
+      const M = maxHp(T, hp);
+      const out = new Set();
+      for (const amount of amounts(M)) {
+        out.add(memo(`set|${ord}|${M}|${h}|${amount}`, () => dryHp(T, M, h, () => {
+          T.pokemon.hp ||= 1;
+          T.pokemon.sethp(amount);
+        })));
+      }
+      table.set(g, Int32Array.from(out));
+    }
+    return { dim: null, table, via: null, what };
   }
 
   function onChange(rec, kind, info) {
@@ -1579,7 +1716,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       change = rec.painSplit;
       rec.painSplit = null;
     } else {
-      change = band('any', `HP set on ${named(rec)}`);
+      change = effectChange(rec, 'sethp', info.d, null, null, false, null, null, null, info.before);
     }
     change.turn = battle.turn;
     changeOrdinal++;
@@ -2117,19 +2254,111 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
   };
 
-  // The move effects running right now, so an HP change one of them makes can
-  // be run again for each candidate (`effectsChange`).
-  let effectsCall = null;
+  // A move's effects running right now, so an HP change one of them makes can
+  // be run again for each candidate (`framesChange`).
   const origEffects = actions.runMoveEffects;
   actions.runMoveEffects = function (damage, targets, source, move, moveData, isSecondary, isSelf) {
     if (state.dry || state.ended) return origEffects.call(this, damage, targets, source, move, moveData, isSecondary, isSelf);
-    const was = effectsCall;
-    effectsCall = { damage: damage.slice(), targets: targets.slice(), source, move, moveData, isSecondary, isSelf };
+    const frame = {
+      kind: 'effects',
+      effect: move,
+      holder: source,
+      args: [damage.slice(), targets.slice(), source, move, moveData, isSecondary, isSelf],
+      fn: origEffects,
+      // Run again for one target only, when the Pokemon asked about is one.
+      call(args, only) {
+        let [dealt, hit] = args;
+        const at = only ? hit.indexOf(only) : -1;
+        if (at >= 0) [dealt, hit] = [[dealt[at]], [only]];
+        return origEffects.call(actions, dealt.slice(), hit.slice(), ...args.slice(2));
+      },
+    };
+    return framed(frame, () => origEffects.call(this, damage, targets, source, move, moveData, isSecondary, isSelf));
+  };
+
+  /**
+   * The code running right now, innermost last, kept only in the real run: a
+   * queued action ('action'), a move's effects ('effects'), a handler an event
+   * applies ('handler'), and an effect's own handler that a direct
+   * `singleEvent` runs ('event'). A frame is `{ kind, effect, state, holder,
+   * event, args, relay, fn, rerun }`: `effect`, `state` and `event` are the
+   * effect, effect state and event it was entered with (`state` null for an
+   * action or a move's effects), `holder` the Pokemon, side or field whose
+   * effect it is, `args` what `fn` was handed, and `relay` the relay value it
+   * was handed, where its event had one. `rerun({ relay, only })` runs `fn`
+   * again as it was entered, on a copy of `args`: `relay` in place of the relay
+   * value, and for a move's effects `only` that one of its targets. It hands
+   * back what `fn` returned, pushes no frame, and is called only inside
+   * `guarded`.
+   */
+  const frames = [];
+  function framed(frame, run) {
+    const entered = {
+      effect: battle.effect, state: battle.effectState, event: battle.event ? { ...battle.event } : battle.event, depth: battle.eventDepth,
+    };
+    const ran = frame.kind === 'handler' || frame.kind === 'event';
+    frame.state = ran ? entered.state : null;
+    frame.event = entered.event;
+    if (ran && frame.args.length === 4) frame.relay = frame.args[0];
+    frame.rerun = (opts = {}) => rerunFrame(frame, entered, opts);
+    frames.push(frame);
     try {
-      return origEffects.call(this, damage, targets, source, move, moveData, isSecondary, isSelf);
+      return run();
     } finally {
-      effectsCall = was;
+      frames.splice(frames.lastIndexOf(frame), 1);
     }
+  }
+
+  function rerunFrame(frame, entered, { relay, only } = {}) {
+    const saved = [battle.effect, battle.effectState, battle.event, battle.eventDepth];
+    const args = frame.args.slice();
+    if (relay !== undefined && 'relay' in frame) args[0] = relay;
+    // What the code can change that no snapshot holds: the move in flight,
+    // what it was handed, and the effect state it was entered with.
+    const held = [...new Set([battle.activeMove, entered.state, ...frame.args])]
+      .filter(x => x && typeof x === 'object' && !Object.isFrozen(x) && (isPlain(x) || x.effectType === 'Move'))
+      .map(x => keep(x, 2));
+    battle.effect = entered.effect;
+    battle.effectState = entered.state;
+    battle.event = entered.event ? { ...entered.event } : entered.event;
+    battle.eventDepth = entered.depth;
+    try {
+      return frame.call ? frame.call(args, only) : frame.fn.apply(battle, args);
+    } finally {
+      [battle.effect, battle.effectState, battle.event, battle.eventDepth] = saved;
+      for (const k of held) putBack(k);
+    }
+  }
+
+  // Every handler an event applies is built by `resolvePriority`: `runEvent`
+  // calls it, and `fieldEvent` hands it to `singleEvent` as its callback.
+  const origResolve = battle.resolvePriority;
+  battle.resolvePriority = function (h, callbackName) {
+    const handler = origResolve.call(this, h, callbackName);
+    const fn = handler.callback;
+    if (state.dry || state.ended || typeof fn !== 'function') return handler;
+    const { effect, effectHolder } = handler;
+    handler.callback = function (...args) {
+      if (state.dry || state.ended) return fn.apply(this, args);
+      return framed({ kind: 'handler', effect, holder: effectHolder, args, fn }, () => fn.apply(this, args));
+    };
+    return handler;
+  };
+  // A direct `singleEvent` runs the effect's own handler.
+  const origSingleEvent = battle.singleEvent;
+  battle.singleEvent = function (eventid, effect, effectState, target, source, sourceEffect, relayVar, customCallback) {
+    const fn = customCallback === undefined && effect ? effect[`on${eventid}`] : undefined;
+    if (state.dry || state.ended || typeof fn !== 'function') return origSingleEvent.apply(this, arguments);
+    return origSingleEvent.call(this, eventid, effect, effectState, target, source, sourceEffect, relayVar, function (...args) {
+      if (state.dry || state.ended) return fn.apply(this, args);
+      return framed({ kind: 'event', effect, holder: target, args, fn }, () => fn.apply(this, args));
+    });
+  };
+  const origRunAction = battle.runAction;
+  battle.runAction = function (action) {
+    if (state.dry || state.ended) return origRunAction.call(this, action);
+    return framed({ kind: 'action', effect: null, holder: action.pokemon || null, args: [action], fn: origRunAction },
+      () => origRunAction.call(this, action));
   };
 
   // A move's HP cost - Substitute's quarter, Belly Drum's half - goes through
@@ -2185,7 +2414,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     override(p, 'sethp', function (d) {
       const before = this.hp;
       const out = sethp.call(this, d);
-      if (!state.dry && !state.ended && this.hp !== before) onChange(rec, 'sethp', { d });
+      if (!state.dry && !state.ended && this.hp !== before) onChange(rec, 'sethp', { d, before });
       return out;
     });
   }
@@ -2558,7 +2787,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
 
   const speed = attachSpeed(battle, {
     state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label: named, measure, cutOf, note, depOf, ownValue,
-    unmaskedAfter,
+    unmaskedAfter, frames,
   });
 
   /**
