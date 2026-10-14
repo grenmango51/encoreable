@@ -64,6 +64,10 @@ export function attachSpeed(battle, {
   const sorts = [];
   const executed = [];
   const tainted = new Set();
+  // Each action `queue.prioritizeAction` moved to the front, with the number
+  // of sorts made before it did: from then on its place is not speed's, and
+  // a sort made after it has it at the order prioritizing set.
+  const prioritized = new Map();
   let lastSort = null;
   let sortOrdinal = 0;
 
@@ -128,6 +132,7 @@ export function attachSpeed(battle, {
       // names the Pokemon coming in, never the one in that slot.
       const entry = {
         turn: battle.turn,
+        ordinal: sortOrdinal,
         list: this.list.map(a => ({
           action: a, order: a.order, priority: a.priority || 0, pokemon: a.pokemon || null,
           side: a.pokemon?.side?.id ?? null, slot: a.pokemon ? a.pokemon.position : -1,
@@ -146,13 +151,26 @@ export function attachSpeed(battle, {
     }
     return out;
   };
-  for (const name of ['prioritizeAction', 'changeAction']) {
-    const orig = queue[name];
-    queue[name] = function (...args) {
-      tainted.add(battle.turn);
-      return orig.apply(this, args);
-    };
-  }
+  // Where an effect sets an action's place, the simulator says so in the
+  // action's order: Quash writes 201, and After You, Instruct, Round, the
+  // Pledges and Shell Trap prioritize the action, which writes 3. Gen 9
+  // sorts the queue again before every move, so a sort made after that has
+  // the action in a bracket of its own, and the rules below compare only
+  // items one sort had at the same order and priority. `changeAction`
+  // inserts an action where no sort put it, so its turn is set aside.
+  const prioritize = queue.prioritizeAction;
+  queue.prioritizeAction = function (action, ...rest) {
+    if (!state.dry && !state.ended) prioritized.set(action, sortOrdinal);
+    return prioritize.call(this, action, ...rest);
+  };
+  const changeAction = queue.changeAction;
+  queue.changeAction = function (...args) {
+    tainted.add(battle.turn);
+    return changeAction.apply(this, args);
+  };
+  // Whether an action was moved to the front after sort `S` was made, so its
+  // place in `S` is not where it ran.
+  const movedAfter = (action, S) => (prioritized.get(action) ?? -1) > S.ordinal;
 
   const origRun = battle.runAction;
   battle.runAction = function (action) {
@@ -289,11 +307,6 @@ export function attachSpeed(battle, {
       }
       return false;
     };
-    for (let i = firstAt(0); i < view.length && view[i].at < upTo; i++) {
-      if (/\|(move: )?(After You|Quash|Instruct)(\||$)/.test(view[i].line)) {
-        tainted.add(executed.find(ex => ex.start <= view[i].at && view[i].at < ex.end)?.sort?.turn);
-      }
-    }
     // A move a Pokemon used of its own choice: its move line, with no `[from]`
     // but a lock, naming that move - not one another effect called, nor one a
     // flinch or full paralysis kept it from showing.
@@ -334,9 +347,13 @@ export function attachSpeed(battle, {
     }));
     const order = new Map(executed.map((ex, i) => [ex.action, i]));
     const rules = [];
+    // Each action against those its last sort had after it at the same order
+    // and priority, as that sort had them - never the order an effect wrote on
+    // the action since, as Quash does - unless it was moved to the front after
+    // that sort.
     for (const [i, ex] of executed.entries()) {
       const S = ex.sort;
-      if (!S || tainted.has(S.turn) || !shown.get(ex.action)?.on) continue;
+      if (!S || tainted.has(S.turn) || movedAfter(ex.action, S) || !shown.get(ex.action)?.on) continue;
       const at = S.list.findIndex(item => item.action === ex.action);
       if (at < 0) continue;
       const x = S.list[at];
@@ -461,7 +478,7 @@ export function attachSpeed(battle, {
       // so was P's, whatever move it chose - provided nothing a priority
       // handler reads of P or the field moved between the two sorts.
       const before = x ? executed[executed.indexOf(ex) - 1] : null;
-      const a = before?.sort && before.sort.turn === S.turn && shown.get(before.action)?.on
+      const a = before?.sort && before.sort.turn === S.turn && shown.get(before.action)?.on && !movedAfter(before.action, before.sort)
         ? before.sort.list.find(item => item.action === before.action) : null;
       const between = item => !!a && a.order === x.order && a.priority === x.priority
         && before.sort.list.find(it => it.action === item.action)?.state === item.state;
@@ -477,7 +494,7 @@ export function attachSpeed(battle, {
       // priority was no higher than P's.
       const real = x && (x.action?.choice !== 'move' || realLater(Q, x.action.move?.id)
         || (!unseen && y && x.lowest !== null && x.lowest >= y.priority));
-      const rule = P && Q && P !== Q && real && !tainted.has(S.turn) ? ruleOf(P, Q, S.speeds, S.turn, `${label(P)} ${verbOf(y.action)} before ${label(Q)}`) : null;
+      const rule = P && Q && P !== Q && real && !tainted.has(S.turn) && !movedAfter(x.action, S) && !movedAfter(y.action, S) ? ruleOf(P, Q, S.speeds, S.turn, `${label(P)} ${verbOf(y.action)} before ${label(Q)}`) : null;
       if (rule) rules.push(rule);
     }
 

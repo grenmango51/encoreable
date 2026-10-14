@@ -780,6 +780,27 @@ const entries = {
       why: "On the known Snorlax's Electric Terrain, Surge Surfer doubles the hidden Raichu's Speed, 130 to 162 becoming 260 to 324, around the known Regieleki's 268.",
     }],
   },
+  'move:quash': {
+    templates: [{
+      name: 'quash-the-pacer',
+      role: 'user-hidden',
+      stat: 'spe',
+      p1: [set('Arcanine', 'M', 'Justified', 'Heat Rock', { spe: 26 }, ['Splash']), 'knownAlly', 'knownBench'],
+      p2: [set('Persian-Alola', 'M', 'Technician', 'Smooth Rock', {}, ['Quash', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move splash, move splash', p2: 'move quash 1, move splash' }],
+      control: { turns: [QUIET] },
+      why: "The hidden Persian's Quash on the known Arcanine succeeds only if Arcanine has not moved yet: Persian's 135 to 167 against Arcanine's 141.",
+    }, {
+      name: 'quash-the-hidden',
+      role: 'target-hidden',
+      stat: 'spe',
+      p1: [set('Tinkaton', 'F', 'Own Tempo', 'Heat Rock', {}, ['Quash', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: ['hidden', 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move quash 1, move splash', p2: 'move splash, move splash' }],
+      control: { turns: [QUIET] },
+      why: "The known Tinkaton's Quash on the hidden Blastoise succeeds only if Blastoise has not moved yet: its 98 to 130 against Tinkaton's 114.",
+    }],
+  },
   'item:whiteherb': {
     templates: [{
       name: 'restored-after-overheat',
