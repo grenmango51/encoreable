@@ -59,6 +59,7 @@ function sameButHp(a, b) {
 
 export function attachSpeed(battle, {
   state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label, measure, cutOf, note, depOf, ownValue,
+  unmaskedAfter,
 }) {
   const byId = new Map(recs.map(rec => [rec.id, rec]));
   const sorts = [];
@@ -172,18 +173,42 @@ export function attachSpeed(battle, {
   // place in `S` is not where it ran.
   const movedAfter = (action, S) => (prioritized.get(action) ?? -1) > S.ordinal;
 
+  // Who stands in each active slot, keyed `p2a`, and the name the log shows
+  // it by: its disguise's while Illusion holds.
+  const standingNow = () => new Map(battle.sides.flatMap(side => side.active.filter(Boolean)
+    .map(p => [`${side.id}${'abcd'[p.position]}`, { pokemon: p, name: p.illusion ? p.illusion.name : p.name }])));
+
   const origRun = battle.runAction;
   battle.runAction = function (action) {
     if (state.dry || state.ended) return origRun.call(this, action);
     sync();
     const start = battle.log.length;
     const sort = lastSort;
+    const standing = standingNow();
     try {
       return origRun.call(this, action);
     } finally {
-      executed.push({ action, pokemon: action.pokemon || null, start, end: battle.log.length, sort });
+      executed.push({ action, pokemon: action.pokemon || null, start, end: battle.log.length, sort, standing });
     }
   };
+  // The disguise an action's Pokemon was shown by as the action began, as
+  // `{ key, ident }`, or null when it was shown by its own name.
+  const disguiseOf = (ex) => {
+    for (const [key, s] of ex.standing) {
+      if (s.pokemon === ex.pokemon && s.name !== s.pokemon.name) return { key, ident: `${key}: ${s.name}` };
+    }
+    return null;
+  };
+  // Every name a Pokemon was shown by while it acted: its own and its
+  // disguises'.
+  const shownNames = (rec) => {
+    const names = new Set([rec.name]);
+    for (const ex of executed) {
+      for (const s of ex.standing.values()) if (s.pokemon === rec.pokemon) names.add(s.name);
+    }
+    return names;
+  };
+  const fieldOf = ident => new RegExp(`(^|\\|| )${ident.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\||$)`);
 
   // The speed an event handler sorts by is the one `updateSpeed` cached, so
   // every candidate's is taken at that moment rather than when the sort runs.
@@ -292,9 +317,15 @@ export function attachSpeed(battle, {
       while (lo < hi) { const mid = (lo + hi) >> 1; if (view[mid].at < at) lo = mid + 1; else hi = mid; }
       return lo;
     };
+    // Whether the line at raw index `at`, naming slot `key` by a disguise, was
+    // `p`'s: a `|replace|` naming `p` in that slot comes after it, before
+    // anything switches in there (`unmaskedAfter`).
+    const settled = (p, key, at) => unmaskedAfter(p, { side: key.slice(0, 2), slot: 'abcd'.indexOf(key[2]) }, at);
     // An action the replay shows: one of its lines names the Pokemon acting,
-    // or for a switch, which names the Pokemon coming in, shows a switch into
-    // the slot the one going out stood in.
+    // by its own name or by the disguise it began the action in once a
+    // `|replace|` settles that disguise as its, or for a switch, which names
+    // the Pokemon coming in, shows a switch into the slot the one going out
+    // stood in.
     const visible = (ex) => {
       const rec = ex.pokemon && byPokemon.get(ex.pokemon);
       if (!rec || ex.end > upTo) return false;
@@ -302,28 +333,35 @@ export function attachSpeed(battle, {
       if (ex.action?.choice === 'switch' && !(out?.slot >= 0)) return false;
       const me = out ? new RegExp(`^\\|switch\\|${out.side}${'abcd'[out.slot]}: `)
         : new RegExp(`(^|\\|| )${rec.side}[a-d]: ${rec.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\||$)`);
+      const disguise = out ? null : disguiseOf(ex);
+      const as = disguise && fieldOf(disguise.ident);
       for (let i = firstAt(ex.start); i < view.length && view[i].at < ex.end; i++) {
         if (me.test(view[i].line)) return true;
+        if (as && as.test(view[i].line) && settled(ex.pokemon, disguise.key, view[i].at)) return true;
       }
       return false;
     };
     // A move a Pokemon used of its own choice: its move line, with no `[from]`
     // but a lock, naming that move - not one another effect called, nor one a
-    // flinch or full paralysis kept it from showing.
-    const ownMove = (line, rec, id) => {
+    // flinch or full paralysis kept it from showing. The line names the
+    // Pokemon by its own name, or by `ident` when given.
+    const ownMove = (line, rec, id, ident = null) => {
       const parts = String(line).split('|');
-      if (parts[1] !== 'move' || !new RegExp(`^${rec.side}[a-d]: `).test(parts[2] || '') || identName(parts[2]) !== rec.name) return false;
+      const who = parts[2] || '';
+      if (parts[1] !== 'move') return false;
+      if (ident ? who !== ident : !new RegExp(`^${rec.side}[a-d]: `).test(who) || identName(who) !== rec.name) return false;
       const from = tagsOf(String(line)).from;
       return (!from || from === 'lockedmove') && String(parts[3]).toLowerCase().replace(/[^a-z0-9]/g, '') === id;
     };
     // An Encore begun on the Pokemon earlier in the turn, in the lines shown
-    // before raw index `at`: its move line then shows the encored move, not the
-    // one it chose.
+    // before raw index `at`, naming it by any name it was shown by: its move
+    // line then shows the encored move, not the one it chose.
     const encoredBefore = (rec, at) => {
+      const names = shownNames(rec);
       for (let i = firstAt(at) - 1; i >= 0; i--) {
         const parts = view[i].line.split('|');
         if (parts[1] === 'turn') return false;
-        if (parts[1] === '-start' && /Encore$/.test(parts[3] || '') && identSide(parts[2]) === rec.side && identName(parts[2]) === rec.name) return true;
+        if (parts[1] === '-start' && /Encore$/.test(parts[3] || '') && identSide(parts[2]) === rec.side && names.has(identName(parts[2]))) return true;
       }
       return false;
     };
@@ -336,8 +374,10 @@ export function attachSpeed(battle, {
       const rec = byPokemon.get(ex.pokemon);
       const id = ex.action.move?.id;
       if (!rec || !id || encoredBefore(rec, ex.start)) return false;
+      const disguise = disguiseOf(ex);
       for (let i = firstAt(ex.start); i < view.length && view[i].at < Math.min(ex.end, upTo); i++) {
         if (ownMove(view[i].line, rec, id)) return true;
+        if (disguise && ownMove(view[i].line, rec, id, disguise.ident) && settled(ex.pokemon, disguise.key, view[i].at)) return true;
       }
       return false;
     };
@@ -414,12 +454,15 @@ export function attachSpeed(battle, {
     // the replay's line gives on that side says nobody for certain.
     const cut = view.find(e => e.at === prefix.cutoffAt);
     const disguisable = sideId => !!battle.sides.find(side => side.id === sideId)?.pokemon.some(p => p.baseAbility === 'illusion');
-    // Who a line names: the Pokemon in that slot when it shows that name, its
-    // own or the one it is disguised as; otherwise, on a side with no Illusion
-    // user, the Pokemon of that name.
+    // Who stood where as the last action begun by the cutoff began: the
+    // battle itself has run on past the cutoff.
+    const standing = [...executed].reverse().find(e => e.start <= prefix.cutoffAt)?.standing || new Map();
+    // Who a line at the cutoff names: the Pokemon then in that slot when it
+    // shows that name, its own or the one it is disguised as; otherwise, on a
+    // side with no Illusion user, the Pokemon of that name.
     const named = (ident) => {
-      const p = battle.sides.find(side => side.id === identSide(ident))?.active['abcd'.indexOf(String(ident)[2])];
-      if (p && (p.name === identName(ident) || p.illusion?.name === identName(ident))) return byPokemon.get(p) || null;
+      const s = standing.get(String(ident).slice(0, 3));
+      if (s && (s.name === identName(ident) || s.pokemon.name === identName(ident))) return byPokemon.get(s.pokemon) || null;
       return disguisable(identSide(ident)) ? null : byIdent.get(`${identSide(ident)}:${identName(ident)}`) || null;
     };
     const was = opens(prefix.observedLine, prefix.observedAfter?.[0]);
@@ -431,7 +474,7 @@ export function attachSpeed(battle, {
     // another priority, and then the order says nothing about speed.
     const encore = (line, rec) => {
       const parts = String(line || '').split('|');
-      return parts[1] === '-start' && /Encore$/.test(parts[3] || '') && identSide(parts[2]) === rec.side && identName(parts[2]) === rec.name;
+      return parts[1] === '-start' && /Encore$/.test(parts[3] || '') && identSide(parts[2]) === rec.side && shownNames(rec).has(identName(parts[2]));
     };
     const chosen = () => {
       const P = named(was.ident);

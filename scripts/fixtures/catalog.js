@@ -801,6 +801,27 @@ const entries = {
       why: "The known Tinkaton's Quash on the hidden Blastoise succeeds only if Blastoise has not moved yet: its 98 to 130 against Tinkaton's 114.",
     }],
   },
+  'ability:illusion': {
+    templates: [{
+      name: 'race-in-disguise',
+      role: 'holder-hidden',
+      stat: 'spe',
+      p1: [set('Arcanine', 'M', 'Justified', 'Heat Rock', { spe: 26 }, ['Extreme Speed', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [set('Zoroark', 'M', 'Illusion', 'Smooth Rock', {}, ['Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [QUIET, { p1: 'move extremespeed 1, move splash', p2: 'move splash, move splash' }],
+      control: { p2: [{ ability: 'Run Away' }] },
+      why: "The hidden Zoroark's first-turn lines name its disguise, p2a: Slowking, and the known Arcanine's Extreme Speed then breaks it and |replace| shows who it was: its 125 to 157 against Arcanine's 141 on the first turn.",
+    }, {
+      name: 'race-never-unmasked',
+      role: 'holder-hidden',
+      stat: 'spe',
+      p1: [set('Arcanine', 'M', 'Justified', 'Heat Rock', { spe: 26 }, ['Splash']), 'knownAlly', 'knownBench'],
+      p2: [set('Zoroark', 'M', 'Illusion', 'Smooth Rock', {}, ['Splash']), 'hiddenAlly', set('Persian-Alola', 'F', 'Technician', 'Terrain Extender', {}, ['Splash'])],
+      turns: [QUIET, QUIET],
+      control: { p2: [{ ability: 'Run Away' }] },
+      why: "Nothing breaks the hidden Zoroark's disguise as the hidden Persian, which could have made the same order lines at 135 to 167, so Zoroark's 125 to 157 against the known Arcanine's 141 stays unread.",
+    }],
+  },
   'item:whiteherb': {
     templates: [{
       name: 'restored-after-overheat',
