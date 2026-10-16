@@ -966,6 +966,52 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
     if (fits) out.set(got[0], fits);
     return real;
   };
+
+  // A move that hits a number of times drawn from a range throws that number
+  // first, before its first hit; the observed turn's `|-hitcount|` for its
+  // target says which faces of that die print it. Loaded Dice throws another
+  // die after a low count, so its holder's count is searched in full.
+  let counting = null;
+  const origSample = battle.sample;
+  battle.sample = function (items) {
+    if (counting && !st.dry && counting.i === null) Object.assign(counting, { i: st.draws, faces: items });
+    return origSample.call(this, items);
+  };
+  const origRandom = battle.random;
+  battle.random = function (m, n) {
+    if (counting && !st.dry && counting.i === null && n !== undefined) Object.assign(counting, { i: st.draws, faces: Array.from({ length: n - m }, (_, f) => m + f), off: m });
+    return origRandom.call(this, m, n);
+  };
+  const origHitLoop = actions.hitStepMoveHitLoop;
+  actions.hitStepMoveHitLoop = function (targets, pokemon, move) {
+    if (at.k !== turn || st.dry || !Array.isArray(move.multihit) || pokemon.hasItem('loadeddice')) return origHitLoop.call(this, targets, pokemon, move);
+    const now = standing();
+    let want = null;
+    for (let i = now ? now.from : 0; now && i < now.end && want === null; i++) {
+      const parts = now.wantHard[i].split('|');
+      if (parts[1] === '-hitcount' && parts[2] === String(targets[0])) want = Number(parts[3]);
+    }
+    counting = { i: null, faces: null, off: 0 };
+    let count;
+    try {
+      return origHitLoop.call(this, targets, pokemon, move);
+    } finally {
+      count = counting;
+      counting = null;
+      const face = count.i === null ? undefined : faceOf(count.i);
+      if (want !== null && face !== undefined) {
+        const reps = [];
+        const groups = new Map();
+        for (const [f, hits] of count.faces.entries()) {
+          if (hits !== want) continue;
+          const v = f + count.off;
+          if (!reps.length) { reps.push(v); groups.set(v, []); }
+          groups.get(reps[0]).push(v);
+        }
+        out.set(count.i, { reps, groups, wrong: count.faces[face - count.off] !== want });
+      }
+    }
+  };
 }
 
 // ------------------------------------------------------------- turn snapshots
