@@ -3240,7 +3240,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
 
   const speed = attachSpeed(battle, {
     state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label: named, measure, cutOf, note, depOf, ownValue,
-    frames,
+    unmaskedAfter, frames,
   });
 
   /**
