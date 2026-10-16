@@ -291,7 +291,7 @@ export async function inferSpreads({
    * guess moved for no reason the line gave.
    *
    * A turn the guess itself reproduces - with the dice before it handed on,
-   * or under a bigger search - is the dice's to settle: the guess stays, and
+   * or under the full search - is the dice's to settle: the guess stays, and
    * the next round searches the way the rebuild that reproduced the turn did.
    * So is a line the guess gets past once the dice before it are searched
    * again, which is asked of the guess before any spread found is taken.
@@ -422,9 +422,20 @@ export async function inferSpreads({
       base = await rebuild(start, budget);
     }
     if (base.report.complete) return stays(handed, budget === budgets[0] ? 0 : 1);
-    const dice = await rebuild(start, budgets[1]);
-    onProgress(`  fallback on turn ${t}: ${diff.expected} - the guess alone ${dice.report.complete ? 'reproduces it under a bigger search' : 'does not'}, ${clock()}`);
-    if (dice.report.complete) return stays(handed, 1);
+    const widest = budgets.findLastIndex(b => !b.resample);
+    const dice = await rebuild(start, budgets[widest]);
+    onProgress(`  fallback on turn ${t}: ${diff.expected} - the guess alone ${dice.report.complete ? 'reproduces it under the full search' : 'does not'}, ${clock()}`);
+    if (dice.report.complete) return stays(handed, widest);
+    // The guess alone getting further than the round did, without the exact
+    // turns and the dice the round was handed, says the round stopped on those
+    // and not on the guess: the next round rebuilds it the same way, and the
+    // evidence reads on from where it stops.
+    const round = reach(built);
+    const past = [[base, budget === budgets[0] ? 0 : 1], [dice, widest]].find(([b]) => further(reach(b), round));
+    if (past) {
+      onProgress(`  fallback on turn ${t}: the guess alone gets past the line to ${reach(past[0]).join('.')}, ${clock()}`);
+      return stays(handed, past[1]);
+    }
     if (reach(base)[0] < t) return none();
 
     // A line the rebuild printed for another Pokemon, or another action in its
@@ -699,6 +710,7 @@ export async function inferSpreads({
       return null;
     };
     const proof = await choose(0, cloneKnowledge(knowledge));
+    const ranWith = exact;
     exact = proof?.exact || null;
     pins = proof ? handOn(built, proof.rolls) : null;
     if (!exact) {
@@ -716,7 +728,11 @@ export async function inferSpreads({
     // reproduces it, or what failed was the dice search.
     const again = failed.has(markOf(diff));
     failed.add(markOf(diff));
-    if (unchanged || again || read < 2) {
+    // A proof that names another exact HP path than the one this round was
+    // rebuilt on hands the guess a path its rebuild has not tried: the next
+    // round tries it before the fallback moves anything.
+    const reproven = !again && !!exact && JSON.stringify([...exact]) !== JSON.stringify([...(ranWith || [])]);
+    if ((unchanged || again || read < 2) && !reproven) {
       const start = picks.map((team, s) => team.map((e, i) => (containsSpread(knowledge.get(`p${s + 1}:${i}`), e) ? e : next[s][i])));
       const began = Date.now();
       const found = await fallback(seen, start);
@@ -730,9 +746,9 @@ export async function inferSpreads({
         continue;
       }
     }
-    if (unchanged) {
+    if (unchanged && !reproven) {
       if (++level >= budgets.length) break;
-    } else {
+    } else if (!unchanged) {
       level = 0;
     }
     picks = next;
