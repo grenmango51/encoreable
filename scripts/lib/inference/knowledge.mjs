@@ -237,8 +237,8 @@ function budgetTest(keys, dom, spent) {
  * `budgetTest` where ties hold: a key fits if some choice of flat values it
  * allows fits the budget beside it, and a flat value fits if some key allows
  * it with the rest fitting. With one tie on a key this is read off the sums of
- * the untied stats; with more, or a pair tie, every key's own choices are
- * enumerated.
+ * the untied stats; with more, or a pair tie, each distinct set of choices
+ * the keys allow is enumerated once, for the totals each value reaches.
  */
 function tiedBudget(keys, dom, ties, spent) {
   const tied = FLAT.filter(s => ties[s]);
@@ -277,15 +277,19 @@ function tiedBudget(keys, dom, ties, spent) {
       if (any) keyOk.add(k);
     }
   } else {
+    // Per signature, the totals the whole choices reach, and each flat value's
+    // own; per signature and room, what fits.
+    const TOTALS = 3 * (SPAN - 1) + 1;
     const memo = new Map();
     for (const k of keys) {
       const room = BUDGET - KEY_SUM[k];
       if (room < 0) continue;
       const { lists, sig } = listsFor(k, dom, ties, words);
-      let combos = memo.get(sig);
-      if (!combos) {
-        combos = [];
+      let by = memo.get(sig);
+      if (!by) {
         const vals = FLAT.map(x => lists[x] || aliveOf(dom[x]));
+        const any = new Uint8Array(TOTALS);
+        const at = FLAT.map(() => new Array(SPAN).fill(null));
         const v = {};
         for (const a of vals[0]) {
           v.atk = a;
@@ -293,19 +297,26 @@ function tiedBudget(keys, dom, ties, spent) {
             v.spa = b;
             for (const c of vals[2]) {
               v.spe = c;
-              if (pairsAllow(pairs, v)) combos.push([a, b, c]);
+              if (!pairsAllow(pairs, v)) continue;
+              const t = a + b + c;
+              any[t] = 1;
+              (at[0][a] ||= new Uint8Array(TOTALS))[t] = 1;
+              (at[1][b] ||= new Uint8Array(TOTALS))[t] = 1;
+              (at[2][c] ||= new Uint8Array(TOTALS))[t] = 1;
             }
           }
         }
-        memo.set(sig, combos);
+        by = { any, at, rooms: new Map() };
+        memo.set(sig, by);
       }
-      for (const [a, b, c] of combos) {
-        if (!fit(a + b + c, room)) continue;
-        keyOk.add(k);
-        flatOk.atk[a] = 1;
-        flatOk.spa[b] = 1;
-        flatOk.spe[c] = 1;
+      let ok = by.rooms.get(room);
+      if (ok === undefined) {
+        const fits = totals => totals.some((x, t) => x === 1 && fit(t, room));
+        ok = fits(by.any);
+        by.rooms.set(room, ok);
+        if (ok) for (const [j, x] of FLAT.entries()) for (let w = 0; w < SPAN; w++) if (by.at[j][w] && fits(by.at[j][w])) flatOk[x][w] = 1;
       }
+      if (ok) keyOk.add(k);
     }
   }
   return { key: k => keyOk.has(k), flat: FLAT.map(x => v => flatOk[x][v] === 1) };
