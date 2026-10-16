@@ -120,10 +120,28 @@ function planSegment(segment, dex) {
   // A Pokemon Encored before it moves uses the Encored move, not the one it
   // chose, so its move line says nothing about its choice.
   const encored = new Set();
+  // Revival Blessing asks its user's player which fainted Pokemon to bring
+  // back, as a switch request for the user's slot; the heal line names the one
+  // chosen. One revived into an empty active slot is switched in by the
+  // simulator itself, so its switch line answers no request.
+  let reviver = null;
+  let revived = null;
 
   for (const [i, line] of segment.entries()) {
     const parts = line.split('|');
     const kind = parts[1];
+
+    if (kind === '-heal' && tagsOf(line).from === 'move: Revival Blessing' && reviver) {
+      const side = identSide(parts[2]);
+      plan.forced[side].push({ slot: reviver.slot, name: identName(parts[2]) });
+      revived = { side, name: identName(parts[2]) };
+      reviver = null;
+      continue;
+    }
+    if (kind === 'switch' && revived && identSide(parts[2]) === revived.side && identName(parts[2]) === revived.name) {
+      revived = null;
+      continue;
+    }
 
     if (kind === 'swap') {
       const side = identSide(parts[2]);
@@ -155,6 +173,7 @@ function planSegment(segment, dex) {
     }
 
     if (kind === 'move') {
+      if (toID(parts[3]) === 'revivalblessing') reviver = { slot: identSlot(parts[2]) };
       if (encored.has(parts[2])) continue;
       const from = tagsOf(line).from;
       // A `[from]` move was executed by something other than a fresh choice -

@@ -603,6 +603,25 @@ const entries = {
       },
     ],
   },
+  'move:revivalblessing': {
+    templates: [[0, 1], 'sweep'].map(worlds => ({
+      name: worlds === 'sweep' ? 'revives-the-ally-swept' : 'revives-the-ally',
+      role: 'user-hidden',
+      probe: 'p2b',
+      stat: 'hp',
+      worlds,
+      p1: [withMoves('known', ['Fissure', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [set('Pawmot', 'M', 'Run Away', 'Smooth Rock', {}, ['Revival Blessing', 'Splash']), 'hiddenAlly', 'hiddenBench', 'hiddenSpare'],
+      turns: [
+        { p1: 'move fissure 2, move splash', p2: 'move splash, move splash' },
+        { p1: 'move splash, move splash', p2: 'move revivalblessing, move splash' },
+        { p2: 'switch 3' },
+        QUIET,
+      ],
+      control: { turns: [{ p1: 'move fissure 2, move splash', p2: 'move splash, move splash' }, QUIET, QUIET, QUIET] },
+      why: "The known Snorlax's Fissure knocks out the hidden Avalugg, and the hidden Pawmot's Revival Blessing brings it back on half its max HP rounded down: 170 and 171 print 50/100y and 49/100.",
+    })),
+  },
   'ability:sniper': {
     templates: [{
       name: 'critical-hit',
