@@ -1767,6 +1767,34 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
       commit(fallback.i, fallback.value);
       committed = true;
     }
+    // Last, two chances flipped together: a spread move's secondary that came
+    // up on one target and not the other prints the wrong target's line under
+    // either die alone. A chance is any die wider than a damage roll - an
+    // accuracy, a crit, a secondary's `random(100)` - tried at its ends. The
+    // second die can be thrown after the line the turn disagrees on: the
+    // first one moves that line.
+    if (!committed) {
+      const chances = all.filter(d => (d.chance || d.hi - d.lo + 1 > 16) && subs[d.i] === undefined);
+      pairs: for (const a of chances) {
+        if (!reach(a)) continue;
+        for (const b of chances) {
+          if (b.i <= a.i) continue;
+          for (const va of candidates(a, run.steer)) {
+            for (const vb of candidates(b, run.steer)) {
+              if (probes >= budget) break pairs;
+              const probe = await ask.get({ ...subs, [a.i]: va, [b.i]: vb });
+              probes++;
+              if (scoreOf(probe, t)[0] > score[0]) {
+                commit(a.i, va);
+                commit(b.i, vb);
+                committed = true;
+                break pairs;
+              }
+            }
+          }
+        }
+      }
+    }
 
     ask.cancel();
     if (!committed) break;
@@ -2067,13 +2095,24 @@ async function reconstructOnce({
     // Then the choices this turn left invisible. A mon that fainted before
     // acting emits no line either way, so its move is a free variable; walking
     // those is cheaper than anything and may well recover the real choice.
+    // Each is played once with the turn's dice as drawn, and the search walks
+    // them furthest first: a flinched Pokemon's unseen move that sorts where
+    // the replay has it gets further than one that does not.
     const width = Math.min(run.widths?.[t] || 1, maxVariants);
+    const ranked = [];
     for (let v = 1; v < width && !solved; v++) {
       variants[t] = v;
       forget(t);
       const probe = await runTo(common, subs, t);
       attempts++;
       if (probe.badTurn === null) { solved = true; break; }
+      ranked.push({ v, score: scoreOf(probe, t) });
+    }
+    ranked.sort((a, b) => (outranks(b.score, a.score) ? 1 : outranks(a.score, b.score) ? -1 : a.v - b.v));
+    for (const { v } of ranked) {
+      if (solved) break;
+      variants[t] = v;
+      forget(t);
       const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
       attempts += got.probes;
       spent[t] += got.probes;

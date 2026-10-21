@@ -2254,11 +2254,22 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   }
 
   let survived = null;
+  // A Pokemon the rebuild announced at the cutoff as surviving a lethal hit
+  // where the replay shows it simply taking the hit: the rebuild's HP line for
+  // it, right after, is read against the replay's, and a candidate whose hit
+  // would have been lethal is left on the 1 HP the replay does not show.
+  let awaited = null;
   function sync() {
     if (state.dry || state.hold) return;
     while (!state.ended && viewPos < view.length && view[viewPos].at < battle.log.length) {
       const entry = view[viewPos++];
-      if (entry.at > prefix.cutoffAt) { state.ended = true; break; }
+      if (entry.at > prefix.cutoffAt) {
+        const mine = hpLine(entry.line);
+        const want = awaited && hpLine(prefix.observedLine);
+        if (mine && want && `${mine.side}:${mine.name}` === awaited && want.kind === mine.kind) observe(mine, want.token, entry.at);
+        state.ended = true;
+        break;
+      }
       const atCut = entry.at === prefix.cutoffAt;
       const mine = hpLine(entry.line);
       const direct = atCut ? hpLine(prefix.observedLine) : mine;
@@ -2288,7 +2299,15 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           }
         }
       }
-      if (atCut) { state.ended = true; break; }
+      if (atCut) {
+        const want = hpLine(prefix.observedLine);
+        if (!mine && want && survivor(entry.line) === `${want.side}:${want.name}`) {
+          awaited = survivor(entry.line);
+          continue;
+        }
+        state.ended = true;
+        break;
+      }
     }
   }
 

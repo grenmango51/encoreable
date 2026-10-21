@@ -784,6 +784,17 @@ input log; only runs from turn 0 do. The search is still built to make few probe
   reproduces Bo3 game B's turn-3 Heat Wave.
 - **A die thrown after the line the turn disagrees on is skipped**, except within a move line,
   which `attrLastMove` amends until the next action starts.
+- **Choices the replay never shows are walked furthest first.** A Pokemon that fainted before
+  acting, flinched or was fully paralysed shows no move, so which one it chose is a search
+  variable. Every such variant is played once with the turn's dice as drawn, and the dice are
+  searched under each in the order they got furthest: a flinched Mawile that chose Sucker Punch
+  sorts its `|cant|` before a priority-0 move, where the replay has it, and is searched before the
+  variants that do not.
+- **Last, two chances together.** When a scan commits nothing, pairs of dice wider than a damage
+  roll — accuracies, crits, a secondary's `random(100)` — are tried at their ends, the second
+  thrown anywhere after the first in the turn: Muddy Water lowering one target's accuracy and not
+  the other's prints the wrong target's line under either die alone, and the second target's die
+  is thrown after that line.
 - **A probe is not repeated when nothing it depended on moved.** What changes between scans is
   the dice committed since; a die thrown after the line a probe failed on cannot reach that line,
   so the probe fails there again.
@@ -1073,7 +1084,9 @@ Every line set aside is recorded — `inference.checks` in the written `.log.jso
   the confusion check, waking up, thawing out — each opening its Pokemon's action; a
   `detailschange` and `-mega` pair opens its Mega Evolution, a `-formechange` followed by the same
   Pokemon's own move line opens that move — Stance Change's, which `onModifyMove` prints first —
-  and a switch no effect caused opens the switch out of that slot. An order is read only at a priority the replay proves: it shows the
+  and a switch no effect caused opens the switch out of that slot, a chosen one or the
+  replacement for a Pokemon that fainted, which the simulator queues as `instaswitch` and sorts by
+  the fainted Pokemon's speed. An order is read only at a priority the replay proves: it shows the
   Pokemon using, of its own choice, the exact move the rebuild queued — no `[from]` but a locked
   move, no Encore started on it earlier that turn — or, for the Pokemon that went second, no move
   it has, Struggle included, sorts below the first one's priority, asked of the simulator per move
@@ -1166,6 +1179,11 @@ Every line set aside is recorded — `inference.checks` in the written `.log.jso
   converse is read too: each candidate's `Damage` event is run with its chances not granted, and
   one whose event would have printed a Focus Sash, Sturdy or Endure the replay does not show is
   ruled out, where the event run at the scaffold's own Stat Points prints what the real one did.
+  And where it is the scaffold that announced the Focus Sash at the cutoff, and the replay shows
+  the Pokemon's HP line there instead, the scaffold's HP line right after is read against the
+  replay's: a candidate whose hit would have been lethal is left on the 1 HP the replay does not
+  show — a known Vivillon left on 4/166 by a hidden Dragalge's critical Dragon Pulse names its
+  Special Attack.
 - **Whole paths.** Each display is first checked on its own; then every Pokemon's HP history is
   walked backwards from what survived the last display, and a spread — or an attacking stat — is
   kept only if some path through *every* turn reaches it. Without this, two unknowns hitting each
@@ -1221,7 +1239,13 @@ diverged, move the guess inside what survived, repeat. Three choices keep that f
   damage roll becomes the one the path chose for the new spread, at the ordinal the scaffold
   recorded for it. So a round searches only the turn after them. A spread that throws a different
   sequence is caught, and the pins from that turn on are dropped and searched. The search budget
-  starts at 150 probes and grows only for a guess the evidence has no quarrel with.
+  starts at 150 probes and grows only for a guess the evidence has no quarrel with. Once a turn
+  has needed a bigger budget — a round got further than the last on it, or the fallback found
+  the guess passes under it — every later guess starts from that budget: the dice a round hands
+  on are addressed by ordinal, and a guess that draws a different number of them before that
+  turn would otherwise lose the turn again and spend a round climbing back;
+- the rounds are counted only when they get no further than the furthest one yet, up to four
+  times as many in all, so a long battle the evidence pins a line a round is not cut off.
 
 The reconstruction also blames the *other* hidden Pokemon a failing line depends on, on
 alternate backtracks: the attacker for Water Spout, the victim for recoil (§7.3).

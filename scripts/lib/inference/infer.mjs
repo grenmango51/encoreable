@@ -163,6 +163,9 @@ function handOn(built, rolls) {
  * @param known    `[p1Known, p2Known]`
  * @param allSpent assume every unknown set spends all 66 points, as real sets do.
  *                 An assumption, not evidence: off unless asked for.
+ * @param maxRounds the rounds that get no further than the furthest one yet;
+ *                 a round that gets further costs none, up to four times as
+ *                 many rounds in all - a long battle a line a round
  * @param spend    what the fallback has left - rebuilds and milliseconds - and
  *                 the lines it searched without getting past, shared with
  *                 the inferences this one runs again under another reading
@@ -248,6 +251,13 @@ export async function inferSpreads({
   let built = null;
   let rounds = 0;
   let level = 0;
+  // The budget a turn has needed - a round that got further than the last on
+  // a bigger one, or the fallback's word that the guess passes under it: a
+  // new guess starts from it, since the dice a round hands on are addressed
+  // by ordinal and do not survive a guess that draws a different number of
+  // them before that turn.
+  let floor = 0;
+  let reached = null;
   let exact = null;
   let pins = null;
   const started = Date.now();
@@ -636,7 +646,10 @@ export async function inferSpreads({
     return none();
   };
 
-  while (rounds < maxRounds) {
+  const past = (a, b) => (a[0] !== b[0] ? a[0] > b[0] : a[1] > b[1]);
+  let deepest = null;
+  let stalled = 0;
+  while (stalled < maxRounds && rounds < 4 * maxRounds) {
     rounds++;
     const packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
     const searchStart = Date.now();
@@ -651,6 +664,11 @@ export async function inferSpreads({
       threads,
     });
     const diff = built.report.diffs[0];
+    const at = built.report.complete ? [Infinity, Infinity] : [diff?.turn ?? -1, diff?.index ?? -1];
+    if (level > floor && !budgets[level].resample && reached && past(at, reached)) floor = level;
+    reached = at;
+    if (!deepest || past(at, deepest)) deepest = at;
+    else stalled++;
     onProgress(`round ${rounds}${level ? ` (search ${level + 1})` : ''}, ${((Date.now() - searchStart) / 1000).toFixed(1)}s: ${built.report.complete ? 'the whole log reproduces'
       : `reproduces through turn ${built.report.verifiedThroughTurn} - wanted ${diff?.expected}, got ${diff?.actual}`}`);
     if (built.report.complete) break;
@@ -744,14 +762,15 @@ export async function inferSpreads({
         picks = found.picks;
         exact = null;
         pins = found.pins;
-        level = found.level;
+        level = Math.max(found.level, floor);
+        floor = Math.max(floor, found.level);
         continue;
       }
     }
     if (unchanged) {
       if (++level >= budgets.length) break;
     } else {
-      level = 0;
+      level = floor;
     }
     picks = next;
   }

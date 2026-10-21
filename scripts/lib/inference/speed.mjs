@@ -41,11 +41,16 @@ function opens(line, next) {
   return null;
 }
 
-/** Whether a queued action is of the kind `opens` names. */
-const ofKind = (action, kind) => (kind === 'mega' ? MEGA.has(action?.choice) : action?.choice === kind);
+/**
+ * Whether a queued action is of the kind `opens` names. A switch is a chosen
+ * one or a replacement for a Pokemon that fainted, which the simulator queues
+ * as `instaswitch` and sorts by the fainted Pokemon's speed.
+ */
+const SWITCHES = new Set(['switch', 'instaswitch']);
+const ofKind = (action, kind) => (kind === 'mega' ? MEGA.has(action?.choice) : kind === 'switch' ? SWITCHES.has(action?.choice) : action?.choice === kind);
 
 /** What a queued action did, as an order line says it: a switch is its Pokemon going out. */
-const verbOf = action => (action?.choice === 'switch' ? 'switched out' : MEGA.has(action?.choice) ? 'Mega Evolved' : 'acted');
+const verbOf = action => (SWITCHES.has(action?.choice) ? 'switched out' : MEGA.has(action?.choice) ? 'Mega Evolved' : 'acted');
 
 const HP_AT = { '-damage': 3, '-heal': 3, '-sethp': 3 };
 
@@ -478,8 +483,8 @@ export function attachSpeed(battle, {
     const visible = (ex) => {
       const rec = ex.pokemon && byPokemon.get(ex.pokemon);
       if (!rec || ex.end > upTo) return false;
-      const out = ex.action?.choice === 'switch' ? ex.sort?.list.find(item => item.action === ex.action) : null;
-      if (ex.action?.choice === 'switch' && !(out?.slot >= 0)) return false;
+      const out = SWITCHES.has(ex.action?.choice) ? ex.sort?.list.find(item => item.action === ex.action) : null;
+      if (SWITCHES.has(ex.action?.choice) && !(out?.slot >= 0)) return false;
       const me = out ? new RegExp(`^\\|switch\\|${out.side}${'abcd'[out.slot]}: `)
         : new RegExp(`(^|\\|| )${rec.side}[a-d]: ${rec.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\||$)`);
       const disguise = out ? null : disguiseOf(ex);

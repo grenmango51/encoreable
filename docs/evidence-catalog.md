@@ -335,12 +335,15 @@ No probe battle is kept in `recordings/`: every one is rebuilt from the fixture 
    survives, that the rebuild is a MATCH and that nothing throws. A battle that is no MATCH is rebuilt
    again with the real Stat Points: if that fails too, the fault is the rebuild's, not the
    inference's. Failures are ranked by the kind of their first wrong line, each with its seed. On
-   `--fuzz 100 --seed 1` (2026-10-05): 91 MATCH, every real spread kept in all 100, nothing thrown.
-   The inference settled on a spread the log rules out in six — an HP line a point off (seeds 44, 56,
-   68), which of two Tyranitars' Sand Stream announces first (24, 73), a start-of-turn switch order
-   under Trick Room (88) — and the rebuild fails with the real Stat Points too in three, each on the order
-   of a `|cant|` line: a flinched Pokemon's unseen priority move that ordered the turn (2; 19 fails on a `|cant|` too), and a
-   sleeping Pokemon against a paralysed one (83).
+   `--fuzz 100 --seed 1` (2026-10-21): 100 MATCH, every real spread kept, nothing thrown. The last
+   nine failures each closed a general gap: which of two Tyranitars' Sand Stream announces first
+   (seeds 24, 73), read from the switch-in order; a flinch after a speed tie (19), the search's
+   third score component; a flinched Mawile's unseen Sucker Punch (2), the unseen choices walked
+   furthest first; a Focus Sash only the rebuild announced (56), the HP line after it read; a turn
+   that needed a bigger dice search on every new guess (44) and a long battle pinned a line a round
+   (68), the budget floor and the rounds counted only when they stall; the replacements after a
+   Perish Song under Trick Room (88), `instaswitch` read as a switch; and Muddy Water's secondary on
+   one target and not the other (83), two chances flipped together.
 
 ---
 
