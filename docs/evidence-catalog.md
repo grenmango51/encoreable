@@ -194,7 +194,7 @@ and UNUSED rows by name.
 UNSOUND rows come first, then UNUSED rows ordered by weight × information. An exact HP stat is
 worth more than one inequality on one stat. Each fix goes in at the mechanism level, as one
 hook. It never special-cases a move. The whole probe suite runs again after each fix, against
-the 21 recordings and their 83 real spreads as well.
+the 29 recordings and their 115 real spreads as well.
 
 The work list is `evidence-open-sheets.md` §2 and `evidence-closed-sheets.md` §2; §5 below gives
 their head.

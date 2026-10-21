@@ -342,8 +342,8 @@ too. Write both in `evidence-catalog.md` §6.
 **Done when:** `evidence-open-sheets.md` §2.2 lists only speed ties and the Illusion switch-in; §2.4
 holds only rows with a written reason why no one-stat battle isolates the stat (Shell Bell's Special
 Defence: at a fixed HP its heal falls in the same bucket at every value, so it needs HP and Special
-Defence swept together, which this plan does not build); and the 83 real spreads and every probe
-still survive.
+Defence swept together, which this plan does not build); and every real spread of the recordings and every
+probe still survive.
 
 ### Phase 6 — Probe recordings
 

@@ -1650,10 +1650,13 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
   // A draw that only gets more of the line's fields right in place is held
   // on trial: it stays when a later draw carries the turn further, and is
   // taken back, with every draw committed after it, when none does - the
-  // turn then ends where it would have without it.
+  // turn then ends where it would have without it. What was taken back is
+  // handed on: a die an earlier turn threw may be what it was waiting for.
   let onTrial = null;
+  let tried = null;
   const takeBack = () => {
-    for (const i of commits.splice(onTrial.at)) { delete subs[i]; delete subTurn[i]; forced--; }
+    tried = {};
+    for (const i of commits.splice(onTrial.at)) { tried[i] = subs[i]; delete subs[i]; delete subTurn[i]; forced--; }
     onTrial = null;
   };
 
@@ -1808,7 +1811,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     score = scoreOf(run, t);
   }
 
-  return { solved: score[0] === Infinity, rejected: score[0] === -1, forced, probes, score };
+  return { solved: score[0] === Infinity, rejected: score[0] === -1, forced, probes, score, tried };
 }
 
 /**
@@ -1883,7 +1886,7 @@ function exactHp(rawLog, who) {
  * later turn inherits, and it is the same uniform draw over the same consistent
  * set that the forward pass makes.
  */
-async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict = false, failing = null) {
+async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict = false, failing = null, tried = null) {
   const run = await runTo(common, subs, t, t);
   if (scoreOf(run, t)[0] !== Infinity) return false;
   const was = who ? exactHp(run.rawLog, who) : null;
@@ -1914,9 +1917,9 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
   // die here moves the stuck Pokemon's HP, the ones that bring the failing
   // turn closer to the observation are the ones worth a backtrack.
   if (!moving.length && failing !== null && failing > t && options.length) {
-    const before = scoreOf(await runTo(common, subs, failing), failing);
+    const before = scoreOf(await runTo(common, { ...subs, ...tried }, failing), failing);
     for (const option of options) {
-      const after = scoreOf(await runTo(common, { ...subs, [option.i]: option.value }, failing), failing);
+      const after = scoreOf(await runTo(common, { ...subs, ...tried, [option.i]: option.value }, failing), failing);
       if (after[0] > before[0] || (after[0] === before[0] && after[1] > before[1])) moving.push(option);
     }
   }
@@ -2073,10 +2076,10 @@ async function reconstructOnce({
     // trying the next variant means clearing it. So the furthest attempt is held
     // aside and put back if nothing better turns up.
     let partial = null;
-    const consider = (score, variant) => {
+    const consider = (score, variant, tried) => {
       const at = [t, ...score];
       if (!partial || ahead(at, partial.at)) {
-        partial = { at, variant, subs: { ...subs }, subTurn: { ...subTurn } };
+        partial = { at, variant, subs: { ...subs }, subTurn: { ...subTurn }, tried };
       }
     };
 
@@ -2089,7 +2092,7 @@ async function reconstructOnce({
       spent[t] += got.probes;
       forcedDraws += got.forced;
       solved = got.solved;
-      if (!solved) consider(got.score, 0);
+      if (!solved) consider(got.score, 0, got.tried);
     }
 
     // Then the choices this turn left invisible. A mon that fainted before
@@ -2118,7 +2121,7 @@ async function reconstructOnce({
       spent[t] += got.probes;
       forcedDraws += got.forced;
       if (got.solved) solved = true;
-      else consider(got.score, v);
+      else consider(got.score, v, got.tried);
     }
 
     if (!solved) {
@@ -2167,7 +2170,7 @@ async function reconstructOnce({
       if (hpFigure) forget(back + 1);
       moved = hpFigure
         ? await redrawTurn(back, common, subs, subTurn, sample, maxProbes, stuck, onAttacker, t)
-        : await redrawTurn(back, common, subs, subTurn, sample, maxProbes, null, true, t);
+        : await redrawTurn(back, common, subs, subTurn, sample, maxProbes, null, true, t, partial?.tried);
       if (!moved) back--;
     }
     if (!moved || (hpFigure ? ++backtracks > maxBacktracks : ++dieBacktracks > DIE_BACKTRACKS)) break;

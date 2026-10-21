@@ -884,8 +884,11 @@ A failing line that is no HP figure — a lock, a sleep or a confusion ending a 
 a status Effect Spore gave — was decided by a die thrown when it began, which showed nothing
 then. Every earlier turn is tried, latest first, for a die that brings the failing turn closer,
 and only such a die is redrawn; the later turns keep the dice they settled meanwhile, so the
-failing turn gets as far as the line in question. Four such backtracks per rebuild at most
-(`DIE_BACKTRACKS`), apart from the HP ones.
+failing turn gets as far as the line in question — the dice the failing turn's search held on
+trial and took back included: a speed tie flipped on turn 2 puts a confused Pokemon first, where
+its confusion then ends on a duration turn 1 drew, and only with the flip in place does a longer
+duration bring the turn closer. Four such backtracks per rebuild at most (`DIE_BACKTRACKS`),
+apart from the HP ones.
 
 A die of more than sixteen faces is tried at its two ends, which settle a chance. Before a turn
 settles for a draw that only gets more of its line right, a wide die that is no chance is tried at
@@ -1289,8 +1292,8 @@ recording's Metagross from HP 1–4 to 1–6, the width the burn that knocked it
 | Bo3 game A | both sides' | MATCH, 8 rounds | 105 s | survives, all 8 seen |
 | Bo3 game B, 6 turns | p2's spreads | MATCH, 4 rounds | 6 s | survives, all 4 seen |
 | Bo3 game B | both sides' | MATCH, 6 rounds | 52 s | survives, all 7 seen |
-| 21 recordings, S3 | p2's spreads | 21 MATCH | 2 min 3 s in all (2 min 36 s on one thread), up to 17 s each | survives, 83 of 83 |
-| the same, every point assumed spent | p2's spreads | 21 MATCH | 2 min 8 s | survives, 83 of 83 |
+| 29 recordings (the 21 Reg M-B ones and the 8 probes), S3 | p2's spreads | 29 MATCH | 16 min in all on 4 threads beside a fuzz and a certify run, up to 4 min each | survives, 115 of 115 |
+| the 21 Reg M-B recordings, every point assumed spent | p2's spreads | 21 MATCH | 2 min 8 s | survives, 83 of 83 |
 | the same, read from p2's side | p1's spreads | MATCH on the two tried (25, 46) | 15–20 s | survives |
 | five synthetic battles (Leech Seed, confusion, Strength Sap, Pain Split, Shell Bell, Wonder Room, Focus Sash) | p2's spreads | 5 MATCH | 1–7 s each | survives |
 
@@ -1519,7 +1522,8 @@ test vector and not a symmetric one that would pass by accident.
 **Scope: one side unknown only** (`--infer p2`: your team known, theirs inferred). `--infer
 both` stays as built and gets no further work (§10). Every task keeps the one rule that
 matters: a spread the replay could have come from is never eliminated — checked against the
-fixtures' real spreads, 83 of 83 today, plus the synthetic battles in §7.5.
+recordings' real spreads, 115 of 115 over the 29 recordings today, plus the synthetic battles in §7.5
+and the fuzzer's random battles, 100 of 100.
 
 `evidence-catalog.md` finds the rest ahead of time: `npm run catalog` puts every legal effect
 through small battles, finds which stats each lets reach the log, and checks that against what the
