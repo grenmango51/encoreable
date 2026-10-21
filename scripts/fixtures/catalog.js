@@ -1152,6 +1152,45 @@ const entries = {
       why: `Twice halved by Super Fang, which says nothing of its HP, the hidden ${species} heals by its ${move}'s share of its own max HP, and only that heal's percentage moves with its HP Stat Points.`,
     })),
   }])),
+  'move:bellydrum': {
+    templates: [[0, 1], 'sweep'].map(worlds => ({
+      name: worlds === 'sweep' ? 'from-full-swept' : 'from-full',
+      role: 'user-hidden',
+      stat: 'hp',
+      worlds,
+      p1: ['known', 'knownAlly', 'knownBench'],
+      p2: [set('Azumarill', 'F', 'Thick Fat', 'Smooth Rock', {}, ['Belly Drum', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move splash, move splash', p2: 'move bellydrum, move splash' }, QUIET],
+      control: { turns: [QUIET, QUIET] },
+      why: 'From full HP the hidden Azumarill pays half its max HP, rounded down, and lands on 50/100 either way; whether what is left is more than half, the g or the y the display adds, says whether its max HP is odd: 175 and 176.',
+    })),
+  },
+  'move:powersplit': {
+    templates: [{
+      name: 'averaged-special-attack',
+      role: 'user-hidden',
+      stat: 'spa',
+      worlds: [0, 32],
+      p1: ['known', 'knownAlly', 'knownBench'],
+      p2: [set('Mr. Mime', 'M', 'Soundproof', 'Smooth Rock', {}, ['Power Split', 'Psychic', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [hiddenHits('powersplit'), hiddenHits('psychic'), QUIET],
+      control: { turns: [QUIET, QUIET, QUIET] },
+      why: "The hidden Mr. Mime's Power Split sets its Special Attack to the average of its own and the known Snorlax's; its Psychic then shows that average on Snorlax's exact HP, and through it its own Special Attack.",
+    }],
+  },
+  'move:guardsplit': {
+    templates: [{
+      name: 'averaged-special-defence',
+      role: 'user-hidden',
+      stat: 'spd',
+      worlds: [0, 32],
+      p1: [withMoves('known', ['Round', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [set('Alakazam', 'M', 'Inner Focus', 'Smooth Rock', {}, ['Guard Split', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [hiddenHits('guardsplit'), knownHits('round'), QUIET],
+      control: { turns: [QUIET, QUIET, QUIET] },
+      why: "The hidden Alakazam's Guard Split sets its Special Defence to the average of its own and the known Snorlax's; Snorlax's Round then shows that average on Alakazam's percentage, and through it its own Special Defence.",
+    }],
+  },
   'item:metronome': {
     templates: [{
       name: 'through-a-substitute',
@@ -1284,6 +1323,20 @@ const entries = {
       ],
       control: { turns: [{ p1: 'move superfang 1, move splash', p2: 'move splash, move splash' }, { p1: 'move superfang 1, move splash', p2: 'move splash, move splash' }, QUIET] },
       why: 'Twice halved, so the heal is not capped, the hidden Pokemon is healed by half its max HP: a share of max HP, which a percentage shows the same whatever the max.',
+    }, {
+      name: 'healed-from-a-quarter-swept',
+      role: 'target-hidden',
+      stat: 'hp',
+      worlds: 'sweep',
+      p1: [withMoves('known', ['Super Fang', 'Heal Pulse', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: ['hidden', 'hiddenAlly', 'hiddenBench'],
+      turns: [
+        { p1: 'move superfang 1, move splash', p2: 'move splash, move splash' },
+        { p1: 'move superfang 1, move splash', p2: 'move splash, move splash' },
+        { p1: 'move healpulse 1, move splash', p2: 'move splash, move splash' },
+      ],
+      control: { turns: [{ p1: 'move superfang 1, move splash', p2: 'move splash, move splash' }, { p1: 'move superfang 1, move splash', p2: 'move splash, move splash' }, QUIET] },
+      why: "Swept over the hidden Pokemon's HP: Super Fang's halves and the heal of half its max HP round by the simulator's own rule, so where the healed percentage moves between neighbouring Stat Points depends on all three.",
     }],
   },
   'move:sleeptalk': {
@@ -1724,6 +1777,16 @@ const entries = {
       turns: [knownHits('shellsidearm'), QUIET],
       control: { turns: [QUIET, QUIET] },
       why: "Swept over the hidden Snorlax's Defence: the known Slowbro-Galar's Shell Side Arm turns Special once the Snorlax's Defence makes the physical formula fall below the special one, which the move line names.",
+    }, {
+      name: 'target-category-sweep-spd',
+      role: 'target-hidden',
+      stat: 'spd',
+      worlds: 'sweep',
+      p1: [{ ...member('Slowbro-Galar', 'M', 'Own Tempo', 'Heat Rock', { atk: 2, spa: 32 }), nature: 'Modest', moves: ['Shell Side Arm', 'Splash'] }, 'knownAlly', 'knownBench'],
+      p2: [set('Snorlax', 'M', 'Gluttony', 'Smooth Rock', {}, ['Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [knownHits('shellsidearm'), QUIET],
+      control: { turns: [QUIET, QUIET] },
+      why: "Swept over the hidden Snorlax's Special Defence: the known Modest Slowbro-Galar's Shell Side Arm is Special while the Snorlax's Special Defence is low and turns Physical once it makes the special formula fall below the physical one, which the move line names.",
     }],
   },
   'item:focussash': {
@@ -1860,6 +1923,34 @@ for (const [key, reason] of Object.entries(reasons)) entries[key] = { ...(entrie
  * no battle changed a line with by 'read:<Stat>'. Each is its entry's `cells`.
  */
 const cells = {
+  'ability:dragonize': {
+    'H:Spe': "Dragonize reads no Speed (data/abilities.ts:1036-1052). The hidden Mega Feraligatr's Speed is read by its order against the known Snorlax, which narrows it in both worlds; the line this row measures, Snorlax's later Splash, is there or not by that order, so no event of its own names it.",
+  },
+  'item:feraligite': {
+    'H:Spe': "The hidden holder's Mega Speed is read by its order against the known Snorlax, which narrows it in both worlds; the line this row measures, Snorlax's later Splash, is there or not by that order, so no event of its own names it.",
+  },
+  'item:mawilite': {
+    'H:Spe': "The hidden holder's Mega Speed is read by its order against the known Snorlax, which narrows it in both worlds; the line this row measures, Snorlax's later Splash, is there or not by that order, so no event of its own names it.",
+  },
+  'item:tyranitarite': {
+    'H:Spe': "The hidden holder's Mega Speed is read by its order against the known Snorlax, which narrows it in both worlds; the line this row measures, Snorlax's later Splash, is there or not by that order, so no event of its own names it.",
+  },
+  'ability:parentalbond': {
+    'H:SpA': "A second hit shown alone needs a first that prints no number. A Substitute does that for the physical hit, which breaks it at every Attack (H:Atk, USED), but whether Mega Kangaskhan's special hit breaks a Substitute depends on its Special Attack, so the break itself would carry the stat. Here the second hit, at a quarter of the power, adds nothing to what the first hit's line read.",
+    'O:Spe': "Parental Bond reads no Speed. The hidden Blastoise's Speed is read by its order against the known Mega Kangaskhan, which narrows it in both worlds; the line this row measures, Blastoise's Splash, is there only when it moves before the two hits knock it out, so no event of its own names it.",
+  },
+  'ability:spicyspray': {
+    'O:Atk': 'onDamagingHit burns the hidden attacker when its hit lands (data/abilities.ts:4466-4469); its next physical hit is halved and carries the Attack the first hit, read in the control too, already showed.',
+  },
+  'move:milkdrink': {
+    'U:HP': "Milk Drink heals half the user's max HP. In the battle before it a hit already carries HP; isolated after two Super Fangs, the heal prints 75/100 at every HP Stat Point of Gogoat (the sweep finds no edge), so no battle has the heal alone tell them apart.",
+  },
+  'move:healpulse': {
+    'read:HP': "Heal Pulse heals half its target's max HP, rounded up (data/moves.ts:8408-8413). On a hidden target, twice halved first so the heal is not capped, the healed percentage is the same at every HP Stat Point (the sweep finds no edge); on a known target the amount is the known Pokemon's own.",
+  },
+  'ability:effectspore': {
+    'O:Spe': "The order this row measures is between the hidden Blastoise, paralysed by Effect Spore, and the hidden Avalugg, whose own Speed range covers both worlds' speeds: an order between two hidden Pokemon, which bounds neither here (evidence-catalog.md §5).",
+  },
   'item:shellbell': {
     'O:SpD': 'onAfterMoveSecondarySelf heals the known holder by an eighth of what its hit dealt (data/items.ts:5657-5659); at a fixed HP that heal falls in the same step at every Special Defence the hidden Pokemon\'s percentage leaves, so telling two values apart needs HP and Special Defence swept together, which no hand-set battle does.',
   },
@@ -1871,6 +1962,7 @@ const cells = {
     'H:Spe': 'onSwitchIn transforms the hidden holder into the foe opposite (data/abilities.ts:2116-2123), whose stored Speed it takes (sim/pokemon.ts:1302), so the copy and its original race at one Speed: a tie the dice settle, which says nothing. A hidden Speed a known Imposter copies is raced against a known pacer instead.',
   },
   'ability:illusion': {
+    'O:Spe': 'The known holder is shown as Mudsdale and no |replace| settles that it was the Illusion user, so its order lines name nobody for certain and are not used; the control, with no disguise, reads the same order.',
     'H:Spe': 'The disguised holder\'s order lines name the Pokemon it poses as (onBeforeSwitchIn, data/abilities.ts:2056-2069); where no later |replace| in its slot settles who switched in, a line naming the disguise is read for neither Pokemon.',
   },
   'ability:moody': {
