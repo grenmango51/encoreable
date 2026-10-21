@@ -56,15 +56,15 @@ What is built and what the first catalog run (§5) found. "Unverified" means nei
 
 | # | Mechanism | Sink | Hook today | Status after the run |
 |---|---|---|---|---|
-| M1 | damage taken | hidden % line | `actions.getDamage` rows per (attacking stat, defending stat), each checked against the real hit (`engineering.md` §7.5) | built, the "-ate" abilities and their Megas included |
+| M1 | damage taken | hidden % line | `actions.getDamage` rows per (attacking stat, defending stat), each checked against the real hit (`engineering.md` §7.5) | built, the "-ate" abilities and their Megas included, and a contact hit through Protect at the quarter it deals |
 | M2 | damage dealt | known exact line | the same rows, attacker side | built |
 | M3 | a hidden stat read inside a damage calculation, other than the attack/defence pair | either HP line | the other stat takes the attacking stat's place when no hidden attacking stat holds it, and otherwise comes beside it as one more candidate value, carried like the attacker's HP | built: the target's Speed for Gyro Ball and Electro Ball, and a hidden user's Speed beside its Attack |
-| M4 | an HP change that is a fraction of max HP (chip, heal, weather, status) | hidden % line | `effectChange`, fractions scaled only when the amount proves them; Toxic's n × ⌊max HP/16⌋; a move's HP cost through `directDamage` | built |
-| M5 | a hidden amount carried over to an exact line | known exact line | recoil, drain, Leech Seed, Shell Bell, Pain Split, Strength Sap; Liquid Ooze read as the heal it replaced; the Counter family through the hit its user took | built |
-| M6 | an HP threshold crossed or not | a line present or absent | pinch Berries (`runEvent('Update')`), Focus Sash, Focus Band, Sturdy, Endure (`Damage` event), whether the first hit on a fresh Substitute broke it | built |
-| M7 | order | order of lines | `speed.mjs`, every sort by speed, each table checked at the Pokemon's own Stat Points | built; a Speed moved by Speed Swap or Transform is read through what moved it |
+| M4 | an HP change that is a fraction of max HP (chip, heal, weather, status) | hidden % line | `effectChange`: the code that moved the HP — a hazard, Aftermath, an absorbing ability, a Berry, a heal move, a cost through `directDamage`, a revive — run again from its frame for every max HP and HP; fractions scaled only when the amount proves them where it cannot be; Toxic's n × ⌊max HP/16⌋; Wish through the number its maker stored | built |
+| M5 | a hidden amount carried over to an exact line | known exact line | recoil, drain, Leech Seed, Shell Bell, Pain Split, Strength Sap; Liquid Ooze read as the heal it replaced; the Counter family and Innards Out through what their holder took | built |
+| M6 | an HP threshold crossed or not | a line present or absent | pinch Berries (`runEvent('Update')`), Focus Sash, Focus Band, Sturdy, Endure (`Damage` event), announced or, by the lines each candidate's event would have printed, not; whether the first hit on a fresh Substitute broke it, by the number its maker stored — Shed Tail's included | built |
+| M7 | order | order of lines | `speed.mjs`, every sort by speed, each table checked at the Pokemon's own Stat Points; Quash, After You and Instruct by the order the simulator writes; a handler's sort and switch-in effects by what the other order would have printed; Illusion's lines once a `|replace|` settles them | built; a Speed moved by Speed Swap or Transform is read through what moved it |
 | M8 | a stat moved between Pokemon | later damage and HP lines | a handler that writes `storedStats` is run dry per candidate before the real one, and `transformInto` copies what the original's stats stood on | built: Power Split, Guard Split, Power Trick, Speed Swap, Transform and Imposter, a hit that stands on two hidden Pokemon included |
-| M9 | a stat named or compared in a message | what a line names | none | only Shell Side Arm has a legal user |
+| M9 | a stat named or compared in a message | what a line names | `singleEvent('ModifyMove')`: Shell Side Arm's category per candidate, against the move line | built; only Shell Side Arm has a legal user |
 
 A confusion self-hit, which the inference models (`actions.getConfusionDamage`), turns out to narrow
 little: in a battle with three of them only the first cut anything.

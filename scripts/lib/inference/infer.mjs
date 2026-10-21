@@ -316,15 +316,16 @@ export async function inferSpreads({
    * should a later guess lose it.
    *
    * A line the fallback got past is only one no hook reads when the guess it
-   * moved from cannot get past it either, under the full search or along the
-   * exact HP path the evidence proved for that guess: where it can, a hook
-   * read the line, and the fallback only found dice a smaller search missed.
+   * moved from cannot get past it either under the full search, nor the guess
+   * the evidence chose along the exact HP path it proved for it: where one
+   * can, a hook read the line, and the fallback only found dice a smaller
+   * search missed.
    *
    * @param seen   the Pokemon the evidence has seen
    * @param start  the guess to move from: the one the scaffold was built with,
    *               each Pokemon's taken from `next` where it no longer survives
-   * @param proven the exact turns and the dice the evidence proved for the
-   *               round's guess, or null
+   * @param proven the guesses the evidence chose, with the exact turns and the
+   *               dice it proved for them, or null
    * @returns `{ picks, pins, held, level }` - guesses that reproduce the
    *          failing line, the dice that rebuilt it, the spreads of the
    *          Pokemon whose guess it moved and the dice budget the rebuild
@@ -584,10 +585,10 @@ export async function inferSpreads({
       const text = `${what} (moved by ${named(by)})`;
       const widest = budgets.findLastIndex(b => !b.resample);
       let read = false;
-      for (const [given, ex] of [[handed, null], ...(proven?.exact ? [[proven.pins, proven.exact]] : [])]) {
+      for (const [chosen, given, ex] of [[start, handed, null], ...(proven?.exact ? [[proven.picks, proven.pins, proven.exact]] : [])]) {
         if (read) break;
         const b = await reconstruct({
-          formatid, packedTeams: packOf(start), playerNames, observed: through, channel, exact: ex, forced: built.forced,
+          formatid, packedTeams: packOf(chosen), playerNames, observed: through, channel, exact: ex, forced: built.forced,
           seed, pins: given, sampleSeed, maxProbes: budgets[widest].maxProbes, maxBacktracks: budgets[widest].maxBacktracks, threads,
         });
         read = b.report.complete || further(reach(b), [t, diff.index]);
@@ -736,7 +737,7 @@ export async function inferSpreads({
     if (unchanged || again || read < 2) {
       const start = picks.map((team, s) => team.map((e, i) => (containsSpread(knowledge.get(`p${s + 1}:${i}`), e) ? e : next[s][i])));
       const began = Date.now();
-      const found = await fallback(seen, start, exact ? { exact, pins } : null);
+      const found = await fallback(seen, start, exact ? { picks: next, exact, pins } : null);
       spend.ms -= Date.now() - began;
       if (found) {
         for (const [id, spread] of found.held) held.set(id, spread);

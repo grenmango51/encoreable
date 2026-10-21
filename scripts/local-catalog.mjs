@@ -1878,6 +1878,8 @@ function renderOpen(records, pool, entries = FIXTURE.entries) {
   const notShownAll = open.filter(r => r.open.outcome === 'NOT SHOWN');
   const reads = open.filter(r => r.kind !== 'condition' && r.open.outcome !== 'NOT SHOWN').flatMap(r => unreadStats(r).map(stat => ({ r, stat })));
   const reasonedRead = x => !!cellReason(x.r, `read:${STAT_NAME[x.stat]}`);
+  const asideOf = r => [...new Set(r.open.stats.flatMap(s => (s.worlds || []).flatMap(w => w.setAside || [])))];
+  const asides = open.filter(r => asideOf(r).length).sort((a, b) => b.weight - a.weight || a.key.localeCompare(b.key));
   out.push('### 1.3 What is left', '');
   out.push('| List | Rows | With a written reason | Work |', '|---|---|---|---|');
   for (const [label, list, reasoned] of [
@@ -1885,11 +1887,12 @@ function renderOpen(records, pool, entries = FIXTURE.entries) {
     ['MASKED (§2.4)', left('MASKED'), reasonedRow],
     ['NOT SHOWN (§2.5)', notShownAll, r => !!r.open.why],
     ['Scan reads with no change (§2.6)', reads, reasonedRead],
+    ['Set aside by the inference (§2.7)', asides, r => !!cellReason(r, 'aside')],
   ]) {
     const n = list.filter(reasoned).length;
     out.push(`| ${label} | ${list.length} | ${n} | ${list.length - n} |`);
   }
-  out.push('', 'UNUSED and MASKED count (effect, role, stat, mechanism), as in 1.1; NOT SHOWN counts effects; a scan read counts (effect, stat). A row with a written reason is listed under its section apart from the work.', '');
+  out.push('', 'UNUSED and MASKED count (effect, role, stat, mechanism), as in 1.1; NOT SHOWN and a set-aside row count effects; a scan read counts (effect, stat). A row with a written reason is listed under its section apart from the work.', '');
 
   // Work lists, one row per effect, role, stat and mechanism, heaviest first.
   out.push('## 2. Work list', '');
@@ -1999,15 +2002,22 @@ function renderOpen(records, pool, entries = FIXTURE.entries) {
   }
   out.push('### 2.7 Set aside by the inference\'s own check', '');
   out.push('Where a shortcut of the evidence pass gave another answer than the simulator, at the stats the rebuild was running with, and the line was not used rather than trusted. Each is evidence given up, never a spread removed: work to use it.', '');
-  const asideOf = r => [...new Set(r.open.stats.flatMap(s => (s.worlds || []).flatMap(w => w.setAside || [])))];
-  const aside = open.filter(r => asideOf(r).length).sort((a, b) => b.weight - a.weight || a.key.localeCompare(b.key));
-  if (!aside.length) out.push('None.', '');
+  const asideText = (r) => {
+    const lines = asideOf(r);
+    return `${esc(lines.slice(0, 3).join('; '))}${lines.length > 3 ? `; and ${lines.length - 3} more` : ''}`;
+  };
+  const asideWork = asides.filter(r => !cellReason(r, 'aside'));
+  const asideReasons = asides.filter(r => cellReason(r, 'aside'));
+  if (!asideWork.length) out.push('None.', '');
   else {
     out.push('| Effect | Weight | What was set aside, and why |', '|---|---|---|');
-    for (const r of aside) {
-      const lines = asideOf(r);
-      out.push(`| \`${r.key}\` | ${r.weight} | ${esc(lines.slice(0, 3).join('; '))}${lines.length > 3 ? `; and ${lines.length - 3} more` : ''} |`);
-    }
+    for (const r of asideWork) out.push(`| \`${r.key}\` | ${r.weight} | ${asideText(r)} |`);
+    out.push('');
+  }
+  if (asideReasons.length) {
+    out.push('Not work — with a written reason:', '');
+    out.push('| Effect | Weight | What was set aside | Reason |', '|---|---|---|---|');
+    for (const r of asideReasons) out.push(`| \`${r.key}\` | ${r.weight} | ${asideText(r)} | ${esc(cellReason(r, 'aside'))} |`);
     out.push('');
   }
 

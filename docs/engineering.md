@@ -744,11 +744,18 @@ Two things belong to this path and not to §4:
 ### 7.3 The search, and why it is also the sampler
 
 Per failing turn, draws are settled in the order the simulator consumed them, since a die
-cannot change a line already written. A turn is scored `[lines, fields]`: how far it got before
-disagreeing, then how much of the disagreeing line is nevertheless right. The second component
-is not cosmetic — a spread move needs its **target** draw and its **accuracy** draw changed
-together, and neither alone moves the first component. A commit that only improves `fields` is
-a guess, so it is held back until nothing improves `lines`.
+cannot change a line already written. A turn is scored `[lines, fields, shared]`: how far it got
+before disagreeing, then how much of the disagreeing line is nevertheless right from its start,
+then how many of its fields are right in place anywhere in it. The second component is not
+cosmetic — a spread move needs its **target** draw and its **accuracy** draw changed together,
+and neither alone moves the first component. The third ranks lines whose kind is still wrong: a
+Pokemon the replay shows flinching, after a speed tie Gen 9's re-sort before each move made it
+lose, needs the tie and the flinch changed together, and the run that has it moving where the
+replay has it flinch has its name right. A commit that only improves `fields` or `shared` is a
+guess, so it is held back until nothing improves `lines`; one that only improves `shared` is on
+trial besides, and is taken back with every draw committed after it unless a later draw in the
+turn improves `lines` — so a turn no such pair fixes ends where it would have without it, and the
+search goes on to its other ways out.
 
 A probe replays only the turn it searches. The first run up to a turn takes a
 `Battle.toJSON()` snapshot where that turn begins — with the interceptor's draw count beside it,
@@ -765,7 +772,11 @@ input log; only runs from turn 0 do. The search is still built to make few probe
   hit only grows with the roll, so the rolls that fit are one run of the sixteen and a bisection
   finds its ends. Rolls that leave the same exact HP play out identically, so one of them is
   probed for all. The crit die agrees with the observed `|-crit|` or it does not, and each
-  target's accuracy die with its `|-miss|`; a die that agrees has nothing to fix. A turn whose
+  target's accuracy die with its `|-miss|`; a die that agrees has nothing to fix. A move that hits
+  a number of times drawn from a range throws that number before its first hit, and the observed
+  `|-hitcount|` says which faces of that die print it; Loaded Dice throws a second die after a low
+  count, so its holder's count is searched in full. A dry copy of a hit through its target's
+  Protect keeps that hit data, so the damage it brackets is the quarter the hit deals. A turn whose
   prefix already disagrees gets no steering and is searched in full.
 - **Dice shown to print the wrong line go first, and together.** A spread move that missed one
   target and hit the other needs both accuracy dice moved — neither alone brings the line any
@@ -793,6 +804,11 @@ entry too, and a worker loads the simulator's data before it takes a probe.
 
 **Ally Switch** moves two Pokemon between slots mid-turn, and the lines after it name the new
 slots; a turn's choices are read back to the slot each Pokemon chose from (`planSegment`).
+
+**Revival Blessing** asks its user's player which fainted Pokemon to bring back, as a switch
+request for the user's slot, and the heal line `[from] move: Revival Blessing` names the one
+chosen; that is the answer the rebuild gives. One revived into an empty active slot is switched in
+by the simulator itself, so its switch line answers no request.
 
 **A battle that ended without a Pokemon deciding it** — a forfeit, the timer — ends in the
 rebuild with `>forcelose` for the loser once everything before its `|win|` has printed — in a
@@ -933,6 +949,10 @@ places a spread matters, `scripts/lib/inference/`:
 | `runEvent('Update')` | whether the held item's own `onUpdate` fires at each HP, so a pinch Berry that fired or stayed uneaten keeps only the HP on its side of the edge |
 | `actions.getConfusionDamage` | a confusion self-hit's sixteen rolls for every surviving Attack and Defence of the Pokemon itself |
 | `singleEvent('Hit', move)` | before the real effect: Strength Sap's amount for every surviving Attack of its target, and Pain Split's outcome for every HP the hidden Pokemon could be on |
+| every handler, event and action (`resolvePriority`, `singleEvent`, `runAction`) | kept as a frame, innermost last, that a dry run can run again from where it was entered, throwing the dice the code threw so far as it threw them: the code that moved a hidden Pokemon's HP is asked again for every max HP and HP it could have — hazards, Aftermath, the absorbing abilities, Poison Heal, Revival Blessing |
+| `runEvent('Damage')` | the lines the real `Damage` event printed, so a candidate whose own event would have announced a Focus Sash, Sturdy or Endure the replay does not show is ruled out |
+| `singleEvent('ModifyMove')` | Shell Side Arm's category for every surviving Attack and Special Attack of its user, or Defence and Special Defence of its target, against the category the move line names |
+| `speedSort` inside a handler, and a switch-in's | the handler, or the switch-in, run again dry with each two neighbouring Pokemon swapped: where the swapped run prints something else, the replay's line says which came first |
 
 No dry run touches the generator: the interceptor is in dry mode for every one of them, not only
 the damage ladder. A die a dry run throws takes the face the real run's die of the same range
@@ -965,7 +985,9 @@ only where the two can be compared and agree:
   their own ability object. Any other die the calculation throws — Fickle Beam's chance to double
   its power — takes the face the real calculation's die took. Where the copy still disagrees, the
   real move is used, handed back as it was after each run; where that disagrees too, the hit is
-  not used.
+  not used. The copy keeps one thing of the hit data the real move carried for its target: that
+  it came through the target's Protect — Unseen Fist, Piercing Drill — which the hit step decided
+  before any damage and which quarters it.
 - **A moved stat.** Power Split, Guard Split, Power Trick, Speed Swap and Transform write a stat
   outside `setSpecies`, and the evidence pass watches those writes (below, *Stats moved between
   Pokemon*). A write it could not map to one candidate value leaves the stat unmapped until the
@@ -1029,20 +1051,37 @@ Every line set aside is recorded — `inference.checks` in the written `.log.jso
   Evolution is queued at order 104 and sorted on the speed before the forme change; switches at
   order 103, on the speed of the Pokemon going out, and the replay's switch line is matched by the
   slot it went into. A tie can go either way, so every bound is `>=`. Gen 9 re-sorts before each
-  move, so the last sort before an action is the one that decided it. After You, Quash and
-  Instruct taint their turn's queue.
+  move, so the last sort before an action is the one that decided it. Where an effect sets an
+  action's place the simulator writes it into the action's order — Quash 201, After You, Instruct,
+  Round, the Pledges and Shell Trap 3 — so two actions are compared only where one sort had them at
+  the same order and priority, by that sort's own copy of both; only `changeAction`, which nothing
+  in the data calls, still sets its turn aside.
+  An Illusion user's lines print its disguise's name. Each action records the name its Pokemon was
+  shown by as it began, and a line naming the disguise is the Illusion user's once a later
+  `|replace|` in that slot settles who switched in; an unsettled switch-in is nobody's.
+  Every other sort a handler makes by speed — Magician's of the Pokemon its move hit, a nested
+  event's of its handlers — and the sort of switch-in effects, whose handlers carry their Pokemon's
+  speed less a fraction that only breaks a tie, are read by asking what the other order would have
+  printed: the handler, or the switch-in from the queue it started from, runs again dry once in its
+  own order and once with each two neighbours of different Pokemon swapped. The run in its own order
+  has to print what the real one did; then the first line where a swapped run differs says the
+  pair's order, from the verified lines or, at the cutoff, from the replay's line. So whose Sand
+  Stream sets the weather when both sides lead a Tyranitar, or whose Intimidate goes first, bounds
+  both Speeds even though the second one prints nothing.
   Where the rebuild diverges on order, the replay's order is used only when it is proved. A move
   line always prints, and so do a `|cant|` and what only `onBeforeMove` prints before a move —
   the confusion check, waking up, thawing out — each opening its Pokemon's action; a
-  `detailschange` and `-mega` pair opens its Mega Evolution, and a switch no effect caused opens
-  the switch out of that slot. An order is read only at a priority the replay proves: it shows the
+  `detailschange` and `-mega` pair opens its Mega Evolution, a `-formechange` followed by the same
+  Pokemon's own move line opens that move — Stance Change's, which `onModifyMove` prints first —
+  and a switch no effect caused opens the switch out of that slot. An order is read only at a priority the replay proves: it shows the
   Pokemon using, of its own choice, the exact move the rebuild queued — no `[from]` but a locked
   move, no Encore started on it earlier that turn — or, for the Pokemon that went second, no move
   it has, Struggle included, sorts below the first one's priority, asked of the simulator per move
   at that sort. A Pokemon that never showed its move — flinched, fully paralysed, asleep — or whose
   move an Encore replaced is read when the action shown just before it was sorted at the same
-  order and priority as the Pokemon the rebuild moved instead, and nothing a priority handler reads
-  changed between the two sorts. A handler's line counts only if the replay shows the rebuilt
+  order and priority as the Pokemon the rebuild moved instead, and every move it has, Struggle
+  included, would be sorted at the same priority in both sorts — asked of the simulator per move,
+  so a hit or a flinch between them that no priority handler of its reads does not lose the order. A handler's line counts only if the replay shows the rebuilt
   Pokemon's line later in the same phase — a Leftovers heal at full HP prints nothing. Every order
   is applied once, then again until no bound moves, so two hidden Pokemon ordered against each
   other narrow each other.
@@ -1069,7 +1108,11 @@ Every line set aside is recorded — `inference.checks` in the written `.log.jso
   that one's line says what the user took from it: each amount its own hit could have dealt is
   handed to the move the way the simulator keeps it — the `attackedBy` record rewritten, and
   Counter's and Mirror Coat's volatile told the hit again through its own `DamagingHit` handler —
-  and the user is narrowed to the amounts that print the line, as with drain.
+  and the user is narrowed to the amounts that print the line, as with drain. Innards Out is read
+  the same way: it hands the attacker the HP its holder had left, which the attacker's exact line
+  says, so a hidden holder's HP is read off it, and a known holder's hands a hidden attacker a
+  fixed amount. A Counter or Mirror Coat from a Pokemon shown exactly keeps what it dealt each
+  candidate as a hit does, so the Innards Out it sets off is read through it too.
 - **Strength Sap** heals by the target's Attack as it stood before the move lowered it. Against
   a hidden target the simulator's own `getStat` is asked for every surviving Attack before the
   move runs, and the user's exact line keeps the ones that heal what it shows. An uncapped heal
@@ -1078,7 +1121,8 @@ Every line set aside is recorded — `inference.checks` in the written `.log.jso
   hidden one could be on, and the exact one has to land where the log shows it — the scaffold's
   line where it reproduces the log, the replay's where the scaffold first goes wrong on exactly
   that line. That holds even when the hidden one's own display lies past the cutoff, and it
-  names the hidden HP almost exactly. Between two Pokemon both shown as percentages — a hidden
+  names the hidden HP almost exactly. The exact one's own HP change is its line, and is not asked
+  again. Between two Pokemon both shown as percentages — a hidden
   one splitting with its partner — `onHit` is re-run for every pair of HPs the two could be on,
   and each keeps the HPs some pair leaves it on that both displays allow. Strength Sap needs no
   such pair: the heal is read off the user's display whatever it shows, one amount per Attack
@@ -1100,11 +1144,14 @@ Every line set aside is recorded — `inference.checks` in the written `.log.jso
   candidate values at once, of two hidden Pokemon, is unmapped and set aside. Each function is
   checked at the scaffold's own Stat Points against the stat the simulator really wrote.
 - **Substitute.** Its cost goes through `directDamage`, which floors what it is handed, and is
-  scaled like any fraction (below). A Substitute holds a quarter of its owner's max HP, rounded
-  down, and breaks when a hit deals at least that, so the line after the first hit on a fresh one
-  — `-end` or `-activate` — keeps only the candidates that break it or hold, while the owner's HP
-  stays where it was. A later hit is not read: what the Substitute holds then depends on what it
-  already took.
+  scaled like any fraction (below). A Substitute holds the number its `onStart` stored, a quarter
+  of the max HP of the Pokemon that made it, rounded down, and breaks when a hit deals at least
+  that, so the line after the first hit on a fresh one — `-end` or `-activate` — keeps only the
+  candidates that break it or hold, while the owner's HP stays where it was. A number a handler
+  stores is asked per candidate like a stored stat and tagged with the Pokemon whose Stat Points
+  it stands on; the tag travels with the effect state, so a Substitute Shed Tail hands its
+  replacement breaks or holds by the shedder's HP, and both are narrowed. A later hit is not read:
+  what the Substitute holds then depends on what it already took.
 - **Confusion self-hits** read the Pokemon's own Attack and Defence and throw one damage roll:
   `getConfusionDamage` is re-run per candidate like any hit, and the roll goes on the path. A stat
   Transform or Imposter copied from a known Pokemon is a constant there; one that stands on
@@ -1115,11 +1162,18 @@ Every line set aside is recorded — `inference.checks` in the written `.log.jso
   them the effect saves is the simulator's own `Damage` event, asked with its chances granted:
   the line proves Focus Band's came up, whatever die a scaffold that never needed it threw. It is read even when the scaffold's hit fell
   short: the replay's Focus Sash line is then where the scaffold goes wrong, and the HP line right
-  after it is read in its place — as evidence, never as a proved line for the next round.
+  after it is read in its place — as evidence, never as a proved line for the next round. The
+  converse is read too: each candidate's `Damage` event is run with its chances not granted, and
+  one whose event would have printed a Focus Sash, Sturdy or Endure the replay does not show is
+  ruled out, where the event run at the scaffold's own Stat Points prints what the real one did.
 - **Whole paths.** Each display is first checked on its own; then every Pokemon's HP history is
   walked backwards from what survived the last display, and a spread — or an attacking stat — is
   kept only if some path through *every* turn reaches it. Without this, two unknowns hitting each
-  other each look possible on turn 2 through states turn 4 rules out.
+  other each look possible on turn 2 through states turn 4 rules out. The flat stat most of a
+  Pokemon's changes read of itself — its Attack in confusion self-hits, its recoil, its drain — is
+  followed along each path: every HP state keeps the values of that stat that reach the end from
+  it, so two self-hits read one Attack between them. A tie per key alone let turn 2's state come
+  from one Attack and turn 3's hit from another, and kept guesses no rebuild could reproduce.
 - **The 66-point budget**, pushed through every stat after every pass. `--all-spent` assumes
   every point is spent, as real sets do — an assumption, not evidence, so it is off unless asked
   for — and the budget becomes an equality: a value survives only if some choice for everything
@@ -1130,19 +1184,22 @@ Every line set aside is recorded — `inference.checks` in the written `.log.jso
 move anywhere its next printed line allows.
 An effect written as a fraction of max HP — Leech Seed's drain and a move's HP cost through
 `directDamage` included — is scaled only when its amount proves the fraction: a non-integer
-amount was passed unrounded; a whole one could have been rounded either way, so both roundings
-are kept. A move's own whole-number HP effect — Recover, Roost, Slack Off, Milk Drink, Life Dew,
-the Moonlight family through `this.modify`, Heal Pulse's ceiling, Shed Tail's and Belly Drum's
-cost — is run again for every max HP and HP a candidate could have, where at the scaffold's own
-Stat Points it lands where the real run did, reads no stat that stands on a spread, and moves with
-no other hidden Pokemon's HP; otherwise both roundings are kept. Rest is set aside: it puts its
-user to sleep before it heals. Toxic's nth tick is n sixteenths with the sixteenth rounded down first, and is scaled
+amount was passed unrounded. A whole one was rounded, and the code that rounded it — a hazard's,
+Aftermath's, an absorbing ability's, Poison Heal's, a Berry's, Recover's `heal`, Heal Pulse's
+ceiling, Moonlight's `modify`, Shed Tail's and Belly Drum's cost — is run again from its frame for
+every max HP and HP a candidate could have, where at the scaffold's own Stat Points it lands where
+the real run did, reads no stat that stands on a spread, and moves with no other hidden Pokemon's
+HP. Where the code cannot be run again, a whole amount that is a listed fraction keeps both
+roundings. A revive sets HP through `sethp`, which truncates: Revival Blessing's half is the
+revive run again per candidate, and its line says whether the max HP is odd. Rest is set aside:
+it puts its user to sleep before it heals. Toxic's nth tick is n sixteenths with the sixteenth rounded down first, and is scaled
 that way. A move's cost to its user that the simulator rounds from the user's max HP — Struggle's
 quarter, Mind Blown's, Chloroblast's and Steel Beam's half — is `applyRecoilDamage` run for each
-candidate. Wish heals half its maker's max HP, so it is scaled only when the Pokemon healed made
-it and is a fixed amount when its maker is known; from a hidden partner — switched into the
-maker's slot by Ally Switch, or sent in after it left — it is one amount per HP Stat Point the
-maker could have, and the healed Pokemon's display narrows the maker's HP too. An amount the effect's
+candidate. Wish heals the number its maker's slot condition stored, half the maker's max HP,
+asked per candidate like any stored number: exact for each candidate when the healed Pokemon made
+it, a fixed amount when its maker is known, and from a hidden partner — switched into the maker's
+slot by Ally Switch, or sent in after it left — one amount per HP Stat Point the maker could have,
+so the healed Pokemon's display narrows the maker's HP too. An amount the effect's
 own code writes as a number — Oran Berry's 10 HP — is the same for every spread. None of these can
 remove a spread that fits.
 
@@ -1184,7 +1241,11 @@ and it removes nothing. It is bounded at 8 rebuilds per line and 32 per inferenc
 Illusion re-readings, with ceilings of 120 s per line and 240 s per inference behind them.
 
 Each firing is a check, printed as `not used, turn N: <line> … - <reason>`, so the engine lists
-the hooks it is missing. The reason says which: the fallback found a spread that reproduces the
+the hooks it is missing. A line the fallback got past is listed only when the guess it moved from
+cannot get past it either under the full search, nor the guess the evidence chose along the
+exact HP path it proved for it: where one can, a hook read the line, and the fallback only found
+dice a smaller search missed. The fallback also runs when a round's evidence removed nothing,
+and then it starts from the old guess while the evidence has already chosen a new one. The reason says which: the fallback found a spread that reproduces the
 line; no value it tried of a Stat Point of a Pokemon the turn names changes the line — the cause
 is not a Stat Point, as with a closed sheet's assumed item; no surviving value of the stats that
 move it reproduces it within the search; or a spread the evidence removed reproduces every turn
@@ -1444,8 +1505,11 @@ removes a real spread there, and every battle in it rebuilds. What is left (`evi
 switch-in nothing settles. What the catalog cannot see yet, and the battles that close it, are
 `open-sheet-plan.md`.
 
-1. **The evidence still unused** (§7.5): every line the evidence pass sets aside — none in the
-   S3 suite, and in the catalog only a switch-in Illusion could have made.
+1. **The evidence still unused** (§7.5): every line the evidence pass sets aside — in the
+   catalog only a switch-in Illusion could have made, which stays unread by design, and in the
+   recordings one handler sort, at the partner probe's opening switch-ins: Gardevoir's Trace
+   takes a random target after the sort, so a dry run made at the sort cannot throw that die as
+   the real one did, prints another line, and the order is set aside.
 2. **Certified ranges** (`--certify`, `--outside`). The inference keeps impossible spreads on
    purpose: an HP change it cannot model lets a candidate move anywhere its next display allows,
    Attack, Special Attack and Speed are separate lists that each only have to fit every hit on its

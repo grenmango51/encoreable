@@ -162,6 +162,19 @@ evidence pass sets its lines aside meanwhile.
 **Every dry-run shortcut is checked** at the scaffold's own set and stats against the real
 calculation, as for spreads (`engineering.md` §7.5). A disagreement sets the line aside.
 
+**A move the replay never shows.** A Pokemon that flinched, was fully paralysed or slept shows no
+move, so the priority its action was sorted at is not on the log. On an open sheet every move it
+has is known, and its order is read only where the actions before and after it pin the bracket and
+each of its moves sorts at the same priority in both sorts (`engineering.md` §7.5); a Fake Out at
++3 before it pins nothing, so a flinched Snorlax that might have chosen Quick Attack says nothing
+of its Speed. On a closed sheet a move the log never showed can have priority — Quick Attack,
+Extreme Speed, Protect — and nothing tells that from an outspeed. Decided with the user: first rule
+out what the log can — an outspeed no spread reaches, a priority no move the species learns gives,
+a move the log already showed on another turn — and where only "it used a priority move" and "it
+outsped" are left, read it as the outspeed, as the sets already assume no move the log did not
+show, and print a loud warning naming the order and the priority moves it could have used. The
+warning fires only when nothing else separates the two.
+
 ### 3.4 Natures in the stat model
 
 The knowledge model (`knowledge.mjs`) keeps a joint key of HP, Defence and Special Defence and flat

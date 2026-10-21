@@ -20,7 +20,9 @@ const MEGA = new Set(['megaEvo', 'megaEvoX', 'megaEvoY']);
  * null: a move line, what stopped the move, or what only `onBeforeMove` prints
  * first - the confusion check, waking up, thawing out - open that Pokemon's
  * move; a forme change the next line names as Mega Evolution opens its Mega
- * Evolution; a switch no effect caused opens the switch out of that slot,
+ * Evolution; a forme change the next line names as the same Pokemon's own move
+ * - Stance Change's, which `onModifyMove` prints before the move line - opens
+ * that move; a switch no effect caused opens the switch out of that slot,
  * whoever it names coming in. `next` is the line after it.
  */
 function opens(line, next) {
@@ -30,6 +32,10 @@ function opens(line, next) {
   if (parts[1] === 'detailschange') {
     const after = String(next || '').split('|');
     return after[1] === '-mega' && after[2] === parts[2] ? { kind: 'mega', ident: parts[2] } : null;
+  }
+  if (parts[1] === '-formechange') {
+    const after = String(next || '').split('|');
+    return after[1] === 'move' && after[2] === parts[2] && !after.slice(4).some(p => p.startsWith('[from]')) ? { kind: 'move', ident: parts[2] } : null;
   }
   if (parts[1] === 'switch' && !parts.slice(5).some(p => p.startsWith('[from]'))) return { kind: 'switch', ident: parts[2] };
   return null;
@@ -102,26 +108,17 @@ export function attachSpeed(battle, {
   });
   const speedTable = rec => memo(`spe|${sortOrdinal}|${rec.id}`, () => speedsOf(rec, () => rec.pokemon.getActionSpeed()));
 
-  // What a priority handler can read of a Pokemon and the field as the queue
-  // is sorted - whether it is at full HP, its item, ability, types and
-  // volatiles, the terrain and the pseudo-weather - so that a priority that
-  // could have moved between two sorts is known not to have.
-  const priorityState = p => [p.hp === p.maxhp, p.item, p.ability, p.types.join('/'), Object.keys(p.volatiles).sort().join('/'),
-    battle.field.terrain, Object.keys(battle.field.pseudoWeather).sort().join('/')].join('|');
-
-  // The lowest priority a queued move's Pokemon could have been sorted at,
-  // over every move it has and Struggle, which it uses when none is left to
-  // it, asked of the simulator the way the queue asks it of the move it
-  // chose. Run dry, and keyed by sort so it outlives the pass.
-  const lowestPriority = (a) => memo(`low|${sortOrdinal}|${a.pokemon.side.id}${a.pokemon.position}`, () => guarded(() => {
-    let low = Infinity;
-    for (const id of [...a.pokemon.moveSlots.map(slot => slot.id), 'struggle']) {
+  // The priority a queued move's Pokemon would be sorted at with each move it
+  // has and Struggle, which it uses when none is left to it, asked of the
+  // simulator the way the queue asks it of the move it chose. Run dry, and
+  // keyed by sort so it outlives the pass. Two sorts that give a Pokemon the
+  // same list sorted it at the same priority whatever move it chose.
+  const movePriorities = (a) => memo(`pri|${sortOrdinal}|${a.pokemon.side.id}${a.pokemon.position}`, () => guarded(() => (
+    [...a.pokemon.moveSlots.map(slot => slot.id), 'struggle'].map((id) => {
       const asked = { ...a, move: battle.dex.getActiveMove(id) };
       battle.getActionSpeed(asked);
-      low = Math.min(low, asked.priority);
-    }
-    return low;
-  }));
+      return asked.priority;
+    }))));
 
   const queue = battle.queue;
   const origSort = queue.sort;
@@ -141,12 +138,15 @@ export function attachSpeed(battle, {
       const entry = {
         turn: battle.turn,
         ordinal: sortOrdinal,
-        list: this.list.map(a => ({
-          action: a, order: a.order, priority: a.priority || 0, pokemon: a.pokemon || null,
-          side: a.pokemon?.side?.id ?? null, slot: a.pokemon ? a.pokemon.position : -1,
-          state: a.pokemon ? priorityState(a.pokemon) : null,
-          lowest: a.choice === 'move' && a.pokemon ? lowestPriority(a) : null,
-        })),
+        list: this.list.map((a) => {
+          const moves = a.choice === 'move' && a.pokemon ? movePriorities(a) : null;
+          return {
+            action: a, order: a.order, priority: a.priority || 0, pokemon: a.pokemon || null,
+            side: a.pokemon?.side?.id ?? null, slot: a.pokemon ? a.pokemon.position : -1,
+            priorities: moves ? moves.join('/') : null,
+            lowest: moves ? Math.min(...moves) : null,
+          };
+        }),
         speeds: new Map(),
       };
       for (const item of entry.list) {
@@ -699,13 +699,13 @@ export function attachSpeed(battle, {
       const x = S?.list.find(item => item.action === ex.action);
       // P's action came after the action the replay shows just before it, and
       // before Q's. When those two were sorted at the same order and priority,
-      // so was P's, whatever move it chose - provided nothing a priority
-      // handler reads of P or the field moved between the two sorts.
+      // so was P's, whatever move it chose - provided every move P has would
+      // be sorted at the same priority in both sorts.
       const before = x ? executed[executed.indexOf(ex) - 1] : null;
       const a = before?.sort && before.sort.turn === S.turn && shown.get(before.action)?.on && !movedAfter(before.action, before.sort)
         ? before.sort.list.find(item => item.action === before.action) : null;
-      const between = item => !!a && a.order === x.order && a.priority === x.priority
-        && before.sort.list.find(it => it.action === item.action)?.state === item.state;
+      const between = item => !!a && a.order === x.order && a.priority === x.priority && item.priorities !== null
+        && before.sort.list.find(it => it.action === item.action)?.priorities === item.priorities;
       const unseen = was.kind === 'move' && !chosen();
       const y = x && ofKind(x.action, got.kind)
         ? S.list.find(item => item !== x && item.pokemon && item.order === x.order

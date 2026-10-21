@@ -1514,25 +1514,31 @@ function prober(common, t) {
 }
 
 /**
- * How well a run agreed with turn `t`, as `[lines, fields]`.
+ * How well a run agreed with turn `t`, as `[lines, fields, shared]`.
  *
  * `lines` is how far the turn got before disagreeing - `Infinity` for a turn
  * that matched outright, `-1` for a choice the simulator refused, which no die
  * can repair. `fields` counts how much of the disagreeing line is nevertheless
  * right, and it is what keeps the search off a local minimum: one line can need
  * two draws to change together, and a move line that has found its target but
- * not yet its damage is genuinely closer than one that has neither.
+ * not yet its damage is genuinely closer than one that has neither. `shared`
+ * counts the fields right in place anywhere in the line, which ranks lines
+ * whose kind is still wrong: a Pokemon the replay shows flinching, sorted after
+ * a speed tie it lost, needs the tie and the flinch together, and the run that
+ * has it moving where the replay has it flinch has its name right.
  */
 function scoreOf(run, t) {
-  if (run.badTurn === null || run.badTurn > t) return [Infinity, 0];
-  if (run.badTurn < t) return [-Infinity, 0];
+  if (run.badTurn === null || run.badTurn > t) return [Infinity, 0, 0];
+  if (run.badTurn < t) return [-Infinity, 0, 0];
   const diff = run.diffs[0];
-  if (!diff || diff.index < 0) return [-1, 0];
+  if (!diff || diff.index < 0) return [-1, 0, 0];
   const want = String(diff.expected ?? '').split('|');
   const got = String(diff.actual ?? '').split('|');
   let fields = 0;
   while (fields < want.length && fields < got.length && want[fields] === got[fields]) fields++;
-  return [diff.index, fields];
+  let shared = 0;
+  for (let i = 0; i < want.length && i < got.length; i++) if (want[i] === got[i]) shared++;
+  return [diff.index, fields, shared];
 }
 
 /**
@@ -1565,8 +1571,8 @@ function canReach(common, run, t) {
   };
 }
 
-const outranks = (a, b) => (a[0] !== b[0] ? a[0] > b[0] : a[1] > b[1]);
-const ties = (a, b) => a[0] === b[0] && a[1] === b[1];
+const outranks = (a, b) => (a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] > b[2]);
+const ties = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
 
 /**
  * Settle one turn's random draws against the observed lines.
@@ -1640,6 +1646,15 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     subTurn[i] = t;
     commits.push(i);
     forced++;
+  };
+  // A draw that only gets more of the line's fields right in place is held
+  // on trial: it stays when a later draw carries the turn further, and is
+  // taken back, with every draw committed after it, when none does - the
+  // turn then ends where it would have without it.
+  let onTrial = null;
+  const takeBack = () => {
+    for (const i of commits.splice(onTrial.at)) { delete subs[i]; delete subTurn[i]; forced--; }
+    onTrial = null;
   };
 
   // Wide dice are tried between their ends only when nothing else moves the
@@ -1746,13 +1761,21 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
       wide = true;
       continue;
     }
-    if (!committed && fallback) {
+    const inPlace = fallback && fallback.best[1] === score[1];
+    if (!committed && fallback && !(inPlace && onTrial)) {
+      if (inPlace) onTrial = { at: commits.length, lines: score[0] };
       commit(fallback.i, fallback.value);
       committed = true;
     }
 
     ask.cancel();
     if (!committed) break;
+    run = await runTo(common, subs, t, t);
+    score = scoreOf(run, t);
+    if (onTrial && score[0] > onTrial.lines) onTrial = null;
+  }
+  if (onTrial) {
+    takeBack();
     run = await runTo(common, subs, t, t);
     score = scoreOf(run, t);
   }

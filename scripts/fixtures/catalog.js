@@ -150,8 +150,9 @@ const quietAbilities = [
  *   cells      why one row of the effect's card cannot carry its Stat Point,
  *              keyed by the row as the report names it: '<role letter>:<Stat>'
  *              for a verdict row ('O:SpD', 'T:Spe'), 'read:<Stat>' for a stat
- *              a handler reads that no battle changed a line with ('read:HP');
- *              the card prints it, and the row is no longer work
+ *              a handler reads that no battle changed a line with ('read:HP'),
+ *              'aside' for what the inference set aside in the effect's
+ *              battles; the card prints it, and the row is no longer work
  *   mechanism  { stat: 'M1'..'M9' } overriding the rule for that stat
  *   note       shown on the effect's card as written
  *
@@ -1198,16 +1199,16 @@ const entries = {
       stat: 'atk',
       worlds: [0, 32],
       p1: [withMoves('known', ['Substitute', 'Splash']), 'knownAlly', 'knownBench'],
-      p2: [set('Blastoise', 'F', 'Torrent', 'Metronome', {}, ['Waterfall', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      p2: [set('Blastoise', 'F', 'Torrent', 'Metronome', {}, ['Aqua Tail', 'Splash']), 'hiddenAlly', 'hiddenBench'],
       turns: [
         { p1: 'move substitute, move splash', p2: 'move splash, move splash' },
-        hiddenHits('waterfall'),
-        hiddenHits('waterfall'),
-        hiddenHits('waterfall'),
+        hiddenHits('aquatail'),
+        hiddenHits('aquatail'),
+        hiddenHits('aquatail'),
         QUIET,
       ],
       control: { p2: [{ item: 'Smooth Rock' }] },
-      why: "The hidden Blastoise's first two Waterfalls land on the known Snorlax's Substitute, which shows no number, and only break it; the third, its third in a row, Metronome makes 1.4 times as strong, and Snorlax's exact HP shows its Attack.",
+      why: "The hidden Blastoise's first Aqua Tail breaks the known Snorlax's Substitute, which shows no number, at every Attack; the second, its second in a row, Metronome makes 1.2 times as strong, and Snorlax's exact HP shows its Attack.",
     }],
   },
   'ability:parentalbond': {
@@ -1920,7 +1921,8 @@ for (const [key, reason] of Object.entries(reasons)) entries[key] = { ...(entrie
 /**
  * Rows of an effect's card that cannot carry their Stat Point, with why: a
  * MASKED or UNUSED row by '<role letter>:<Stat>', a stat a handler reads that
- * no battle changed a line with by 'read:<Stat>'. Each is its entry's `cells`.
+ * no battle changed a line with by 'read:<Stat>', what the inference set aside
+ * in its battles by 'aside'. Each is its entry's `cells`.
  */
 const cells = {
   'ability:dragonize': {
@@ -1964,6 +1966,7 @@ const cells = {
   'ability:illusion': {
     'O:Spe': 'The known holder is shown as Mudsdale and no |replace| settles that it was the Illusion user, so its order lines name nobody for certain and are not used; the control, with no disguise, reads the same order.',
     'H:Spe': 'The disguised holder\'s order lines name the Pokemon it poses as (onBeforeSwitchIn, data/abilities.ts:2056-2069); where no later |replace| in its slot settles who switched in, a line naming the disguise is read for neither Pokemon.',
+    aside: 'A switch-in on a side with an Illusion user that no |replace| settles could have been the Illusion user posing as the Pokemon shown (onBeforeSwitchIn, data/abilities.ts:2056-2069), so what it showed belongs to neither for certain: each such Pokemon keeps every spread either reading leaves it, and the Illusion user keeps none of the lines.',
   },
   'ability:moody': {
     'O:Atk': 'onResidual raises one of the known holder\'s stats two stages and lowers another one, by dice (data/abilities.ts:2704-2728), so a later hit on it repeats the Attack the first hit already showed.',
