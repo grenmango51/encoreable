@@ -273,8 +273,9 @@ export function attachSpeed(battle, {
         };
       });
       for (const it of top.entry.items) if (it.rec && it.rec.cachedSpeed) top.entry.speeds.set(it.rec, it.rec.cachedSpeed);
+      if (frames && !queueSorting && !state.ended && top.entry.eventid === 'SwitchIn') readHandlerSort(list, comparator, true);
     } else if (frames && !queueSorting && !state.dry && !state.ended) {
-      readHandlerSort(list, comparator || ((a, b) => battle.comparePriority(a, b)));
+      readHandlerSort(list, comparator);
     }
     return out;
   };
@@ -352,7 +353,7 @@ export function attachSpeed(battle, {
   const alike = (a, b) => a.owner === b.owner && a.table.every((v, s) => v === b.table[s]);
   // Whether a table gives, at the replay's own Stat Points, the speed an item
   // was sorted by.
-  const sortedBy = (speeds, item) => speeds.table[ownValue({ owner: byId.get(speeds.owner), stat: 'spe' })] === item.speed;
+  const sortedBy = (speeds, item, speed = item.speed) => speeds.table[ownValue({ owner: byId.get(speeds.owner), stat: 'spe' })] === speed;
 
   /**
    * A sort a handler made: each two neighbours of different Pokemon, one of
@@ -360,11 +361,22 @@ export function attachSpeed(battle, {
    * put them in this order. The handler runs again dry from where it was
    * entered, once in this sort's order and once per such pair with the two
    * swapped, and `speedRules` compares what each run printed.
+   *
+   * Switch-in effects are sorted the same way, by the action that switched
+   * their Pokemon in, which runs again from the queue it started from. Each
+   * handler there carries its Pokemon's speed less a fraction that only
+   * breaks a tie, so two at one order and priority are in speed order.
    */
-  function readHandlerSort(list, comparator) {
+  function readHandlerSort(list, comparator, switchIn = false) {
     const frame = frames[frames.length - 1];
-    if (!frame || (frame.kind !== 'handler' && frame.kind !== 'event')) return;
+    if (!frame) return;
+    if (switchIn ? frame.kind !== 'action' || frame.args?.[0]?.choice !== 'runSwitch' : frame.kind !== 'handler' && frame.kind !== 'event') return;
     const atSpeed = item => Object.create(item, { speed: { value: 0 } });
+    const bracket = item => [item.order || 4294967296, item.priority || 0].join('|');
+    const tied = switchIn
+      ? (a, b) => bracket(a) === bracket(b)
+      : (a, b) => (comparator || battle.comparePriority)(atSpeed(a), atSpeed(b)) === 0;
+    const speedOf = item => (switchIn ? pokemonOf(item).speed : item.speed);
     const pairs = [];
     for (let i = 0; i + 1 < list.length; i++) {
       const X = byPokemon.get(pokemonOf(list[i]));
@@ -372,8 +384,8 @@ export function attachSpeed(battle, {
       const fx = X?.cachedSpeed;
       const fy = Y?.cachedSpeed;
       if (!fx || !fy || X === Y || !(varies(fx) || varies(fy)) || alike(fx, fy)) continue;
-      if (!sortedBy(fx, list[i]) || !sortedBy(fy, list[i + 1])) continue;
-      if (comparator(atSpeed(list[i]), atSpeed(list[i + 1])) === 0) pairs.push({ i, X, Y });
+      if (!sortedBy(fx, list[i], speedOf(list[i])) || !sortedBy(fy, list[i + 1], speedOf(list[i + 1]))) continue;
+      if (tied(list[i], list[i + 1])) pairs.push({ i, X, Y });
     }
     if (!pairs.length) return;
     const keys = list.map(keyOf);

@@ -2430,6 +2430,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   function framed(frame, run) {
     const entered = {
       effect: battle.effect, state: battle.effectState, event: battle.event ? { ...battle.event } : battle.event, depth: battle.eventDepth,
+      queue: frame.kind === 'action' ? battle.queue.list.slice() : null,
     };
     const ran = frame.kind === 'handler' || frame.kind === 'event';
     frame.state = ran ? entered.state : null;
@@ -2457,6 +2458,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     battle.effectState = entered.state;
     battle.event = entered.event ? { ...entered.event } : entered.event;
     battle.eventDepth = entered.depth;
+    // An action run again starts from the queue it started from: a switch-in
+    // takes the other switch-ins queued behind it off the queue before it
+    // sorts them.
+    if (entered.queue) battle.queue.list.splice(0, battle.queue.list.length, ...entered.queue);
     try {
       return frame.call ? frame.call(args, only) : frame.fn.apply(battle, args);
     } finally {
