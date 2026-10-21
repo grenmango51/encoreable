@@ -1880,6 +1880,20 @@ function renderOpen(records, pool, entries = FIXTURE.entries) {
   const reasonedRead = x => !!cellReason(x.r, `read:${STAT_NAME[x.stat]}`);
   const asideOf = r => [...new Set(r.open.stats.flatMap(s => (s.worlds || []).flatMap(w => w.setAside || [])))];
   const asides = open.filter(r => asideOf(r).length).sort((a, b) => b.weight - a.weight || a.key.localeCompare(b.key));
+  // Every boundary a sweep found that is not USED, one per (effect, template, stat).
+  const sweeps = [];
+  for (const r of open) {
+    const by = new Map();
+    for (const s of r.open.stats.filter(x => x.sweep && x.verdict !== 'USED')) {
+      const k = `${s.template}|${s.stat}`;
+      if (!by.has(k)) by.set(k, { r, template: s.template, stat: s.stat, list: [] });
+      by.get(k).list.push(s);
+    }
+    sweeps.push(...by.values());
+  }
+  sweeps.sort((a, b) => b.r.weight - a.r.weight || a.r.key.localeCompare(b.r.key) || a.template.localeCompare(b.template));
+  const sweepReason = x => cellReason(x.r, `sweep:${STAT_NAME[x.stat]}`);
+  const boundaries = sweeps.flatMap(x => x.list.map(s => ({ ...x, s })));
   out.push('### 1.3 What is left', '');
   out.push('| List | Rows | With a written reason | Work |', '|---|---|---|---|');
   for (const [label, list, reasoned] of [
@@ -1888,11 +1902,12 @@ function renderOpen(records, pool, entries = FIXTURE.entries) {
     ['NOT SHOWN (§2.5)', notShownAll, r => !!r.open.why],
     ['Scan reads with no change (§2.6)', reads, reasonedRead],
     ['Set aside by the inference (§2.7)', asides, r => !!cellReason(r, 'aside')],
+    ['Sweep boundaries not USED (§2.8)', boundaries, x => !!sweepReason(x)],
   ]) {
     const n = list.filter(reasoned).length;
     out.push(`| ${label} | ${list.length} | ${n} | ${list.length - n} |`);
   }
-  out.push('', 'UNUSED and MASKED count (effect, role, stat, mechanism), as in 1.1; NOT SHOWN and a set-aside row count effects; a scan read counts (effect, stat). A row with a written reason is listed under its section apart from the work.', '');
+  out.push('', 'UNUSED and MASKED count (effect, role, stat, mechanism), as in 1.1; NOT SHOWN and a set-aside row count effects; a scan read counts (effect, stat); a sweep counts its boundaries. A row with a written reason is listed under its section apart from the work.', '');
 
   // Work lists, one row per effect, role, stat and mechanism, heaviest first.
   out.push('## 2. Work list', '');
@@ -2018,6 +2033,23 @@ function renderOpen(records, pool, entries = FIXTURE.entries) {
     out.push('Not work — with a written reason:', '');
     out.push('| Effect | Weight | What was set aside | Reason |', '|---|---|---|---|');
     for (const r of asideReasons) out.push(`| \`${r.key}\` | ${r.weight} | ${asideText(r)} | ${esc(cellReason(r, 'aside'))} |`);
+    out.push('');
+  }
+  out.push('### 2.8 Sweep boundaries not USED', '');
+  out.push('A boundary between two adjacent values the sweep played that the inference did not show telling apart through the effect\'s own line: MASKED where the battle\'s other lines already told them apart, UNSTABLE where the two worlds threw a different number of dice.', '');
+  const sweepRow = x => `| \`${x.r.key}\` | ${x.r.weight} | ${x.template.split('/')[1]} | ${STAT_NAME[x.stat]} | ${esc([...new Set(x.list.map(s => s.verdict || 'not rebuilt'))].map(v => `${v} at ${x.list.filter(s => (s.verdict || 'not rebuilt') === v).map(pairOf).join(', ')}`).join('; '))}`;
+  const sweepWork = sweeps.filter(x => !sweepReason(x));
+  const sweepReasons = sweeps.filter(x => sweepReason(x));
+  if (!sweepWork.length) out.push('None.', '');
+  else {
+    out.push('| Effect | Weight | Template | Stat | Boundaries |', '|---|---|---|---|---|');
+    for (const x of sweepWork) out.push(`${sweepRow(x)} |`);
+    out.push('');
+  }
+  if (sweepReasons.length) {
+    out.push('Not work — with a written reason:', '');
+    out.push('| Effect | Weight | Template | Stat | Boundaries | Reason |', '|---|---|---|---|---|---|');
+    for (const x of sweepReasons) out.push(`${sweepRow(x)} | ${esc(sweepReason(x))} |`);
     out.push('');
   }
 

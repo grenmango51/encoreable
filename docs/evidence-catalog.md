@@ -349,49 +349,50 @@ No probe battle is kept in `recordings/`: every one is rebuilt from the fixture 
 
 ## 5. Coverage
 
-The run on `pokemon-showdown` `a5df827` and `scripts/lib/inference/` as of 2026-10-03. The reports
+The run on `pokemon-showdown` `a5df827` and `scripts/lib/inference/` as of 2026-10-22. The reports
 hold every card and the whole work list; this is their head.
 
-**Open sheets** (`evidence-open-sheets.md`). Of 510 moves, 421 showed a Stat Point in some line,
-77 acted with nothing stat-dependent, 12 never acted in any template; of 203 abilities, 64, 42 and
-97; of 166 items, 141, 5 and 20. Per effect, role, stat and mechanism:
+**Open sheets** (`evidence-open-sheets.md`). Of 510 moves, 441 showed a Stat Point in some line,
+67 acted with nothing stat-dependent and 2 never acted in any template; of 216 abilities, 125, 36
+and 55; of 166 items, 146, 5 and 15. Every effect that never acted carries its written reason.
+Per effect, role, stat and mechanism:
 
 | Mechanism | Effects | USED | UNUSED | UNSOUND | REBUILD-FAILED | MASKED |
 |---|---|---|---|---|---|---|
-| M1 | 489 | 1057 | 0 | 0 | 0 | 1 |
-| M2 | 514 | 628 | 0 | 0 | 0 | 6 |
+| M1 | 527 | 1185 | 0 | 0 | 0 | 1 |
+| M2 | 549 | 676 | 0 | 0 | 0 | 5 |
 | M3 | 6 | 8 | 0 | 0 | 0 | 0 |
-| M4 | 71 | 65 | 0 | 0 | 0 | 10 |
-| M5 | 38 | 60 | 0 | 0 | 0 | 5 |
-| M6 | 18 | 20 | 0 | 0 | 0 | 1 |
-| M7 | 74 | 68 | 5 | 0 | 0 | 3 |
-| M8 | 4 | 8 | 0 | 0 | 0 | 0 |
-| M9 | 2 | 5 | 0 | 0 | 0 | 0 |
+| M4 | 97 | 99 | 0 | 0 | 0 | 2 |
+| M5 | 44 | 67 | 0 | 0 | 0 | 5 |
+| M6 | 31 | 26 | 0 | 0 | 0 | 6 |
+| M7 | 85 | 83 | 3 | 0 | 0 | 1 |
+| M8 | 4 | 10 | 0 | 0 | 0 | 0 |
+| M9 | 5 | 10 | 0 | 0 | 0 | 0 |
+| M? | 5 | 5 | 0 | 0 | 0 | 0 |
 
-No effect removes the real spread, every battle rebuilds, and every line the inference could
-use, it uses. What is left:
+No effect removes the real spread, every battle rebuilds whole, and every line the inference could
+use, it uses. The report's §1.3 lists no work: everything left carries a written reason.
 
-1. **UNUSED**, 5 rows, all turn order a battle cannot tell. Three are after Transform or
-   Imposter, where the copy has the very Speed of the Pokemon it copied: the order between them
-   is a speed tie, which says nothing. One is Effect Spore paralysing the hidden Pokemon, whose
-   order then is against its own hidden partner, whose Speed no replay gives. One is a disguised
-   Illusion user whose order its disguise could have shown too: nothing settles that switch-in,
-   so it is read for neither, as asked.
-2. **Set aside** (`evidence-open-sheets.md` §2.7): those Illusion switch-ins. Evidence given up,
-   never a spread removed.
-3. **MASKED**, 26 rows. Heals and chip that a battle's own hits already pin — Recover and its
-   kind, Wish, Regenerator, Leftovers on the known side — most of them a share of max HP, which a
-   percentage shows alike at every max HP.
-4. **UNSTABLE**, 21 rows, where the two worlds drew different dice (one fainted, one missed): they
-   cannot say whether a line is read, but each world is rebuilt and keeps its real spread.
-5. **NOT SHOWN** — 129 effects no template made act: most cannot carry a Stat Point at all on an
-   open sheet (accuracy, critical-hit rate, weather length); `evidence-by-hand.md` judges every
-   move, ability and item by hand on exactly that, and its answers, checked
-   against the simulator, are the appendices of `open-sheet-plan.md` and `closed-sheet-plan.md`. The
-   conditional ones — the weather speed abilities, Quick Feet, Speed Swap, Sleep Talk, Steel
-   Roller, Liquid Ooze, Binding Band, Expert Belt, Big Root, Blaze, Solar Power, Focus Band, a
-   partner's Wish, Pain Split with the partner, Shell Bell over a spread move and a double hit —
-   have hand-set battles, and each is read.
+1. **UNUSED**, 3 rows, all turn order a battle cannot tell. Two are after Transform or Imposter,
+   where the copy has the very Speed of the Pokemon it copied: the order between them is a speed
+   tie, which says nothing. One is Effect Spore paralysing a hidden Pokemon whose order is then
+   against its hidden partner, whose own Speed range covers both worlds' speeds.
+2. **Set aside** (§2.7), one effect: the switch-ins an Illusion user could have made in disguise.
+   Evidence given up, never a spread removed.
+3. **MASKED**, 20 rows: lines a battle's own hits already pin — a hit before a heal or a switch
+   (Leftovers, Grassy Surge, Regenerator, Eject Button, Oran Berry, Shell Bell), a Mega's Speed its
+   order already read, a later hit that repeats an Attack the first one showed — each with the
+   reason no one-stat battle isolates it.
+4. **Sweep boundaries not USED** (§2.8), 14 boundaries in 7 sweeps: where two Seismic Tosses already
+   tell the two max HPs apart before Volt Absorb, Water Absorb, Earth Eater or Poison Heal heals,
+   and Shell Side Arm's category at a damage tie, which a coin settles.
+5. **UNSTABLE**, 26 rows, where the two worlds drew different dice (one fainted, one missed): they
+   cannot say whether a line is read, but each world rebuilds and keeps its real spread.
+6. **NOT SHOWN**, 72 effects no template made act, each with its reason: most cannot carry a Stat
+   Point at all on an open sheet (accuracy, critical-hit rate, weather length);
+   `evidence-by-hand.md` judges every move, ability and item by hand on exactly that, and its
+   answers, checked against the simulator, are the appendices of `open-sheet-plan.md` and
+   `closed-sheet-plan.md`.
 
 **Closed sheets** (`evidence-closed-sheets.md`).
 
@@ -403,11 +404,11 @@ use, it uses. What is left:
   Swap, Simple Beam, Worry Seed, Trace, Mummy or Wandering Spirit replaced it; the item Poltergeist
   names; the item Magician takes; abilities that announce themselves in `|cant|` or `-block`
   (Armor Tail, Queenly Majesty, Sweet Veil, Aroma Veil) or in `-start` (Flash Fire).
-- *Silent sinks and hazards.* 129 abilities, 47 items and all 25 natures change the log before any
-  line names them; today's assumptions then remove the real spread or break the rebuild in 67
+- *Silent sinks and hazards.* 122 abilities, 42 items and all 25 natures change the log before any
+  line names them; today's assumptions then remove the real spread or break the rebuild in 97
   ability witnesses (Technician, Hustle, Magic Guard, Huge Power, Heatproof, Dry Skin, Multiscale,
   Fluffy, Stall, Pixilate, Illusion, Liquid Voice, Poison Heal, Steely Spirit, Supreme Overlord,
-  Slush Rush), 67 item witnesses (Choice Scarf and Iron Ball through order; the type-boosting
+  Slush Rush), 68 item witnesses (Choice Scarf and Iron Ball through order; the type-boosting
   items, Muscle Band, Wise Glasses, Light Ball, Metronome, Expert Belt, Big Root through damage)
   and 28 nature witnesses. Each of them rebuilds with the true set, so each is the assumption's.
 

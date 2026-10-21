@@ -152,7 +152,9 @@ const quietAbilities = [
  *              for a verdict row ('O:SpD', 'T:Spe'), 'read:<Stat>' for a stat
  *              a handler reads that no battle changed a line with ('read:HP'),
  *              'aside' for what the inference set aside in the effect's
- *              battles; the card prints it, and the row is no longer work
+ *              battles, 'sweep:<Stat>' for the boundaries of a sweep that
+ *              are not USED; the card prints it, and the row is no longer
+ *              work
  *   mechanism  { stat: 'M1'..'M9' } overriding the rule for that stat
  *   note       shown on the effect's card as written
  *
@@ -1922,9 +1924,27 @@ for (const [key, reason] of Object.entries(reasons)) entries[key] = { ...(entrie
  * Rows of an effect's card that cannot carry their Stat Point, with why: a
  * MASKED or UNUSED row by '<role letter>:<Stat>', a stat a handler reads that
  * no battle changed a line with by 'read:<Stat>', what the inference set aside
- * in its battles by 'aside'. Each is its entry's `cells`.
+ * in its battles by 'aside', a sweep's boundaries that are not USED by
+ * 'sweep:<Stat>'. Each is its entry's `cells`.
  */
 const cells = {
+  'move:shellsidearm': {
+    'sweep:SpA': "onModifyMove settles a tie between its two damage estimates with randomChance(1, 2) (data/moves.ts:16228-16240), and at this boundary one world's estimates tie, so the two worlds throw a different number of dice; each keeps its real spread, and the category-flip battle reads the hint's category on both sides of the tie.",
+    'sweep:Def': "onModifyMove settles a tie between its two damage estimates with randomChance(1, 2) (data/moves.ts:16228-16240), and at these boundaries one world's estimates tie, so the two worlds throw a different number of dice; each keeps its real spread, and every boundary without a tie is USED.",
+    'sweep:SpD': "onModifyMove settles a tie between its two damage estimates with randomChance(1, 2) (data/moves.ts:16228-16240), and at this boundary one world's estimates tie, so the two worlds throw a different number of dice; each keeps its real spread.",
+  },
+  'ability:voltabsorb': {
+    'sweep:HP': "Seismic Toss deals the user's level (data/moves.ts:15995), and at these boundaries the two tosses already leave the two max HPs on different percentages, which the inference reads; the quarter Volt Absorb heals (data/abilities.ts:5343) lands where those lines put each world and cuts nothing more. Every other boundary is USED by the heal.",
+  },
+  'ability:waterabsorb': {
+    'sweep:HP': "Seismic Toss deals the user's level (data/moves.ts:15995), and at this boundary the two tosses already leave the two max HPs on different percentages, which the inference reads; the quarter Water Absorb heals (data/abilities.ts:5366) lands where those lines put each world and cuts nothing more. Every other boundary is USED by the heal.",
+  },
+  'ability:eartheater': {
+    'sweep:HP': "Seismic Toss deals the user's level (data/moves.ts:15995), and at these boundaries the two tosses already leave the two max HPs on different percentages, which the inference reads; the quarter Earth Eater heals (data/abilities.ts:1136) lands where those lines put each world and cuts nothing more. Every other boundary is USED by the heal.",
+  },
+  'ability:poisonheal': {
+    'sweep:HP': "Seismic Toss deals the user's level (data/moves.ts:15995), and at these boundaries the two tosses already leave the two max HPs on different percentages, which the inference reads; the eighth Poison Heal heals each turn (data/abilities.ts:3335) lands where those lines put each world and cuts nothing more. Every other boundary is USED by the heal.",
+  },
   'ability:dragonize': {
     'H:Spe': "Dragonize reads no Speed (data/abilities.ts:1036-1052). The hidden Mega Feraligatr's Speed is read by its order against the known Snorlax, which narrows it in both worlds; the line this row measures, Snorlax's later Splash, is there or not by that order, so no event of its own names it.",
   },
