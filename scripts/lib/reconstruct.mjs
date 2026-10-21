@@ -842,6 +842,10 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
     if (wantRank === undefined) return null;
 
     const h = target.hp;
+    // A hit through its target's Protect is quartered by the hit data the
+    // hit step wrote before any damage; the dry copies keep that, and only that.
+    const bypassProtect = move.moveHitData?.[target.getSlot()]?.bypassProtect;
+    const through = bypassProtect ? { [target.getSlot()]: { crit: false, typeMod: 0, bypassProtect } } : undefined;
     const shown = new Map();
     const dealt = new Map();
     const printed = (r) => {
@@ -854,7 +858,7 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
         let x = dry(() => {
           restoreItems(items);
           const copy = cloneMove(clone);
-          copy.moveHitData = undefined;
+          copy.moveHitData = through;
           return origGetDamage.call(actions, source, target, copy, true);
         }, r, thrown);
         dealt.set(r, x);

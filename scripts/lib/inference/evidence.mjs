@@ -610,6 +610,17 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   }
 
   /**
+   * What a dry calculation keeps of the hit data the real one ran with: that
+   * the move came through its target's Protect, which the simulator decided in
+   * the hit step before any damage and which quarters the damage. The crit is
+   * the copy's own `willCrit`, and the type effectiveness its own calculation.
+   */
+  function carriedHitData(move, target) {
+    const bypassProtect = move.moveHitData?.[target.getSlot()]?.bypassProtect;
+    return bypassProtect ? { [target.getSlot()]: { crit: false, typeMod: 0, bypassProtect } } : undefined;
+  }
+
+  /**
    * The move one dry calculation runs on: a fresh copy of the one taken before
    * the real calculation, so no dry run sees another's changes - Beat Up takes
    * an ally off its list each time. Where that copy did not reproduce the real
@@ -618,13 +629,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   function onMove(hit, fn) {
     if (!hit.onReal) {
       const copy = cloneMove(hit.clone);
-      copy.moveHitData = undefined;
+      copy.moveHitData = hit.hitData;
       return fn(copy);
     }
     const move = hit.move;
     const snap = cloneMove(move);
     const hitData = move.moveHitData;
-    move.moveHitData = undefined;
+    move.moveHitData = hit.hitData;
     move.willCrit = hit.crit;
     try {
       return fn(move);
@@ -737,7 +748,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const S = byPokemon.get(source);
     const T = byPokemon.get(target);
     const ord = hitOrdinal++;
-    const hit = { S, T, source, target, move, clone, crit, real, items, getDamage, draws, ord, supported: false };
+    const hit = { S, T, source, target, move, clone, crit, real, items, getDamage, draws, ord, supported: false, hitData: carriedHitData(move, target) };
     clone.willCrit = crit;
     if (!T.chain) initChain(T);
     const what = `${named(S)}'s ${clone.name} hit ${named(T)}`;
