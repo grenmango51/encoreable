@@ -424,11 +424,11 @@ use, it uses. The report's §1.3 lists no work: everything left carries a writte
 - **MASKED is not a verdict on the inference.** It means the battle's own lines already told the
   worlds apart, so the effect's line could not be seen being used or ignored.
 - **One hidden Pokemon, one stat at a time**, at 0 and 32 unless a hand-set battle names its
-  worlds or sweeps them. A stat that only matters jointly with another is not probed. 0 and 32 also share a parity: Super Fang from
-  full HP leaves its target on half its max HP rounded up, which the Champions display shades
-  `50/100g` when that max HP is odd and `50/100y` when it is even — a parity of the HP Stat Points
-  that both worlds print alike, so Super Fang is NO CHANNEL here. USED says the inference tells the
-  extremes apart, not that it narrows a stat as far as the line allows.
+  worlds or sweeps them. A stat that only matters jointly with another is not probed: Shell Bell's
+  Special Defence needs HP swept beside it. 0 and 32 share a parity, so a parity or a rounding
+  bucket — Super Fang from full HP leaves `50/100g` on an odd max HP and `50/100y` on an even one
+  — is read only where a sweep plays every value. USED says the inference tells the two worlds
+  apart, not that it narrows a stat as far as the line allows.
 - **The uploader's view.** Every rebuild reads channel 1, where the known side's HP is exact. A
   replay of someone else's battle shows both sides as percentages, so a row whose sink is
   `known exact` says more than such a replay does.
@@ -442,6 +442,9 @@ use, it uses. The report's §1.3 lists no work: everything left carries a writte
   no hook of its own). The probe finds missing hooks; `--fuzz` finds combinations, at random.
 - **Possible under the pinned simulator.** As in `engineering.md` §9, a server running different
   mechanics makes every row a statement about the wrong battle.
+- **Dice the two worlds throw differently.** Where one world faints, misses or ties where the other
+  does not — Shell Side Arm's coin on a damage tie — the row is UNSTABLE: each world is rebuilt and
+  keeps its real spread, but whether the effect's line is read is not judged.
 - **Cost.** The battles are fast — every move's, without the rebuilds, in 75 s on 13 threads.
-  The rebuilds are not: a full run takes about an hour on 13 threads (moves 37 min, abilities 11,
-  items 9, natures 1), and so does `--check`. `--kind` with `--out`, then `--records`, splits it.
+  The rebuilds are not: a full run takes about two and a half hours on 13 threads, and so does
+  `--check`. `--kind` with `--out`, then `--records`, splits it.

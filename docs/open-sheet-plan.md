@@ -8,13 +8,10 @@ allows and removes every spread it rules out, and prove it with battles built fo
 `evidence-open-sheets.md` §0–§2.
 **Done when:** every item in §6 holds.
 **Verified against:** `pokemon-showdown` at `a5df827`, `scripts/lib/inference/` and the catalog
-reports as of 2026-10-03, and the by-hand review in `evidence-by-hand.md` (commit `e7f3322`).
+reports as of 2026-10-22, and the by-hand review in `evidence-by-hand.md` (commit `e7f3322`).
 **After this:** `closed-sheet-plan.md`, which builds on the harness this plan finishes.
-**Status (2026-10-05):** Phase 1 is built, short of the full run that regenerates the reports;
-Phase 2 is under way; in Phase 5 the two-hit recoil, the order between two hidden Pokemon and R1's
-rounded heals are read; Phase 7: all 15 of the user's open games rebuild line for line. A line no
-hook reads no longer stops a rebuild: the inference searches the guess for a spread that passes it
-and lists the line as a gap (`engineering.md` §7.5, *When the evidence cannot move the guess*).
+**Status (2026-10-22):** all eight phases are built, and §6 holds but for the extension check's
+live-site steps (§6, item 5). What stays open is `engineering.md` §9.
 
 ---
 
@@ -40,39 +37,16 @@ public replay needs; a prior over the survivors (`plan.md` §10); any UI beyond 
 
 ## 1. Where it stands
 
-From the catalog run of 2026-10-03 (`evidence-catalog.md` §5):
+From the catalog run of 2026-10-22 (`evidence-catalog.md` §5):
 
-- **Sound:** no effect removes a real spread, every battle rebuilds, and the 21 recordings keep all
-  83 real spreads.
-- **Used:** of 510 moves, 421 showed a Stat Point and every channel is USED except speed ties.
-- **Left:** 5 UNUSED rows (speed ties after Transform or Imposter, an order against a hidden partner,
-  an unsettled Illusion switch-in); 26 MASKED rows; 129 effects NOT SHOWN; 22 handlers that read a
-  stat no battle changed a line with (`evidence-open-sheets.md` §2.6).
-
-**What the catalog could not see before Phase 1.** `local-catalog.mjs` now asks all five; the
-committed reports still show them until a full run regenerates them:
-
-1. **1,053 template runs never ran, on 81 Mega Stone cards.** Every Mega Stone witness in which the
-   hidden Pokemon uses a move with no target was refused: `Unrecognized choice: mega move splash`. In
-   `scripts/local-catalog.mjs:947` the `mega` flag is added by
-   `/^(move \S+(?: -?\d)?)/`, and `\S+` swallows the comma of `move splash, move splash`, so the
-   flag lands on the partner's choice. Every Mega's defensive witnesses — and with them every Mega
-   ability that acts on a hit taken — are untested.
-2. **72 more cards had a template refused** for other reasons: a known Pokemon asked to use a
-   move it was not given, a disabled or trapped choice, Curse with a target. `grep -n "refused T"
-   docs/evidence-open-sheets.md` lists them.
-3. **13 abilities exist only on a Mega Evolution**, so they are not in the pool, which takes abilities
-   from the species a team can bring: Eelevate, Piercing Drill, Dragonize, Fairy Aura, Shadow Tag,
-   Unseen Fist, Parental Bond, Aura Guard, Mega Sol, Aerilate, Fire Mane, Spicy Spray and Innards Out.
-   They are reached only through their Stone's templates, and item 1 broke half of those. Innards
-   Out is the sharpest: when the Mega faints to a hit, it deals the HP it had left to the attacker,
-   so a hidden Victreebel-Mega's last HP lands exactly on your Pokemon's line.
-4. **Only 0 against 32.** Two worlds that share a parity or a rounding bucket print the same line, so
-   a share of max HP (Recover, Leftovers, hazards, Super Fang's `50/100g` against `50/100y`) shows
-   NO CHANNEL or MASKED even when the inference may read it.
-5. **The partner and the bench are fixed.** Nothing probes the stat of the hidden Pokemon's ally:
-   Helping Hand, Friend Guard, Plus and Minus, Hospitality, a heal or Pain Split on the ally, the
-   order between the two hidden Pokemon.
+- **Sound:** no effect removes a real spread and every battle rebuilds whole; the 29 recordings (the
+  21 Reg M-B ones and the 8 probes) keep all 115 real spreads; the fuzzer's 100 random battles all
+  rebuild and keep theirs; on the user's 15 open games `--outside` rebuilds nothing outside a range.
+- **Used:** of 510 moves, 441 showed a Stat Point, and every channel is USED but three orders no
+  battle can tell — a speed tie after Transform or Imposter, an order between two hidden Pokemon.
+- **Left:** nothing without a written reason (`evidence-open-sheets.md` §1.3): 3 UNUSED rows, 20
+  MASKED rows, 72 effects NOT SHOWN, 8 reads no battle changed a line with, the switch-ins an
+  Illusion user could have made set aside, and 14 sweep boundaries.
 
 ### The by-hand review
 
@@ -230,13 +204,10 @@ All in `scripts/local-catalog.mjs` and `scripts/fixtures/catalog.js`.
 8. **Keep `--check` honest.** Make the reports carry the new fields, then rerun the full catalog and
    commit the reports.
 
-**Status:** steps 1–7 are built: every Mega Stone witness runs, the Mega-only abilities have cards
-that Mega Evolve on turn 1 against the Mega forme, no card prints `refused` (a choice the battle
-overrode prints its cause), and hand-set templates take `stat`, `worlds`, `worlds: 'sweep'`,
-`probe: 'p2b'` and `reason`. Step 8 is left: the full run takes many hours (the 81 Mega effects
-alone about 91 minutes on 3 threads), and until it runs `--check` disagrees with the committed
-reports. The regenerated closed report will gain about 20 HAZARD rows on the new templates, where
-the first-ability assumption meets a damage-changing ability; they are expected.
+**Status:** built: every Mega Stone witness runs, the Mega-only abilities have cards that Mega
+Evolve on turn 1 against the Mega forme, no card prints `refused` (a choice the battle overrode
+prints its cause), and hand-set templates take `stat`, `worlds`, `worlds: 'sweep'`,
+`probe: 'p2b'` and `reason`. The full run of 2026-10-22 regenerated both reports.
 
 **Done when:** no card prints `refused` without a written reason; the Mega-only abilities have cards;
 a hand-set Super Fang battle with `worlds: 'sweep'` on HP shows the `50/100g`/`50/100y` boundary; a
@@ -250,8 +221,8 @@ and give each effect of §A.2 its `reason`. Most battles change nothing in the i
 runs inside `getDamage`, an HP change or a speed sort, and the battle only proves that. Every one
 that is not USED becomes Phase 5 work.
 
-**Status:** about 70 effects act in hand-set battles and 36 carry their reason; the full run says
-how many are left.
+**Status:** built: no effect is NOT SHOWN without a written reason (72 carry one), and every
+hand-set battle is USED or carries its reason.
 
 **Done when:** no effect in `evidence-open-sheets.md` §2.5 is NOT SHOWN without a written reason,
 and every battle added is USED or has its reason.
@@ -264,6 +235,9 @@ Seismic Toss), then let the effect act, with no other hit on it. A share of max 
 these are, needs `worlds: 'sweep'` as well. The rows of Appendix A §A.1 marked MASKED give each one,
 with a Stat Point pair where one was found.
 
+**Status:** built: every MASKED row carries a written reason (20), and Metronome's isolating battle
+is USED.
+
 **Done when:** every MASKED row has an isolating battle and that battle is USED, or UNUSED and
 carried into Phase 5, or has a written reason why no one-stat battle isolates it.
 
@@ -274,6 +248,9 @@ with), a battle that reaches the read, swept where the read is a share of max HP
 Shed Tail's half, Spikes and Stealth Rock, Spiky Shield and Aftermath on a hidden attacker, Volt
 Absorb, Water Absorb and Earth Eater, Poison Heal, Solar Power, Sturdy and Endure at the edge, Red
 Card. The rows of Appendix A §A.1 marked READ-UNSEEN.
+
+**Status:** built: every read is USED or carries its reason (8 do), and every sweep boundary that
+is not USED carries its reason (`evidence-open-sheets.md` §2.8).
 
 **Done when:** each has a battle, swept where needed, and each read is USED or has its written reason.
 
@@ -339,6 +316,11 @@ a tie, which says nothing. They stay UNUSED; the copied Speed is tested instead 
 with a known pacer between the two worlds' Speeds. An Illusion switch-in nothing settles stays unread
 too. Write both in `evidence-catalog.md` §6.
 
+**Status:** built: §2.2 lists only the speed ties after Transform and Imposter and Effect Spore's
+order between two hidden Pokemon, each with its reason; §2.4 only rows with a written reason; every
+real spread and probe survives; nothing is set aside but the Illusion switch-ins
+(`engineering.md` §7.5, §9).
+
 **Done when:** `evidence-open-sheets.md` §2.2 lists only speed ties and the Illusion switch-in; §2.4
 holds only rows with a written reason why no one-stat battle isolates the stat (Shell Bell's Special
 Defence: at a fixed HP its heal falls in the same bucket at every value, so it needs HP and Special
@@ -363,6 +345,9 @@ others with the same mechanism if a team fails validation.
 
 Each README row names, for each hidden Pokemon, the stat the battle is built to pin and how far:
 for example "Clefable HP: exactly its real value, through Moonlight from 49/100".
+
+**Status:** built: the eight are in `recordings/local/probes/` with their README rows, and each
+passes §3.2.
 
 **Done when:** all eight are in `recordings/local/probes/` with their README rows, and each passes
 §3.2.
@@ -397,7 +382,8 @@ until nothing moves.
 The fallback's gap report on these games is empty: a hook reads every line they show. With the
 order, recoil and dry-run hooks taken out it names those lines, so the games also test the report.
 
-What is left of Phase 7 is `--certify --outside` on each game.
+**Status:** built: every open game rebuilds under `--certify --outside`, and nothing outside a
+range rebuilds.
 
 **Done when:** every replay the user gave passes §3.3.
 
@@ -407,6 +393,9 @@ Update `engineering.md` §7.5 (each new hook, in the style of its *What links Po
 (what is still open), `evidence-catalog.md` §2 (the mechanism table), §5 (the new coverage) and §6
 (the limits that are left), and the README's commands table if a flag was added. Regenerate both
 reports with a full run.
+
+**Status:** built: the documents describe the code as of 2026-10-22, and both reports are that
+day's full run.
 
 **Done when:** the documents describe the code as built, and `npm run catalog -- --check` passes.
 

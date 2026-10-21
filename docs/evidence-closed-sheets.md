@@ -3,7 +3,7 @@
 **Generated** by `npm run catalog` (`scripts/local-catalog.mjs`). Do not edit by hand:
 `npm run catalog -- --check` fails when this file and a fresh run disagree.
 **Format:** `gen9championsvgc2026regmc`, simulator `pokemon-showdown` at `a5df827`.
-**Pool:** 293 species, 203 abilities, 510 moves, 166 items, 94 conditions, 25 natures.
+**Pool:** 293 species, 216 abilities, 510 moves, 166 items, 94 conditions, 25 natures.
 **Read with:** `evidence-catalog.md` §1–§2.
 
 ## 0. How to read a card
@@ -35,9 +35,9 @@ its handlers name. A control's own rebuild is shown when it is not SAFE, since t
 
 | Kind | Effects | READ | MISSED | MISREAD | FALSE | Silent (no line names it) | SILENT-SINK witnesses | HAZARD-UNSOUND | HAZARD-REBUILD | TRUE-SET-FAILS |
 |---|---|---|---|---|---|---|---|---|---|---|
-| move | 510 | 1395 | 18 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| ability | 203 | 111 | 17 | 6 | 0 | 129 | 160 | 56 | 11 | 0 |
-| item | 166 | 131 | 2 | 4 | 2 | 47 | 76 | 67 | 0 | 0 |
+| move | 510 | 1448 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| ability | 216 | 173 | 2 | 4 | 0 | 122 | 259 | 74 | 23 | 0 |
+| item | 166 | 140 | 2 | 0 | 4 | 42 | 77 | 68 | 0 | 0 |
 | condition | 94 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | nature | 25 | 0 | 0 | 0 | 0 | 25 | 44 | 28 | 0 | 0 |
 
@@ -47,60 +47,23 @@ its handlers name. A control's own rebuild is shown when it is not SAFE, since t
 
 | Effect | Template | Pokemon | Box | Read | Truth | Verdict | Line |
 |---|---|---|---|---|---|---|---|
-| `ability:armortail` | holder-hidden/W-trade | p2 Farigiraf | move | Quick Attack | — | MISREAD | `\|cant\|p2a: Farigiraf\|ability: Armor Tail\|Quick Attack\|[of] p1a: Snorlax` |
 | `ability:illusion` | holder-hidden/W-phys-dealt | p2 Slowking | move | Strength | — | MISREAD | `\|move\|p2a: Slowking\|Strength\|p1a: Snorlax` |
 | `ability:illusion` | holder-hidden/W-spec-dealt | p2 Slowking | move | Round | — | MISREAD | `\|move\|p2a: Slowking\|Round\|p1a: Snorlax` |
 | `ability:illusion` | other-hidden/W-phys-taken | p1 Mudsdale | move | Strength | — | MISREAD | `\|move\|p1a: Mudsdale\|Strength\|p2a: Blastoise` |
 | `ability:illusion` | other-hidden/W-spec-taken | p1 Mudsdale | move | Round | — | MISREAD | `\|move\|p1a: Mudsdale\|Round\|p2a: Blastoise` |
-| `ability:queenlymajesty` | holder-hidden/W-trade | p2 Tsareena | move | Quick Attack | — | MISREAD | `\|cant\|p2a: Tsareena\|ability: Queenly Majesty\|Quick Attack\|[of] p1a: Snorlax` |
-| `item:abomasite` | holder-hidden/W-phys-dealt | p2 Abomasnow | ability | Snow Warning | Soundproof | MISREAD | `\|-weather\|Snowscape\|[from] ability: Snow Warning\|[of] p2a: Abomasnow` |
-| `item:blazikenite` | holder-hidden/W-phys-dealt | p2 Blaziken | ability | Speed Boost | Blaze | MISREAD | `\|-ability\|p2a: Blaziken\|Speed Boost\|boost` |
-| `item:greninjite` | holder-hidden/W-phys-dealt | p2 Greninja | ability | Protean | Torrent | MISREAD | `\|-start\|p2a: Greninja\|typechange\|Normal\|[from] ability: Protean` |
-| `item:rockyhelmet` | holder-hidden/W-phys-taken | p1 Snorlax | item | Rocky Helmet | Heat Rock | FALSE (Blastoise's) | `\|-damage\|p1a: Snorlax\|83/100\|[from] item: Rocky Helmet\|[of] p2a: Blastoise` |
-| `item:rockyhelmet` | other-hidden/W-phys-dealt | p2 Blastoise | item | Rocky Helmet | — | FALSE (Snorlax's) | `\|-damage\|p2a: Blastoise\|83/100\|[from] item: Rocky Helmet\|[of] p1a: Snorlax` |
-| `item:scraftinite` | holder-hidden/W-phys-dealt | p2 Scrafty | ability | Intimidate | Run Away | MISREAD | `\|-ability\|p2a: Scrafty\|Intimidate\|boost` |
+| `item:shellbell` | holder-hidden/W-trade | p1 Snorlax | item | Shell Bell | Heat Rock | FALSE (Blastoise's) | `\|-heal\|p2a: Blastoise\|81/100\|[from] item: Shell Bell\|[of] p1a: Snorlax` |
+| `item:shellbell` | other-hidden/W-trade | p2 Blastoise | item | Shell Bell | — | FALSE (Snorlax's) | `\|-heal\|p1a: Snorlax\|85/100\|[from] item: Shell Bell\|[of] p2a: Blastoise` |
+| `item:shellbell` | other-hidden/spread-on-both | p2 Avalugg | item | Shell Bell | Icy Rock | FALSE (Snorlax's) | `\|-heal\|p1a: Snorlax\|54/100\|[from] item: Shell Bell\|[of] p2b: Avalugg` |
+| `item:shellbell` | other-hidden/two-hits | p2 Blastoise | item | Shell Bell | Smooth Rock | FALSE (Snorlax's) | `\|-heal\|p1a: Snorlax\|52/100\|[from] item: Shell Bell\|[of] p2a: Blastoise` |
 
 ### 2.2 MISSED — the log names it and `setsFromLog` does not read it
 
 | Effect | Template | Pokemon | Box | Truth | Line |
 |---|---|---|---|---|---|
-| `move:entrainment` | user-hidden/quiet | p1 Snorlax | ability | Gluttony | `\|-ability\|p1a: Snorlax\|Klutz\|Gluttony\|[from] move: Entrainment\|[of] p2a: Audino` |
-| `move:entrainment` | user-hidden/quiet | p2 Audino | ability | Klutz | `\|-ability\|p1a: Snorlax\|Klutz\|Gluttony\|[from] move: Entrainment\|[of] p2a: Audino` |
-| `move:entrainment` | target-hidden/quiet | p2 Blastoise | ability | Torrent | `\|-ability\|p2a: Blastoise\|Gluttony\|Torrent\|[from] move: Entrainment\|[of] p1a: Snorlax` |
-| `move:entrainment` | target-hidden/pace | p1 Ampharos | ability | Plus | `\|-ability\|p2a: Blastoise\|Plus\|Torrent\|[from] move: Entrainment\|[of] p1a: Ampharos` |
-| `move:poltergeist` | user-hidden/quiet | p1 Slowbro | item | Heat Rock | `\|-activate\|p1a: Slowbro\|move: Poltergeist\|Heat Rock` |
-| `move:poltergeist` | target-hidden/quiet | p2 Blastoise | item | Smooth Rock | `\|-activate\|p2a: Blastoise\|move: Poltergeist\|Smooth Rock` |
-| `move:roleplay` | user-hidden/quiet | p1 Snorlax | ability | Gluttony | `\|-ability\|p2a: Mr. Rime\|Gluttony\|Tangled Feet\|[from] move: Role Play\|[of] p1a: Snorlax` |
-| `move:roleplay` | user-hidden/quiet | p2 Mr. Rime | ability | Tangled Feet | `\|-ability\|p2a: Mr. Rime\|Gluttony\|Tangled Feet\|[from] move: Role Play\|[of] p1a: Snorlax` |
-| `move:roleplay` | user-hidden/pace | p1 Ampharos | ability | Plus | `\|-ability\|p2a: Mr. Rime\|Plus\|Tangled Feet\|[from] move: Role Play\|[of] p1a: Ampharos` |
-| `move:roleplay` | target-hidden/quiet | p2 Blastoise | ability | Torrent | `\|-ability\|p1a: Snorlax\|Torrent\|Gluttony\|[from] move: Role Play\|[of] p2a: Blastoise` |
-| `move:simplebeam` | user-hidden/quiet | p1 Snorlax | ability | Gluttony | `\|-ability\|p1a: Snorlax\|Simple\|Gluttony\|[from] move: Simple Beam` |
-| `move:simplebeam` | target-hidden/quiet | p2 Blastoise | ability | Torrent | `\|-ability\|p2a: Blastoise\|Simple\|Torrent\|[from] move: Simple Beam` |
-| `move:skillswap` | user-hidden/quiet | p1 Snorlax | ability | Gluttony | `\|-activate\|p2a: Umbreon\|Skill Swap\|Gluttony\|Inner Focus\|[of] p1a: Snorlax` |
-| `move:skillswap` | user-hidden/quiet | p2 Umbreon | ability | Inner Focus | `\|-activate\|p2a: Umbreon\|Skill Swap\|Gluttony\|Inner Focus\|[of] p1a: Snorlax` |
-| `move:skillswap` | user-hidden/pace | p1 Ampharos | ability | Plus | `\|-activate\|p2a: Umbreon\|Skill Swap\|Plus\|Inner Focus\|[of] p1a: Ampharos` |
-| `move:skillswap` | target-hidden/quiet | p2 Blastoise | ability | Torrent | `\|-activate\|p1a: Snorlax\|Skill Swap\|Torrent\|Gluttony\|[of] p2a: Blastoise` |
-| `move:worryseed` | user-hidden/quiet | p1 Snorlax | ability | Gluttony | `\|-ability\|p1a: Snorlax\|Insomnia\|Gluttony\|[from] move: Worry Seed` |
-| `move:worryseed` | target-hidden/quiet | p2 Blastoise | ability | Torrent | `\|-ability\|p2a: Blastoise\|Insomnia\|Torrent\|[from] move: Worry Seed` |
-| `ability:armortail` | holder-hidden/W-trade | p2 Farigiraf | ability | Armor Tail | `\|cant\|p2a: Farigiraf\|ability: Armor Tail\|Quick Attack\|[of] p1a: Snorlax` |
-| `ability:aromaveil` | holder-hidden/W-taunt | p2 Alcremie | ability | Aroma Veil | `\|-block\|p2a: Alcremie\|ability: Aroma Veil\|[of] p2a: Alcremie` |
-| `ability:flashfire` | holder-hidden/W-burn | p2 Armarouge | ability | Flash Fire | `\|-start\|p2a: Armarouge\|ability: Flash Fire` |
-| `ability:flashfire` | other-hidden/W-Fire-dealt | p1 Armarouge | ability | Flash Fire | `\|-start\|p1a: Armarouge\|ability: Flash Fire` |
 | `ability:illusion` | holder-hidden/W-spec-taken | p2 Slowking | move | Splash | `\|move\|p2a: Slowking\|Splash\|p2a: Slowking` |
 | `ability:illusion` | other-hidden/W-phys-dealt | p1 Mudsdale | move | Splash | `\|move\|p1a: Mudsdale\|Splash\|p1a: Mudsdale` |
-| `ability:magician` | holder-hidden/W-phys-dealt | p1 Snorlax | item | Heat Rock | `\|-item\|p2a: Delphox\|Heat Rock\|[from] ability: Magician\|[of] p1a: Snorlax` |
-| `ability:mummy` | holder-hidden/W-phys-taken | p1 Snorlax | ability | Gluttony | `\|-activate\|p2a: Cofagrigus\|ability: Mummy\|p1a: Snorlax\|[ability] Gluttony` |
-| `ability:mummy` | other-hidden/W-phys-dealt | p2 Blastoise | ability | Torrent | `\|-activate\|p1a: Cofagrigus\|ability: Mummy\|p2a: Blastoise\|[ability] Torrent` |
-| `ability:queenlymajesty` | holder-hidden/W-trade | p2 Tsareena | ability | Queenly Majesty | `\|cant\|p2a: Tsareena\|ability: Queenly Majesty\|Quick Attack\|[of] p1a: Snorlax` |
-| `ability:sweetveil` | holder-hidden/W-sleep | p2 Tsareena | ability | Sweet Veil | `\|-block\|p2a: Tsareena\|ability: Sweet Veil\|[of] p2a: Tsareena` |
-| `ability:trace` | holder-hidden/W-phys-dealt | p1 Snorlax | ability | Gluttony | `\|-ability\|p2a: Gardevoir\|Gluttony\|Trace\|[from] ability: Trace\|[of] p1a: Snorlax` |
-| `ability:trace` | holder-hidden/W-order-up | p1 Ampharos | ability | Plus | `\|-ability\|p2a: Gardevoir\|Plus\|Trace\|[from] ability: Trace\|[of] p1a: Ampharos` |
-| `ability:trace` | holder-hidden/W-pivot | p1 Torkoal | ability | Shell Armor | `\|-ability\|p2a: Gardevoir\|Shell Armor\|Trace\|[from] ability: Trace\|[of] p1b: Torkoal` |
-| `ability:trace` | other-hidden/W-phys-dealt | p2 Blastoise | ability | Torrent | `\|-ability\|p1a: Gardevoir\|Torrent\|Trace\|[from] ability: Trace\|[of] p2a: Blastoise` |
-| `ability:wanderingspirit` | holder-hidden/W-phys-taken | p1 Snorlax | ability | Gluttony | `\|-activate\|p1a: Snorlax\|Skill Swap\|Wandering Spirit\|Gluttony\|[of] p2a: Runerigus` |
-| `ability:wanderingspirit` | other-hidden/W-phys-dealt | p2 Blastoise | ability | Torrent | `\|-activate\|p2a: Blastoise\|Skill Swap\|Wandering Spirit\|Torrent\|[of] p1a: Runerigus` |
-| `item:alakazite` | holder-hidden/W-phys-dealt | p1 Snorlax | ability | Gluttony | `\|-ability\|p2a: Alakazam\|Gluttony\|Trace\|[from] ability: Trace\|[of] p1a: Snorlax` |
-| `item:meowsticite` | holder-hidden/W-phys-dealt | p1 Snorlax | ability | Gluttony | `\|-ability\|p2a: Meowstic\|Gluttony\|Trace\|[from] ability: Trace\|[of] p1a: Snorlax` |
+| `item:shellbell` | holder-hidden/W-trade | p2 Blastoise | item | Shell Bell | `\|-heal\|p2a: Blastoise\|81/100\|[from] item: Shell Bell\|[of] p1a: Snorlax` |
+| `item:shellbell` | other-hidden/W-trade | p1 Snorlax | item | Shell Bell | `\|-heal\|p1a: Snorlax\|85/100\|[from] item: Shell Bell\|[of] p2a: Blastoise` |
 
 ### 2.3 HAZARD — today's assumption about the effect removes the real spread or breaks the rebuild
 
@@ -118,6 +81,7 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `item:fairyfeather` | 293 | W-Fairy-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Play Rough hit Snorlax |
 | `item:hardstone` | 293 | W-Rock-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Stone Edge hit Snorlax |
 | `item:ironball` | 293 | W-burn | order | HAZARD-UNSOUND | turn 2: Snorlax acted before Blastoise |
+| `item:ironball` | 293 | W-confusion | presence | HAZARD-UNSOUND | turn 2: Snorlax acted before Blastoise |
 | `item:ironball` | 293 | W-Flying-taken | order | HAZARD-UNSOUND | turn 3: Snorlax acted before Blastoise |
 | `item:ironball` | 293 | W-Ground-taken | order | HAZARD-UNSOUND | turn 3: Snorlax acted before Blastoise |
 | `item:ironball` | 293 | W-order-down | order | HAZARD-UNSOUND | turn 1: Ampharos acted before Blastoise |
@@ -132,6 +96,7 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `item:ironball` | 293 | W-two-moves | order | HAZARD-UNSOUND | turn 3: Snorlax acted before Blastoise |
 | `item:magnet` | 293 | W-Electric-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Thunder Punch hit Snorlax |
 | `item:metalcoat` | 293 | W-Steel-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Iron Head hit Snorlax |
+| `item:metronome` | 293 | through-a-substitute | known exact | HAZARD-UNSOUND | turn 3: Blastoise's Aqua Tail hit Snorlax |
 | `item:metronome` | 293 | W-burn | known exact | HAZARD-UNSOUND | turn 4: Blastoise's Strength hit Snorlax |
 | `item:metronome` | 293 | W-paralysis | known exact | HAZARD-UNSOUND | turn 4: Blastoise's Strength hit Snorlax |
 | `item:metronome` | 293 | W-taunt | known exact | HAZARD-UNSOUND | turn 4: Blastoise's Strength hit Snorlax |
@@ -165,8 +130,12 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `item:twistedspoon` | 293 | W-Psychic-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Zen Headbutt hit Snorlax |
 | `item:wiseglasses` | 293 | W-spec-dealt | known exact | HAZARD-UNSOUND | turn 1: Blastoise's Round hit Snorlax |
 | `item:wiseglasses` | 293 | W-two-moves | known exact | HAZARD-UNSOUND | turn 2: Blastoise's Round hit Snorlax |
+| `ability:friendguard` | 22 | guards-the-ally | hidden % | HAZARD-UNSOUND | turn 1: Snorlax's Strength hit Blastoise |
+| `ability:sheerforce` | 10 | secondary-dropped | known exact | HAZARD-UNSOUND | turn 1: Mawile's Iron Head hit Snorlax |
 | `ability:technician` | 10 | W-spec-dealt | known exact | HAZARD-UNSOUND | turn 1: Grapploct's Round hit Snorlax |
 | `ability:technician` | 10 | W-two-moves | known exact | HAZARD-UNSOUND | turn 2: Grapploct's Round hit Snorlax |
+| `ability:swarm` | 7 | at-a-third | known exact | HAZARD-UNSOUND | turn 2: Scolipede's X-Scissor hit Snorlax |
+| `ability:ironfist` | 6 | punch | known exact | HAZARD-UNSOUND | turn 1: Conkeldurr's Mach Punch hit Snorlax |
 | `ability:hustle` | 5 | W-burn | known exact | HAZARD-UNSOUND | turn 2: Flapple's Strength hit Snorlax |
 | `ability:hustle` | 5 | W-paralysis | known exact | HAZARD-UNSOUND | turn 2: Flapple's Strength hit Snorlax |
 | `ability:hustle` | 5 | W-phys-dealt | known exact | HAZARD-UNSOUND | turn 1: Flapple's Strength hit Snorlax |
@@ -175,8 +144,25 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `ability:hustle` | 5 | W-toxic | known exact | HAZARD-UNSOUND | turn 2: Flapple's Strength hit Snorlax |
 | `ability:hustle` | 5 | W-trade | known exact | HAZARD-UNSOUND | turn 1: Flapple's Strength hit Snorlax |
 | `ability:hustle` | 5 | W-two-moves | known exact | HAZARD-UNSOUND | turn 1: Flapple's Strength hit Snorlax |
+| `ability:sniper` | 4 | critical-hit | known exact | HAZARD-UNSOUND | turn 1: Beedrill's X-Scissor hit Snorlax |
+| `ability:adaptability` | 3 | stab | known exact | HAZARD-UNSOUND | turn 1: Basculegion's Waterfall hit Snorlax |
 | `ability:magicguard` | 3 | W-burn | presence | HAZARD-REBUILD | turn 1: wanted \|upkeep, got \|-damage\|p2a: Clefable\|94/100 brn\|[from] brn |
 | `ability:magicguard` | 3 | W-toxic | presence | HAZARD-REBUILD | turn 1: wanted \|upkeep, got \|-damage\|p2a: Clefable\|94/100 tox\|[from] psn |
+| `ability:plus` | 3 | with-minus | known exact | HAZARD-UNSOUND | turn 1: Ampharos's Thunderbolt hit Snorlax |
+| `ability:reckless` | 3 | recoil-move | hidden %, known exact | HAZARD-REBUILD | turn 0: wanted \|turn\|1, got \|-ability\|p2a: Staraptor\|Intimidate\|boost |
+| `ability:sharpness` | 3 | slice | known exact | HAZARD-UNSOUND | turn 1: Gallade's Psycho Cut hit Snorlax |
+| `ability:aerilate` | 2 | W-burn | known exact | HAZARD-REBUILD | turn 0: wanted \|turn\|1, got \|-ability\|p2a: Salamence\|Intimidate\|boost |
+| `ability:aerilate` | 2 | W-Normal-dealt | known exact | HAZARD-REBUILD | turn 0: wanted \|turn\|1, got \|-ability\|p2a: Salamence\|Intimidate\|boost |
+| `ability:aerilate` | 2 | W-paralysis | known exact, presence | HAZARD-REBUILD | turn 0: wanted \|turn\|1, got \|-ability\|p2a: Salamence\|Intimidate\|boost |
+| `ability:aerilate` | 2 | W-phys-dealt | known exact | HAZARD-REBUILD | turn 0: wanted \|turn\|1, got \|-ability\|p2a: Salamence\|Intimidate\|boost |
+| `ability:aerilate` | 2 | W-sleep | known exact | HAZARD-REBUILD | turn 0: wanted \|turn\|1, got \|-ability\|p2a: Salamence\|Intimidate\|boost |
+| `ability:aerilate` | 2 | W-spec-dealt | known exact | HAZARD-REBUILD | turn 0: wanted \|turn\|1, got \|-ability\|p2a: Salamence\|Intimidate\|boost |
+| `ability:aerilate` | 2 | W-taunt | known exact, presence | HAZARD-REBUILD | turn 0: wanted \|turn\|1, got \|-ability\|p2a: Salamence\|Intimidate\|boost |
+| `ability:aerilate` | 2 | W-toxic | known exact, presence | HAZARD-REBUILD | turn 0: wanted \|turn\|1, got \|-ability\|p2a: Salamence\|Intimidate\|boost |
+| `ability:aerilate` | 2 | W-trade | known exact | HAZARD-REBUILD | turn 0: wanted \|turn\|1, got \|-ability\|p2a: Salamence\|Intimidate\|boost |
+| `ability:aerilate` | 2 | W-two-moves | known exact | HAZARD-REBUILD | turn 0: wanted \|turn\|1, got \|-ability\|p2a: Salamence\|Intimidate\|boost |
+| `ability:analytic` | 2 | moves-last | known exact | HAZARD-UNSOUND | turn 1: Starmie's Hydro Pump hit Regieleki |
+| `ability:contrary` | 2 | leaf-storm-twice | known exact, presence | HAZARD-REBUILD | turn 1: wanted \|-boost\|p2a: Serperior\|spa\|2, got \|-unboost\|p2a: Serperior\|spa\|2 |
 | `ability:dryskin` | 2 | W-Fire-taken | hidden % | HAZARD-UNSOUND | turn 1: Snorlax's Fire Punch hit Toxicroak |
 | `ability:heatproof` | 2 | W-burn | hidden % | HAZARD-UNSOUND | turn 1: brn on Sinistcha |
 | `ability:heatproof` | 2 | W-Fire-taken | hidden %, presence | HAZARD-UNSOUND | turn 1: Snorlax's Fire Punch hit Sinistcha |
@@ -192,8 +178,17 @@ Only where the same witness without the effect rebuilds SAFE, so the hazard is t
 | `ability:illusion` | 2 | W-order-down | presence | HAZARD-REBUILD | turn 1: wanted \|move\|p2a: Slowking\|Splash\|p2a: Slowking, got \|move\|p1a: Goodra\|Splash\|p1a: Goodra |
 | `ability:illusion` | 2 | W-paralysis | names, presence | HAZARD-REBUILD | turn 2: wanted \|move\|p2a: Slowking\|Strength\|p1a: Snorlax, got \|move\|p2b: Avalugg\|Splash\|p2b: Avalugg |
 | `ability:illusion` | 2 | W-taunt | names, presence | HAZARD-REBUILD | turn 1: wanted \|-start\|p2a: Slowking\|move: Taunt, got \|-immune\|p2a: Slowking\|[from] ability: Oblivious |
+| `ability:lightmetal` | 2 | lighter-low-kick | hidden % | HAZARD-UNSOUND | turn 1: Snorlax's Low Kick hit Scizor |
+| `ability:minus` | 2 | with-plus | known exact | HAZARD-UNSOUND | turn 1: Manectric's Thunderbolt hit Snorlax |
+| `ability:sandforce` | 2 | in-sand | known exact | HAZARD-UNSOUND | turn 1: Excadrill's Iron Head hit Tyranitar |
+| `ability:solidrock` | 2 | super-effective | hidden % | HAZARD-UNSOUND | turn 1: Snorlax's Water Pulse hit Rhyperior |
+| `ability:stakeout` | 2 | fresh-target | known exact | HAZARD-UNSOUND | turn 1: Thievul's Dark Pulse hit Mudsdale |
+| `ability:unaware` | 2 | ignores-bulk-up | hidden % | HAZARD-UNSOUND | turn 2: Machamp's Strength hit Clefable |
+| `ability:filter` | 1 | super-effective | hidden %, presence | HAZARD-UNSOUND | turn 1: Gengar acted before Mr. Mime |
 | `ability:fluffy` | 1 | W-phys-taken | hidden %, presence | HAZARD-UNSOUND | turn 1: Snorlax's Dragon Claw hit Houndstone |
 | `ability:fluffy` | 1 | W-pivot | hidden % | HAZARD-UNSOUND | turn 1: Snorlax's Dragon Claw hit Houndstone |
+| `ability:grasspelt` | 1 | on-grass | hidden % | HAZARD-UNSOUND | turn 1: Rillaboom acted before Gogoat |
+| `ability:heavymetal` | 1 | heavier-slam | known exact | HAZARD-UNSOUND | turn 1: Aggron's Heavy Slam hit Slowbro |
 | `ability:liquidvoice` | 1 | W-spec-dealt | known exact | HAZARD-UNSOUND | turn 1: Primarina's Round hit Snorlax |
 | `ability:liquidvoice` | 1 | W-two-moves | known exact | HAZARD-UNSOUND | turn 2: Primarina's Round hit Snorlax |
 | `ability:multiscale` | 1 | W-phys-taken | hidden % | HAZARD-UNSOUND | turn 1: Snorlax's Strength hit Dragonite |
@@ -274,7 +269,7 @@ Witness battles whose control, without the effect, does not rebuild SAFE either 
 
 | Effect | Witness | Effect's rebuild | Control's rebuild | Control: last event, or where it broke |
 |---|---|---|---|---|
-| `item:ironball` | W-confusion | HAZARD-UNSOUND | HAZARD-REBUILD | turn 3: wanted \|-damage\|p2a: Blastoise\|78/100\|[from] confusion, got \|-damage\|p2a: Blastoise\|81/100\|[from] confusion |
+| `ability:hospitality` | heals-the-ally | SAFE | HAZARD-REBUILD | turn 2: wanted \|move\|p1a: Snorlax\|Splash\|p1a: Snorlax, got \|-heal\|p2b: Avalugg\|100/100\|[from] ability: Hospitality\|[of] p2a: Sinistcha |
 
 ### 2.4 SILENT-SINK, by weight — candidate dimensions for closed-sheet inference
 
@@ -292,7 +287,7 @@ Witness battles whose control, without the effect, does not rebuild SAFE either 
 | `item:ironball` | 293 | never | W-phys-taken (presence); W-spec-taken (order); W-order-down (order); W-pace (order); W-trade (order); W-Flying-taken (order); W-Ground-taken (order); W-burn (order); W-paralysis (order); W-toxic (order); W-sleep (order, presence); W-confusion (presence); W-taunt (order); W-two-moves (order) |
 | `item:magnet` | 293 | never | W-Electric-dealt (known exact) |
 | `item:metalcoat` | 293 | never | W-Steel-dealt (known exact) |
-| `item:metronome` | 293 | never | W-trade (known exact); W-burn (known exact); W-paralysis (known exact); W-toxic (known exact); W-taunt (known exact) |
+| `item:metronome` | 293 | never | W-trade (known exact); W-burn (known exact); W-paralysis (known exact); W-toxic (known exact); W-taunt (known exact); through-a-substitute (known exact) |
 | `item:miracleseed` | 293 | never | W-Grass-dealt (known exact) |
 | `item:muscleband` | 293 | never | W-phys-dealt (known exact); W-trade (known exact); W-burn (known exact); W-paralysis (known exact); W-toxic (known exact); W-sleep (known exact); W-taunt (known exact); W-two-moves (known exact) |
 | `item:mysticwater` | 293 | never | W-Water-dealt (known exact) |
@@ -304,29 +299,61 @@ Witness battles whose control, without the effect, does not rebuild SAFE either 
 | `item:softsand` | 293 | never | W-Ground-dealt (known exact) |
 | `item:twistedspoon` | 293 | never | W-Psychic-dealt (known exact) |
 | `item:wiseglasses` | 293 | never | W-spec-dealt (known exact); W-two-moves (known exact) |
+| `ability:friendguard` | 22 | never | guards-the-ally (hidden %) |
 | `ability:blaze` | 11 | never | in-a-pinch (known exact) |
+| `ability:sheerforce` | 10 | never | secondary-dropped (known exact) |
 | `ability:technician` | 10 | never | W-spec-dealt (known exact); W-two-moves (known exact) |
 | `ability:guts` | 7 | never | W-burn (known exact, presence); W-paralysis (known exact, presence); W-toxic (known exact, presence) |
+| `ability:swarm` | 7 | never | at-a-third (known exact) |
+| `ability:ironfist` | 6 | never | punch (known exact) |
 | `ability:prankster` | 6 | never | W-order-up (order); W-pace (order) |
 | `ability:hustle` | 5 | never | W-phys-dealt (known exact); W-trade (known exact); W-burn (known exact); W-paralysis (known exact); W-toxic (known exact); W-sleep (known exact); W-taunt (known exact); W-two-moves (known exact) |
+| `ability:sniper` | 4 | never | critical-hit (known exact) |
 | `ability:thickfat` | 4 | never | W-Fire-taken (hidden %); W-Ice-taken (hidden %) |
+| `ability:adaptability` | 3 | never | stab (known exact) |
 | `ability:magicguard` | 3 | never | W-burn (presence); W-toxic (presence) |
 | `ability:noguard` | 3 | never | W-confusion (presence) |
+| `ability:plus` | 3 | never | with-minus (known exact) |
+| `ability:reckless` | 3 | never | recoil-move (hidden %, known exact) |
+| `ability:sharpness` | 3 | never | slice (known exact) |
 | `ability:toughclaws` | 3 | never | W-phys-dealt (known exact); W-trade (known exact); W-burn (known exact); W-paralysis (known exact); W-toxic (known exact); W-sleep (known exact); W-taunt (known exact); W-two-moves (known exact) |
+| `ability:aerilate` | 2 | never | W-phys-dealt (known exact); W-spec-dealt (known exact); W-trade (known exact); W-Normal-dealt (known exact); W-burn (known exact); W-paralysis (known exact, presence); W-toxic (known exact, presence); W-sleep (known exact); W-taunt (known exact, presence); W-two-moves (known exact) |
+| `ability:analytic` | 2 | never | moves-last (known exact) |
+| `ability:contrary` | 2 | never | leaf-storm-twice (known exact, presence) |
 | `ability:dryskin` | 2 | yes | W-Fire-taken (hidden %) |
 | `ability:earlybird` | 2 | never | W-sleep (known exact, presence) |
 | `ability:furcoat` | 2 | never | W-phys-taken (hidden %, names, presence); W-trade (hidden %); W-pivot (hidden %) |
 | `ability:heatproof` | 2 | never | W-Fire-taken (hidden %, presence); W-burn (hidden %) |
+| `ability:hospitality` | 2 | yes | heals-the-ally (hidden %, order) |
 | `ability:hugepower` | 2 | never | W-phys-dealt (known exact); W-trade (known exact); W-burn (known exact); W-paralysis (known exact); W-toxic (known exact); W-sleep (known exact); W-taunt (known exact); W-two-moves (known exact) |
-| `ability:illusion` | 2 | yes | W-phys-dealt (presence); W-spec-dealt (presence); W-phys-taken (presence); W-spec-taken (presence); W-order-up (presence); W-order-down (presence); W-pace (presence); W-trade (presence); W-burn (names, presence); W-paralysis (names, presence); W-toxic (names, presence); W-sleep (names, presence); W-confusion (names, presence); W-taunt (names, presence); W-lethal (presence); W-pivot (presence); W-two-moves (presence) |
+| `ability:illusion` | 2 | yes | W-phys-dealt (presence); W-spec-dealt (presence); W-phys-taken (presence); W-spec-taken (presence); W-order-up (presence); W-order-down (presence); W-pace (presence); W-trade (presence); W-burn (names, presence); W-paralysis (names, presence); W-toxic (names, presence); W-sleep (names, presence); W-confusion (names, presence); W-taunt (names, presence); W-lethal (presence); W-pivot (presence); W-two-moves (presence); race-in-disguise (presence); race-never-unmasked (presence) |
+| `ability:lightmetal` | 2 | never | lighter-low-kick (hidden %) |
+| `ability:minus` | 2 | never | with-plus (known exact) |
 | `ability:punkrock` | 2 | never | W-spec-dealt (known exact); W-spec-taken (hidden %, presence); W-two-moves (known exact) |
 | `ability:rivalry` | 2 | never | W-phys-dealt (known exact); W-spec-dealt (known exact); W-trade (known exact); W-burn (known exact); W-paralysis (known exact); W-toxic (known exact); W-sleep (known exact); W-taunt (known exact); W-two-moves (known exact) |
+| `ability:sandforce` | 2 | never | in-sand (known exact) |
+| `ability:solidrock` | 2 | never | super-effective (hidden %) |
+| `ability:stakeout` | 2 | never | fresh-target (known exact) |
+| `ability:strongjaw` | 2 | never | bite (known exact) |
+| `ability:unaware` | 2 | never | ignores-bulk-up (hidden %) |
+| `ability:auraguard` | 1 | never | W-phys-taken (hidden %, presence); W-trade (hidden %); W-pivot (hidden %) |
+| `ability:dragonize` | 1 | never | W-phys-dealt (known exact); W-spec-dealt (known exact); W-trade (known exact); W-Normal-dealt (known exact); W-burn (known exact); W-paralysis (known exact, presence); W-toxic (known exact, presence); W-sleep (known exact); W-taunt (known exact, presence); W-two-moves (known exact) |
+| `ability:fairyaura` | 1 | yes | W-phys-dealt (names); W-spec-dealt (names); W-phys-taken (names); W-spec-taken (names); W-order-up (names); W-order-down (names); W-pace (names); W-trade (names); W-burn (names); W-paralysis (names); W-toxic (names); W-sleep (names); W-confusion (names); W-taunt (names); W-lethal (names); W-pivot (names); W-two-moves (names) |
+| `ability:filter` | 1 | never | super-effective (hidden %, presence) |
+| `ability:firemane` | 1 | never | W-phys-dealt (presence); W-spec-dealt (presence); W-phys-taken (presence); W-spec-taken (presence); W-order-up (presence); W-order-down (presence); W-pace (presence); W-trade (presence); W-Fire-dealt (known exact, presence); W-Fire-taken (presence); W-burn (presence); W-paralysis (presence); W-toxic (presence); W-sleep (presence); W-confusion (presence); W-taunt (presence); W-lethal (presence); W-pivot (presence); W-two-moves (presence) |
 | `ability:fluffy` | 1 | never | W-phys-taken (hidden %, presence); W-pivot (hidden %) |
+| `ability:grasspelt` | 1 | never | on-grass (hidden %) |
+| `ability:heavymetal` | 1 | never | heavier-slam (known exact) |
 | `ability:hungerswitch` | 1 | never | W-phys-dealt (presence); W-spec-dealt (presence); W-phys-taken (presence); W-spec-taken (presence); W-order-up (presence); W-order-down (presence); W-pace (presence); W-trade (presence); W-burn (presence); W-paralysis (presence); W-toxic (presence); W-sleep (presence); W-confusion (presence); W-taunt (presence); W-pivot (presence); W-two-moves (presence) |
+| `ability:innardsout` | 1 | yes | handed-back-from-full (presence); handed-back-from-full-swept (presence); handed-back-after-a-toss (presence) |
 | `ability:liquidvoice` | 1 | never | W-spec-dealt (known exact); W-two-moves (known exact) |
+| `ability:marvelscale` | 1 | never | paralysed (hidden %) |
+| `ability:megalauncher` | 1 | never | pulse (known exact) |
+| `ability:megasol` | 1 | never | weather-ball-in-its-own-sun (presence) |
 | `ability:multiscale` | 1 | never | W-phys-taken (hidden %); W-spec-taken (hidden %); W-trade (hidden %); W-pivot (hidden %) |
+| `ability:parentalbond` | 1 | never | W-phys-dealt (presence); W-spec-dealt (presence); W-trade (known exact, presence); W-burn (known exact, presence); W-paralysis (known exact, presence); W-toxic (known exact, presence); W-sleep (presence); W-taunt (known exact, presence); W-two-moves (known exact, presence); second-hit-past-a-substitute (presence) |
 | `ability:pixilate` | 1 | never | W-phys-dealt (known exact); W-spec-dealt (known exact); W-trade (known exact); W-Normal-dealt (known exact); W-burn (known exact); W-paralysis (known exact); W-toxic (known exact); W-sleep (known exact); W-taunt (known exact); W-two-moves (known exact) |
-| `ability:poisonheal` | 1 | never | W-toxic (presence) |
+| `ability:poisonheal` | 1 | yes | W-toxic (presence) |
 | `ability:purepower` | 1 | never | W-phys-dealt (known exact); W-trade (known exact); W-burn (known exact); W-paralysis (known exact); W-toxic (known exact); W-sleep (known exact); W-taunt (known exact); W-two-moves (known exact) |
 | `ability:purifyingsalt` | 1 | yes | W-Ghost-taken (hidden %) |
 | `ability:refrigerate` | 1 | never | W-phys-dealt (known exact); W-spec-dealt (known exact); W-trade (known exact); W-Normal-dealt (known exact); W-burn (known exact); W-paralysis (known exact); W-toxic (known exact); W-sleep (known exact); W-taunt (known exact); W-two-moves (known exact) |
@@ -397,7 +424,7 @@ Named by its own `|move|` line and read into its user's move box, in every place
 | Avalanche | 37 | READ | READ |
 | Axe Kick | 1 | READ | READ |
 | Baby-Doll Eyes | 28 | READ | READ |
-| Baneful Bunker | 1 | READ | — |
+| Baneful Bunker | 1 | READ | READ |
 | Barb Barrage | 2 | READ | READ |
 | Baton Pass | 58 | READ | — |
 | Beak Blast | 1 | READ | READ |
@@ -769,7 +796,7 @@ Named by its own `|move|` line and read into its user's move box, in every place
 | Speed Swap | 3 | READ | READ |
 | Spicy Extract | 1 | READ | READ |
 | Spikes | 22 | READ | READ |
-| Spiky Shield | 2 | READ | — |
+| Spiky Shield | 2 | READ | READ |
 | Spirit Break | 1 | READ | READ |
 | Spirit Shackle | 1 | READ | READ |
 | Spite | 58 | READ | READ |
@@ -788,7 +815,6 @@ Named by its own `|move|` line and read into its user's move box, in every place
 | Strength Sap | 7 | READ | READ |
 | String Shot | 24 | READ | READ |
 | Struggle Bug | 28 | READ | READ |
-| Stuff Cheeks | 4 | READ | — |
 | Stun Spore | 26 | READ | READ |
 | Substitute | 292 | READ | — |
 | Sucker Punch | 45 | READ | READ |
@@ -801,7 +827,6 @@ Named by its own `|move|` line and read into its user's move box, in every place
 | Swallow | 12 | READ | — |
 | Sweet Kiss | 18 | READ | READ |
 | Sweet Scent | 24 | READ | READ |
-| Switcheroo | 18 | READ | READ |
 | Swords Dance | 80 | READ | — |
 | Synthesis | 17 | READ | — |
 | Syrup Bomb | 1 | READ | READ |
@@ -809,7 +834,6 @@ Named by its own `|move|` line and read into its user's move box, in every place
 | Tailwind | 44 | READ | READ |
 | Taunt | 101 | READ | READ |
 | Tearful Look | 8 | READ | READ |
-| Teatime | 2 | READ | READ |
 | Temper Flare | 26 | READ | READ |
 | Terrain Pulse | 11 | READ | READ |
 | Thief | 157 | READ | READ |
@@ -831,7 +855,6 @@ Named by its own `|move|` line and read into its user's move box, in every place
 | Trailblaze | 109 | READ | READ |
 | Transform | 1 | READ | READ |
 | Tri Attack | 20 | READ | READ |
-| Trick | 61 | READ | READ |
 | Trick-or-Treat | 4 | READ | READ |
 | Trick Room | 48 | READ | READ |
 | Triple Arrows | 1 | READ | READ |
@@ -884,12 +907,12 @@ Named by its own `|move|` line and read into its user's move box, in every place
 
 | Template | Pokemon | Box | Value | Truth | setsFromLog | Line |
 |---|---|---|---|---|---|---|
-| user-hidden/quiet | p1 Snorlax | ability | — | Gluttony | MISSED | `\|-ability\|p1a: Snorlax\|Klutz\|Gluttony\|[from] move: Entrainment\|[of] p2a: Audino` |
-| user-hidden/quiet | p2 Audino | ability | — | Klutz | MISSED | `\|-ability\|p1a: Snorlax\|Klutz\|Gluttony\|[from] move: Entrainment\|[of] p2a: Audino` |
+| user-hidden/quiet | p1 Snorlax | ability | Gluttony | Gluttony | READ | `\|-ability\|p1a: Snorlax\|Klutz\|Gluttony\|[from] move: Entrainment\|[of] p2a: Audino` |
+| user-hidden/quiet | p2 Audino | ability | Klutz | Klutz | READ | `\|-ability\|p1a: Snorlax\|Klutz\|Gluttony\|[from] move: Entrainment\|[of] p2a: Audino` |
 | user-hidden/quiet | p2 Audino | move | Entrainment | Entrainment | READ | `\|move\|p2a: Audino\|Entrainment\|p1a: Snorlax` |
 | target-hidden/quiet | p1 Snorlax | move | Entrainment | Entrainment | READ | `\|move\|p1a: Snorlax\|Entrainment\|p2a: Blastoise` |
-| target-hidden/quiet | p2 Blastoise | ability | — | Torrent | MISSED | `\|-ability\|p2a: Blastoise\|Gluttony\|Torrent\|[from] move: Entrainment\|[of] p1a: Snorlax` |
-| target-hidden/pace | p1 Ampharos | ability | — | Plus | MISSED | `\|-ability\|p2a: Blastoise\|Plus\|Torrent\|[from] move: Entrainment\|[of] p1a: Ampharos` |
+| target-hidden/quiet | p2 Blastoise | ability | Torrent | Torrent | READ | `\|-ability\|p2a: Blastoise\|Gluttony\|Torrent\|[from] move: Entrainment\|[of] p1a: Snorlax` |
+| target-hidden/pace | p1 Ampharos | ability | Plus | Plus | READ | `\|-ability\|p2a: Blastoise\|Plus\|Torrent\|[from] move: Entrainment\|[of] p1a: Ampharos` |
 | target-hidden/pace | p1 Ampharos | move | Entrainment | Entrainment | READ | `\|move\|p1a: Ampharos\|Entrainment\|p2a: Blastoise` |
 
 #### Final Gambit · `move:finalgambit`
@@ -927,44 +950,44 @@ Named by its own `|move|` line and read into its user's move box, in every place
 
 | Template | Pokemon | Box | Value | Truth | setsFromLog | Line |
 |---|---|---|---|---|---|---|
-| user-hidden/quiet | p1 Slowbro | item | — | Heat Rock | MISSED | `\|-activate\|p1a: Slowbro\|move: Poltergeist\|Heat Rock` |
+| user-hidden/quiet | p1 Slowbro | item | Heat Rock | Heat Rock | READ | `\|-activate\|p1a: Slowbro\|move: Poltergeist\|Heat Rock` |
 | user-hidden/quiet | p2 Gourgeist | move | Poltergeist | Poltergeist | READ | `\|move\|p2a: Gourgeist\|Poltergeist\|p1a: Slowbro` |
 | target-hidden/quiet | p1 Snorlax | move | Poltergeist | Poltergeist | READ | `\|move\|p1a: Snorlax\|Poltergeist\|p2a: Blastoise` |
-| target-hidden/quiet | p2 Blastoise | item | — | Smooth Rock | MISSED | `\|-activate\|p2a: Blastoise\|move: Poltergeist\|Smooth Rock` |
+| target-hidden/quiet | p2 Blastoise | item | Smooth Rock | Smooth Rock | READ | `\|-activate\|p2a: Blastoise\|move: Poltergeist\|Smooth Rock` |
 | target-hidden/pace | p1 Ampharos | move | Poltergeist | Poltergeist | READ | `\|move\|p1a: Ampharos\|Poltergeist\|p2a: Blastoise` |
 
 #### Role Play · `move:roleplay`
 
 | Template | Pokemon | Box | Value | Truth | setsFromLog | Line |
 |---|---|---|---|---|---|---|
-| user-hidden/quiet | p1 Snorlax | ability | — | Gluttony | MISSED | `\|-ability\|p2a: Mr. Rime\|Gluttony\|Tangled Feet\|[from] move: Role Play\|[of] p1a: Snorlax` |
-| user-hidden/quiet | p2 Mr. Rime | ability | — | Tangled Feet | MISSED | `\|-ability\|p2a: Mr. Rime\|Gluttony\|Tangled Feet\|[from] move: Role Play\|[of] p1a: Snorlax` |
+| user-hidden/quiet | p1 Snorlax | ability | Gluttony | Gluttony | READ | `\|-ability\|p2a: Mr. Rime\|Gluttony\|Tangled Feet\|[from] move: Role Play\|[of] p1a: Snorlax` |
+| user-hidden/quiet | p2 Mr. Rime | ability | Tangled Feet | Tangled Feet | READ | `\|-ability\|p2a: Mr. Rime\|Gluttony\|Tangled Feet\|[from] move: Role Play\|[of] p1a: Snorlax` |
 | user-hidden/quiet | p2 Mr. Rime | move | Role Play | Role Play | READ | `\|move\|p2a: Mr. Rime\|Role Play\|p1a: Snorlax` |
-| user-hidden/pace | p1 Ampharos | ability | — | Plus | MISSED | `\|-ability\|p2a: Mr. Rime\|Plus\|Tangled Feet\|[from] move: Role Play\|[of] p1a: Ampharos` |
+| user-hidden/pace | p1 Ampharos | ability | Plus | Plus | READ | `\|-ability\|p2a: Mr. Rime\|Plus\|Tangled Feet\|[from] move: Role Play\|[of] p1a: Ampharos` |
 | target-hidden/quiet | p1 Snorlax | move | Role Play | Role Play | READ | `\|move\|p1a: Snorlax\|Role Play\|p2a: Blastoise` |
-| target-hidden/quiet | p2 Blastoise | ability | — | Torrent | MISSED | `\|-ability\|p1a: Snorlax\|Torrent\|Gluttony\|[from] move: Role Play\|[of] p2a: Blastoise` |
+| target-hidden/quiet | p2 Blastoise | ability | Torrent | Torrent | READ | `\|-ability\|p1a: Snorlax\|Torrent\|Gluttony\|[from] move: Role Play\|[of] p2a: Blastoise` |
 | target-hidden/pace | p1 Ampharos | move | Role Play | Role Play | READ | `\|move\|p1a: Ampharos\|Role Play\|p2a: Blastoise` |
 
 #### Simple Beam · `move:simplebeam`
 
 | Template | Pokemon | Box | Value | Truth | setsFromLog | Line |
 |---|---|---|---|---|---|---|
-| user-hidden/quiet | p1 Snorlax | ability | — | Gluttony | MISSED | `\|-ability\|p1a: Snorlax\|Simple\|Gluttony\|[from] move: Simple Beam` |
+| user-hidden/quiet | p1 Snorlax | ability | Gluttony | Gluttony | READ | `\|-ability\|p1a: Snorlax\|Simple\|Gluttony\|[from] move: Simple Beam` |
 | user-hidden/quiet | p2 Audino | move | Simple Beam | Simple Beam | READ | `\|move\|p2a: Audino\|Simple Beam\|p1a: Snorlax` |
 | target-hidden/quiet | p1 Snorlax | move | Simple Beam | Simple Beam | READ | `\|move\|p1a: Snorlax\|Simple Beam\|p2a: Blastoise` |
-| target-hidden/quiet | p2 Blastoise | ability | — | Torrent | MISSED | `\|-ability\|p2a: Blastoise\|Simple\|Torrent\|[from] move: Simple Beam` |
+| target-hidden/quiet | p2 Blastoise | ability | Torrent | Torrent | READ | `\|-ability\|p2a: Blastoise\|Simple\|Torrent\|[from] move: Simple Beam` |
 | target-hidden/pace | p1 Ampharos | move | Simple Beam | Simple Beam | READ | `\|move\|p1a: Ampharos\|Simple Beam\|p2a: Blastoise` |
 
 #### Skill Swap · `move:skillswap`
 
 | Template | Pokemon | Box | Value | Truth | setsFromLog | Line |
 |---|---|---|---|---|---|---|
-| user-hidden/quiet | p1 Snorlax | ability | — | Gluttony | MISSED | `\|-activate\|p2a: Umbreon\|Skill Swap\|Gluttony\|Inner Focus\|[of] p1a: Snorlax` |
-| user-hidden/quiet | p2 Umbreon | ability | — | Inner Focus | MISSED | `\|-activate\|p2a: Umbreon\|Skill Swap\|Gluttony\|Inner Focus\|[of] p1a: Snorlax` |
+| user-hidden/quiet | p1 Snorlax | ability | Gluttony | Gluttony | READ | `\|-activate\|p2a: Umbreon\|Skill Swap\|Gluttony\|Inner Focus\|[of] p1a: Snorlax` |
+| user-hidden/quiet | p2 Umbreon | ability | Inner Focus | Inner Focus | READ | `\|-activate\|p2a: Umbreon\|Skill Swap\|Gluttony\|Inner Focus\|[of] p1a: Snorlax` |
 | user-hidden/quiet | p2 Umbreon | move | Skill Swap | Skill Swap | READ | `\|move\|p2a: Umbreon\|Skill Swap\|p1a: Snorlax` |
-| user-hidden/pace | p1 Ampharos | ability | — | Plus | MISSED | `\|-activate\|p2a: Umbreon\|Skill Swap\|Plus\|Inner Focus\|[of] p1a: Ampharos` |
+| user-hidden/pace | p1 Ampharos | ability | Plus | Plus | READ | `\|-activate\|p2a: Umbreon\|Skill Swap\|Plus\|Inner Focus\|[of] p1a: Ampharos` |
 | target-hidden/quiet | p1 Snorlax | move | Skill Swap | Skill Swap | READ | `\|move\|p1a: Snorlax\|Skill Swap\|p2a: Blastoise` |
-| target-hidden/quiet | p2 Blastoise | ability | — | Torrent | MISSED | `\|-activate\|p1a: Snorlax\|Skill Swap\|Torrent\|Gluttony\|[of] p2a: Blastoise` |
+| target-hidden/quiet | p2 Blastoise | ability | Torrent | Torrent | READ | `\|-activate\|p1a: Snorlax\|Skill Swap\|Torrent\|Gluttony\|[of] p2a: Blastoise` |
 | target-hidden/pace | p1 Ampharos | move | Skill Swap | Skill Swap | READ | `\|move\|p1a: Ampharos\|Skill Swap\|p2a: Blastoise` |
 
 #### Snowscape · `move:snowscape`
@@ -976,6 +999,34 @@ Named by its own `|move|` line and read into its user's move box, in every place
 | target-hidden/quiet | p1 Snorlax | move | Snowscape | Snowscape | READ | `\|move\|p1a: Snorlax\|Snowscape\|p1a: Snorlax` |
 | target-hidden/pace | p1 Ampharos | move | Snowscape | Snowscape | READ | `\|move\|p1a: Ampharos\|Snowscape\|p1a: Ampharos` |
 
+#### Stuff Cheeks · `move:stuffcheeks`
+
+| Template | Pokemon | Box | Value | Truth | setsFromLog | Line |
+|---|---|---|---|---|---|---|
+| user-hidden/quiet | p2 Swalot | move | Stuff Cheeks | Stuff Cheeks | READ | `\|move\|p2a: Swalot\|Stuff Cheeks\|\|[still]` |
+| user-hidden/eats-sitrus | p2 Swalot | item | Sitrus Berry | Sitrus Berry | READ | `\|-enditem\|p2a: Swalot\|Sitrus Berry\|[eat]` |
+
+#### Switcheroo · `move:switcheroo`
+
+| Template | Pokemon | Box | Value | Truth | setsFromLog | Line |
+|---|---|---|---|---|---|---|
+| user-hidden/quiet | p1 Snorlax | item | Heat Rock | Heat Rock | READ | — |
+| user-hidden/quiet | p2 Barbaracle | item | Smooth Rock | Smooth Rock | READ | — |
+| user-hidden/quiet | p2 Barbaracle | move | Switcheroo | Switcheroo | READ | `\|move\|p2a: Barbaracle\|Switcheroo\|p1a: Snorlax` |
+| user-hidden/pace | p1 Ampharos | item | Heat Rock | Heat Rock | READ | — |
+| target-hidden/quiet | p1 Snorlax | move | Switcheroo | Switcheroo | READ | `\|move\|p1a: Snorlax\|Switcheroo\|p2a: Blastoise` |
+| target-hidden/quiet | p2 Blastoise | item | Smooth Rock | Smooth Rock | READ | — |
+| target-hidden/pace | p1 Ampharos | move | Switcheroo | Switcheroo | READ | `\|move\|p1a: Ampharos\|Switcheroo\|p2a: Blastoise` |
+
+#### Teatime · `move:teatime`
+
+| Template | Pokemon | Box | Value | Truth | setsFromLog | Line |
+|---|---|---|---|---|---|---|
+| user-hidden/quiet | p2 Polteageist | move | Teatime | Teatime | READ | `\|move\|p2a: Polteageist\|Teatime\|\|[still]` |
+| target-hidden/quiet | p1 Snorlax | move | Teatime | Teatime | READ | `\|move\|p1a: Snorlax\|Teatime\|\|[still]` |
+| target-hidden/pace | p1 Ampharos | move | Teatime | Teatime | READ | `\|move\|p1a: Ampharos\|Teatime\|\|[still]` |
+| user-hidden/eats-sitrus | p2 Polteageist | item | Sitrus Berry | Sitrus Berry | READ | `\|-enditem\|p2a: Polteageist\|Sitrus Berry\|[eat]` |
+
 #### Teeter Dance · `move:teeterdance`
 
 | Template | Pokemon | Box | Value | Truth | setsFromLog | Line |
@@ -985,14 +1036,26 @@ Named by its own `|move|` line and read into its user's move box, in every place
 | target-hidden/quiet | p1 Snorlax | move | Teeter Dance | Teeter Dance | READ | `\|move\|p1a: Snorlax\|Teeter Dance\|p2b: Avalugg\|[spread] p1b,p2a,p2b` |
 | target-hidden/pace | p1 Ampharos | move | Teeter Dance | Teeter Dance | READ | `\|move\|p1a: Ampharos\|Teeter Dance\|p2a: Blastoise\|[spread] p1b,p2a,p2b` |
 
+#### Trick · `move:trick`
+
+| Template | Pokemon | Box | Value | Truth | setsFromLog | Line |
+|---|---|---|---|---|---|---|
+| user-hidden/quiet | p1 Snorlax | item | Heat Rock | Heat Rock | READ | — |
+| user-hidden/quiet | p2 Florges | item | Smooth Rock | Smooth Rock | READ | — |
+| user-hidden/quiet | p2 Florges | move | Trick | Trick | READ | `\|move\|p2a: Florges\|Trick\|p1a: Snorlax` |
+| user-hidden/pace | p1 Ampharos | item | Heat Rock | Heat Rock | READ | — |
+| target-hidden/quiet | p1 Snorlax | move | Trick | Trick | READ | `\|move\|p1a: Snorlax\|Trick\|p2a: Blastoise` |
+| target-hidden/quiet | p2 Blastoise | item | Smooth Rock | Smooth Rock | READ | — |
+| target-hidden/pace | p1 Ampharos | move | Trick | Trick | READ | `\|move\|p1a: Ampharos\|Trick\|p2a: Blastoise` |
+
 #### Worry Seed · `move:worryseed`
 
 | Template | Pokemon | Box | Value | Truth | setsFromLog | Line |
 |---|---|---|---|---|---|---|
-| user-hidden/quiet | p1 Snorlax | ability | — | Gluttony | MISSED | `\|-ability\|p1a: Snorlax\|Insomnia\|Gluttony\|[from] move: Worry Seed` |
+| user-hidden/quiet | p1 Snorlax | ability | Gluttony | Gluttony | READ | `\|-ability\|p1a: Snorlax\|Insomnia\|Gluttony\|[from] move: Worry Seed` |
 | user-hidden/quiet | p2 Torterra | move | Worry Seed | Worry Seed | READ | `\|move\|p2a: Torterra\|Worry Seed\|p1a: Snorlax` |
 | target-hidden/quiet | p1 Snorlax | move | Worry Seed | Worry Seed | READ | `\|move\|p1a: Snorlax\|Worry Seed\|p2a: Blastoise` |
-| target-hidden/quiet | p2 Blastoise | ability | — | Torrent | MISSED | `\|-ability\|p2a: Blastoise\|Insomnia\|Torrent\|[from] move: Worry Seed` |
+| target-hidden/quiet | p2 Blastoise | ability | Torrent | Torrent | READ | `\|-ability\|p2a: Blastoise\|Insomnia\|Torrent\|[from] move: Worry Seed` |
 | target-hidden/pace | p1 Ampharos | move | Worry Seed | Worry Seed | READ | `\|move\|p1a: Ampharos\|Worry Seed\|p2a: Blastoise` |
 
 ## 4. Abilities
@@ -1001,12 +1064,31 @@ Named by its own `|move|` line and read into its user's move box, in every place
 
 3 holders · weight 3. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| stab | known exact | `\|-damage\|p1a: Snorlax\|179/255` → `\|-damage\|p1a: Snorlax\|153/255` | no | HAZARD-UNSOUND |  |
+
+#### Aerilate · `ability:aerilate`
+
+2 holders · weight 2. Named by: no line, in any witness.
+
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| W-phys-dealt | known exact | `\|-damage\|p1a: Snorlax\|192/255` → `\|-damage\|p1a: Snorlax\|141/255` | no | HAZARD-REBUILD |  |
+| W-spec-dealt | known exact | `\|-damage\|p1a: Snorlax\|228/255` → `\|-damage\|p1a: Snorlax\|207/255` | no | HAZARD-REBUILD |  |
+| W-trade | known exact | `\|-damage\|p1a: Snorlax\|192/255` → `\|-damage\|p1a: Snorlax\|141/255` | no | HAZARD-REBUILD |  |
+| W-Normal-dealt | known exact | `\|-damage\|p1a: Snorlax\|192/255` → `\|-damage\|p1a: Snorlax\|141/255` | no | HAZARD-REBUILD |  |
+| W-burn | known exact | `\|-damage\|p1a: Snorlax\|224/255` → `\|-damage\|p1a: Snorlax\|198/255` | no | HAZARD-REBUILD |  |
+| W-paralysis | known exact, presence | `\|-damage\|p1a: Snorlax\|192/255` → `\|-damage\|p1a: Snorlax\|141/255` | no | HAZARD-REBUILD |  |
+| W-toxic | known exact, presence | `\|-damage\|p1a: Snorlax\|192/255` → `\|-damage\|p1a: Snorlax\|141/255` | no | HAZARD-REBUILD |  |
+| W-sleep | known exact | `\|-damage\|p1a: Snorlax\|192/255` → `\|-damage\|p1a: Snorlax\|141/255` | no | HAZARD-REBUILD |  |
+| W-taunt | known exact, presence | `\|-damage\|p1a: Snorlax\|192/255` → `\|-damage\|p1a: Snorlax\|141/255` | no | HAZARD-REBUILD |  |
+| W-two-moves | known exact | `\|-damage\|p1a: Snorlax\|192/255` → `\|-damage\|p1a: Snorlax\|141/255` | no | HAZARD-REBUILD |  |
 
 #### Aftermath · `ability:aftermath`
 
 1 holders · weight 1. Named by: `\|-damage\|p1a: Snorlax\|192/255\|[from] ability: Aftermath\|[of] p2a: Garbodor` (W-phys-taken, turn 3).
-Box: READ (p2 holder-hidden).
+Box: READ (p2 holder-hidden), READ (p1 other-hidden).
 
 No witness changed the log before it was named.
 
@@ -1014,11 +1096,14 @@ No witness changed the log before it was named.
 
 2 holders · weight 2. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| moves-last | known exact | `\|-damage\|p1a: Regieleki\|99/187` → `\|-damage\|p1a: Regieleki\|72/187` | no | HAZARD-UNSOUND |  |
 
 #### Anger Point · `ability:angerpoint`
 
-7 holders · weight 7. Named by: no line, in any witness.
+7 holders · weight 7. Named by: `\|-setboost\|p2a: Tauros\|atk\|6\|[from] ability: Anger Point` (critical-hit-taken, turn 1).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -1032,17 +1117,26 @@ No witness changed the log before it was named.
 #### Armor Tail · `ability:armortail`
 
 1 holders · weight 1. Named by: `\|cant\|p2a: Farigiraf\|ability: Armor Tail\|Quick Attack\|[of] p1a: Snorlax` (W-trade, turn 1).
-Box: MISSED (p2 holder-hidden).
-Other boxes: MISREAD p2 Farigiraf move Quick Attack.
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
 #### Aroma Veil · `ability:aromaveil`
 
 9 holders · weight 9. Named by: `\|-block\|p2a: Alcremie\|ability: Aroma Veil\|[of] p2a: Alcremie` (W-taunt, turn 1).
-Box: MISSED (p2 holder-hidden).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
+
+#### Aura Guard · `ability:auraguard`
+
+1 holders · weight 1. Named by: no line, in any witness.
+
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| W-phys-taken | hidden %, presence | `\|-damage\|p2a: Lucario\|70/100` → `\|-damage\|p2a: Lucario\|85/100` | no | SAFE |  |
+| W-trade | hidden % | `\|-damage\|p2a: Lucario\|85/100` → `\|-damage\|p2a: Lucario\|92/100` | no | SAFE |  |
+| W-pivot | hidden % | `\|-damage\|p2a: Lucario\|70/100` → `\|-damage\|p2a: Lucario\|85/100` | no | SAFE |  |
 
 #### Battle Armor · `ability:battlearmor`
 
@@ -1085,7 +1179,8 @@ No witness changed the log before it was named.
 
 #### Cheek Pouch · `ability:cheekpouch`
 
-4 holders · weight 4. Named by: no line, in any witness.
+4 holders · weight 4. Named by: `\|-heal\|p2a: Dedenne\|70/100\|[from] ability: Cheek Pouch` (eats-oran, turn 1).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -1110,7 +1205,8 @@ No witness changed the log before it was named.
 
 #### Competitive · `ability:competitive`
 
-4 holders · weight 4. Named by: no line, in any witness.
+4 holders · weight 4. Named by: `\|-ability\|p2a: Milotic\|Competitive\|boost` (intimidated, turn 0).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -1124,7 +1220,9 @@ No witness changed the log before it was named.
 
 2 holders · weight 2. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| leaf-storm-twice | known exact, presence | `\|-unboost\|p2a: Serperior\|spa\|2` → — | no | HAZARD-REBUILD |  |
 
 #### Corrosion · `ability:corrosion`
 
@@ -1134,7 +1232,7 @@ No witness changed the log before it was named.
 
 #### Cud Chew · `ability:cudchew`
 
-4 holders · weight 4. Named by: no line, in any witness.
+4 holders · weight 4. Named by: `\|-activate\|p2a: Tauros\|ability: Cud Chew` (eats-sitrus-again, turn 2).
 
 No witness changed the log before it was named.
 
@@ -1165,7 +1263,8 @@ No witness changed the log before it was named.
 
 #### Defiant · `ability:defiant`
 
-5 holders · weight 5. Named by: no line, in any witness.
+5 holders · weight 5. Named by: `\|-ability\|p2a: Kingambit\|Defiant\|boost` (intimidated, turn 0).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -1174,6 +1273,23 @@ No witness changed the log before it was named.
 1 holders · weight 1. Named by: `\|-activate\|p2a: Mimikyu\|ability: Disguise` (W-phys-taken, turn 1).
 
 No witness changed the log before it was named.
+
+#### Dragonize · `ability:dragonize`
+
+1 holders · weight 1. Named by: no line, in any witness.
+
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| W-phys-dealt | known exact | `\|-damage\|p1a: Snorlax\|186/255` → `\|-damage\|p1a: Snorlax\|132/255` | no | SAFE |  |
+| W-spec-dealt | known exact | `\|-damage\|p1a: Snorlax\|233/255` → `\|-damage\|p1a: Snorlax\|216/255` | no | SAFE |  |
+| W-trade | known exact | `\|-damage\|p1a: Snorlax\|186/255` → `\|-damage\|p1a: Snorlax\|132/255` | no | SAFE |  |
+| W-Normal-dealt | known exact | `\|-damage\|p1a: Snorlax\|186/255` → `\|-damage\|p1a: Snorlax\|132/255` | no | SAFE |  |
+| W-burn | known exact | `\|-damage\|p1a: Snorlax\|221/255` → `\|-damage\|p1a: Snorlax\|194/255` | no | SAFE |  |
+| W-paralysis | known exact, presence | `\|-damage\|p1a: Snorlax\|186/255` → `\|-damage\|p1a: Snorlax\|132/255` | no | SAFE |  |
+| W-toxic | known exact, presence | `\|-damage\|p1a: Snorlax\|186/255` → `\|-damage\|p1a: Snorlax\|132/255` | no | SAFE |  |
+| W-sleep | known exact | `\|-damage\|p1a: Snorlax\|186/255` → `\|-damage\|p1a: Snorlax\|132/255` | no | SAFE |  |
+| W-taunt | known exact, presence | `\|-damage\|p1a: Snorlax\|186/255` → `\|-damage\|p1a: Snorlax\|132/255` | no | SAFE |  |
+| W-two-moves | known exact | `\|-damage\|p1a: Snorlax\|186/255` → `\|-damage\|p1a: Snorlax\|132/255` | no | SAFE |  |
 
 #### Drizzle · `ability:drizzle`
 
@@ -1213,6 +1329,12 @@ Box: READ (p2 holder-hidden), READ (p1 other-hidden).
 
 No witness changed the log before it was named.
 
+#### Eelevate · `ability:eelevate`
+
+1 holders · weight 1. Named by: no line, in any witness.
+
+No witness changed the log before it was named.
+
 #### Effect Spore · `ability:effectspore`
 
 1 holders · weight 1. Named by: `\|-status\|p1a: Snorlax\|par\|[from] ability: Effect Spore\|[of] p2a: Vileplume` (W-phys-taken, turn 1).
@@ -1240,11 +1362,63 @@ No witness changed the log before it was named.
 
 No witness changed the log before it was named.
 
+#### Fairy Aura · `ability:fairyaura`
+
+1 holders · weight 1. Named by: `\|-ability\|p2a: Floette\|Fairy Aura` (W-phys-dealt, turn 1).
+
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| W-phys-dealt | names | `\|poke\|p2\|Floette, L50, F\|` → `\|poke\|p2\|Floette-Eternal, L50, F\|` | turn 1 | SAFE |  |
+| W-spec-dealt | names | `\|poke\|p2\|Floette, L50, F\|` → `\|poke\|p2\|Floette-Eternal, L50, F\|` | turn 1 | SAFE |  |
+| W-phys-taken | names | `\|poke\|p2\|Floette, L50, F\|` → `\|poke\|p2\|Floette-Eternal, L50, F\|` | turn 1 | SAFE |  |
+| W-spec-taken | names | `\|poke\|p2\|Floette, L50, F\|` → `\|poke\|p2\|Floette-Eternal, L50, F\|` | turn 1 | SAFE |  |
+| W-order-up | names | `\|poke\|p2\|Floette, L50, F\|` → `\|poke\|p2\|Floette-Eternal, L50, F\|` | turn 1 | SAFE |  |
+| W-order-down | names | `\|poke\|p2\|Floette, L50, F\|` → `\|poke\|p2\|Floette-Eternal, L50, F\|` | turn 1 | SAFE |  |
+| W-pace | names | `\|poke\|p2\|Floette, L50, F\|` → `\|poke\|p2\|Floette-Eternal, L50, F\|` | turn 1 | SAFE |  |
+| W-trade | names | `\|poke\|p2\|Floette, L50, F\|` → `\|poke\|p2\|Floette-Eternal, L50, F\|` | turn 1 | SAFE |  |
+| W-burn | names | `\|poke\|p2\|Floette, L50, F\|` → `\|poke\|p2\|Floette-Eternal, L50, F\|` | turn 1 | SAFE |  |
+| W-paralysis | names | `\|poke\|p2\|Floette, L50, F\|` → `\|poke\|p2\|Floette-Eternal, L50, F\|` | turn 1 | SAFE |  |
+| W-toxic | names | `\|poke\|p2\|Floette, L50, F\|` → `\|poke\|p2\|Floette-Eternal, L50, F\|` | turn 1 | SAFE |  |
+| W-sleep | names | `\|poke\|p2\|Floette, L50, F\|` → `\|poke\|p2\|Floette-Eternal, L50, F\|` | turn 1 | SAFE |  |
+| W-confusion | names | `\|poke\|p2\|Floette, L50, F\|` → `\|poke\|p2\|Floette-Eternal, L50, F\|` | turn 1 | SAFE |  |
+| W-taunt | names | `\|poke\|p2\|Floette, L50, F\|` → `\|poke\|p2\|Floette-Eternal, L50, F\|` | turn 1 | SAFE |  |
+| W-lethal | names | `\|poke\|p2\|Floette, L50, F\|` → `\|poke\|p2\|Floette-Eternal, L50, F\|` | turn 1 | SAFE |  |
+| W-pivot | names | `\|poke\|p2\|Floette, L50, F\|` → `\|poke\|p2\|Floette-Eternal, L50, F\|` | turn 1 | SAFE |  |
+| W-two-moves | names | `\|poke\|p2\|Floette, L50, F\|` → `\|poke\|p2\|Floette-Eternal, L50, F\|` | turn 1 | SAFE |  |
+
 #### Filter · `ability:filter`
 
 1 holders · weight 1. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| super-effective | hidden %, presence | `\|-damage\|p2a: Mr. Mime\|0 fnt` → `\|-damage\|p2a: Mr. Mime\|6/100` | no | HAZARD-UNSOUND |  |
+
+#### Fire Mane · `ability:firemane`
+
+1 holders · weight 1. Named by: no line, in any witness.
+
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| W-phys-dealt | presence | — → `\|-ability\|p2a: Pyroar\|Unnerve` | no | SAFE |  |
+| W-spec-dealt | presence | — → `\|-ability\|p2a: Pyroar\|Unnerve` | no | SAFE |  |
+| W-phys-taken | presence | — → `\|-ability\|p2a: Pyroar\|Unnerve` | no | SAFE |  |
+| W-spec-taken | presence | — → `\|-ability\|p2a: Pyroar\|Unnerve` | no | SAFE |  |
+| W-order-up | presence | — → `\|-ability\|p2a: Pyroar\|Unnerve` | no | SAFE |  |
+| W-order-down | presence | — → `\|-ability\|p2a: Pyroar\|Unnerve` | no | SAFE |  |
+| W-pace | presence | — → `\|-ability\|p2a: Pyroar\|Unnerve` | no | SAFE |  |
+| W-trade | presence | — → `\|-ability\|p2a: Pyroar\|Unnerve` | no | SAFE |  |
+| W-Fire-dealt | known exact, presence | `\|-damage\|p1a: Snorlax\|195/255` → `\|-damage\|p1a: Snorlax\|167/255` | no | SAFE |  |
+| W-Fire-taken | presence | — → `\|-ability\|p2a: Pyroar\|Unnerve` | no | SAFE |  |
+| W-burn | presence | — → `\|-ability\|p2a: Pyroar\|Unnerve` | no | SAFE |  |
+| W-paralysis | presence | — → `\|-ability\|p2a: Pyroar\|Unnerve` | no | SAFE |  |
+| W-toxic | presence | — → `\|-ability\|p2a: Pyroar\|Unnerve` | no | SAFE |  |
+| W-sleep | presence | — → `\|-ability\|p2a: Pyroar\|Unnerve` | no | SAFE |  |
+| W-confusion | presence | — → `\|-ability\|p2a: Pyroar\|Unnerve` | no | SAFE |  |
+| W-taunt | presence | — → `\|-ability\|p2a: Pyroar\|Unnerve` | no | SAFE |  |
+| W-lethal | presence | — → `\|-ability\|p2a: Pyroar\|Unnerve` | no | SAFE |  |
+| W-pivot | presence | — → `\|-ability\|p2a: Pyroar\|Unnerve` | no | SAFE |  |
+| W-two-moves | presence | — → `\|-ability\|p2a: Pyroar\|Unnerve` | no | SAFE |  |
 
 #### Flame Body · `ability:flamebody`
 
@@ -1255,7 +1429,7 @@ No witness changed the log before it was named.
 #### Flash Fire · `ability:flashfire`
 
 9 holders · weight 9. Named by: `\|-start\|p2a: Armarouge\|ability: Flash Fire` (W-Fire-taken, turn 1).
-Box: READ (p2 holder-hidden), MISSED (p2 holder-hidden), MISSED (p1 other-hidden).
+Box: READ (p2 holder-hidden), READ (p1 other-hidden).
 
 No witness changed the log before it was named.
 
@@ -1291,7 +1465,9 @@ No witness changed the log before it was named.
 
 22 holders · weight 22. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| guards-the-ally | hidden % | `\|-damage\|p2a: Blastoise\|57/100` → `\|-damage\|p2a: Blastoise\|67/100` | no | HAZARD-UNSOUND |  |
 
 #### Frisk · `ability:frisk`
 
@@ -1339,7 +1515,9 @@ No witness changed the log before it was named.
 
 1 holders · weight 1. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| on-grass | hidden % | `\|-damage\|p2a: Gogoat\|64/100` → `\|-damage\|p2a: Gogoat\|76/100` | no | HAZARD-UNSOUND |  |
 
 #### Grassy Surge · `ability:grassysurge`
 
@@ -1350,7 +1528,8 @@ No witness changed the log before it was named.
 
 #### Guard Dog · `ability:guarddog`
 
-1 holders · weight 1. Named by: no line, in any witness.
+1 holders · weight 1. Named by: `\|-ability\|p2a: Mabosstiff\|Guard Dog\|boost` (intimidated, turn 0).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -1389,13 +1568,18 @@ No witness changed the log before it was named.
 
 1 holders · weight 1. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| heavier-slam | known exact | `\|-damage\|p1a: Slowbro\|160/190` → `\|-damage\|p1a: Slowbro\|154/190` | no | HAZARD-UNSOUND |  |
 
 #### Hospitality · `ability:hospitality`
 
-2 holders · weight 2. Named by: no line, in any witness.
+2 holders · weight 2. Named by: `\|-heal\|p2b: Avalugg\|95/100\|[from] ability: Hospitality\|[of] p2a: Sinistcha` (heals-the-ally, turn 2).
+Box: READ (p2 holder-hidden).
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| heals-the-ally | hidden %, order | `\|-damage\|p2b: Avalugg\|75/100` → `\|-damage\|p2b: Avalugg\|70/100` | turn 2 | SAFE | HAZARD-REBUILD |
 
 #### Huge Power · `ability:hugepower`
 
@@ -1464,7 +1648,8 @@ No witness changed the log before it was named.
 
 #### Ice Body · `ability:icebody`
 
-7 holders · weight 7. Named by: no line, in any witness.
+7 holders · weight 7. Named by: `\|-heal\|p2a: Avalugg\|55/100\|[from] ability: Ice Body` (heals-in-snow, turn 1).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -1498,6 +1683,8 @@ Other boxes: MISREAD p2 Slowking move Strength; MISREAD p2 Slowking move Round; 
 | W-lethal | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | SAFE |  |
 | W-pivot | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | turn 1 | SAFE |  |
 | W-two-moves | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, F\|100/100` → — | no | SAFE |  |
+| race-in-disguise | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, M\|100/100` → — | turn 2 | SAFE |  |
+| race-never-unmasked | presence | `\|switch\|p2a: Zoroark\|Zoroark, L50, M\|100/100` → — | no | SAFE |  |
 
 #### Immunity · `ability:immunity`
 
@@ -1518,6 +1705,16 @@ No witness changed the log before it was named.
 8 holders · weight 8. Named by: no line, in any witness.
 
 No witness changed the log before it was named.
+
+#### Innards Out · `ability:innardsout`
+
+1 holders · weight 1. Named by: `\|-damage\|p1a: Snorlax\|250/255\|[from] ability: Innards Out\|[of] p2a: Victreebel` (W-phys-taken, turn 3).
+
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| handed-back-from-full | presence | — → `\|detailschange\|p2a: Victreebel\|Victreebel-Mega, L50, M` | turn 2 | SAFE |  |
+| handed-back-from-full-swept | presence | — → `\|detailschange\|p2a: Victreebel\|Victreebel-Mega, L50, M` | turn 2 | SAFE |  |
+| handed-back-after-a-toss | presence | — → `\|detailschange\|p2a: Victreebel\|Victreebel-Mega, L50, M` | turn 2 | SAFE |  |
 
 #### Inner Focus · `ability:innerfocus`
 
@@ -1543,7 +1740,9 @@ No witness changed the log before it was named.
 
 6 holders · weight 6. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| punch | known exact | `\|-damage\|p1a: Snorlax\|159/255` → `\|-damage\|p1a: Snorlax\|141/255` | no | HAZARD-UNSOUND |  |
 
 #### Justified · `ability:justified`
 
@@ -1587,7 +1786,9 @@ No witness changed the log before it was named.
 
 2 holders · weight 2. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| lighter-low-kick | hidden % | `\|-damage\|p2a: Scizor\|61/100` → `\|-damage\|p2a: Scizor\|69/100` | no | HAZARD-UNSOUND |  |
 
 #### Lightning Rod · `ability:lightningrod`
 
@@ -1644,8 +1845,7 @@ No witness changed the log before it was named.
 #### Magician · `ability:magician`
 
 2 holders · weight 2. Named by: `\|-item\|p2a: Delphox\|Heat Rock\|[from] ability: Magician\|[of] p1a: Snorlax` (W-phys-dealt, turn 1).
-Box: READ (p2 holder-hidden).
-Other boxes: MISSED p1 Snorlax item Heat Rock.
+Box: READ (p2 holder-hidden), READ (p1 other-hidden).
 
 No witness changed the log before it was named.
 
@@ -1659,13 +1859,25 @@ No witness changed the log before it was named.
 
 1 holders · weight 1. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| paralysed | hidden % | `\|-damage\|p2a: Milotic\|52/100 par` → `\|-damage\|p2a: Milotic\|68/100 par` | no | SAFE |  |
 
 #### Mega Launcher · `ability:megalauncher`
 
 1 holders · weight 1. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| pulse | known exact | `\|-damage\|p1a: Snorlax\|217/255` → `\|-damage\|p1a: Snorlax\|199/255` | no | SAFE |  |
+
+#### Mega Sol · `ability:megasol`
+
+1 holders · weight 1. Named by: no line, in any witness.
+
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| weather-ball-in-its-own-sun | presence | `\|move\|p2a: Meganium\|Splash\|p2a: Meganium` → — | no | SAFE |  |
 
 #### Merciless · `ability:merciless`
 
@@ -1683,7 +1895,9 @@ No witness changed the log before it was named.
 
 2 holders · weight 2. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| with-plus | known exact | `\|-damage\|p1a: Snorlax\|201/255` → `\|-damage\|p1a: Snorlax\|176/255` | no | HAZARD-UNSOUND |  |
 
 #### Mirror Armor · `ability:mirrorarmor`
 
@@ -1733,7 +1947,6 @@ No witness changed the log before it was named.
 #### Mummy · `ability:mummy`
 
 1 holders · weight 1. Named by: `\|-activate\|p2a: Cofagrigus\|ability: Mummy\|p1a: Snorlax\|[ability] Gluttony` (W-phys-taken, turn 1).
-Other boxes: MISSED p1 Snorlax ability Gluttony; MISSED p2 Blastoise ability Torrent.
 
 No witness changed the log before it was named.
 
@@ -1760,7 +1973,8 @@ No witness changed the log before it was named.
 
 #### Opportunist · `ability:opportunist`
 
-1 holders · weight 1. Named by: no line, in any witness.
+1 holders · weight 1. Named by: `\|-ability\|p2a: Espathra\|Opportunist\|boost` (copies-calm-mind, turn 1).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -1783,6 +1997,23 @@ Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
+#### Parental Bond · `ability:parentalbond`
+
+1 holders · weight 1. Named by: no line, in any witness.
+
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| W-phys-dealt | presence | — → `\|-damage\|p1a: Snorlax\|150/255` | no | SAFE |  |
+| W-spec-dealt | presence | — → `\|-damage\|p1a: Snorlax\|225/255` | no | SAFE |  |
+| W-trade | known exact, presence | `\|-damage\|p1a: Snorlax\|87/255` → `\|-damage\|p1a: Snorlax\|66/255` | no | SAFE |  |
+| W-burn | known exact, presence | `\|-damage\|p1a: Snorlax\|171/255` → `\|-damage\|p1a: Snorlax\|161/255` | no | SAFE |  |
+| W-paralysis | known exact, presence | `\|-damage\|p1a: Snorlax\|87/255` → `\|-damage\|p1a: Snorlax\|66/255` | no | SAFE |  |
+| W-toxic | known exact, presence | `\|-damage\|p1a: Snorlax\|87/255` → `\|-damage\|p1a: Snorlax\|66/255` | no | SAFE |  |
+| W-sleep | presence | — → `\|-damage\|p1a: Snorlax\|150/255` | no | SAFE |  |
+| W-taunt | known exact, presence | `\|-damage\|p1a: Snorlax\|87/255` → `\|-damage\|p1a: Snorlax\|66/255` | no | SAFE |  |
+| W-two-moves | known exact, presence | `\|-damage\|p1a: Snorlax\|147/255` → `\|-damage\|p1a: Snorlax\|126/255` | no | SAFE |  |
+| second-hit-past-a-substitute | presence | — → `\|detailschange\|p2a: Kangaskhan\|Kangaskhan-Mega, L50, F` | no | SAFE |  |
+
 #### Pickpocket · `ability:pickpocket`
 
 4 holders · weight 4. Named by: `\|-enditem\|p1a: Snorlax\|Heat Rock\|[silent]\|[from] ability: Pickpocket\|[of] p1a: Snorlax` (W-phys-taken, turn 1).
@@ -1793,6 +2024,12 @@ No witness changed the log before it was named.
 #### Pickup · `ability:pickup`
 
 6 holders · weight 6. Named by: no line, in any witness.
+
+No witness changed the log before it was named.
+
+#### Piercing Drill · `ability:piercingdrill`
+
+1 holders · weight 1. Named by: `\|-ability\|p2a: Excadrill\|Piercing Drill` (through-protect, turn 1).
 
 No witness changed the log before it was named.
 
@@ -1817,11 +2054,14 @@ No witness changed the log before it was named.
 
 3 holders · weight 3. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| with-minus | known exact | `\|-damage\|p1a: Snorlax\|197/255` → `\|-damage\|p1a: Snorlax\|170/255` | no | HAZARD-UNSOUND |  |
 
 #### Poison Heal · `ability:poisonheal`
 
-1 holders · weight 1. Named by: no line, in any witness.
+1 holders · weight 1. Named by: `\|-heal\|p2a: Gliscor\|46/100 tox\|[from] ability: Poison Heal` (heals-on-its-orb, turn 2).
+Box: READ (p2 holder-hidden).
 
 | Witness | Sinks | Without → with | Named? | Hazard | Control |
 |---|---|---|---|---|---|
@@ -1906,8 +2146,7 @@ Box: READ (p2 holder-hidden).
 #### Queenly Majesty · `ability:queenlymajesty`
 
 1 holders · weight 1. Named by: `\|cant\|p2a: Tsareena\|ability: Queenly Majesty\|Quick Attack\|[of] p1a: Snorlax` (W-trade, turn 1).
-Box: MISSED (p2 holder-hidden).
-Other boxes: MISREAD p2 Tsareena move Quick Attack.
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -1926,19 +2165,21 @@ No witness changed the log before it was named.
 
 #### Rain Dish · `ability:raindish`
 
-2 holders · weight 2. Named by: no line, in any witness.
+2 holders · weight 2. Named by: `\|-heal\|p2a: Blastoise\|55/100\|[from] ability: Rain Dish` (heals-in-rain, turn 1).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
 #### Rattled · `ability:rattled`
 
-1 holders · weight 1. Named by: no line, in any witness.
+1 holders · weight 1. Named by: `\|-ability\|p2a: Persian\|Rattled\|boost` (race-after-a-bite, turn 1).
 
 No witness changed the log before it was named.
 
 #### Receiver · `ability:receiver`
 
-1 holders · weight 1. Named by: no line, in any witness.
+1 holders · weight 1. Named by: `\|-ability\|p2a: Passimian\|Pure Power\|Receiver\|[from] ability: Receiver\|[of] p2b: Medicham` (takes-pure-power, turn 1).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -1946,7 +2187,9 @@ No witness changed the log before it was named.
 
 3 holders · weight 3. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| recoil-move | hidden %, known exact | `\|-damage\|p1a: Snorlax\|135/255` → `\|-damage\|p1a: Snorlax\|111/255` | no | HAZARD-REBUILD |  |
 
 #### Refrigerate · `ability:refrigerate`
 
@@ -1974,7 +2217,8 @@ No witness changed the log before it was named.
 
 #### Ripen · `ability:ripen`
 
-2 holders · weight 2. Named by: no line, in any witness.
+2 holders · weight 2. Named by: `\|-activate\|p2a: Flapple\|ability: Ripen` (doubled-sitrus, turn 1).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -2017,7 +2261,9 @@ No witness changed the log before it was named.
 
 2 holders · weight 2. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| in-sand | known exact | `\|-damage\|p1a: Tyranitar\|81/195` → `\|-damage\|p1a: Tyranitar\|49/195` | no | HAZARD-UNSOUND |  |
 
 #### Sand Rush · `ability:sandrush`
 
@@ -2071,11 +2317,19 @@ Box: READ (p2 holder-hidden), READ (p1 other-hidden).
 
 No witness changed the log before it was named.
 
+#### Shadow Tag · `ability:shadowtag`
+
+1 holders · weight 1. Named by: no line, in any witness.
+
+No witness changed the log before it was named.
+
 #### Sharpness · `ability:sharpness`
 
 3 holders · weight 3. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| slice | known exact | `\|-damage\|p1a: Snorlax\|182/255` → `\|-damage\|p1a: Snorlax\|146/255` | no | HAZARD-UNSOUND |  |
 
 #### Shed Skin · `ability:shedskin`
 
@@ -2088,7 +2342,9 @@ No witness changed the log before it was named.
 
 10 holders · weight 10. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| secondary-dropped | known exact | `\|-damage\|p1a: Snorlax\|194/255` → `\|-damage\|p1a: Snorlax\|176/255` | no | HAZARD-UNSOUND |  |
 
 #### Shell Armor · `ability:shellarmor`
 
@@ -2120,7 +2376,9 @@ No witness changed the log before it was named.
 
 4 holders · weight 4. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| critical-hit | known exact | `\|-damage\|p1a: Snorlax\|159/255` → `\|-damage\|p1a: Snorlax\|111/255` | no | HAZARD-UNSOUND |  |
 
 #### Snow Cloak · `ability:snowcloak`
 
@@ -2146,7 +2404,9 @@ No witness changed the log before it was named.
 
 2 holders · weight 2. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| super-effective | hidden % | `\|-damage\|p2a: Rhyperior\|35/100` → `\|-damage\|p2a: Rhyperior\|51/100` | no | HAZARD-UNSOUND |  |
 
 #### Soundproof · `ability:soundproof`
 
@@ -2162,11 +2422,19 @@ Box: READ (p2 holder-hidden), READ (p1 other-hidden).
 
 No witness changed the log before it was named.
 
+#### Spicy Spray · `ability:spicyspray`
+
+1 holders · weight 1. Named by: `\|-status\|p1a: Snorlax\|brn\|[from] ability: Spicy Spray\|[of] p2a: Scovillain` (W-phys-taken, turn 1).
+
+No witness changed the log before it was named.
+
 #### Stakeout · `ability:stakeout`
 
 2 holders · weight 2. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| fresh-target | known exact | `\|-damage\|p1a: Mudsdale\|150/207` → `\|-damage\|p1a: Mudsdale\|95/207` | no | HAZARD-UNSOUND |  |
 
 #### Stall · `ability:stall`
 
@@ -2229,7 +2497,8 @@ No witness changed the log before it was named.
 
 #### Steadfast · `ability:steadfast`
 
-5 holders · weight 5. Named by: no line, in any witness.
+5 holders · weight 5. Named by: `\|-ability\|p2a: Lucario\|Steadfast\|boost` (race-after-a-flinch, turn 1).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -2257,7 +2526,9 @@ No witness changed the log before it was named.
 
 2 holders · weight 2. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| bite | known exact | `\|-damage\|p1a: Snorlax\|201/255` → `\|-damage\|p1a: Snorlax\|174/255` | no | SAFE |  |
 
 #### Sturdy · `ability:sturdy`
 
@@ -2304,12 +2575,14 @@ No witness changed the log before it was named.
 
 7 holders · weight 7. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| at-a-third | known exact | `\|-damage\|p1a: Snorlax\|185/255` → `\|-damage\|p1a: Snorlax\|152/255` | no | HAZARD-UNSOUND |  |
 
 #### Sweet Veil · `ability:sweetveil`
 
 10 holders · weight 10. Named by: `\|-block\|p2a: Tsareena\|ability: Sweet Veil\|[of] p2a: Tsareena` (W-sleep, turn 1).
-Box: MISSED (p2 holder-hidden).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -2401,7 +2674,6 @@ No witness changed the log before it was named.
 
 1 holders · weight 1. Named by: `\|-ability\|p2a: Gardevoir\|Gluttony\|Trace\|[from] ability: Trace\|[of] p1a: Snorlax` (W-phys-dealt, turn 0).
 Box: READ (p2 holder-hidden), READ (p1 other-hidden).
-Other boxes: MISSED p1 Snorlax ability Gluttony; MISSED p1 Ampharos ability Plus; MISSED p1 Torkoal ability Shell Armor; MISSED p2 Blastoise ability Torrent.
 
 No witness changed the log before it was named.
 
@@ -2409,7 +2681,9 @@ No witness changed the log before it was named.
 
 2 holders · weight 2. Named by: no line, in any witness.
 
-No witness changed the log before it was named.
+| Witness | Sinks | Without → with | Named? | Hazard | Control |
+|---|---|---|---|---|---|
+| ignores-bulk-up | hidden % | `\|-damage\|p2a: Clefable\|44/100` → `\|-damage\|p2a: Clefable\|62/100` | no | HAZARD-UNSOUND |  |
 
 #### Unburden · `ability:unburden`
 
@@ -2421,6 +2695,12 @@ No witness changed the log before it was named.
 
 7 holders · weight 7. Named by: `\|-ability\|p2a: Tyranitar\|Unnerve` (W-phys-dealt, turn 0).
 Box: READ (p2 holder-hidden), READ (p1 other-hidden).
+
+No witness changed the log before it was named.
+
+#### Unseen Fist · `ability:unseenfist`
+
+1 holders · weight 1. Named by: `\|-ability\|p2a: Golurk\|Unseen Fist` (through-protect, turn 1).
 
 No witness changed the log before it was named.
 
@@ -2441,7 +2721,6 @@ No witness changed the log before it was named.
 #### Wandering Spirit · `ability:wanderingspirit`
 
 1 holders · weight 1. Named by: `\|-activate\|p1a: Snorlax\|Skill Swap\|Wandering Spirit\|Gluttony\|[of] p2a: Runerigus` (W-phys-taken, turn 1).
-Other boxes: MISSED p1 Snorlax ability Gluttony; MISSED p2 Blastoise ability Torrent.
 
 No witness changed the log before it was named.
 
@@ -2489,7 +2768,6 @@ No witness changed the log before it was named.
 
 293 holders · weight 1. Named by: `\|-mega\|p2a: Abomasnow\|Abomasnow\|Abomasite` (W-phys-dealt, turn 1).
 Box: READ (p2 holder-hidden).
-Other boxes: MISREAD p2 Abomasnow ability Snow Warning.
 
 No witness changed the log before it was named.
 
@@ -2532,7 +2810,6 @@ No witness changed the log before it was named.
 
 293 holders · weight 1. Named by: `\|-mega\|p2a: Alakazam\|Alakazam\|Alakazite` (W-phys-dealt, turn 1).
 Box: READ (p2 holder-hidden).
-Other boxes: MISSED p1 Snorlax ability Gluttony.
 
 No witness changed the log before it was named.
 
@@ -2639,7 +2916,6 @@ No witness changed the log before it was named.
 
 293 holders · weight 1. Named by: `\|-mega\|p2a: Blaziken\|Blaziken\|Blazikenite` (W-phys-dealt, turn 1).
 Box: READ (p2 holder-hidden).
-Other boxes: MISREAD p2 Blaziken ability Speed Boost.
 
 No witness changed the log before it was named.
 
@@ -2837,7 +3113,8 @@ No witness changed the log before it was named.
 
 #### Electric Seed · `item:electricseed`
 
-293 holders · weight 293. Named by: no line, in any witness.
+293 holders · weight 293. Named by: `\|-enditem\|p2a: Blastoise\|Electric Seed` (on-electric-terrain, turn 1).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -2978,7 +3255,8 @@ No witness changed the log before it was named.
 
 #### Grassy Seed · `item:grassyseed`
 
-293 holders · weight 293. Named by: no line, in any witness.
+293 holders · weight 293. Named by: `\|-enditem\|p2a: Blastoise\|Grassy Seed` (on-grassy-terrain, turn 0).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -2986,7 +3264,6 @@ No witness changed the log before it was named.
 
 293 holders · weight 1. Named by: `\|-mega\|p2a: Greninja\|Greninja\|Greninjite` (W-phys-dealt, turn 1).
 Box: READ (p2 holder-hidden).
-Other boxes: MISREAD p2 Greninja ability Protean.
 
 No witness changed the log before it was named.
 
@@ -3062,7 +3339,7 @@ No witness changed the log before it was named.
 | W-paralysis | order | `p2a: Blastoise before p1a: Snorlax` → `p1a: Snorlax before p2a: Blastoise` | no | HAZARD-UNSOUND |  |
 | W-toxic | order | `p2a: Blastoise before p1a: Snorlax` → `p1a: Snorlax before p2a: Blastoise` | no | HAZARD-UNSOUND |  |
 | W-sleep | order, presence | `\|-curestatus\|p2a: Blastoise\|slp\|[msg]` → — | no | HAZARD-UNSOUND |  |
-| W-confusion | presence | `\|-activate\|p2a: Blastoise\|confusion` → — | no | HAZARD-UNSOUND | HAZARD-REBUILD |
+| W-confusion | presence | `\|-activate\|p2a: Blastoise\|confusion` → — | no | HAZARD-UNSOUND |  |
 | W-taunt | order | `p2a: Blastoise before p1a: Snorlax` → `p1a: Snorlax before p2a: Blastoise` | no | HAZARD-UNSOUND |  |
 | W-two-moves | order | `p2a: Blastoise before p1a: Snorlax` → `p1a: Snorlax before p2a: Blastoise` | no | HAZARD-UNSOUND |  |
 
@@ -3223,7 +3500,6 @@ No witness changed the log before it was named.
 
 293 holders · weight 2. Named by: `\|-mega\|p2a: Meowstic\|Meowstic\|Meowsticite` (W-phys-dealt, turn 1).
 Box: READ (p2 holder-hidden).
-Other boxes: MISSED p1 Snorlax ability Gluttony.
 
 No witness changed the log before it was named.
 
@@ -3253,6 +3529,7 @@ No witness changed the log before it was named.
 | W-paralysis | known exact | `\|-damage\|p1a: Snorlax\|175/255` → `\|-damage\|p1a: Snorlax\|167/255` | no | HAZARD-UNSOUND |  |
 | W-toxic | known exact | `\|-damage\|p1a: Snorlax\|175/255` → `\|-damage\|p1a: Snorlax\|167/255` | no | HAZARD-UNSOUND |  |
 | W-taunt | known exact | `\|-damage\|p1a: Snorlax\|175/255` → `\|-damage\|p1a: Snorlax\|167/255` | no | HAZARD-UNSOUND |  |
+| through-a-substitute | known exact | `\|-damage\|p1a: Snorlax\|125/255` → `\|-damage\|p1a: Snorlax\|112/255` | no | HAZARD-UNSOUND |  |
 
 #### Miracle Seed · `item:miracleseed`
 
@@ -3264,7 +3541,8 @@ No witness changed the log before it was named.
 
 #### Misty Seed · `item:mistyseed`
 
-293 holders · weight 293. Named by: no line, in any witness.
+293 holders · weight 293. Named by: `\|-enditem\|p2a: Blastoise\|Misty Seed` (on-misty-terrain, turn 1).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -3372,7 +3650,8 @@ No witness changed the log before it was named.
 
 #### Psychic Seed · `item:psychicseed`
 
-293 holders · weight 293. Named by: no line, in any witness.
+293 holders · weight 293. Named by: `\|-enditem\|p2a: Blastoise\|Psychic Seed` (on-psychic-terrain, turn 1).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -3429,7 +3708,6 @@ No witness changed the log before it was named.
 
 293 holders · weight 293. Named by: `\|-damage\|p1a: Snorlax\|213/255\|[from] item: Rocky Helmet\|[of] p2a: Blastoise` (W-phys-taken, turn 1).
 Box: READ (p2 holder-hidden), READ (p1 other-hidden).
-Other boxes: FALSE p1 Snorlax item Rocky Helmet; FALSE p2 Blastoise item Rocky Helmet.
 
 No witness changed the log before it was named.
 
@@ -3492,7 +3770,6 @@ No witness changed the log before it was named.
 
 293 holders · weight 1. Named by: `\|-mega\|p2a: Scrafty\|Scrafty\|Scraftinite` (W-phys-dealt, turn 1).
 Box: READ (p2 holder-hidden).
-Other boxes: MISREAD p2 Scrafty ability Intimidate.
 
 No witness changed the log before it was named.
 
@@ -3520,7 +3797,8 @@ No witness changed the log before it was named.
 #### Shell Bell · `item:shellbell`
 
 293 holders · weight 293. Named by: `\|-heal\|p2a: Blastoise\|81/100\|[from] item: Shell Bell\|[of] p1a: Snorlax` (W-trade, turn 1).
-Box: READ (p2 holder-hidden), READ (p1 other-hidden).
+Box: MISSED (p2 holder-hidden), MISSED (p1 other-hidden).
+Other boxes: FALSE p1 Snorlax item Shell Bell; FALSE p2 Blastoise item Shell Bell; FALSE p2 Avalugg item Shell Bell; FALSE p2 Blastoise item Shell Bell.
 
 No witness changed the log before it was named.
 
@@ -3676,7 +3954,8 @@ No witness changed the log before it was named.
 
 #### White Herb · `item:whiteherb`
 
-293 holders · weight 293. Named by: no line, in any witness.
+293 holders · weight 293. Named by: `\|-enditem\|p2a: Charizard\|White Herb` (restored-after-overheat, turn 1).
+Box: READ (p2 holder-hidden).
 
 No witness changed the log before it was named.
 
@@ -3745,10 +4024,10 @@ No witness changed the log before it was named.
 | Ally Switch `condition:allyswitch` | move:allyswitch | no |
 | Aqua Ring `condition:aquaring` | move:aquaring | yes |
 | Attract `condition:attract` | ability:cutecharm, move:attract | yes |
-| Aurora Veil `condition:auroraveil` | move:auroraveil | no |
+| Aurora Veil `condition:auroraveil` | move:auroraveil | yes |
 | Baneful Bunker `condition:banefulbunker` | move:banefulbunker | no |
 | Beak Blast `condition:beakblast` | move:beakblast | no |
-| brn `condition:brn` | ability:flamebody, move:beakblast, move:blazekick, move:fireblast +13 | yes |
+| brn `condition:brn` | ability:flamebody, ability:spicyspray, move:beakblast, move:blazekick +14 | yes |
 | Charge `condition:charge` | ability:electromorphosis, move:charge | yes |
 | Chilly Reception `condition:chillyreception` | move:chillyreception | yes |
 | choicelock `condition:choicelock` | item:choicescarf | no |
