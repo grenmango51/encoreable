@@ -62,7 +62,11 @@ a new tab, never a battle.
 The shim answers the way the server does: request ids count up from 2, each side's wait state
 refuses a stale or duplicate choice with the server's own `|error|[Invalid choice]` words
 (`server/room-battle.ts`), and a `|request|` is always a message of its own — the client reads
-one only at the start of a message. The branch's input log is kept in sessionStorage after
+one only at the start of a message. The live client follows a choice's request id with a dot and
+a tag of its own (`|14.0b04652d1974e37f`); the id is the part before it. A replay's Stat Points
+are worked out for at most three minutes (`INFER_MS` in `engine.js`): a stranger's replay with
+both sides worked out can run past ten, and the furthest rebuild by then is taken, its banner
+saying how far it reached. The branch's input log is kept in sessionStorage after
 every change, so a reload, which makes the router `/join` the room in the URL, rebuilds it by
 re-simulation.
 

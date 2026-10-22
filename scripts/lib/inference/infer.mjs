@@ -166,6 +166,10 @@ function handOn(built, rolls) {
  * @param maxRounds the rounds that get no further than the furthest one yet;
  *                 a round that gets further costs none, up to four times as
  *                 many rounds in all - a long battle a line a round
+ * @param deadline a time from Date.now() past which no round starts and no
+ *                 turn is searched further, and the furthest rebuild so far
+ *                 is the answer - for a page that waits on it; none by
+ *                 default, so the answer never depends on the machine's speed
  * @param spend    what the fallback has left - rebuilds and milliseconds - and
  *                 the lines it searched without getting past, shared with
  *                 the inferences this one runs again under another reading
@@ -182,6 +186,7 @@ export async function inferSpreads({
   sampleSeed = 1,
   maxProbes = 4000,
   maxRounds = 16,
+  deadline = Infinity,
   allSpent = false,
   threads,
   onProgress = () => {},
@@ -364,10 +369,10 @@ export async function inferSpreads({
       spend.rebuilds--;
       return reconstruct({
         formatid, packedTeams: packOf(chosen), playerNames, observed: upTo, channel, exact: null, forced: built.forced,
-        seed, pins: given, sampleSeed, maxProbes: budget.maxProbes, maxBacktracks: budget.maxBacktracks, threads,
+        seed, pins: given, sampleSeed, maxProbes: budget.maxProbes, maxBacktracks: budget.maxBacktracks, threads, deadline,
       });
     };
-    const left = Math.min(FALLBACK_MS, spend.ms);
+    const left = Math.min(FALLBACK_MS, spend.ms, deadline - Date.now());
     const affordable = () => spent < FALLBACK_REBUILDS && spend.rebuilds > 0 && Date.now() - began < left;
     const reach = b => (b.report.complete ? [Infinity, Infinity] : [b.report.diffs[0]?.turn ?? -1, b.report.diffs[0]?.index ?? -1]);
     const further = (a, b) => (a[0] !== b[0] ? a[0] > b[0] : a[1] > b[1]);
@@ -599,7 +604,7 @@ export async function inferSpreads({
         if (read) break;
         const b = await reconstruct({
           formatid, packedTeams: packOf(chosen), playerNames, observed: through, channel, exact: ex, forced: built.forced,
-          seed, pins: given, sampleSeed, maxProbes: budgets[widest].maxProbes, maxBacktracks: budgets[widest].maxBacktracks, threads,
+          seed, pins: given, sampleSeed, maxProbes: budgets[widest].maxProbes, maxBacktracks: budgets[widest].maxBacktracks, threads, deadline,
         });
         read = b.report.complete || further(reach(b), [t, diff.index]);
       }
@@ -649,7 +654,7 @@ export async function inferSpreads({
   const past = (a, b) => (a[0] !== b[0] ? a[0] > b[0] : a[1] > b[1]);
   let deepest = null;
   let stalled = 0;
-  while (stalled < maxRounds && rounds < 4 * maxRounds) {
+  while (stalled < maxRounds && rounds < 4 * maxRounds && (!rounds || Date.now() < deadline)) {
     rounds++;
     const packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
     const searchStart = Date.now();
@@ -662,6 +667,7 @@ export async function inferSpreads({
       maxProbes: budgets[level].maxProbes,
       maxBacktracks: budgets[level].maxBacktracks,
       threads,
+      deadline,
     });
     const diff = built.report.diffs[0];
     const at = built.report.complete ? [Infinity, Infinity] : [diff?.turn ?? -1, diff?.index ?? -1];
@@ -781,7 +787,7 @@ export async function inferSpreads({
   // cannot prefer that reading before its Stat Points are narrowed under it,
   // so a battle that did not rebuild is inferred again under each reading of a
   // switch-in as the Illusion user, and the first that rebuilds is kept.
-  if (!built.report.complete && readings) {
+  if (!built.report.complete && readings && Date.now() < deadline) {
     const packed = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
     const failing = built.report.diffs[0]?.turn ?? Infinity;
     for (const { at, turn } of disguisableStays(formatid, packed, channel, observed)) {
@@ -869,14 +875,19 @@ export async function inferSpreads({
       const s = Number(side[1]) - 1;
       onProgress(`reading ${name}'s unsettled switch-ins as the Illusion user`);
       const read = ats => inferSpreads({ ...options, forced: [...base, ...ats], readings: false });
-      const all = await read(stays.map(x => x.at));
-      let taken = all.complete || !res.complete ? [all] : [];
-      if (!taken.length && stays.length > 1) {
+      const late = () => Date.now() >= deadline;
+      const all = late() ? null : await read(stays.map(x => x.at));
+      let taken = all && (all.complete || !res.complete) ? [all] : [];
+      if (all && !taken.length && stays.length > 1) {
         for (const stay of stays) {
+          if (late()) break;
           const one = await read([stay.at]);
           if (one.complete) taken.push(one);
         }
       }
+      // A reading the deadline cut short proves nothing, so every Pokemon of
+      // that side keeps every spread.
+      if (late() && !taken.some(r => r.complete)) taken = [{ knowledge: blank }];
       if (!taken.length) continue;
       for (const [i, set] of sets[s].entries()) {
         const id = `${side}:${i}`;

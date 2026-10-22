@@ -409,8 +409,9 @@ function hook(st, p) {
 
 		// A dry run must not touch the generator (§4.4). Only `randomizer` gets
 		// the requested band. Any other draw takes the value the real run's draw
-		// of the same range took, when the dry run was handed those (`draws`),
-		// and otherwise the bottom of its range.
+		// of the same range took, when the dry run was handed those (`draws`);
+		// then the value a copy of the generator gives next (`ahead`), when the
+		// dry run was handed one; and otherwise the bottom of its range.
 		if (st.dry) {
 			if (!d) return 0;
 			const site = leaf(framesOf()[0] || '');
@@ -422,6 +423,7 @@ function hook(st, p) {
 				same.used = true;
 				return same.value;
 			}
+			if (st.dry.ahead) return st.dry.ahead(from, to, d, off);
 			return off;
 		}
 

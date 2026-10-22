@@ -963,7 +963,7 @@ places a spread matters, `scripts/lib/inference/`:
 | `runEvent('Update')` | whether the held item's own `onUpdate` fires at each HP, so a pinch Berry that fired or stayed uneaten keeps only the HP on its side of the edge |
 | `actions.getConfusionDamage` | a confusion self-hit's sixteen rolls for every surviving Attack and Defence of the Pokemon itself |
 | `singleEvent('Hit', move)` | before the real effect: Strength Sap's amount for every surviving Attack of its target, and Pain Split's outcome for every HP the hidden Pokemon could be on |
-| every handler, event and action (`resolvePriority`, `singleEvent`, `runAction`) | kept as a frame, innermost last, that a dry run can run again from where it was entered, throwing the dice the code threw so far as it threw them: the code that moved a hidden Pokemon's HP is asked again for every max HP and HP it could have — hazards, Aftermath, the absorbing abilities, Poison Heal, Revival Blessing |
+| every handler, event and action (`resolvePriority`, `singleEvent`, `runAction`) | kept as a frame, innermost last, that a dry run can run again from where it was entered, throwing the dice the code threw so far as it threw them, and those it is about to throw as a copy of the generator gives them, each with the pin the rebuild set at its ordinal: the code that moved a hidden Pokemon's HP is asked again for every max HP and HP it could have — hazards, Aftermath, the absorbing abilities, Poison Heal, Revival Blessing |
 | `runEvent('Damage')` | the lines the real `Damage` event printed, so a candidate whose own event would have announced a Focus Sash, Sturdy or Endure the replay does not show is ruled out |
 | `singleEvent('ModifyMove')` | Shell Side Arm's category for every surviving Attack and Special Attack of its user, or Defence and Special Defence of its target, against the category the move line names |
 | `speedSort` inside a handler, and a switch-in's | the handler, or the switch-in, run again dry with each two neighbouring Pokemon swapped: where the swapped run prints something else, the replay's line says which came first |
@@ -1248,7 +1248,11 @@ diverged, move the guess inside what survived, repeat. Three choices keep that f
   on are addressed by ordinal, and a guess that draws a different number of them before that
   turn would otherwise lose the turn again and spend a round climbing back;
 - the rounds are counted only when they get no further than the furthest one yet, up to four
-  times as many in all, so a long battle the evidence pins a line a round is not cut off.
+  times as many in all, so a long battle the evidence pins a line a round is not cut off. A
+  `deadline` stops the rounds, the fallback and the dice search where it falls and keeps the
+  furthest rebuild so far; only the extension passes one (`extension.md`), so the commands' and
+  the catalog's answers never depend on the machine's speed. An Illusion reading it cut short
+  proves nothing, and every Pokemon of that side keeps every spread.
 
 The reconstruction also blames the *other* hidden Pokemon a failing line depends on, on
 alternate backtracks: the attacker for Water Spout, the victim for recoil (§7.3).
@@ -1542,10 +1546,8 @@ switch-in nothing settles. What the catalog cannot see yet, and the battles that
 `open-sheet-plan.md`.
 
 1. **The evidence still unused** (§7.5): every line the evidence pass sets aside — in the
-   catalog only a switch-in Illusion could have made, which stays unread by design, and in the
-   recordings one handler sort, at the partner probe's opening switch-ins: Gardevoir's Trace
-   takes a random target after the sort, so a dry run made at the sort cannot throw that die as
-   the real one did, prints another line, and the order is set aside.
+   catalog only a switch-in Illusion could have made, which stays unread by design, and none in
+   the recordings.
 2. **Certified ranges** (`--certify`, `--outside`). The inference keeps impossible spreads on
    purpose: an HP change it cannot model lets a candidate move anywhere its next display allows,
    Attack, Special Attack and Speed are separate lists that each only have to fit every hit on its

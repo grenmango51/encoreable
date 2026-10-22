@@ -1663,7 +1663,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
   // Wide dice are tried between their ends only when nothing else moves the
   // turn, so a search that never needs it takes the path it always took.
   let wide = false;
-  while (score[0] !== Infinity && score[0] !== -1 && probes < budget) {
+  while (score[0] !== Infinity && score[0] !== -1 && probes < budget && Date.now() < common.deadline) {
     let committed = false;
     // A draw that only improves the *fields* tie-break is a guess: it is the way
     // out of a line that needs two draws changed together, but it is never
@@ -1956,6 +1956,10 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
  * @param threads      how many threads the dice search may use, this one included;
  *                     the machine's own count by default. The answer is the same
  *                     for any count.
+ * @param deadline     a time from Date.now() past which no turn is searched further and
+ *                     the furthest rebuild so far is the answer - for a page that
+ *                     waits on it; none by default, so the answer never depends
+ *                     on the machine's speed.
  */
 async function reconstructOnce({
   formatid,
@@ -1973,6 +1977,7 @@ async function reconstructOnce({
   exact = null,
   pins = null,
   threads = os.availableParallelism(),
+  deadline = Infinity,
   onProgress = () => {},
 }) {
   const dex = Dex.forFormat(formatid);
@@ -2021,7 +2026,7 @@ async function reconstructOnce({
     if (turn >= 1 && turn < reseeds.length) reseeds[turn] = at;
   }
   const common = {
-    header, segments, plans, reseeds, variants, channel, exact, state0, dex, formatid,
+    header, segments, plans, reseeds, variants, channel, exact, state0, dex, formatid, deadline,
     id: ++contextCount, snaps: new Map(), pool: probePool(threads, formatid),
   };
   let attempts = 0;
@@ -2065,7 +2070,7 @@ async function reconstructOnce({
   };
   remember();
 
-  while (run.badTurn !== null) {
+  while (run.badTurn !== null && Date.now() < deadline) {
     const t = run.badTurn;
 
     onProgress(`turn ${t}: settling draws - observed ${run.diffs[0]?.expected ?? '(nothing)'}`);

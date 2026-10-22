@@ -34,6 +34,10 @@ rng.teachStream(BattleStream);
 
 const SIDES = ['p1', 'p2'];
 const CHANNEL = { p1: 1, p2: 2 };
+// How long a page waits on the Stat Points of a replay before it takes the
+// furthest rebuild so far: a stranger's replay, both sides worked out, can run
+// past ten minutes, and a rebuild that stops short says so in the banner.
+const INFER_MS = 180000;
 
 const blankRequest = () => ({ rqid: 0, request: '', isWait: 'cantUndo', choice: '' });
 
@@ -105,9 +109,15 @@ class Session {
     }
   }
 
-  /** `RoomBattle.choose`. `data` is what the client sends after `/choose `: `choice|rqid`. */
+  /**
+   * `RoomBattle.choose`. `data` is what the client sends after `/choose `:
+   * `choice|rqid`, where the live client follows the request's id with a
+   * dot and a tag of its own (`14.0b04652d1974e37f`); the id is the part
+   * before it.
+   */
   async choose(side, data) {
-    const [choice, rqid] = String(data).split('|', 2);
+    const [choice, tagged] = String(data).split('|', 2);
+    const rqid = tagged?.split('.')[0];
     const player = this.players[side];
     if (player.isWait !== false && player.isWait !== true) {
       return only(side, `|error|[Invalid choice] There's nothing to choose`);
@@ -123,7 +133,7 @@ class Session {
 
   /** `RoomBattle.undo`. */
   async undo(side, data = '') {
-    const [, rqid] = String(data).split('|', 2);
+    const rqid = String(data).split('|', 2)[1]?.split('.')[0];
     const player = this.players[side];
     if (player.isWait !== true) return only(side, `|error|[Invalid choice] There's nothing to cancel`);
     const allWait = SIDES.every(s => !!this.players[s].isWait);
@@ -415,7 +425,7 @@ export async function reconstructReplay({ source: input, teams = [null, null], i
       });
       inference = await inferSpreads({
         formatid: source.formatid, sets, known: [supplied(0), supplied(1)], playerNames: source.players,
-        observed, channel, sampleSeed, maxProbes, allSpent: false, threads,
+        observed, channel, sampleSeed, maxProbes, allSpent: false, threads, deadline: started + INFER_MS,
       });
       built = inference.built;
       packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: inference.picks[s][i] }))));

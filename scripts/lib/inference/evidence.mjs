@@ -2493,6 +2493,24 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
   }
 
+  /**
+   * The dice the real run is about to throw, for a dry run that goes past
+   * where the real one stands - a handler sort read before the handlers it
+   * sorts have run, Trace's target among them: a copy of the generator from
+   * where it is, each draw taking the pin the rebuild set at its ordinal. Null
+   * under a forced rule, which no copy can follow.
+   */
+  function ahead() {
+    if (st.rules?.length || typeof battle.prng?.clone !== 'function') return null;
+    const copy = battle.prng.clone();
+    let next = st.draws;
+    return (from, to, d, off) => {
+      const value = copy.random(from, to);
+      const pinned = st.pins?.get(next++);
+      return pinned !== undefined && pinned >= off && pinned < off + d ? pinned : value;
+    };
+  }
+
   function rerunFrame(frame, entered, { relay, only } = {}) {
     const saved = [battle.effect, battle.effectState, battle.event, battle.eventDepth];
     const args = frame.args.slice();
@@ -2511,7 +2529,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     // sorts them.
     if (entered.queue) battle.queue.list.splice(0, battle.queue.list.length, ...entered.queue);
     const dry = st.dry;
-    if (dry) st.dry = { roll: dry.roll, draws: entered.dice().map(d => ({ ...d, used: false })) };
+    if (dry) st.dry = { roll: dry.roll, draws: entered.dice().map(d => ({ ...d, used: false })), ahead: ahead() };
     try {
       return frame.call ? frame.call(args, only) : frame.fn.apply(battle, args);
     } finally {
