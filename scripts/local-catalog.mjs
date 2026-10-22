@@ -1605,10 +1605,14 @@ function statVerdict(entries) {
 }
 
 
-/** Conditions have no battle of their own: their card is the rows other effects' battles printed under them. */
+/**
+ * Conditions have no battle of their own: their card is the rows other
+ * effects' battles printed under them, in the order of those effects' keys -
+ * not the order the threads finished them in, which no two runs share.
+ */
 function conditionRecords(records, pool) {
   const byCondition = new Map();
-  for (const r of records) {
+  for (const r of [...records].sort((a, b) => a.key.localeCompare(b.key))) {
     for (const s of r.open.stats) {
       for (const row of s.rows) {
         const m = /^from:(?:move:)?(\w+)$/.exec(row.printer);
