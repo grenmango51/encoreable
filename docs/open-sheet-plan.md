@@ -11,7 +11,10 @@ allows and removes every spread it rules out, and prove it with battles built fo
 reports as of 2026-10-22, and the by-hand review in `evidence-by-hand.md` (commit `e7f3322`).
 **After this:** `closed-sheet-plan.md`, which builds on the harness this plan finishes.
 **Status (2026-10-22):** all eight phases are built, and §6 holds but for the extension check's
-live-site steps (§6, item 5). What stays open is `engineering.md` §9.
+live-site steps: `npm run catalog -- --check` passes, and `npm run extension -- --check` passes
+`sim` and `package`, while `room` and `rng` fail where play.pokemonshowdown.com no longer
+commits the extension's clicks and `entry` where the newest replay on the replay server, both
+sides inferred, takes longer than its four minutes. What stays open is `engineering.md` §9.
 
 ---
 
@@ -207,7 +210,8 @@ All in `scripts/local-catalog.mjs` and `scripts/fixtures/catalog.js`.
 **Status:** built: every Mega Stone witness runs, the Mega-only abilities have cards that Mega
 Evolve on turn 1 against the Mega forme, no card prints `refused` (a choice the battle overrode
 prints its cause), and hand-set templates take `stat`, `worlds`, `worlds: 'sweep'`,
-`probe: 'p2b'` and `reason`. The full run of 2026-10-22 regenerated both reports.
+`probe: 'p2b'` and `reason`. The full run of 2026-10-22 regenerated both reports, and `--check`
+passes on them.
 
 **Done when:** no card prints `refused` without a written reason; the Mega-only abilities have cards;
 a hand-set Super Fang battle with `worlds: 'sweep'` on HP shows the `50/100g`/`50/100y` boundary; a
@@ -394,8 +398,8 @@ Update `engineering.md` §7.5 (each new hook, in the style of its *What links Po
 (the limits that are left), and the README's commands table if a flag was added. Regenerate both
 reports with a full run.
 
-**Status:** built: the documents describe the code as of 2026-10-22, and both reports are that
-day's full run.
+**Status:** built: the documents describe the code as of 2026-10-22, both reports are that day's
+full run, and `npm run catalog -- --check` passes.
 
 **Done when:** the documents describe the code as built, and `npm run catalog -- --check` passes.
 
