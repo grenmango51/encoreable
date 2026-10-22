@@ -22,21 +22,29 @@
  *   npm run catalog                              every effect; writes both reports
  *   npm run catalog -- --only move:gyroball,item:choicescarf --out <dir>
  *   npm run catalog -- --check                   a full run, compared with the reports
+ *   npm run catalog -- --check --fresh           the same, every effect played again
+ *
+ * A run reuses the record of every effect whose fingerprint is unchanged, from
+ * .cache/catalog/ (see runAll): a change to the inference or the rebuild plays
+ * every effect again, a change to the reports or to one effect's battles does
+ * not.
  *   npm run catalog -- --dump move:counter user-hidden/before def 32
  *                                                the battle behind one row, and its rebuild
  *   npm run catalog -- --fuzz 100 --seed 1 --out <dir>
  *                                                random battles, p2's Stat Points inferred
  *
  * Flags: --pool --list --only <ids> --kind <kind> --sheets open|closed --inputs <file>
- *        --out <dir> --no-coverage --check --threads <n> --verbose --records <file>...
+ *        --out <dir> --no-coverage --check --fresh --threads <n> --verbose --records <file>...
  *        --dump <effect> <role/template> <stat|-> <value> [--control] [--hazard]
  *        --fuzz <count> --seed <from> [--turns <n>]
  */
 
+import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
 import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 
 import { battleLines } from './lib/protocol.mjs';
@@ -2726,10 +2734,71 @@ async function serve() {
   });
 }
 
-async function runAll(effects, { threads, inputs, coverage, sheets, verbose }) {
-  const queue = effects.filter(e => e.kind !== 'condition');
+/**
+ * The record cache: one file per effect in `.cache/catalog/`, kept under the
+ * fingerprint of everything that makes that effect's record - this file up to
+ * its reports, `scripts/lib/`, `scripts/server/`, the fixtures but the
+ * catalog's entries, the simulator as pinned, Node, the run's options, and the
+ * effect's own entry less its `cells`, which only a report reads. A run reuses
+ * every record whose fingerprint still matches and plays only the rest;
+ * `--fresh` plays them all. Any change to the inference or the rebuild changes
+ * every fingerprint, so it is checked in full; a change to how the reports
+ * read, or to one effect's battles, is not.
+ */
+const CACHE = path.join(ROOT, '.cache', 'catalog');
+
+/** A value as text, its keys in order and its functions as their source. */
+function stable(value) {
+  if (typeof value === 'function') return `fn:${String(value)}`;
+  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
+  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map(k => `${JSON.stringify(k)}:${stable(value[k])}`).join(',')}}`;
+  return JSON.stringify(value) ?? 'undefined';
+}
+
+const filesUnder = dir => fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })
+  .flatMap(d => (d.isDirectory() ? filesUnder(path.join(dir, d.name)) : [path.join(dir, d.name)]));
+
+/** What every effect's record stands on besides its own entry. */
+function codeFingerprint() {
+  const hash = crypto.createHash('sha256');
+  const own = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8');
+  const reports = own.search(/^\/\/ -+ reports\r?$/m);
+  if (reports < 0) throw new Error('local-catalog.mjs has no reports section to leave out of its fingerprint');
+  hash.update(own.slice(0, reports));
+  const files = [...filesUnder('scripts/lib'), ...filesUnder('scripts/server'), ...filesUnder('scripts/fixtures')]
+    .filter(f => path.basename(f) !== 'catalog.js').sort();
+  for (const file of files) hash.update(`\0${file}\0`).update(fs.readFileSync(path.join(ROOT, file)));
+  const { entries, ...shared } = FIXTURE;
+  const lock = JSON.parse(fs.readFileSync(path.join(ROOT, 'package-lock.json'), 'utf8')).packages['node_modules/pokemon-showdown'];
+  return hash.update(stable({ shared, simulator: [lock?.resolved, lock?.integrity], node: process.version })).digest('hex');
+}
+
+const fingerprintOf = (code, effect, entry, options) => {
+  const { cells, ...made } = entry || {};
+  return crypto.createHash('sha256').update(code).update(stable({ effect, entry: made, options })).digest('hex');
+};
+const cacheFile = key => path.join(CACHE, `${key.replace(/[^a-z0-9]+/gi, '-')}.json`);
+
+async function runAll(effects, { threads, inputs, coverage, sheets, verbose, fresh }) {
+  const all = effects.filter(e => e.kind !== 'condition');
   const records = new Map();
+  const entries = loadEntries(inputs);
+  const code = codeFingerprint();
+  const prints = new Map(all.map(e => [e.key, fingerprintOf(code, e, entries[e.key], { coverage, sheets })]));
+  const queue = [];
+  for (const effect of all) {
+    let cached = null;
+    if (!fresh) {
+      try { cached = JSON.parse(fs.readFileSync(cacheFile(effect.key), 'utf8')); } catch { /* not cached */ }
+    }
+    if (cached?.fingerprint === prints.get(effect.key)) records.set(effect.key, cached.record);
+    else queue.push(effect);
+  }
+  console.log(`catalog: ${records.size} record(s) from the cache, ${queue.length} to play`);
+  if (!queue.length) return records;
+  fs.mkdirSync(CACHE, { recursive: true });
   const size = Math.max(1, Math.min(threads, queue.length));
+  const total = queue.length;
   const started = Date.now();
   let done = 0;
   await Promise.all(Array.from({ length: size }, () => new Promise((resolve, reject) => {
@@ -2748,7 +2817,8 @@ async function runAll(effects, { threads, inputs, coverage, sheets, verbose }) {
         return;
       }
       records.set(msg.key, msg.record);
-      console.log(`[${done}/${effects.filter(e => e.kind !== 'condition').length}] ${msg.key} ${msg.record.open.outcome} ${((Date.now() - started) / 1000).toFixed(0)}s`);
+      fs.writeFileSync(cacheFile(msg.key), JSON.stringify({ fingerprint: prints.get(msg.key), record: msg.record }));
+      console.log(`[${done}/${total}] ${msg.key} ${msg.record.open.outcome} ${((Date.now() - started) / 1000).toFixed(0)}s`);
       next();
     });
     worker.on('error', reject);
@@ -2874,7 +2944,7 @@ async function main() {
     console.log(`catalog: rendering ${all.length} record(s) from ${saved.join(', ')}`);
   } else {
     console.log(`catalog: ${effects.length} effect(s), ${threads} thread(s)${coverage ? '' : ', no coverage'}${sheetsOpt ? `, ${sheetsOpt} sheets only` : ''}`);
-    const byKey = await runAll(effects, { threads, inputs, coverage, sheets, verbose: flag('--verbose') });
+    const byKey = await runAll(effects, { threads, inputs, coverage, sheets, verbose: flag('--verbose'), fresh: flag('--fresh') });
     const records = [...byKey.values()];
     const conditions = partial ? [] : conditionRecords(records, pool);
     all = [...records, ...conditions].sort((a, b) => KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind) || a.key.localeCompare(b.key));

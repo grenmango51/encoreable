@@ -446,5 +446,8 @@ use, it uses. The report's §1.3 lists no work: everything left carries a writte
   does not — Shell Side Arm's coin on a damage tie — the row is UNSTABLE: each world is rebuilt and
   keeps its real spread, but whether the effect's line is read is not judged.
 - **Cost.** The battles are fast — every move's, without the rebuilds, in 75 s on 13 threads.
-  The rebuilds are not: a full run takes about two and a half hours on 13 threads, and so does
-  `--check`. `--kind` with `--out`, then `--records`, splits it.
+  The rebuilds are not: playing the whole pool takes about two and a half hours on 13 threads. A
+  run, `--check` included, plays only the effects whose record's fingerprint changed
+  (`.cache/catalog/`, `engineering.md` §8), so that is the cost of a change to the inference or the
+  rebuild, not of one to the reports or to one effect's battles. `--kind` with `--out`, then
+  `--records`, splits it.

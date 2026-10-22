@@ -67,8 +67,11 @@ plain and once with the named draws forced, and reports what moved.
 `npm run extension` takes `--check [sim|room|entry|rng|package]` (all of them when none is
 named), `--headful` and `--verbose`.
 `npm run catalog` takes `--pool`, `--list`, `--only <ids>`, `--kind <kind>`,
-`--sheets open|closed`, `--inputs <file>`, `--out <dir>`, `--no-coverage`, `--check`,
-`--threads <n>` and `--verbose`; a run of part of the pool writes only to `--out`, and
+`--sheets open|closed`, `--inputs <file>`, `--out <dir>`, `--no-coverage`, `--check`, `--fresh`,
+`--threads <n>` and `--verbose`. A run reuses the record of every effect whose fingerprint has
+not changed, from `.cache/catalog/`: a change to the inference or the rebuild plays the whole pool
+again (about two and a half hours), a change to the reports or to one effect's battles takes
+seconds or minutes, and `--fresh` plays everything. A run of part of the pool writes only to `--out`, and
 `--records <file>` (repeatable) renders the reports again from saved runs — the pool run a kind
 at a time, say — without running a battle.
 `--dump <effect> <role/template> <stat> <0|32>` prints the battle behind one row of the reports

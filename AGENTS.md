@@ -52,6 +52,7 @@ the table does not already place. Ask for that file, by name, on its own, and wa
 | Replay known only by its link on replay.pokemonshowdown.com | the link's `.json`, as served, in the same folder as a page would go: `recordings/showdown/<folder>/<replay id>.json` |
 | Battle video | `recordings/video/<tournament or champions>/` — gitignored; list it in that folder's `README.md` |
 | Rendered replay page | `replays/` — written by the commands, gitignored, never hand-authored |
+| What a command keeps between runs to skip work it already did | `.cache/<command>/` — written by that command, gitignored, safe to delete, never hand-edited |
 | Local Showdown server file | `runtime/` — generated from `node_modules`, never edited by hand |
 | Upstream client file | `vendor/` — a clone of someone else's repo, never edited |
 | Explanation of a directory whose contents are not self-evident | `<that-directory>/README.md` |

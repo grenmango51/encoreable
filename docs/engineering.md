@@ -1471,8 +1471,16 @@ moved. That is the headless proof for §4; `/rng` is the same engine driven from
 `npm run catalog` takes `--pool`, `--list`, `--only <ids>`, `--kind <kind>`, `--sheets open|closed`,
 `--inputs <file>`, `--out <dir>`, `--no-coverage`, `--check`, `--threads <n>` and `--verbose`, and
 `--dump <effect> <role/template> <stat> <0|32>` for the battle behind one row, and
+`--fresh` to play every effect again rather than reuse its cached record (below), and
 `--records <file>` (repeatable) to render saved runs again; only records covering the whole pool
 write the reports in `docs/`, and `--check` fails when a fresh full run disagrees with them.
+Every run keeps each effect's record in `.cache/catalog/` under a fingerprint of all that makes
+it: `local-catalog.mjs` up to its reports, `scripts/lib/`, `scripts/server/`, the fixtures but the
+catalog's entries, the simulator's pinned commit, Node, the run's options, and the effect's own
+entry less its `cells`, which only a report reads. A later run, `--check` included, plays only the
+effects whose fingerprint changed: a change to the inference or the rebuild plays the whole pool
+again, about two and a half hours on 13 threads, while a change to how the reports read, or to
+one effect's battles and reasons, takes seconds or minutes. `--fresh` plays everything.
 `--fuzz <n> --seed <s>` (with `--turns <n>`, `--out <dir>`) plays n random legal Reg M-C battles
 in-process: teams from the published sheets in `recordings/showdown/mine-open/` and `full-sheets/` and
 from `scripts/fixtures/teams.js`, random Stat Points (each at most 32, at most 66 in all, every point

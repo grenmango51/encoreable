@@ -13,6 +13,10 @@ replays/
 # The built Chrome extension, written by npm run extension. Load it unpacked from here.
 extension/dist/
 
+# What a command keeps between runs - the catalog's records, written by
+# npm run catalog. Deleting it is safe: the next run plays everything again.
+.cache/
+
 # Battle recordings ARE tracked - they are the input to every branch command
 # and cannot be regenerated. See recordings/README.md.
 
