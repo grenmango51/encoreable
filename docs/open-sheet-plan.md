@@ -10,11 +10,10 @@ allows and removes every spread it rules out, and prove it with battles built fo
 **Verified against:** `pokemon-showdown` at `a5df827`, `scripts/lib/inference/` and the catalog
 reports as of 2026-10-22, and the by-hand review in `evidence-by-hand.md` (commit `e7f3322`).
 **After this:** `closed-sheet-plan.md`, which builds on the harness this plan finishes.
-**Status (2026-10-22):** all eight phases are built, and §6 holds but for the extension check's
-live-site steps: `npm run catalog -- --check` passes, and `npm run extension -- --check` passes
-`sim` and `package`, while `room` and `rng` fail where play.pokemonshowdown.com no longer
-commits the extension's clicks and `entry` where the newest replay on the replay server, both
-sides inferred, takes longer than its four minutes. What stays open is `engineering.md` §9.
+**Status (2026-10-22):** all eight phases are built, and every item of §6 holds: the recordings
+and the probes rebuild and keep their real spreads, `--outside` rebuilds nothing outside a range,
+the open-sheet report holds no work, the user's open games pass §3.3, and `npm run catalog -- --check`
+and `npm run extension -- --check` pass. What stays open is `engineering.md` §9.
 
 ---
 
