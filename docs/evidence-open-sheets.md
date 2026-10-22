@@ -16986,11 +16986,11 @@ A line tagged with a condition's name is `[from] <it>`, or one that starts it; a
 | Aurora Veil `condition:auroraveil` | 7 | yes | move:auroraveil | — |
 | Baneful Bunker `condition:banefulbunker` | 1 | no | move:banefulbunker | — |
 | Beak Blast `condition:beakblast` | 1 | no | move:beakblast | — |
-| brn `condition:brn` | 427 | yes | ability:flamebody, ability:spicyspray, move:beakblast, move:blazekick +14 | HP M4 USED (move:beakblast T); HP M4 USED (move:blazekick T); HP M4 USED (move:firefang T); HP M4 USED (move:fireblast T) |
+| brn `condition:brn` | 427 | yes | ability:flamebody, ability:spicyspray, move:beakblast, move:blazekick +14 | HP M4 USED (ability:heatproof H); HP M4 USED (ability:spicyspray O); HP M4 USED (move:beakblast T); HP M4 USED (move:blazekick T) |
 | Charge `condition:charge` | 25 | yes | ability:electromorphosis, move:charge | — |
 | Chilly Reception `condition:chillyreception` | 2 | yes | move:chillyreception | — |
 | choicelock `condition:choicelock` | 293 | no | item:choicescarf | — |
-| confusion `condition:confusion` | 273 | yes | move:axekick, move:confuseray, move:dynamicpunch, move:flatter +5 | Atk M5 UNSTABLE (move:axekick U); Atk M6 UNSTABLE (move:axekick U); HP M1 USED (move:axekick T); Atk M2 USED (move:axekick T) |
+| confusion `condition:confusion` | 273 | yes | move:axekick, move:confuseray, move:dynamicpunch, move:flatter +5 | HP M1 USED (ability:illusion H); Atk M2 USED (ability:illusion H); Def M1 USED (ability:illusion H); HP M1 USED (ability:imposter H) |
 | Counter `condition:counter` | 41 | no | move:counter | — |
 | Curse `condition:curse` | 103 | no | move:curse | — |
 | Destiny Bond `condition:destinybond` | 25 | no | move:destinybond | — |
@@ -17011,7 +17011,7 @@ A line tagged with a condition's name is `[from] <it>`, or one that starts it; a
 | Gastro Acid `condition:gastroacid` | 6 | no | move:gastroacid | — |
 | gem `condition:gem` | 293 | yes | item:normalgem | — |
 | Glaive Rush `condition:glaiverush` | 1 | no | move:glaiverush | — |
-| Grassy Terrain `condition:grassyterrain` | 28 | yes | ability:grassysurge, ability:seedsower, move:grassyterrain | HP M4 USED (move:grassyterrain U); HP M4 USED (move:grassyterrain T); HP M4 USED (ability:grassysurge H); Atk M5 MASKED (ability:grassysurge O) |
+| Grassy Terrain `condition:grassyterrain` | 28 | yes | ability:grassysurge, ability:seedsower, move:grassyterrain | HP M4 USED (ability:grassysurge H); Atk M5 MASKED (ability:grassysurge O); HP M4 USED (ability:grassysurge O); HP M4 USED (ability:seedsower H) |
 | Gravity `condition:gravity` | 22 | yes | move:gravity | — |
 | Heal Block `condition:healblock` | 26 | yes | move:psychicnoise | — |
 | Healing Wish `condition:healingwish` | 10 | no | move:healingwish | — |
@@ -17037,7 +17037,7 @@ A line tagged with a condition's name is `[from] <it>`, or one that starts it; a
 | Perish Song `condition:perishsong` | 7 | no | move:perishsong | — |
 | Power Trick `condition:powertrick` | 3 | yes | move:powertrick | — |
 | Protect `condition:protect` | 321 | no | move:detect, move:protect | — |
-| psn `condition:psn` | 250 | yes | ability:effectspore, ability:poisonpoint, ability:poisontouch, move:banefulbunker +11 | HP M4 USED (move:banefulbunker T); Atk M5 USED (move:barbbarrage U); Atk M6 USED (move:barbbarrage U); HP M4 USED (move:barbbarrage T) |
+| psn `condition:psn` | 250 | yes | ability:effectspore, ability:poisonpoint, ability:poisontouch, move:banefulbunker +11 | Atk M5 USED (ability:synchronize H); Atk M6 USED (ability:synchronize H); HP M4 USED (ability:toxicdebris O); HP M4 USED (move:banefulbunker T) |
 | Psychic Terrain `condition:psychicterrain` | 26 | yes | ability:psychicsurge, move:psychicterrain | — |
 | Quick Guard `condition:quickguard` | 23 | no | move:quickguard | — |
 | Rage Powder `condition:ragepowder` | 25 | no | move:ragepowder | — |
@@ -17047,7 +17047,7 @@ A line tagged with a condition's name is `[from] <it>`, or one that starts it; a
 | Roost `condition:roost` | 27 | no | move:roost | — |
 | Safeguard `condition:safeguard` | 81 | yes | move:safeguard | — |
 | Salt Cure `condition:saltcure` | 1 | yes | move:saltcure | HP M4 USED (move:saltcure T); HP M6 USED (move:saltcure T); Def M5 USED (move:saltcure T); Def M6 USED (move:saltcure T) |
-| Sandstorm `condition:sandstorm` | 65 | yes | ability:sandspit, ability:sandstream, move:sandstorm | HP M4 USED (move:sandstorm T); HP M4 USED (ability:sandspit O); HP M4 USED (ability:sandstream O); HP M6 USED (ability:sandstream O) |
+| Sandstorm `condition:sandstorm` | 65 | yes | ability:sandspit, ability:sandstream, move:sandstorm | HP M4 USED (ability:sandspit O); HP M4 USED (ability:sandstream O); HP M6 USED (ability:sandstream O); HP M4 USED (move:sandstorm T) |
 | slp `condition:slp` | 385 | yes | ability:effectspore, move:hypnosis, move:rest, move:sing +2 | — |
 | Smack Down `condition:smackdown` | 39 | no | move:smackdown | — |
 | Snowscape `condition:snowscape` | 40 | yes | ability:snowwarning, move:chillyreception, move:snowscape | — |
@@ -17061,7 +17061,7 @@ A line tagged with a condition's name is `[from] <it>`, or one that starts it; a
 | SunnyDay `condition:sunnyday` | 212 | yes | ability:drought, move:sunnyday | — |
 | Syrup Bomb `condition:syrupbomb` | 1 | yes | move:syrupbomb | — |
 | Tailwind `condition:tailwind` | 44 | yes | move:tailwind | — |
-| Taunt `condition:taunt` | 101 | yes | move:taunt | Spe M6 USED (item:abomasite H); Spe M6 USED (item:cameruptite H); Spe M6 UNSTABLE (item:ironball H); Spe M6 UNSTABLE (item:steelixite H) |
+| Taunt `condition:taunt` | 101 | yes | move:taunt | Spe M6 USED (item:abomasite H); Spe M6 USED (item:cameruptite H); Spe M6 UNSTABLE (item:ironball H); Spe M6 UNSTABLE (item:slowbronite H) |
 | Torment `condition:torment` | 25 | yes | move:torment | — |
 | tox `condition:tox` | 64 | yes | move:poisonfang, move:toxic, move:toxicspikes | — |
 | Toxic Spikes `condition:toxicspikes` | 28 | yes | ability:toxicdebris, move:toxicspikes | — |
