@@ -1626,3 +1626,1250 @@ a list of candidates, removed only when the simulator says no spread under it fi
 | `runtime/server/rooms.ts` | `getScrollback(channel)` :1964 |
 | `runtime/server/chat-commands/core.ts` | `exportinputlog` :840, consent :804, `importinputlog` :893 |
 | `runtime/data/mods/champions/scripts.ts` | Stat formula, PP cap, Trick Room fix |
+
+---
+
+## 12. Implementation audit — 2026-10-23
+
+Audited commit: [`db263410b5f80974a67e3e426608fdd50f796755`](https://github.com/grenmango51/encoreable/tree/db263410b5f80974a67e3e426608fdd50f796755).
+
+This section preserves the complete 83-suggestion audit for a later implementation session. The audit covered Encoreable-owned reconstruction, inference, RNG controls, extension, persistence, local runtime and developer tools. Showdown remains the source of truth for battle mechanics.
+
+These findings describe the audited commit; they are not claims that fixes have been implemented. Reproduce each relevant issue against the current checkout before changing it. Preserve the distinction between a deterministic contradiction, an incomplete search and a verified witness.
+
+### 12.1 Priority, confidence and validation
+
+- **P1:** answer correctness or data integrity.
+- **P2:** reliability or throughput.
+- **P3:** larger investigation or portability.
+- **Effort S / M / L:** relative implementation size, not a time estimate.
+- **Reproduced:** a focused local probe demonstrated the named behavior. Some control-flow probes used controlled or mocked inputs/results, as stated in the finding.
+- **Static defect:** a concrete faulty code path identified by inspection.
+- **Likely bottleneck:** a candidate for profiling; no benchmark improvement is claimed.
+- **Design improvement / planned design caution:** proposed hardening or a specific amendment to the existing plan, rather than a newly discovered implemented feature.
+
+Checks and limits:
+
+- git pull --ff-only: already up to date on main.
+- npm run check: PASS; 8.53 seconds including runtime provisioning (one local run).
+- In-memory replay of all 29 recordings/local/*.log.json: 28 mechanics matches and input-log round trips; the sole exception is the documented scripted Reg M-B recording 23 with targetless Memento. Player bookkeeping was excluded consistently with verify-branch.
+- Exact verify-branch helper probe: 0 errors reported before drain versus 14 when collected after drain on that known-bad log.
+- Static-route and malformed-thread expressions were exercised in memory; no traversal request was sent to a live server.
+- A zero-Stat-Point version of the existing fixture passed the actual Reg M-C team validator, while local-replay’s exact-66 budget predicate returned false.
+- An isolated VM probe of the actual RNG panel returned the first room’s cached damage ladder in a different room without issuing a new request; hook installation returned true then false on repeat.
+- Current recording listing: 30 combined entries, 224 statSync calls, approximately 9 ms in one local run.
+- No source, tracked documentation, or recordings were changed. README.md and docs/plan.md edits predated this audit.
+- Full browser extension checks, inference rungs, a fresh catalog and sustained benchmarks were not run for this read-only audit.
+- Three bounded reviewers used isolated module probes and the pinned simulator for targeted findings. Controlled/mocked-result probes demonstrate the named control-flow behavior, not a full browser or inference-corpus pass.
+
+The statement that no files changed refers to the read-only audit itself. This section was subsequently added to preserve its report. No implementation fixes are included.
+
+### 12.2 Recommended starting order
+
+1. **[A32 — Make verification a contract shared by the CLI, extension and saved artifacts](#a32)** A result must carry independent replayability, verified reach and assumptions; completion alone cannot establish trust.
+2. **[A28 — Fix the current RNG tooltip cache and acknowledgement isolation](#a28)** This is a reproduced cross-room stale-value problem in the code used by both local and extension controls.
+3. **[A50 — Protect sound inference when searches are incomplete](#a50)** A failed or budget-exhausted search is undecided; it cannot justify eliminating a possible identity reading.
+4. **[A67 — Repair the HP backtracker’s channel, side and line classification](#a67)** These are small, concrete mistakes in the search machinery and can cause wasted work or missed reconstructions.
+5. **[A44 — Introduce explicit format and stat-model admission checks](#a44)** A reproduced unsupported import resolved Gen 8 data as Gen 9; reject unsupported profiles before they reach the solver.
+6. **[A71 — Validate supplied teams without silently rewriting their identities](#a71)** Use authoritative species identities and observed fields, while retaining ambiguity among matching teambuilder teams.
+7. **[A13 — Make recording identity and persistence durable](#a13)** Protect distinct immutable logs, pending branch state and truthful save status across reloads, resets and devices.
+8. **[A14 — Profile repeated work, then optimize the largest measured stages](#a14)** Target duplicated world inference, whole-knowledge copies, repeated scaffold passes and eager worker startup before adding more threads.
+
+Implement the first pass as small correctness changes, then shared format and evidence contracts, then performance refactors measured against the same replay corpus. Each batch must preserve replay determinism and every valid inference candidate.
+
+Existing strengths to preserve:
+
+- The simulator remains the source of truth for all battle mechanics.
+- Turn-boundary snapshots and RNG pins already avoid replaying every probe from turn one.
+- Knowledge already uses compact masks, budget propagation, ties and explicit certification.
+- Node and the extension reuse the same reconstruction and RNG code.
+- Uncertain candidates and budget-exhausted searches must remain distinguishable from disproved possibilities.
+- recordings/local remains immutable.
+
+The open-sheet plan is marked complete. The closed-sheet plan already schedules candidate item, ability and nature inference; that missing feature is not counted as a new discovery here. A56 is explicitly an amendment to the planned equivalence proof, and A83 covers a concrete contradictory fallback that the planned candidate transition should handle.
+
+### 12.3 Complete findings
+
+Source links below are pinned to the audited commit. Each item includes its proposed change and acceptance check. The stable A01–A83 identifiers are shared with the original interactive report.
+
+#### Format scalability
+
+<a id="a27"></a>
+
+##### A27 — Separate fixture assertions from general replay validity
+
+**P1 · Reproduced + static · Effort M**
+
+**Why it matters:** The replay checker assumes every spread spends exactly 66 points, derives HP with the Champions level-50 formula and treats denominator 100 as proof of percentage HP. A zero-Stat-Point version of the existing fixture passed Showdown’s Reg M-C validator but failed the replay checker’s budget predicate. The HP assumptions also prevent general-format reuse. Reconstruction also embeds the HP formula in early team checks.
+
+**Proposed change:** Keep the existing fixture-specific proof, but gate it by an explicit capability profile. For arbitrary logs obtain stats and legal limits from the actual simulator/validator and record the HP observation mode explicitly. Reuse the simulator-backed approach already present in sheetsOf().
+
+**Validation:** Test underspent teams, other levels/stat models, exact max HP of 100 and percentage channels; determinism should remain an independent check.
+
+**Sources:** [scripts/local-replay.mjs:248](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-replay.mjs#L248), [scripts/local-replay.mjs:332](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-replay.mjs#L332), [scripts/local-replay.mjs:344](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-replay.mjs#L344), [scripts/local-reconstruct.mjs:358](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-reconstruct.mjs#L358), [scripts/lib/reconstruct.mjs:242](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/reconstruct.mjs#L242).
+
+<a id="a44"></a>
+
+##### A44 — Reject extension formats whose simulator mod data is absent
+
+**P1 · Reproduced · Effort S**
+
+**Why it matters:** The bundle includes only two mods, but the fs shim advertises every installed mod. Under the shipped loader policy, a reviewer probe resolved gen8ou as generation 9, while Node resolved generation 8.
+
+**Proposed change:** Check the requested format’s full mod ancestry against embedded data before opening or reconstructing; explicitly reject unavailable capability profiles.
+
+**Validation:** Unsupported Gen 8 input must fail clearly; supported Reg M-B/M-C simulator parity must remain intact.
+
+**Sources:** [scripts/local-extension.mjs:50](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-extension.mjs#L50), [extension/src/node/fs.js:27](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/node/fs.js#L27).
+
+<a id="a58"></a>
+
+##### A58 — Give inference an explicit supported stat-model descriptor
+
+**P1 · Design improvement · Effort M**
+
+**Why it matters:** knowledge fixes 33-value domains and a 66-point budget, while inferSpreads accepts arbitrary format IDs. Another format can enter a representation whose coordinates do not mean its stats.
+
+**Proposed change:** Pass an explicit format-model descriptor and reject unsupported models before inference. Keep actual stat calculations in Showdown and include the model identity in packed knowledge.
+
+**Validation:** Unsupported stat models must fail at admission; supported Champions knowledge, ranges and counts must remain identical.
+
+**Sources:** [scripts/lib/inference/knowledge.mjs:16](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/knowledge.mjs#L16), [scripts/lib/inference/infer.mjs:179](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/infer.mjs#L179).
+
+<a id="a22"></a>
+
+##### A22 — Carry the recording’s actual format into replay output
+
+**P2 · Static defect · Effort S**
+
+**Why it matters:** local-replay always uses the Reg M-C FORMAT for output filenames, titles and replay metadata, even when --from loads a Reg M-B or future-format recording.
+
+**Proposed change:** Read format identity from the input-log start/validated metadata and use it consistently; keep fixture format as a default only when creating that fixture.
+
+**Validation:** Render two formats and require the page metadata, title and actual simulator format to agree.
+
+**Sources:** [scripts/local-replay.mjs:58](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-replay.mjs#L58), [scripts/local-replay.mjs:421](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-replay.mjs#L421).
+
+#### Inference & closed sheets
+
+<a id="a50"></a>
+
+##### A50 — Do not reject an Illusion reading because its search ran out
+
+**P1 · Static soundness defect · Effort M**
+
+**Why it matters:** Alternative Illusion readings are retained only if they rebuild completely when the baseline completed. A probe-budget failure before the wall-clock deadline can therefore discard a possible identity reading and retain cuts against the real spread.
+
+**Proposed change:** Discard a reading only after a deterministic contradiction; union conservative knowledge for incomplete alternatives, using blank knowledge where needed. Treat budget exhaustion as undecided.
+
+**Validation:** Force an alternative reading to exhaust its probe budget while the baseline completes; every possible spread under that reading must survive.
+
+**Sources:** [scripts/lib/inference/infer.mjs:879](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/infer.mjs#L879).
+
+<a id="a51"></a>
+
+##### A51 — Keep outside-range probes within the all-spent assumption
+
+**P1 · Reproduced · Effort S**
+
+**Why it matters:** Certification lowers other stats when a probe exceeds 66, but does not restore points when a lowered coordinate produces 65. A controlled call of the actual certifier requested 65-point witnesses for spent knowledge, allowing a false possible-spread-removed alarm.
+
+**Proposed change:** Construct outside probes by relaxing the tested coordinate while preserving the rest of the knowledge contract, including spent=true.
+
+**Validation:** Every all-spent probe must total exactly 66; a successful out-of-contract witness must never be reported as an inference counterexample.
+
+**Sources:** [scripts/lib/inference/infer.mjs:1107](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/infer.mjs#L1107).
+
+<a id="a52"></a>
+
+##### A52 — Invalidate certificates when combining games or changing ranges
+
+**P1 · Reproduced · Effort M**
+
+**Why it matters:** combineGames intersects ranges but preserves the original certified object. A probe moved an HP minimum from 0 to 1 while keeping the old true flag; a witness for one game also does not prove consistency with every contributing game.
+
+**Proposed change:** Clear certificates on combination, or revalidate their complete witnesses against all games and the new endpoint values. Bind proof status to its full context.
+
+**Validation:** Combine certified games with changed endpoints and require no stale flag; replay any retained joint witness against every contributing game.
+
+**Sources:** [scripts/lib/inference/infer.mjs:1014](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/infer.mjs#L1014), [scripts/lib/inference/infer.mjs:1025](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/infer.mjs#L1025).
+
+<a id="a59"></a>
+
+##### A59 — Validate each Stat Point coordinate before encoding it
+
+**P1 · Reproduced · Effort S**
+
+**Why it matters:** Membership checks the total and flattened key without each coordinate’s integer bounds. keyOf(0,33,0) aliases keyOf(1,0,0); a probe accepted def=33 against knowledge containing only hp=1, def=0.
+
+**Proposed change:** Validate finite integer coordinates in the supported range at membership, pinning and external input boundaries; retain intentional defaults for omitted coordinates.
+
+**Validation:** Reject negative, fractional, nonfinite and over-limit values, including the reproduced alias, while accepting every valid boundary.
+
+**Sources:** [scripts/lib/inference/knowledge.mjs:767](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/knowledge.mjs#L767), [scripts/lib/inference/knowledge.mjs:36](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/knowledge.mjs#L36).
+
+<a id="a83"></a>
+
+##### A83 — Report exhausted ability candidates instead of reviving a ruled-out one
+
+**P1 · Reproduced · overlaps plan · Effort S**
+
+**Why it matters:** After every ability is excluded, setsFromLog falls back to abilities[0]. A probe ruled out both Blaze and Solar Power yet returned Blaze. Candidate lists are already planned; this is a concrete contradiction the transition must handle.
+
+**Proposed change:** Return explicit candidate exhaustion with its evidence and do not restart inference under a disproved fallback.
+
+**Validation:** Excluding every legal ability must yield a contradiction with reasons, never one of the excluded assumptions.
+
+**Sources:** [scripts/lib/replay-source.mjs:622](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/replay-source.mjs#L622), [docs/closed-sheet-plan.md:339](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/docs/closed-sheet-plan.md#L339).
+
+<a id="a53"></a>
+
+##### A53 — Return the furthest verified rebuild when later rounds regress
+
+**P2 · Reproduced · Effort S**
+
+**Why it matters:** The loop overwrites built, while deepest retains only coordinates. Controlled reconstruction results reaching turn 5 then turn 2 returned the later turn-2 result.
+
+**Proposed change:** Retain a coherent best-result bundle containing rebuild, chosen spreads, verified reach and associated proof state; return it on exhaustion or deadline.
+
+**Validation:** Feed a turn-5 result followed by a turn-2 result, then stop by rounds and deadline; both paths must return the furthest valid bundle.
+
+**Sources:** [scripts/lib/inference/infer.mjs:662](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/infer.mjs#L662).
+
+<a id="a54"></a>
+
+##### A54 — Extend cancellation and deadlines through evidence processing
+
+**P2 · Static defect · Effort M**
+
+**Why it matters:** Evidence settling, nested guess selection and the final pass can start substantial work without checking or receiving the deadline. The final settling pass can run after expiry.
+
+**Proposed change:** Pass one cancellation/budget context into evidence work, check between bounded candidate batches, and stop with sound partial knowledge plus an explicit incomplete reason.
+
+**Validation:** Expire an injected clock during evidence; require bounded completion and preserve all survivors not deterministically eliminated.
+
+**Sources:** [scripts/lib/inference/infer.mjs:685](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/infer.mjs#L685), [scripts/lib/inference/infer.mjs:727](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/infer.mjs#L727), [scripts/lib/inference/infer.mjs:805](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/infer.mjs#L805).
+
+<a id="a55"></a>
+
+##### A55 — Account for every fallback rebuild under one dispatcher
+
+**P2 · Static defect · Effort M**
+
+**Why it matters:** Mandatory fallback rebuilds can start without another affordability check; a diagnostic rebuild bypasses the counter. Local time allowances are checked between calls but are not passed into each call.
+
+**Proposed change:** Route every rebuild, including diagnostic ones, through a checked dispatcher using the smaller of global and local deadlines and one probe/rebuild budget.
+
+**Validation:** With one rebuild remaining, no path may execute two; a single rebuild must also observe its local time limit.
+
+**Sources:** [scripts/lib/inference/infer.mjs:442](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/infer.mjs#L442), [scripts/lib/inference/infer.mjs:605](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/infer.mjs#L605).
+
+<a id="a56"></a>
+
+##### A56 — Strengthen the planned proof of candidate equivalence
+
+**P2 · Planned design caution · Effort M**
+
+**Why it matters:** The closed-sheet plan’s own-handler silence criterion can miss effects read externally, such as conditions/moves querying an item, and thresholds dormant only at the scaffold spread. This is a specific amendment to planned class inference, not a claim that candidate inference already exists.
+
+**Proposed change:** Track external item/ability reads and candidate dependencies; when equivalence is unproven, retain a separate active class. Do not infer inertness from one scaffold’s unchanged behavior.
+
+**Validation:** A screen-duration item and a berry that triggers under another spread must not be merged into an inert class.
+
+**Sources:** [docs/closed-sheet-plan.md:112](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/docs/closed-sheet-plan.md#L112).
+
+<a id="a57"></a>
+
+##### A57 — Assert cache ownership before reusing evidence across set classes
+
+**P2 · Design improvement · Effort M**
+
+**Why it matters:** Raw replay cache uses a constant key, and damage/speed entries use ordinals without candidate-set identity. Current callers generally isolate each scaffold’s cache; future reuse across planned item/ability/nature classes would make that implicit contract unsafe.
+
+**Proposed change:** Give each cache an asserted scaffold/model identity, and separate class-independent entries from candidate-dependent answers.
+
+**Validation:** Evaluate two set classes in both orders, with caching enabled and disabled; packed surviving knowledge must agree exactly.
+
+**Sources:** [scripts/lib/inference/evidence.mjs:196](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/evidence.mjs#L196).
+
+<a id="a60"></a>
+
+##### A60 — Bound damage-row and transition enumeration conservatively
+
+**P2 · Likely bottleneck · Effort L**
+
+**Why it matters:** Damage evidence enumerates target HP states × source states × attacking values × defending values, then expands transition tables. These paths lack caps comparable to other expensive evidence evaluators.
+
+**Proposed change:** Deduplicate identical simulator inputs, build rows lazily and impose explicit resource limits; set evidence aside conservatively when a limit is reached.
+
+**Validation:** Measure rows and table bytes on bounded server cases; capped evaluation must retain every survivor of the uncapped reference.
+
+**Sources:** [scripts/lib/inference/evidence.mjs:927](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/evidence.mjs#L927), [scripts/lib/inference/evidence.mjs:1041](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/evidence.mjs#L1041).
+
+<a id="a62"></a>
+
+##### A62 — Cache derived counts and supported values by knowledge revision
+
+**P2 · Likely bottleneck · Effort M**
+
+**Why it matters:** Recorded evidence computes supported values and independently counts spreads before and after many events. Counts rebuild local memo tables even when the knowledge is unchanged.
+
+**Proposed change:** Cache derived summaries by revision, or calculate supported values, ranges and counts together over the same traversal.
+
+**Validation:** Keep explanation counts, ranges and grids exactly equal while reducing full-key scans and summary time.
+
+**Sources:** [scripts/lib/inference/evidence.mjs:518](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/evidence.mjs#L518), [scripts/lib/inference/knowledge.mjs:414](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/knowledge.mjs#L414).
+
+<a id="a63"></a>
+
+##### A63 — Probe priority and Speed only for relevant comparisons
+
+**P2 · Likely bottleneck · Effort M**
+
+**Why it matters:** Queue sorts evaluate every available move plus Struggle, and speed tables can include constant known owners. Full probing is primarily needed for ambiguous or unseen-action reasoning.
+
+**Proposed change:** Pre-index visible replay actions, reserve complete priority probing for ambiguous cases, and skip comparisons that cannot constrain an unknown owner.
+
+**Validation:** Preserve speed cuts for unseen moves, Encore, priority moves and Speed Swap while counting fewer simulator queries.
+
+**Sources:** [scripts/lib/inference/speed.mjs:147](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/speed.mjs#L147).
+
+<a id="a65"></a>
+
+##### A65 — Probe stored-stat writes using demonstrated dependencies
+
+**P2 · Likely bottleneck · Effort M**
+
+**Why it matters:** Stored-stat handling collects all five movable stats per involved hidden Pokémon and tries all 33 values of every dependency. Speed Swap can therefore cause unrelated Attack/defence probes.
+
+**Proposed change:** Extend the existing Proxy instrumentation to trace stat reads; narrow probing only when dependency coverage is established, otherwise keep conservative enumeration.
+
+**Validation:** Speed Swap, Power Split and Guard Split must retain identical mappings with fewer dry runs; ambiguous effects must retain the conservative fallback.
+
+**Sources:** [scripts/lib/inference/evidence.mjs:2893](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/evidence.mjs#L2893).
+
+<a id="a66"></a>
+
+##### A66 — Retain replayable certification witnesses instead of booleans
+
+**P2 · Design improvement · Effort M**
+
+**Why it matters:** Successful range-end rebuilds are reduced to flags without retaining endpoint values, full team assignments and successful input logs. Later transformations can change the context while the flag remains.
+
+**Proposed change:** Store deduplicated witness records with simulator/model identity and assumptions, and let each endpoint reference the witness that proves it.
+
+**Validation:** Reload and replay each retained witness without rerunning inference or dice search; reject mismatched context or endpoint values.
+
+**Sources:** [scripts/lib/inference/infer.mjs:1063](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/infer.mjs#L1063).
+
+<a id="a61"></a>
+
+##### A61 — Share unchanged knowledge with copy-on-write
+
+**P3 · Likely bottleneck · Effort L**
+
+**Why it matters:** cloneKnowledge copies every mask and tie, including known singletons, and nested guess selection calls it repeatedly. One key tie is about 281 KiB before multiplying candidate classes.
+
+**Proposed change:** Use immutable sharing and copy-on-write for known records and unchanged masks; make ownership explicit so speculative branches cannot mutate siblings.
+
+**Validation:** Compare packed results exactly, test sibling isolation, and measure allocations and peak memory on representative searches.
+
+**Sources:** [scripts/lib/inference/knowledge.mjs:152](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/knowledge.mjs#L152), [scripts/lib/inference/infer.mjs:722](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/infer.mjs#L722).
+
+<a id="a64"></a>
+
+##### A64 — Separate scaffold capture from repeated constraint propagation
+
+**P3 · Likely bottleneck · Effort L**
+
+**Why it matters:** A settling call can replay a scaffold eight times, and nested guess selection starts many such calls. Cached damage rows do not remove replay and hook overhead.
+
+**Proposed change:** Explore an immutable evidence trace per scaffold with dependency-driven constraint reevaluation. Replay again only when capture actually depends on the changed domain.
+
+**Validation:** Match final knowledge, exact HP paths and handed-on RNG rolls against the current full-replay implementation before claiming a speedup.
+
+**Sources:** [scripts/lib/inference/infer.mjs:232](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/inference/infer.mjs#L232).
+
+#### Reconstruction & replay parsing
+
+<a id="a67"></a>
+
+##### A67 — Read exact HP from the omniscient channel before backtracking
+
+**P1 · Reproduced · Effort S**
+
+**Why it matters:** exactHp scans raw split-channel output. A secret 96/192 followed by public 50/100 returns 50; 0 fnt is ignored, leaving an earlier reading. This corrupts the filter for RNG draws that actually changed hidden HP.
+
+**Proposed change:** Resolve channel -1 before reading exact HP and handle fainted HP explicitly.
+
+**Validation:** Two exact HP values behind the same displayed percentage must remain distinguishable; a lethal hit must yield zero.
+
+**Sources:** [scripts/lib/reconstruct.mjs:1866](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/reconstruct.mjs#L1866).
+
+<a id="a68"></a>
+
+##### A68 — Keep side identity throughout HP backtracking
+
+**P1 · Reproduced · Effort M**
+
+**Why it matters:** blameTurn and exactHp identify Pokémon by name alone. A mirror-match probe blamed p1 Blastoise’s later damage for a failure involving p2 Blastoise.
+
+**Proposed change:** Carry side plus stable Pokémon identity through stuck-state attribution, blame selection and exact-HP comparisons.
+
+**Validation:** Mirrored species/nicknames with different histories must backtrack to their own side’s last relevant HP-changing turn.
+
+**Sources:** [scripts/lib/reconstruct.mjs:1828](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/reconstruct.mjs#L1828), [scripts/lib/reconstruct.mjs:2168](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/reconstruct.mjs#L2168).
+
+<a id="a69"></a>
+
+##### A69 — Fix the hidden-HP culprit’s protocol-line guard
+
+**P1 · Reproduced · Effort S**
+
+**Why it matters:** The regex /^|-(damage|heal)|/ matches every string because of its unescaped separators and empty alternatives. Non-HP failures can enter attacker-HP backtracking.
+
+**Proposed change:** Use an anchored protocol-aware damage/heal guard with escaped pipe separators, and test it as a classification boundary.
+
+**Validation:** cant, status and move lines must produce no hidden HP culprit; actual damage and recoil/drain attribution must remain valid.
+
+**Sources:** [scripts/lib/reconstruct.mjs:1851](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/reconstruct.mjs#L1851).
+
+<a id="a70"></a>
+
+##### A70 — Include both legal targets for adjacentAllyOrSelf moves
+
+**P1 · Reproduced · Effort S**
+
+**Why it matters:** The target branch always returns self and drops even an observed ally target. A real-simulator Qwilfish using Acupressure on its ally failed reconstruction because the rebuild always chose Qwilfish.
+
+**Proposed change:** Enumerate self and eligible allies from the simulator request, ordering the observed target first.
+
+**Validation:** Reconstruct both ally-targeted and self-targeted Acupressure under the original seed with exact protocol agreement.
+
+**Sources:** [scripts/lib/reconstruct.mjs:346](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/reconstruct.mjs#L346).
+
+<a id="a71"></a>
+
+##### A71 — Restrict supplied-sheet alignment to legitimate identity changes
+
+**P1 · Reproduced · Effort M**
+
+**Why it matters:** alignSpeciesToSheet rewrites any species mismatch by slot before checking the sheet. In a probe, supplied Charizard became Blastoise and then passed the species check, potentially attaching one species’ spread to another.
+
+**Proposed change:** Normalize only simulator-recognized equivalent battle formes; reject unrelated species, or map an explicitly reordered team without rewriting identity.
+
+**Validation:** Preserve legitimate Mega/base normalization but reject Charizard/Blastoise and wrong-fixture alignment.
+
+**Sources:** [scripts/lib/replay-source.mjs:272](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/replay-source.mjs#L272), [scripts/local-reconstruct.mjs:336](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-reconstruct.mjs#L336).
+
+<a id="a72"></a>
+
+##### A72 — Replace prefix matching with explicit simulator species identity
+
+**P1 · Reproduced · Effort M**
+
+**Why it matters:** sameSpecies equates Mew/Mewtwo, Porygon/Porygon2 and an empty string/Charizard, and can conflate distinct regional formes. This affects fixture assignment, identity recovery and truth checks; examples establish a matcher defect, not current-format legality.
+
+**Proposed change:** Use Dex identities with an explicit permitted battle-form relation, and reject empty identities.
+
+**Validation:** Reject unrelated prefixes and distinct regional formes while retaining every supported legitimate battle-form transition.
+
+**Sources:** [scripts/lib/replay-source.mjs:175](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/replay-source.mjs#L175).
+
+<a id="a73"></a>
+
+##### A73 — Keep copied moves separate from original-set evidence
+
+**P1 · Reproduced · Effort M**
+
+**Why it matters:** A Transform log followed by Flamethrower adds both to Ditto’s original move set; later copied moves need no from tag. The unsettled Illusion path also lacks the temporary-move safeguard used by another unmasking path.
+
+**Proposed change:** Track move acquisition provenance and its lifetime through Transform, Mimic and similar effects; use only original moves for sheet validation and identity evidence.
+
+**Validation:** Copied moves must neither invent an original set nor falsely settle an Illusion identity; genuine revealed original moves must still constrain it.
+
+**Sources:** [scripts/lib/replay-source.mjs:481](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/replay-source.mjs#L481), [scripts/lib/protocol.mjs:172](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/protocol.mjs#L172).
+
+<a id="a74"></a>
+
+##### A74 — Check a transferred ability against its original owner
+
+**P1 · Reproduced · Effort M**
+
+**Why it matters:** After an ally Skill Swap, ability provenance can identify the donor, but couldHave first checks the recipient’s species. A Poison Heal announcement on Audino was ignored, leaving donor Gliscor assumed to have Hyper Cutter. This is a residual defect in transfer support described as implemented.
+
+**Proposed change:** Resolve the ability token’s origin before applying species compatibility; preserve original versus current-holder provenance.
+
+**Validation:** An ally swap followed by an announcement only on the recipient must credit the donor’s original ability correctly.
+
+**Sources:** [scripts/lib/replay-source.mjs:594](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/replay-source.mjs#L594).
+
+<a id="a75"></a>
+
+##### A75 — Resolve Illusion before validating supplied max HP
+
+**P1 · Reproduced · Effort M**
+
+**Why it matters:** The early HP reader attributes a disguised Zoroark’s exact HP to Blastoise; the later replace adds Zoroark but leaves the false Blastoise reading. A correct known team can be rejected before reconstruction starts.
+
+**Proposed change:** Attribute HP through resolved Illusion identity and leave unresolved stays unchecked rather than assigning their HP to the disguise.
+
+**Validation:** A broken disguise must constrain Zoroark’s HP only; an unresolved disguise must not create a false known-team mismatch.
+
+**Sources:** [scripts/lib/replay-source.mjs:226](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/replay-source.mjs#L226), [scripts/local-reconstruct.mjs:350](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-reconstruct.mjs#L350).
+
+<a id="a76"></a>
+
+##### A76 — Cross-check revealed original items and abilities on supplied teams
+
+**P1 · Reproduced · Effort S**
+
+**Why it matters:** crossCheckLog checks species and moves but not revealed item/ability fields. A supplied Blaze/Sitrus Berry Charizard passed a log explicitly revealing Solar Power/Leftovers.
+
+**Proposed change:** Compare original fields only when the parser marks them as observed; exclude assumed and temporarily transferred effects.
+
+**Validation:** Reject the reproduced mismatch immediately, while leaving unrevealed fields unconstrained and handling transferred effects correctly.
+
+**Sources:** [scripts/lib/replay-source.mjs:669](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/replay-source.mjs#L669).
+
+<a id="a78"></a>
+
+##### A78 — Do not save a complete artifact after its independent replay failed
+
+**P1 · Static defect · Effort S**
+
+**Why it matters:** The CLI changes its exit status after an independent replay mismatch but continues writing complete:r.complete. A downstream consumer can load an artifact whose completion flag survived a failed proof.
+
+**Proposed change:** Persist replayability/self-consistency separately from search completeness, and keep failed-proof output explicitly diagnostic instead of trusted.
+
+**Validation:** Inject a built input/log mismatch and require the saved result to retain its failed verification state.
+
+**Sources:** [scripts/local-reconstruct.mjs:462](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-reconstruct.mjs#L462), [scripts/local-reconstruct.mjs:575](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-reconstruct.mjs#L575).
+
+<a id="a77"></a>
+
+##### A77 — Parse the start payload as JSON rather than matching its typography
+
+**P2 · Reproduced · Effort S**
+
+**Why it matters:** truncateAtTurn requires the literal substring formatid followed immediately by its value. Valid JSON containing whitespace after the colon is rejected.
+
+**Proposed change:** Parse the start payload once and validate a nonempty string formatid; distinguish malformed JSON from a missing required field.
+
+**Validation:** Compact, spaced and pretty-formatted equivalent JSON must behave identically; malformed and missing-format cases must give distinct errors.
+
+**Sources:** [scripts/lib/truncate.mjs:141](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/truncate.mjs#L141).
+
+<a id="a79"></a>
+
+##### A79 — Enforce reconstruction budgets at every simulation request
+
+**P2 · Static defect · Effort M**
+
+**Why it matters:** Outer-loop deadline checks do not bound long candidate scans, variant ranking, redraw look-ahead or Illusion retries. Some look-ahead probes also escape local probe accounting.
+
+**Proposed change:** Centralize simulation requests behind a cancellation/deadline/probe-budget gate and return the best verified result when the gate closes.
+
+**Validation:** With a fake clock and counter, no new probe may begin after cancellation or exhaustion; diagnostic and look-ahead probes must count too.
+
+**Sources:** [scripts/lib/reconstruct.mjs:1666](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/reconstruct.mjs#L1666), [scripts/lib/reconstruct.mjs:1889](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/reconstruct.mjs#L1889), [scripts/lib/reconstruct.mjs:2111](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/reconstruct.mjs#L2111).
+
+<a id="a80"></a>
+
+##### A80 — Start probe workers lazily and bound speculative look-ahead
+
+**P2 · Likely bottleneck · Effort M**
+
+**Why it matters:** The pool starts before initial playback establishes that search is needed. Scans can enqueue their remaining budget; cancellation drops queued jobs but leaves dispatched obsolete work running.
+
+**Proposed change:** Create the pool on the first actual search and keep a small speculative queue proportional to worker count; stop obsolete generations promptly.
+
+**Validation:** A matching initial playback should start zero workers. On the server compare time, memory and discarded probes while requiring identical answers across thread counts.
+
+**Sources:** [scripts/lib/reconstruct.mjs:2030](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/reconstruct.mjs#L2030), [scripts/lib/reconstruct.mjs:1709](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/reconstruct.mjs#L1709), [scripts/lib/reconstruct.mjs:1509](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/reconstruct.mjs#L1509).
+
+<a id="a81"></a>
+
+##### A81 — Precompute invariant observed-turn comparisons
+
+**P2 · Likely bottleneck · Effort M**
+
+**Why it matters:** Search comparisons repeatedly filter and split the same observed segment, including hit steering and reachability scans.
+
+**Proposed change:** Cache normalized observed lines, exact-prefix boundaries and action boundaries per reconstruction context; normalize only the changing simulated slice.
+
+**Validation:** Require byte-identical results and unchanged sampling decisions, then measure comparison CPU time on search-heavy replays.
+
+**Sources:** [scripts/lib/reconstruct.mjs:698](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/reconstruct.mjs#L698), [scripts/lib/reconstruct.mjs:781](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/reconstruct.mjs#L781).
+
+<a id="a82"></a>
+
+##### A82 — Align HP-accuracy metrics by event identity
+
+**P2 · Reproduced · Effort M**
+
+**Why it matters:** The accuracy metric pairs readings only by ordinal. A probe paired expected damage to Pokémon A with rebuilt healing of Pokémon B, both 100/200, and reported 100% exact with zero unmatched.
+
+**Proposed change:** Match turn, side/Pokémon identity, event kind and occurrence; report missing and extra events separately, especially for partial reconstructions.
+
+**Validation:** Unrelated matching numbers must not count as exact; inserted, removed and repeated HP events must be diagnosed correctly.
+
+**Sources:** [scripts/local-reconstruct.mjs:165](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-reconstruct.mjs#L165).
+
+#### Extension & storage
+
+<a id="a32"></a>
+
+##### A32 — Honor the reconstruction’s self-consistency verdict
+
+**P1 · Reproduced · Effort S**
+
+**Why it matters:** The replay entry ignores built.selfConsistent and built.ok. A reviewer probe returned selfConsistent:false yet opened a branch and announced that it matched the replay line for line.
+
+**Proposed change:** Require independent replay consistency before assigning verified status or opening a trusted branch; keep valid partial results explicitly partial.
+
+**Validation:** Inject an inconsistent complete result and require no verified recording, branch or success claim.
+
+**Sources:** [extension/src/room.js:460](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/room.js#L460), [extension/src/engine.js:453](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/engine.js#L453).
+
+<a id="a33"></a>
+
+##### A33 — Enforce verified-turn limits at every recording entry point
+
+**P1 · Reproduced · Effort S**
+
+**Why it matters:** openReplay checks the verified reach, but stored-recording entry bypasses that check and the recordings page permits the full replay turn count. A probe opened turn 7 from a recording verified only through turn 2.
+
+**Proposed change:** Centralize the reach check for replay, import, stored-recording and restore entry points; retain verifiedThroughTurn in the contract.
+
+**Validation:** Reject every attempt above a partial recording’s verified boundary while allowing its earlier positions.
+
+**Sources:** [extension/src/room.js:483](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/room.js#L483), [extension/src/recordings.js:60](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/recordings.js#L60).
+
+<a id="a34"></a>
+
+##### A34 — Treat teambuilder matches as candidates until unambiguous
+
+**P1 · Reproduced · Effort M**
+
+**Why it matters:** ownTeam takes the first species-matching team and treats its spreads as known. A probe selected an obsolete spread over another team with the same species; mirror matches favor p1.
+
+**Proposed change:** Use simulator-normalized identities, check observed fields, and retain ambiguity when several teams or sides fit. Do not silently fix a team just because its species list matches.
+
+**Validation:** Test duplicate-species teams with different spreads, reordered teams and mirrored sides; correct supplied data must remain selectable.
+
+**Sources:** [extension/src/room.js:370](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/room.js#L370).
+
+<a id="a35"></a>
+
+##### A35 — Propagate simulator stream errors through the extension adapter
+
+**P1 · Reproduced · Effort M**
+
+**Why it matters:** The stream adapter intercepts push, while simulator exceptions can arrive through pushError. The actual adapter accepted malformed player JSON after valid initialization and could register an apparently successful session.
+
+**Proposed change:** Reject failed opens and writes, propagate the stream’s error channel, and dispose failed sessions before publishing an ID.
+
+**Validation:** Malformed player/start/choice input must reject once and leave no registered session.
+
+**Sources:** [extension/src/engine.js:46](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/engine.js#L46), [extension/src/engine.js:205](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/engine.js#L205).
+
+<a id="a39"></a>
+
+##### A39 — Make branch autosave failure visible and skip unchanged writes
+
+**P1 · Reproduced + likely cost · Effort M**
+
+**Why it matters:** persist swallows storage errors and repeatedly serializes full inference, including after read-only RNG requests. Quota failure was reproduced; repeated serialization is an unprofiled cost.
+
+**Proposed change:** Display durable-save status, separate immutable inference from changing branch state, and save only when the persisted revision changes.
+
+**Validation:** Inject quota failure; measure writes and main-thread serialization during tooltip-only use; reload a successfully saved branch.
+
+**Sources:** [extension/src/room.js:45](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/room.js#L45), [extension/src/room.js:151](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/room.js#L151), [extension/src/room.js:260](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/room.js#L260).
+
+<a id="a40"></a>
+
+##### A40 — Never announce that a reconstruction was saved after saving failed
+
+**P1 · Reproduced · Effort S**
+
+**Why it matters:** openReplay catches save failure only in the console, then can tell the user that the recording is saved. A reviewer reproduced that exact false assurance.
+
+**Proposed change:** Track save success independently from reconstruction success and retain the available result for retry or export.
+
+**Validation:** Reject the recording write and require every banner, error and recovery action to reflect the unsaved state.
+
+**Sources:** [extension/src/room.js:462](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/room.js#L462).
+
+<a id="a45"></a>
+
+##### A45 — Preserve and display closed-sheet assumptions after saving
+
+**P1 · Static defect · Effort M**
+
+**Why it matters:** The engine discards setsFromLog diagnostics; readOffLog flags are not persisted or surfaced by openReplay. Displayed ranges can therefore look unconditional despite assumed hidden sets. Candidate-set inference is already in the closed-sheet plan; this is about current result provenance.
+
+**Proposed change:** Carry observed, assumed and inferred field provenance into recordings and panels; label ranges with the assumptions under which they hold.
+
+**Validation:** Reconstruct a closed replay, save and reload it, and require the same explicit assumptions and conditional range labels.
+
+**Sources:** [extension/src/engine.js:424](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/engine.js#L424), [extension/src/engine.js:453](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/engine.js#L453), [extension/src/room.js:460](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/room.js#L460), [docs/closed-sheet-plan.md:22](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/docs/closed-sheet-plan.md#L22).
+
+<a id="a36"></a>
+
+##### A36 — Reject outstanding RPCs when the simulator worker dies
+
+**P2 · Reproduced · Effort M**
+
+**Why it matters:** room.js only rejects the startup promise on worker error. After startup that promise is settled, so pending calls can remain unresolved and the failed worker stays cached.
+
+**Proposed change:** Use one worker failure handler that rejects the pending registry, invalidates the worker and bounds startup/request waits; recover through a fresh worker when safe.
+
+**Validation:** Crash the worker after readiness with several requests outstanding; all must settle and a later request must not target the dead worker.
+
+**Sources:** [extension/src/room.js:85](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/room.js#L85), [extension/src/room.js:107](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/room.js#L107).
+
+<a id="a37"></a>
+
+##### A37 — Share an in-flight restoration for each branch
+
+**P2 · Reproduced · Effort S**
+
+**Why it matters:** restore inserts into branches only after awaiting open. Concurrent joins reproduced two worker sessions for one branch number, with only the latter retained.
+
+**Proposed change:** Cache the restoration promise immediately per branch and coordinate errors/disposal with it.
+
+**Validation:** Simultaneous joins must return the same session and panel, with one open operation and no orphan session.
+
+**Sources:** [extension/src/room.js:202](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/room.js#L202).
+
+<a id="a38"></a>
+
+##### A38 — Persist choices submitted before the other side commits
+
+**P2 · Reproduced · Effort M**
+
+**Why it matters:** The simulator input log does not yet contain p1’s pending choice while p2 is still choosing. Persisting only the input log loses that decision on reload; a real-simulator probe changed p1 from waiting back to choosing.
+
+**Proposed change:** Store pending choices separately with request identity; restore simulator and client waiting state consistently, including cancellation.
+
+**Validation:** Reload between the two sides’ submissions, cancel and resubmit, and require one eventual turn commit.
+
+**Sources:** [extension/src/engine.js:129](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/engine.js#L129), [extension/src/room.js:151](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/room.js#L151).
+
+<a id="a41"></a>
+
+##### A41 — Query recording metadata without loading the entire archive
+
+**P2 · Likely bottleneck · Effort M**
+
+**Why it matters:** The IndexedDB list and set-selection paths retrieve every recording’s full text before filtering. Their memory and latency grow with unrelated archive payloads.
+
+**Proposed change:** Separate metadata from payloads; index set membership and use the existing saved-time index for ordering. Load full text only for selected recordings.
+
+**Validation:** Increase unrelated archive size while measuring list and one-set retrieval; results must remain identical.
+
+**Sources:** [extension/src/store.js:71](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/store.js#L71), [extension/src/store.js:81](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/store.js#L81).
+
+<a id="a42"></a>
+
+##### A42 — Give browser reconstruction a cancellation and resource budget
+
+**P2 · Design improvement · Effort M**
+
+**Why it matters:** Replay reconstruction uses the browser’s full hardwareConcurrency, and the worker dispatch permits overlapping async jobs. Dismissing or superseding a banner does not stop computation.
+
+**Proposed change:** Track jobs and their nested workers, cancel superseded work, and cap browser concurrency separately from Node defaults so existing branches remain responsive.
+
+**Validation:** Cancel a rebuild while another branch is playable; worker count and memory must return to baseline.
+
+**Sources:** [extension/src/room.js:457](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/room.js#L457), [extension/src/worker.js:19](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/worker.js#L19).
+
+<a id="a43"></a>
+
+##### A43 — Acknowledge launch handoffs before deleting them
+
+**P2 · Design improvement · Effort M**
+
+**Why it matters:** The service worker removes a parked request before the page accepts it; the bridge stops discovery after roughly three seconds. Delayed parking or interrupted delivery can leave an empty tab.
+
+**Proposed change:** Use an acknowledged request ID with expiry, retryable delivery and deduplication.
+
+**Validation:** Delay request parking beyond three seconds and interrupt delivery before acknowledgement; the request must remain recoverable and execute once.
+
+**Sources:** [extension/src/background.js:36](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/background.js#L36), [extension/src/bridge.js:26](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/bridge.js#L26).
+
+#### RNG controls
+
+<a id="a28"></a>
+
+##### A28 — Key damage-ladder caches by room and battle revision
+
+**P1 · Reproduced · Effort M**
+
+**Why it matters:** The RNG panel caches ladder values by source, target, move and crit only; it never clears the values. A focused probe fetched a ladder in one room, then returned that same cached ladder in a different room without a second request. Damage-changing state within one room is also absent from the key.
+
+**Proposed change:** Include branch/session ID and a simulator state revision in ladder requests, responses and cache keys; discard stale replies and clear entries on room disposal.
+
+**Validation:** Open two branches with identical Pokémon names but different spreads/weather, then change boosts mid-battle. Each tooltip must show a freshly valid ladder.
+
+**Sources:** [scripts/client/rng-panel.js:340](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/client/rng-panel.js#L340), [scripts/client/rng-panel.js:358](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/client/rng-panel.js#L358), [scripts/client/rng-panel.js:831](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/client/rng-panel.js#L831), [scripts/server/rng-command.js:952](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/server/rng-command.js#L952).
+
+<a id="a24"></a>
+
+##### A24 — Prove tooltip damage queries do not mutate live state
+
+**P2 · Design improvement · Effort M**
+
+**Why it matters:** damageLadder calls the real simulator 16 times and restores selected fields, including logs and Stellar state. As supported formats/effects grow, a new side effect could escape that list.
+
+**Proposed change:** Use a throwaway serialized simulator state where practical, or add strict before/after state-and-RNG checks for the existing guarded path; keep all mechanics in Showdown.
+
+**Validation:** Query every supported ladder situation and require unchanged state, input log, next RNG draw and subsequent battle outcome.
+
+**Sources:** [scripts/server/rng-command.js:798](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/server/rng-command.js#L798).
+
+<a id="a29"></a>
+
+##### A29 — Track each client-hook installation independently
+
+**P2 · Static defect · Effort S**
+
+**Why it matters:** boot only retries based on tooltip readiness and window.app. It can stop before BattleRoom/listening hooks exist. Conversely wrapTooltips returns false when already wrapped, so a retry after an early successful wrap can keep polling forever; the return sequence true, false was reproduced. The extension also waits indefinitely for missing old-client and tooltip capabilities, despite the documented fail-loudly mitigation.
+
+**Proposed change:** Make each hook’s installer return ready when already installed; retry until all required capabilities are ready, and surface a bounded compatibility error if they never appear.
+
+**Validation:** Initialize app, BattleRoom and BattleTooltips in different orders; require one wrapper/listener each and zero background polling after success.
+
+**Sources:** [scripts/client/rng-panel.js:722](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/client/rng-panel.js#L722), [scripts/client/rng-panel.js:796](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/client/rng-panel.js#L796), [scripts/client/rng-panel.js:818](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/client/rng-panel.js#L818), [scripts/client/rng-panel.js:839](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/client/rng-panel.js#L839), [extension/src/room.js:475](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/room.js#L475), [extension/src/spread-panel.js:515](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/spread-panel.js#L515).
+
+<a id="a30"></a>
+
+##### A30 — Scope pending RNG commands and acknowledgements per room
+
+**P2 · Reproduced · Effort M**
+
+**Why it matters:** pending row keys omit room ID, and every response:rng clears all rooms’ pending commands. In an isolated probe, a command pending in room A became unblocked immediately after a state response from unrelated room B. That can allow a duplicate rule before A’s command is acknowledged.
+
+**Proposed change:** Track room, row, command ID and expected state revision; acknowledge just that operation, and resynchronize after timeout rather than blindly allowing duplicates.
+
+**Validation:** Delay one room’s reply, deliver another room’s state, and click repeatedly; require exactly one intended armed rule.
+
+**Sources:** [scripts/client/rng-panel.js:447](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/client/rng-panel.js#L447), [scripts/client/rng-panel.js:450](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/client/rng-panel.js#L450), [scripts/client/rng-panel.js:821](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/client/rng-panel.js#L821).
+
+#### Runtime & validation
+
+<a id="a01"></a>
+
+##### A01 — Make simulator cleanup and error collection unconditional
+
+**P1 · Reproduced · Effort S**
+
+**Why it matters:** verify-branch’s private re-simulation captures chunks before awaiting the drain. An in-memory run of its exact function on the known Memento recording returned 0 errors; replayControlled, which reads after draining, returned 14. A reviewer also reproduced truncateAtTurn throwing a malformed-header error followed by an unhandled drain rejection; several helpers clean up only on success.
+
+**Proposed change:** Share a lifecycle-safe simulator helper with immediate drain-rejection handling, try/finally cleanup and error collection after draining. Preserve one useful failure cause.
+
+**Validation:** Malformed headers, simulator exceptions and invalid choices must reject once, close every stream and report the full error set with no unhandled rejection.
+
+**Sources:** [scripts/lib/verify-branch.mjs:42](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/verify-branch.mjs#L42), [scripts/lib/rng-control.mjs:151](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/rng-control.mjs#L151), [scripts/lib/truncate.mjs:151](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/truncate.mjs#L151), [scripts/lib/reconstruct.mjs:1135](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/reconstruct.mjs#L1135).
+
+<a id="a02"></a>
+
+##### A02 — Make every failed proof fail the command
+
+**P1 · Static defect · Effort S**
+
+**Why it matters:** local-replay prints FAIL for input-log/protocol/stat/HP checks but main reaches the end normally; only thrown exceptions set a failing exit code. Automated checks can therefore accept a failed determinism proof.
+
+**Proposed change:** Aggregate the required checks into a result and set exitCode=1 when any fail; retain the rendered report for diagnosis.
+
+**Validation:** A known-bad input must exit nonzero; a good recording and a forced-RNG round trip must exit zero.
+
+**Sources:** [scripts/local-replay.mjs:331](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-replay.mjs#L331), [scripts/local-replay.mjs:441](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-replay.mjs#L441).
+
+<a id="a03"></a>
+
+##### A03 — Provision only when the dependency or config changes
+
+**P2 · Measured opportunity · Effort M**
+
+**Why it matters:** Every import of provision-local-server recursively recopies the entire installed Showdown tree; copy failures during refresh are swallowed. npm run check took 8.53 seconds in this checkout, including provisioning; this is a single observation, not a speedup estimate.
+
+**Proposed change:** Fingerprint the installed commit/build and owned config files, refresh only changed content, and fail visibly on incomplete copies. Keep runtime/logs intact.
+
+**Validation:** Compare cold and unchanged warm startup, verify changed config is copied, and inject a copy failure.
+
+**Sources:** [scripts/provision-local-server.mjs:8](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/provision-local-server.mjs#L8), [scripts/provision-local-server.mjs:81](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/provision-local-server.mjs#L81).
+
+<a id="a04"></a>
+
+##### A04 — Use one server lifecycle manager with an identity check
+
+**P2 · Design improvement · Effort M**
+
+**Why it matters:** battle/live/replay each implement their own port checks and launcher. Any HTTP listener counts as ready; a partial startup or two simultaneous launches can spawn competing servers and overwrite pids.json.
+
+**Proposed change:** Share an ensure/stop helper; verify an Encoreable health response with version/root identity, serialize boot, and recover partial startup explicitly.
+
+**Validation:** Start two commands together; occupy one port with an unrelated server; kill one of the two services.
+
+**Sources:** [scripts/local-live.mjs:57](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-live.mjs#L57), [scripts/local-replay.mjs:73](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-replay.mjs#L73), [scripts/local-battle.mjs:24](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-battle.mjs#L24), [scripts/local-serve.mjs:173](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-serve.mjs#L173).
+
+<a id="a05"></a>
+
+##### A05 — Bound startup waits and react to child exit
+
+**P2 · Static defect · Effort S**
+
+**Why it matters:** local-serve waits forever for a port with no overall deadline and its HTTP request has no timeout. Server spawn/listen failures are not handled as one startup failure.
+
+**Proposed change:** Add request and overall deadlines, consume/destroy probe responses, and handle child error/exit and listener error; terminate owned peers on failure.
+
+**Validation:** Test a hung HTTP listener, a busy port and an immediately exiting child; all should end promptly with one useful error.
+
+**Sources:** [scripts/local-serve.mjs:37](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-serve.mjs#L37), [scripts/local-serve.mjs:171](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-serve.mjs#L171), [scripts/local-serve.mjs:187](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-serve.mjs#L187).
+
+<a id="a06"></a>
+
+##### A06 — Verify process ownership before stopping saved PIDs
+
+**P2 · Design improvement · Effort S**
+
+**Why it matters:** stop reads old numeric PIDs and kills them without checking command, creation identity or checkout. A stale file can name a reused PID.
+
+**Proposed change:** Record a startup token and process identity, confirm ownership before signaling, and atomically clear the manifest on clean shutdown.
+
+**Validation:** Use a stale manifest pointing to an unrelated harmless process and require refusal.
+
+**Sources:** [scripts/local-stop.mjs:6](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-stop.mjs#L6), [scripts/local-serve.mjs:173](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-serve.mjs#L173).
+
+<a id="a07"></a>
+
+##### A07 — Reject malformed replay URLs inside the request boundary
+
+**P2 · Static defect · Effort S**
+
+**Why it matters:** The /replays route calls decodeURIComponent outside a try/catch. A '%' in that path throws URIError; the request handler has no enclosing guard.
+
+**Proposed change:** Parse and validate the URL in a guarded boundary, return 400 for bad encoding and handle read/stream errors without crashing the host.
+
+**Validation:** Request /replays/% and verify 400 followed by a successful ordinary request.
+
+**Sources:** [scripts/local-serve.mjs:111](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-serve.mjs#L111), [scripts/local-serve.mjs:124](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-serve.mjs#L124).
+
+<a id="a08"></a>
+
+##### A08 — Confine every static-file request to the client root
+
+**P2 · Reproduced expression · Effort S**
+
+**Why it matters:** The general static route joins a raw URL path to CLIENT_DIR without checking the result. The current expression maps /../../../package.json to Encoreable’s package.json outside that directory.
+
+**Proposed change:** Normalize/decode once, resolve against an allowlisted root, check path containment, and reject directory traversal before file access.
+
+**Validation:** Test raw and encoded dot segments, Windows separators, malformed encoding and normal asset requests.
+
+**Sources:** [scripts/local-serve.mjs:141](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-serve.mjs#L141).
+
+<a id="a09"></a>
+
+##### A09 — Make branch launch cancellable and idempotent
+
+**P2 · Design improvement · Effort M**
+
+**Why it matters:** The replay button has an in-page busy flag, but fetch has no deadline and /branch can continue creating rooms/windows after disconnect or duplicate requests.
+
+**Proposed change:** Give each launch an ID and bounded operation state; reuse duplicate results, support abort before irreversible UI work, and return stage-specific failure information.
+
+**Validation:** Retry the same ID, close the caller mid-launch and simulate a lost response; create at most one branch.
+
+**Sources:** [scripts/client/replay-branch.js:86](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/client/replay-branch.js#L86), [scripts/local-serve.mjs:64](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-serve.mjs#L64), [scripts/lib/branch-launch.mjs:178](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/branch-launch.mjs#L178).
+
+<a id="a10"></a>
+
+##### A10 — Reserve branch player names atomically
+
+**P2 · Design improvement · Effort M**
+
+**Why it matters:** freeNames probes availability, disconnects, then imports/opens the branch. Another branch can claim those names in the gap; the 8-second probe timeout is interpreted as available.
+
+**Proposed change:** Serialize reservations or use branch-unique identities, register listeners before login events, and treat probe timeout as unknown/error.
+
+**Validation:** Launch two branches concurrently with identical original names and inject delayed name confirmation.
+
+**Sources:** [scripts/lib/branch-launch.mjs:58](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/branch-launch.mjs#L58), [scripts/lib/branch-launch.mjs:91](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/branch-launch.mjs#L91).
+
+<a id="a11"></a>
+
+##### A11 — Give WebSocket operations a complete failure lifecycle
+
+**P2 · Static defect · Effort M**
+
+**Why it matters:** WsPlayer name/challenge/battle waits have no deadline; WsAdmin does not reject pending message waits immediately on close. Parsing or observer errors can escape message handling.
+
+**Proposed change:** Use a shared bounded wait registry with close/error cancellation, safe protocol parsing and unsubscribe cleanup; cap retained popup/error history.
+
+**Validation:** Disconnect at each handshake step, send malformed JSON, and ensure all pending work rejects once.
+
+**Sources:** [scripts/lib/ws-player.mjs:56](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/ws-player.mjs#L56), [scripts/lib/ws-player.mjs:186](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/ws-player.mjs#L186), [scripts/lib/ws-admin.mjs:43](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/ws-admin.mjs#L43), [scripts/lib/ws-admin.mjs:122](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/ws-admin.mjs#L122).
+
+<a id="a21"></a>
+
+##### A21 — Check the actual configuration and server behavior
+
+**P2 · Static weakness · Effort M**
+
+**Why it matters:** npm run check first overwrites config, then checks whether the text contains '127.0.0.1'. That does not prove bindaddress equals loopback or that a running server uses the expected config.
+
+**Proposed change:** Separate provisioning from verification, load the effective config and assert exact values; optionally check the listening address and health identity of the owned server.
+
+**Validation:** Use a misleading comment and a non-loopback effective value; check must fail. Keep a fast offline verification mode.
+
+**Sources:** [scripts/local-check.mjs:5](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-check.mjs#L5), [scripts/local-check.mjs:13](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-check.mjs#L13).
+
+<a id="a25"></a>
+
+##### A25 — Turn existing proofs into an explicit regression matrix
+
+**P2 · Design improvement · Effort M**
+
+**Why it matters:** The repository has many command-based proofs and fixture notes; expected exceptions and requirements are partly prose. A future-format or closed-sheet change can pass the quick config check while regressing reconstruction.
+
+**Proposed change:** Extend existing check commands to run a small deterministic matrix, including known-bad cases with expected outcomes, Node/extension parity and each supported capability profile.
+
+**Validation:** Require machine-readable results, real exit codes and stable seed/recording identifiers; run heavy catalog/fuzz matrices on the server.
+
+**Sources:** [package.json:9](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/package.json#L9), [recordings/local/scripted/README.md:15](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/recordings/local/scripted/README.md#L15), [docs/engineering.md:1532](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/docs/engineering.md#L1532).
+
+<a id="a31"></a>
+
+##### A31 — Surface local-client automation failures instead of suppressing them
+
+**P2 · Design improvement · Effort M**
+
+**Why it matters:** autobattle globally hides modal dialogs and swallows name/challenge/security messages. Its retry loops stop silently, so a failed launch can look like an idle or ready client. The hooks are installed even before the script checks whether automation was requested.
+
+**Proposed change:** Scope the automation hooks to an explicit launch session, use handshake events and stage deadlines, and show a compact actionable failure with captured server text.
+
+**Validation:** Force a name conflict, invalid team, disconnected socket and challenge rejection; show the actual cause and stop retrying cleanly.
+
+**Sources:** [scripts/client/autobattle.js:12](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/client/autobattle.js#L12), [scripts/client/autobattle.js:71](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/client/autobattle.js#L71), [scripts/client/autobattle.js:104](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/client/autobattle.js#L104), [scripts/client/autobattle.js:162](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/client/autobattle.js#L162).
+
+<a id="a23"></a>
+
+##### A23 — Put browser and OS behavior behind one adapter
+
+**P3 · Design improvement · Effort M**
+
+**Why it matters:** Browser discovery and window placement are Windows-specific, fallback launches through cmd.exe, and each branch leaves isolated profiles in the temp directory.
+
+**Proposed change:** Share a platform adapter with an explicit browser override, launch diagnostics and bounded cleanup/reuse of Encoreable-owned temporary profiles after exit.
+
+**Validation:** Verify Windows and Linux launch arguments plus browser-not-installed behavior; ensure unrelated profiles are untouched.
+
+**Sources:** [scripts/lib/browser.mjs:15](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/browser.mjs#L15), [scripts/lib/browser.mjs:101](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/browser.mjs#L101), [scripts/lib/browser.mjs:115](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/browser.mjs#L115).
+
+#### Recordings
+
+<a id="a13"></a>
+
+##### A13 — Preserve recordings when names collide across imports or devices
+
+**P1 · Reproduced + design · Effort M**
+
+**Why it matters:** An archived basename wins regardless of content, and archiveLogFile returns an existing basename without comparing it. Two server resets/devices can reuse a battle ID; copyFileSync also lacks exclusive creation. In the extension, recording identity comes only from filename and imports replace the prior row; this is documented behavior, but a same-name/different-content probe left only one recording.
+
+**Proposed change:** Deduplicate identical content, preserve distinct immutable versions, compare hashes on collisions, and use exclusive atomic creation. Make any deliberate replacement explicit.
+
+**Validation:** Archive two different logs with the same basename concurrently; preserve both source histories and emit a clear conflict.
+
+**Sources:** [scripts/lib/recordings.mjs:42](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/recordings.mjs#L42), [scripts/lib/recordings.mjs:103](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/recordings.mjs#L103), [extension/src/store.js:64](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/store.js#L64).
+
+<a id="a12"></a>
+
+##### A12 — Read file metadata once before sorting
+
+**P2 · Measured opportunity · Effort S**
+
+**Why it matters:** listLogFiles calls statSync twice per sort comparison. On the current 30-file combined listing this performed 224 stat calls; the cost grows with comparison count.
+
+**Proposed change:** Decorate each entry with one stat result before sorting; for a large library maintain a rebuildable metadata index with turn count and provenance.
+
+**Validation:** Require identical ordering/tie policy while limiting stat calls to roughly one per file; test a file disappearing during the scan.
+
+**Sources:** [scripts/lib/recordings.mjs:34](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/recordings.mjs#L34), [scripts/lib/recordings.mjs:42](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/lib/recordings.mjs#L42).
+
+#### Extension build & checks
+
+<a id="a46"></a>
+
+##### A46 — Fail when a declared build entry or required check is missing
+
+**P1 · Static defect · Effort S**
+
+**Why it matters:** The extension builder filters missing entries, and the check runner skips missing required check files without counting failure. An incomplete checkout can report a successful package or all checks passed.
+
+**Proposed change:** Require every declared entry and required check; reserve skip for explicitly optional coverage and report it separately.
+
+**Validation:** Remove/mock one declared entry or check and require nonzero exit with the missing requirement named.
+
+**Sources:** [scripts/local-extension.mjs:220](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-extension.mjs#L220), [scripts/local-extension.mjs:254](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-extension.mjs#L254).
+
+<a id="a47"></a>
+
+##### A47 — Make replay-entry coverage independent of live Reg M-B searches
+
+**P2 · Static defect · Effort S**
+
+**Why it matters:** The entry check searches only recent Reg M-B Bo3 replays and treats no results as success. Retiring formats can silently remove required coverage.
+
+**Proposed change:** Use a stable captured replay for the required entry proof and a current-format live search as a separately labeled smoke check.
+
+**Validation:** An empty remote search must report unavailable smoke coverage while the deterministic entry test still runs.
+
+**Sources:** [extension/check/entry.mjs:253](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/check/entry.mjs#L253).
+
+<a id="a48"></a>
+
+##### A48 — Align the declared Chrome minimum and build target
+
+**P2 · Design improvement · Effort S**
+
+**Why it matters:** The manifest promises Chrome 111, while esbuild targets Chrome 120. This does not enforce the advertised compatibility contract; no particular Chrome 111 failure was reproduced.
+
+**Proposed change:** Define the supported minimum once and align manifest, transpilation and compatibility testing with it.
+
+**Validation:** Run packaging and entry checks on the declared minimum, or raise that minimum to the version actually supported.
+
+**Sources:** [extension/manifest.json:6](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/manifest.json#L6), [scripts/local-extension.mjs:178](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-extension.mjs#L178).
+
+<a id="a49"></a>
+
+##### A49 — Preserve the previous working extension when a rebuild fails
+
+**P2 · Static defect · Effort M**
+
+**Why it matters:** The build deletes dist before validating inputs, compiling and copying required assets. An ordinary failure destroys the previously loadable package.
+
+**Proposed change:** Build and validate a complete replacement before publishing it, keeping the prior output intact on failure.
+
+**Validation:** Force compile and static-copy failures; the previous extension package must remain complete and loadable.
+
+**Sources:** [scripts/local-extension.mjs:213](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-extension.mjs#L213).
+
+#### Catalog & developer tools
+
+<a id="a20"></a>
+
+##### A20 — Validate CLI options before allocating or writing
+
+**P1 · Reproduced expression · Effort S**
+
+**Why it matters:** Several commands use ad hoc flag readers. In catalog, --threads oops becomes NaN, Array.from creates zero workers, and runAll can return without processing queued effects.
+
+**Proposed change:** Share a strict option parser with positive integer limits, enum validation, missing-value errors and unknown-option rejection; validate before work/output.
+
+**Validation:** Exercise invalid threads, misspelled sheet modes, missing option values and extra flags; require nonzero exit with no report writes.
+
+**Sources:** [scripts/local-catalog.mjs:2874](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-catalog.mjs#L2874), [scripts/local-catalog.mjs:2920](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-catalog.mjs#L2920), [scripts/local-catalog.mjs:2800](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-catalog.mjs#L2800).
+
+<a id="a14"></a>
+
+##### A14 — Split the catalog cache by pipeline stage
+
+**P2 · Likely bottleneck · Effort L**
+
+**Why it matters:** codeFingerprint hashes all scripts/lib, including browser/recording/WebSocket helpers. An unrelated helper edit invalidates every effect’s expensive record. Raw simulation, inference and reporting currently share one broad invalidation boundary.
+
+**Proposed change:** Cache simulator runs, parsed observations and inference judgments separately, each with complete transitive fingerprints. Keep report-only changes cheap and never reuse inference under a changed solver.
+
+**Validation:** Change browser.mjs and require no simulation reruns; change inference and rerun judgments; change a fixture and rerun the affected recipes.
+
+**Sources:** [scripts/local-catalog.mjs:2762](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-catalog.mjs#L2762), [scripts/local-catalog.mjs:2782](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-catalog.mjs#L2782).
+
+<a id="a15"></a>
+
+##### A15 — Cache repeated inference of the same catalog world
+
+**P2 · Likely bottleneck · Effort M**
+
+**Why it matters:** Adjacent sweep pairs share endpoints, but cover calls inferWorld again for each endpoint. cachedRun only memoizes battles, not the inference result of the same observed world.
+
+**Proposed change:** Memoize inference summaries using canonical teams, observed channel/log, solver options and version; share repeated endpoint work within a job.
+
+**Validation:** Count inferSpreads calls for a sweep and require one per distinct world with unchanged catalog judgments.
+
+**Sources:** [scripts/local-catalog.mjs:1236](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-catalog.mjs#L1236), [scripts/local-catalog.mjs:1279](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-catalog.mjs#L1279), [scripts/local-catalog.mjs:1303](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-catalog.mjs#L1303).
+
+<a id="a16"></a>
+
+##### A16 — Use bounded LRU caches rather than clear-all cliffs
+
+**P2 · Design improvement · Effort M**
+
+**Why it matters:** runCache holds promises plus complete logs and clears the whole cache above 6000 entries. Each worker has a separate copy, so memory grows with worker count and useful controls are discarded together.
+
+**Proposed change:** Use a byte-aware LRU and compact cached results; group jobs that share controls and cap aggregate memory across workers.
+
+**Validation:** Track peak RSS, hit rate and elapsed time on a representative catalog subset at several worker counts.
+
+**Sources:** [scripts/local-catalog.mjs:477](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-catalog.mjs#L477), [scripts/local-catalog.mjs:2804](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-catalog.mjs#L2804).
+
+<a id="a17"></a>
+
+##### A17 — Handle worker exit, timeout and peer cancellation
+
+**P2 · Static defect · Effort M**
+
+**Why it matters:** Catalog/fuzz pools listen for message and error but not unexpected exit or per-job timeouts. On rejection, other workers are not reliably terminated, so failed jobs can hang or keep running.
+
+**Proposed change:** Add one pool abstraction with task IDs, exit handling, deadlines, try/finally termination and bounded retry/checkpoint rules.
+
+**Validation:** Terminate a worker before its reply and throw from a job; parent must settle and all peers must stop.
+
+**Sources:** [scripts/local-catalog.mjs:2686](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-catalog.mjs#L2686), [scripts/local-catalog.mjs:2804](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-catalog.mjs#L2804).
+
+<a id="a18"></a>
+
+##### A18 — Attach provenance to saved catalog runs before merging
+
+**P2 · Design improvement · Effort M**
+
+**Why it matters:** --records merges by effect key and silently lets later files replace earlier ones. records.json does not carry the code/format fingerprints used by the cache, so complete key coverage can mix incompatible runs.
+
+**Proposed change:** Save schema, simulator, format, fixture and solver fingerprints with run records; reject incompatible inputs and conflicting duplicates.
+
+**Validation:** Try merging two runs with different solver fingerprints and require an explicit incompatibility result.
+
+**Sources:** [scripts/local-catalog.mjs:2930](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-catalog.mjs#L2930), [scripts/local-catalog.mjs:2976](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-catalog.mjs#L2976).
+
+<a id="a19"></a>
+
+##### A19 — Write generated caches and reports atomically
+
+**P2 · Design improvement · Effort S**
+
+**Why it matters:** Cache and report files are written directly to their final names. An interrupted process or competing catalog invocation can leave partial JSON or a mismatched pair of reports.
+
+**Proposed change:** Write a temporary sibling, flush/close, rename atomically and serialize writers by output/fingerprint; publish related reports under one run identity.
+
+**Validation:** Interrupt a write and run competing output jobs; readers should see a complete previous or complete new version.
+
+**Sources:** [scripts/local-catalog.mjs:2820](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-catalog.mjs#L2820), [scripts/local-catalog.mjs:2974](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-catalog.mjs#L2974).
+
+#### Performance measurement
+
+<a id="a26"></a>
+
+##### A26 — Measure stage costs before increasing parallelism
+
+**P2 · Design improvement · Effort M**
+
+**Why it matters:** There are progress logs and budgets, but no common profile of parse, scaffold, evidence, simulator rebuild, cloning, serialization, worker startup, cache hits and peak memory across entry points.
+
+**Proposed change:** Add an optional profile mode to existing commands and worker requests. Keep a fixed representative corpus for warm/cold comparisons, grouped by format, sheet visibility and battle length.
+
+**Validation:** Compare before/after p50 and slow-case time, probe counts, transferred bytes and peak memory while requiring identical retained candidates and replay evidence.
+
+**Sources:** [scripts/local-catalog.mjs:2782](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-catalog.mjs#L2782), [scripts/local-reconstruct.mjs:1](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-reconstruct.mjs#L1), [extension/src/engine.js:1](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/engine.js#L1).
