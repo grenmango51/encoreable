@@ -2873,3 +2873,198 @@ Source links below are pinned to the audited commit. Each item includes its prop
 **Validation:** Compare before/after p50 and slow-case time, probe counts, transferred bytes and peak memory while requiring identical retained candidates and replay evidence.
 
 **Sources:** [scripts/local-catalog.mjs:2782](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-catalog.mjs#L2782), [scripts/local-reconstruct.mjs:1](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/scripts/local-reconstruct.mjs#L1), [extension/src/engine.js:1](https://github.com/grenmango51/encoreable/blob/db263410b5f80974a67e3e426608fdd50f796755/extension/src/engine.js#L1).
+
+### 12.4 Verification of the findings — 2026-10-23
+
+Every finding was checked against the code it cites. That code is unchanged at `db26341`: only this document has changed since, so every link above points at the code as it stands. One reviewer read each subsection's code, and A50, A51, A67 and A69 were read again directly. The audit's own probes were not re-run, except A01's `truncateAtTurn` case, which was reproduced in memory; a finding marked "Reproduced" is taken as stated where the code agrees with it.
+
+**No finding is ruled out by the code, so none is removed.** 60 are confirmed, 1 holds in part (A31), and 22 are design proposals or bottleneck candidates whose account of the current code is accurate.
+
+Two of them bear on the answer itself, not only on reliability:
+
+- **A50 can remove a real spread.** An Illusion reading whose search ran out before the deadline is dropped as if the log had disproved it, the switch-in is settled as the Pokemon shown, and that Pokemon is then narrowed by what the Illusion user did. §7.3's rule that a reading cut short proves nothing covers only the deadline.
+- **A51 and A52 weaken certification.** Under `--all-spent`, a probe below a range tests a spread of fewer than 66 points, outside the assumption it certifies; and a combined best-of set carries each game's old certificates beside its new, narrower ranges.
+
+A59's aliasing needs a coordinate outside 0–32, which no real spread has, so the checks that real spreads survive were not affected by it.
+
+The safeguards of §12.5 are about how failures are found; none of them fixes a finding. The column says where one touches a finding. Most findings — the extension, the RNG panel, the local server and the checks on supplied teams — are outside what they look at.
+
+| Finding | Verdict | What the code shows | Safeguard |
+|---|---|---|---|
+| [A27](#a27) | Confirmed | `spTotal(set) === 66` (`local-replay.mjs:332`); a max HP of `100` is read as a percentage (`:344`); the HP formula again at `local-reconstruct.mjs:358` | — |
+| [A44](#a44) | Confirmed | the build lists every installed mod (`local-extension.mjs:142`), the shim returns them all (`fs.js:27`), nothing rejects a format whose data is not bundled | S4 is the same kind of check, for action kinds |
+| [A58](#a58) | Design, premise accurate | `SPAN` and `BUDGET` fixed (`knowledge.mjs:16`); `inferSpreads` only calls `Dex.forFormat` | — |
+| [A22](#a22) | Confirmed | `FORMAT` is a constant used for the file name, title and `formatid` (`local-replay.mjs:58`, `:421–424`) | — |
+| [A50](#a50) | Confirmed | a reading is kept only if `all.complete \|\| !res.complete` (`infer.mjs:879`); only the deadline exempts it (`:889`) | cause 1's principle; not covered |
+| [A51](#a51) | Confirmed | the outside probe lowers other stats when over budget and never adds points back (`infer.mjs:1107–1115`) | — |
+| [A52](#a52) | Confirmed | `combineGames` spreads the old record, `certified` included, beside the intersected ranges (`infer.mjs:1014–1025`, `:926`) | — |
+| [A59](#a59) | Confirmed | `containsSpread` checks the flattened key only; `keyOf(0,33,0) === keyOf(1,0,0)` (`knowledge.mjs:36`, `:767–775`) | — |
+| [A83](#a83) | Confirmed | `\|\| abilities[0]` revives a ruled-out ability (`replay-source.mjs:622`) | — |
+| [A53](#a53) | Confirmed | the last round's `built` is returned; `deepest` keeps coordinates only (`infer.mjs:662`, `:674`, `:805`) | cause 3; S2 would show it, not restore it |
+| [A54](#a54) | Confirmed | `settle`, `choose` and the final `settle` take no deadline (`infer.mjs:685`, `:727`, `:805`) | — |
+| [A55](#a55) | Confirmed | fallback rebuilds run without `affordable()`; the diagnostic `reconstruct` at `infer.mjs:605` bypasses the counter | S2 would show the overrun, not bound it |
+| [A56](#a56) | Design, premise accurate | `closed-sheet-plan.md` §3.2 defines inertness by the candidate's own handlers only | — |
+| [A57](#a57) | Design, premise accurate | `'raw'` key and ordinal-only entries (`evidence.mjs:196`); a fresh cache per round is the current isolation | — |
+| [A60](#a60) | Design, premise accurate | damage rows enumerated with no cap (`evidence.mjs:927–933`), unlike the other evaluators | — |
+| [A62](#a62) | Design, premise accurate | `spreadCount` recomputed for every recorded event | — |
+| [A63](#a63) | Design, premise accurate | every move slot's priority asked at every sort (`speed.mjs:121`, `:157`) | — |
+| [A65](#a65) | Design, premise accurate | all five movable stats, 33 values each (`evidence.mjs:2882–2905`) | — |
+| [A66](#a66) | Design, premise accurate | a certificate is a boolean (`infer.mjs:1063`, `:1102`) | — |
+| [A61](#a61) | Design, premise accurate | whole knowledge cloned, known Pokemon included (`knowledge.mjs:152–163`) | — |
+| [A64](#a64) | Design, premise accurate | `settle` runs up to 8 evidence passes, each replaying the scaffold (`infer.mjs:232`) | — |
+| [A67](#a67) | Confirmed | `exactHp` reads `battle.log`, where both halves of a split HP line match and the public percentage, read last, wins; `0 fnt` never matches (`reconstruct.mjs:1866–1876`) | — |
+| [A68](#a68) | Confirmed | `identName` drops the side (`reconstruct.mjs:66`, `:1835`, `:1871`) | — |
+| [A69](#a69) | Confirmed | `/^\|-(damage\|heal)\|/` matches every string, so the guard never returns null (`reconstruct.mjs:1851`) | — |
+| [A70](#a70) | Confirmed | `adjacentAllyOrSelf` returns only the user's own slot (`reconstruct.mjs:346`) | S1 would show it on a fuzz battle that uses such a move |
+| [A71](#a71) | Confirmed, narrower | species rewritten by slot (`replay-source.mjs:272–274`); item, ability, nature and moves are still compared (`:201–214`), so a wrong species passes only when they agree too | — |
+| [A72](#a72) | Confirmed | `startsWith` both ways (`replay-source.mjs:175–177`) | — |
+| [A73](#a73) | Confirmed | a move without `[from]` joins the original set (`replay-source.mjs:481`); the unsettled-Illusion check has no Transform guard (`protocol.mjs:172`), which `unmaskBySheet` has (`:230`) | — |
+| [A74](#a74) | Confirmed | `couldHave` ignores the ability's origin (`replay-source.mjs:594–600`) | — |
+| [A75](#a75) | Confirmed | `maxHpFromLog` on raw lines, no unmasking (`local-reconstruct.mjs:350`) | — |
+| [A76](#a76) | Confirmed | `crossCheckLog` compares species and moves only, although its comment names item and ability (`replay-source.mjs:672–683`) | — |
+| [A78](#a78) | Confirmed | `selfConsistent` is not written to the recording (`local-reconstruct.mjs:575`) | — |
+| [A77](#a77) | Confirmed | a literal `includes('"formatid":"')` (`truncate.mjs:141`) | — |
+| [A79](#a79) | Confirmed | variant ranking and look-back probes check no clock and are not counted (`reconstruct.mjs:2108–2111`, `:1921`) | S2 would show them once counted |
+| [A80](#a80) | Design, premise accurate | the pool starts before the first `playThrough`; only queued jobs are withdrawn | — |
+| [A81](#a81) | Design, premise accurate | the observed segment split again on every comparison (`reconstruct.mjs:698–705`) | — |
+| [A82](#a82) | Confirmed | readings paired by index (`local-reconstruct.mjs:166–180`); §7.4's "exact on 182 of 183 readings" is this metric (`:465`) | — |
+| [A32](#a32) | Confirmed | `openReplay` reads `complete` and `verifiedThroughTurn` only; `ok` and `selfConsistent` are never read (`room.js:460`, `engine.js:453`) | — |
+| [A33](#a33) | Confirmed | the stored-recording path opens any turn (`room.js:483`, `recordings.js:60`) | — |
+| [A34](#a34) | Confirmed | the first loose species match wins (`room.js:370–385`) | — |
+| [A35](#a35) | Confirmed | only `push` is hooked; stream errors go to `pushError` (`engine.js:46`, `battle-stream.ts:41`) | — |
+| [A39](#a39) | Confirmed | storage errors swallowed (`room.js:45`); the whole inference re-serialised on every persist (`:151`, `:260`) | — |
+| [A40](#a40) | Confirmed | a failed save goes to the console only (`room.js:462`), and the over-reach message still says "It is saved as" (`:465–466`). The extension check of 2026-10-22 passed on that message: its live replay had rebuilt only through turn 0 of 5 | — |
+| [A45](#a45) | Confirmed | `readOffLog` returned but not stored (`engine.js:424`) | — |
+| [A36](#a36) | Confirmed | a dead worker stays cached and pending calls are never rejected (`room.js:86`, `:99`) | — |
+| [A37](#a37) | Confirmed | check, await, then set (`room.js` `ensure`) | — |
+| [A38](#a38) | Confirmed | the input log takes a choice only at commit (`battle.ts:3011`) | — |
+| [A41](#a41) | Confirmed | `getAll` for `list` and `ofSet`; the `savedAt` index unused (`store.js:22`, `:71`, `:81`) | — |
+| [A42](#a42) | Design, premise accurate | `hardwareConcurrency` threads, no job tracking or cancel (`room.js:457`, `worker.js:19`) | — |
+| [A43](#a43) | Design, premise accurate | removed on first read before delivery (`background.js:36`); 12 × 250 ms (`bridge.js:26`) | — |
+| [A28](#a28) | Confirmed | the key has no room or revision and is never cleared (`rng-panel.js:340`, `:362`, `:833`) | — |
+| [A24](#a24) | Design, premise accurate | `damageLadder` restores five fields; nothing checks the rest (`rng-command.js:830–837`) | — |
+| [A29](#a29) | Confirmed | `boot` retries on the tooltip hook only, and a wrapped prototype returns false (`rng-panel.js:722`, `:839`); unbounded polls (`room.js:475`, `spread-panel.js:515`) | — |
+| [A30](#a30) | Confirmed | `rowKey` has no room; any reply clears `pending` (`rng-panel.js:447`, `:821`) | — |
+| [A01](#a01) | Confirmed | errors read before the drain (`verify-branch.mjs:42–60`); `truncateAtTurn`'s unhandled rejection reproduced in memory | — |
+| [A02](#a02) | Confirmed | `FAIL` lines are printed only (`local-replay.mjs:334`) | cause 4's pattern; not covered |
+| [A03](#a03) | Confirmed | the whole tree copied on every import, errors swallowed (`provision-local-server.mjs:8–15`) | — |
+| [A04](#a04) | Design, premise accurate | three copies of the port wait and spawn; `pids.json` written unconditionally | — |
+| [A05](#a05) | Confirmed | `waitForPort` has no deadline; no `error` or `exit` handlers (`local-serve.mjs:37`, `:171`, `:187`) | — |
+| [A06](#a06) | Design, premise accurate | PIDs killed without an ownership check; `pids.json` never removed | — |
+| [A07](#a07) | Confirmed | `decodeURIComponent` unguarded in the handler (`local-serve.mjs:111`) | — |
+| [A08](#a08) | Confirmed | the raw path joined with no containment (`local-serve.mjs:124`, `:141`); bound to 127.0.0.1, and only a raw client sends such a path | — |
+| [A09](#a09) | Design, premise accurate | no abort or launch id; a duplicate POST launches twice | — |
+| [A10](#a10) | Confirmed | probe, disconnect, launch later; a timeout reads as available (`branch-launch.mjs:58`, `:91`). Its proposal to register listeners before login events is already met: `probe.on` runs in the continuation of `connect()`, which resolves on `open`, before any message is handled (`branch-launch.mjs:58–65`, `ws-admin.mjs:43–51`) | — |
+| [A11](#a11) | Confirmed | waits with no deadline or rejection on close (`ws-player.mjs:56`, `:186`; `ws-admin.mjs:43`, `:122`) | — |
+| [A21](#a21) | Confirmed | a text search for `'127.0.0.1'` (`local-check.mjs:13`) | — |
+| [A25](#a25) | Design, premise accurate | `npm run check` checks the loopback text and the format only | S3 is the inference part of this matrix |
+| [A31](#a31) | Partly | the loops stop silently and the messages are swallowed (`autobattle.js:200–203`); of the hooks, only the modal CSS and the jQuery hooks come before the request check (`:12–26`, `:52`, before `:70`) — the popup interceptors are installed only for automation (`:89`) | — |
+| [A23](#a23) | Confirmed | Windows paths, PowerShell and `cmd.exe`; temporary profiles never removed (`browser.mjs:15–22`, `:101–103`, `:115`) | — |
+| [A13](#a13) | Confirmed | an archived file of the same base name is returned unread (`recordings.mjs:103–104`); the store replaces by name (`store.js:64`) | — |
+| [A12](#a12) | Confirmed | `statSync` twice per comparison (`recordings.mjs:42`) | — |
+| [A46](#a46) | Confirmed | missing entries filtered out; a missing check prints `SKIP` and does not fail (`local-extension.mjs:220`, `:254–256`) | cause 4's pattern; not covered |
+| [A47](#a47) | Confirmed | no search result is a `SKIP` that returns true (`check/entry.mjs:253–258`) | — |
+| [A48](#a48) | Confirmed | Chrome 111 declared, `chrome120` targeted (`manifest.json:6`, `local-extension.mjs:178`) | — |
+| [A49](#a49) | Confirmed | `dist` removed before anything is built (`local-extension.mjs:213`) | — |
+| [A20](#a20) | Confirmed | `--threads oops` gives NaN, zero workers, and `runAll` returns with the queue unprocessed | — |
+| [A14](#a14) | Design, premise accurate | the fingerprint covers `scripts/lib`, `scripts/server` and `scripts/fixtures` as one hash | makes S7 affordable |
+| [A15](#a15) | Confirmed | interior endpoints inferred twice (`local-catalog.mjs:1236`, `:1303–1308`) | — |
+| [A16](#a16) | Design, premise accurate | one `runCache` per worker, cleared whole above 6000 | — |
+| [A17](#a17) | Confirmed | no `exit` listener, no deadline, peers not stopped | — |
+| [A18](#a18) | Confirmed | a later record overwrites an earlier one; `records.json` carries no fingerprint | — |
+| [A19](#a19) | Confirmed | cache files and reports written straight to their final names | — |
+| [A26](#a26) | Design, premise accurate | timing is ad hoc `Date.now()`; no common stage profile | complements S2: S2 counts work per battle, A26 times stages |
+
+### 12.5 Failure causes and safeguards — from the open-sheet work of 2026-10-13 to 2026-10-22
+
+No real spread was ever removed during that work: every check that a real spread survives passed. Every failure was in finding a rebuild — the guess, the dice search and the loop between them — and each came from one of five causes.
+
+1. **One signal, three causes.** The loop's only signal is the line a rebuild stopped on. That can mean a wrong guess (evidence missing), a right guess whose dice the search did not find within its budget, or an inconsistent hand-off between rounds. The fallback assumed the first and changed a stat, and a different spread throws different dice, so it sometimes got through by luck and labelled the line one no hook reads: 166 Quick Attack lines that the search had not finished, a Pin Missile line that passed under the full budget, a Mega Greninja HP path dropped before the fallback, an Earthquake check that paired the old guess with the new guess's HP path. A looser cause sat beside them: Attack tied per key rather than per HP path let a confusion self-hit use one Attack on turn 2 and another on turn 3, which kept every real spread but chose guesses no rebuild could reproduce (about 55 rows).
+2. **A search that changes one die at a time.** It fails where two dice have to change together and neither alone improves the score: seed 83's two Muddy Water secondaries, Zing Zap's flinch with the speed tie Gen 9's re-sort throws, Iron Ball's turn-2 tie with the turn-1 confusion duration. Its pruning rules carried assumptions that were not always true: a die thrown after the first wrong line cannot matter; the chance dice are a fixed list, which left out plain `random(100)` secondaries; unseen choices tried in a fixed order, which ran out of budget before Mawile's Sucker Punch (seed 2).
+3. **Path dependence and shared caps.** Search commits stick, and every battle shares the round cap and budget levels, so a change to the guess, the score or a budget changes the whole path. Seed 14 broke when a new score component committed a partial match; seed 44 stopped five turns earlier when extra checks in the loop used up its rounds, and again when the budget fell to its minimum on every new guess; the Iron Ball world had passed only because its guess avoided a speed tie. Most of these were latent faults that a change exposed.
+4. **Hand-written lists that skip what they do not name.** The order reader took a switch to be `'switch'`; a faint replacement is `'instaswitch'`, so replacement order was never read until seed 88 failed outright. Stance Change's forme change prints before its move line and was not among the lines that open an action. The extension compared request ids exactly while the live client sends `14.0b04…`.
+5. **Evidence that stops at the first wrong line.** That line is often the most informative one: a guessed Special Attack made Dragon Pulse lethal, the rebuild printed a Focus Sash, and the replay's HP line that pins the attacker was past the cutoff (seed 56).
+
+The safeguards below follow from these. S1–S3 are harness work in `scripts/local-catalog.mjs` and change nothing the inference does; S4 and S5 are checks; S6 is deferred; S7 is a working rule. Where an audit finding of §12.3 overlaps, it is named.
+
+<a id="s1"></a>
+
+##### S1 — Sort a failed fuzz rebuild against the battle the fuzzer played
+
+**Harness · Effort M · Overlaps A70**
+
+**Why it matters:** A failed rebuild's report says where it stopped. Whether the cause is the evidence, the search or the hand-off has been found by hand, with temporary prints, case by case; seed 83 took four rounds of them. The fuzz already rebuilds a failure with p2's real Stat Points (`fuzzOne`, `scripts/local-catalog.mjs`), which separates the evidence from the other two.
+
+**Proposed change:** When the real spreads fail too, add the two comparisons only the fuzz can make, since it played the battle: the real hidden choices (`played.choices`) against the variants the search tried, and the first die of the failing turn whose real face differs from the search's, with its kind. Compare dice under the real spreads only; under a guess, speed ties appear and vanish and the ordinals no longer line up. Do not report which of the search's rules skipped a die: that ties the harness to the search's internals.
+
+**Validation:** Seed 83 under `reconstruct.mjs` as it stood before the pair search names its two secondary dice; seed 2 before the variant ordering names Mawile's Sucker Punch.
+
+<a id="s2"></a>
+
+##### S2 — Report what each battle used, not only whether it passed
+
+**Harness · Effort S · Overlaps A26, A53, A55, A79**
+
+**Why it matters:** A pass or fail per battle hides a change that uses up the margin. The round cap (`maxRounds = 16`, `infer.mjs`) is shared by every battle, and a change that spent rounds elsewhere showed only when seed 44 ran out of them.
+
+**Proposed change:** Record rounds, probes, fallback rebuilds and backtracks per battle in the fuzz and `--all` output, and print the differences against the previous run as numbers. No gate: a gain in precision can legitimately add rounds.
+
+**Validation:** Outside the extension's deadline the counts are deterministic; two runs of the same code give identical counts.
+
+<a id="s3"></a>
+
+##### S3 — A regression list of every world that failed, and fuzz seeds the code was not tuned on
+
+**Harness · Effort S · Overlaps A25**
+
+**Why it matters:** Fuzz seeds 1–100 are the seeds the search was tuned on: 91 of them matched before the open-sheet work and 100 after it, by fixing exactly the nine that failed. The rate on battles the code has not seen is not known. Two regressions of that work — seed 14 and the Iron Ball world — were found only by the hour-long fuzz and the full catalog run.
+
+**Proposed change:** A list run after every change to `evidence.mjs`, `infer.mjs`, `reconstruct.mjs` or `speed.mjs`, one battle per distinct mechanism: fuzz seeds 2, 14, 19, 24, 44, 56, 68, 73, 83 and 88, and the catalog worlds of Iron Ball's confusion witness at Speed 0, Zing Zap's flinch tie, Gengarite's confusion witness, the hidden Mega Greninja's Quick Attacks and the Earthquake spread hit. Separately and less often, fuzz seeds 101–300; their pass rate is the measure, and their failures decide S6.
+
+**Validation:** The list runs in minutes; each entry fails on the code before the fix it stands for.
+
+<a id="s4"></a>
+
+##### S4 — Check the simulator's action kinds against the order reader
+
+**Check · Effort S · Overlaps A44**
+
+**Why it matters:** `speed.mjs` reads an order only for action kinds it names. A kind it does not name is skipped without a word, which is how faint replacements (`'instaswitch'`) went unread in every battle until one failed on it.
+
+**Proposed change:** One check in `npm run check`: every key of the action order table in `runtime/sim/battle-queue.ts` is either handled by `speed.mjs` or listed there as deliberately ignored, and an unlisted key fails. Not a counter on every filter: most filters are right to ignore `residual`, `pass` or `beforeTurn`, and counting them is noise.
+
+`revivalblessing` and `priorityChargeMove` are named by neither `SWITCHES` nor the move check today. Neither is shown to lose a read: Revival Blessing has no speed race, and the order of two charges — Focus Punch, Beak Blast, Shell Trap — needs two such users in one turn.
+
+**Validation:** Adding a kind to the simulator's table fails the check until `speed.mjs` classifies it.
+
+<a id="s5"></a>
+
+##### S5 — Count a proven turn that fails again
+
+**Check · Effort S · Related to A32 and A78, which concern the finished rebuild rather than the rounds**
+
+**Why it matters:** The loop hands the next round its proven turns as exact, with the dice that rebuild them. When the next round fails inside them under the same dice sequence, the evidence's own guess does not fit its own proof: either the evidence is looser than the battle (the per-key Attack tie) or the hypothesis was assembled from two rounds (the Earthquake row). The loop absorbs it — it drops the pins from that turn on and searches again — and it surfaces later as set-aside rows and extra rounds.
+
+**Proposed change:** Count each such failure, with its turn and Pokémon, as a warning in the fuzz and catalog output. A spread that throws a different dice sequence is the case the loop already handles and is not counted. Bundling the guess, HP path, pins and budget into one value would make the second kind impossible to write, but it rewrites the most path-sensitive code in the project for one class of fault; it belongs with other work in `infer.mjs`, not on its own.
+
+**Validation:** The per-key Attack tie, restored in a scratch copy, raises the warning on Gengarite's confusion witness in round 2.
+
+<a id="s6"></a>
+
+##### S6 — Read more dice off the replay (deferred)
+
+**Design · Effort L**
+
+**Why it matters:** The failures of cause 2 are all dice that must change together. Damage rolls, crits and accuracy are already read off the observed turn (§7.3); speed ties, plain `random(100)` secondaries, flinches and durations are searched.
+
+**Proposed change:** Deferred. A die whose outcome prints soon after it is thrown is already steered. One whose outcome prints later can be read only by a look-ahead through the dice thrown between — which is the search again — or by a rule per mechanic that ties a later line back to a die, a hand-written list of the kind S4 guards against. Reconsider only if S3's unseen seeds show that failures needing two dice at once are a real share of what fails.
+
+<a id="s7"></a>
+
+##### S7 — One change per check
+
+**Working rule · Overlaps A14**
+
+**Why it matters:** Several loop changes committed together needed separate runs, each with one part switched off, to find which one broke seed 44. The record cache (§8) does not make an inference change cheap: its fingerprint covers all of `scripts/lib`, so any edit to the inference reruns every effect, about 2.5 hours.
+
+**Proposed change:** Check each change to the inference on its own, against S3's list; the full catalog run follows a batch. A14's cache split by pipeline stage is what would make a full check per change affordable. Agents work in parallel only on work in separate files — probe recordings, catalog fixtures, the extension; changes to `evidence.mjs`, `infer.mjs` and `reconstruct.mjs` go one at a time.
