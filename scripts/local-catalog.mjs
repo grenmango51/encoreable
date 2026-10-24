@@ -2642,7 +2642,9 @@ function diagnosticLines(d) {
   const out = [`truth turn ${d.turn}: selected choices ${d.choices.selected.status}; real hidden choice variant tried=${d.choices.realVariantTried ?? 'unavailable'}`];
   for (const c of d.choices.expected) out.push(`played ${c.side}: ${c.description} [${c.raw}]`);
   for (const c of d.choices.selected.actual) out.push(`rebuilt ${c.side}: ${JSON.stringify(c.choice)} [${c.raw}]`);
-  for (const v of d.choices.tried) out.push(`variant ${v.variant}: ${v.status}, dice searched=${v.searched}; ${v.actual.map(c => `${c.side} ${JSON.stringify(c.choice)} [${c.raw}]`).join('; ')}`);
+  const shown = [...new Set([...d.choices.tried.slice(0, 3), d.choices.tried.find(v => v.status === 'same'), d.choices.tried.find(v => v.hiddenStatus === 'same')].filter(Boolean))];
+  for (const v of shown) out.push(`variant ${v.variant}: ${v.status}, dice searched=${v.searched}; ${v.actual.map(c => `${c.side} ${JSON.stringify(c.choice)} [${c.raw}]`).join('; ')}`);
+  if (shown.length < d.choices.tried.length) out.push(`${d.choices.tried.length - shown.length} more variants; --out JSON includes every comparison`);
   out.push(d.dice.status);
   if (d.dice.alignmentBreak) out.push(`signatures: ${JSON.stringify(d.dice.alignmentBreak)}`);
   for (const x of d.dice.mismatches || []) out.push(`die ${x.i} ${x.kind}, random(${x.from},${x.to}), chance=${x.chance}: played ${x.original}, rebuilt ${x.rebuilt}`);
