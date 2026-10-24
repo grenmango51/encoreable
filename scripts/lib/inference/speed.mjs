@@ -52,6 +52,32 @@ const ofKind = (action, kind) => (kind === 'mega' ? MEGA.has(action?.choice) : k
 /** What a queued action did, as an order line says it: a switch is its Pokemon going out. */
 const verbOf = action => (SWITCHES.has(action?.choice) ? 'switched out' : MEGA.has(action?.choice) ? 'Mega Evolved' : 'acted');
 
+/**
+ * Every kind of action the simulator queues, as the order reader takes it:
+ * `read` are the kinds it names - a move, a Mega Evolution, a switch - and
+ * `ignored` the rest, each with why skipping it loses no order. A kind on
+ * neither list would be skipped without a word, as faint replacements were
+ * until `instaswitch` joined `SWITCHES`; `npm run check` fails on one, and on
+ * a listed kind the simulator no longer queues.
+ */
+export const ACTION_KINDS = Object.freeze({
+  read: Object.freeze(['move', ...MEGA, ...SWITCHES]),
+  ignored: Object.freeze({
+    team: 'team preview\'s picks, which print nothing',
+    start: 'the battle starting, no Pokemon\'s action; the leads come in by side, not by speed',
+    beforeTurn: 'the turn starting, no Pokemon\'s action; its handlers\' order is read from their own sort (`eachEvent`)',
+    beforeTurnMove: 'Counter and Mirror Coat getting ready before the turn, which prints nothing',
+    revivalblessing: 'Revival Blessing\'s pick of whom to revive, made alone at its user\'s own switch request: it races nothing',
+    runSwitch: 'a switch-in\'s effects, placed by `insertChoice` rather than a sort; their order is read from their `SwitchIn` sort (`readHandlerSort`)',
+    runDynamax: 'Dynamax, which only Gen 8 has',
+    terastallize: 'Terastallization, which Champions turns off (`canTerastallize`)',
+    priorityChargeMove: 'the charge Focus Punch, Beak Blast and Shell Trap print before the turn: two race only with two such users in one turn, and no read is shown lost to it',
+    shift: 'Triples\' shift to the centre, which a doubles battle cannot choose',
+    residual: 'the end of the turn, no Pokemon\'s action; its handlers\' order is read from their own sort (`fieldEvent`)',
+    event: 'an effect\'s own queued event, which only Gen 4\'s Custap Berry makes',
+  }),
+});
+
 const HP_AT = { '-damage': 3, '-heal': 3, '-sethp': 3 };
 
 /**
