@@ -2530,7 +2530,7 @@ function canonicalChoice(raw, offered) {
 /** Read roster/move indices from the returned recipe and its switch log. No replay. */
 function rebuiltOffers(built) {
   const rosters = {};
-  for (const line of String(built.inputLog).split('\n')) {
+  for (const line of Array.isArray(built.inputLog) ? built.inputLog : String(built.inputLog).split('\n')) {
     const m = /^>player (p[12]) (.*)$/.exec(line);
     if (m) rosters[m[1]] = Teams.unpack(JSON.parse(m[2]).team).map(p => ({ name: p.name || p.species, moves: p.moves.map(toID) }));
   }
@@ -2578,13 +2578,19 @@ function diagnoseTruth(played, built, turn) {
     const ambiguous = ['p1', 'p2'].some(s => real.filter(c => c.side === s).length > 1 || choices.filter(c => c.side === s).length > 1);
     const valid = !ambiguous && [...expected, ...actual].every(c => c.choice && c.choice.every(x => x !== null));
     const key = list => JSON.stringify(list.map(c => [c.side, c.choice]).sort((a, b) => a[0].localeCompare(b[0])));
-    return { actual, status: !valid ? 'unavailable' : key(expected) === key(actual) ? 'same' : 'different' };
+    const hiddenExpected = expected.filter(c => c.side === 'p2');
+    const hiddenActual = actual.filter(c => c.side === 'p2');
+    const hiddenValid = hiddenExpected.length === 1 && hiddenActual.length === 1 && [...hiddenExpected, ...hiddenActual].every(c => c.choice && c.choice.every(x => x !== null));
+    return {
+      actual, status: !valid ? 'unavailable' : key(expected) === key(actual) ? 'same' : 'different',
+      hiddenStatus: !hiddenValid ? 'unavailable' : key(hiddenExpected) === key(hiddenActual) ? 'same' : 'different',
+    };
   };
   const selected = compare((built.choices || []).filter(c => c.turn === turn && !/^team\b/.test(c.choice)));
   const tried = built.variantsTried?.turn === turn ? built.variantsTried.variants.map(v => ({
     variant: v.variant, searched: v.searched !== null, ...compare(v.choices.filter(c => !/^team\b/.test(c.choice))),
   })) : [];
-  const out = { turn, choices: { expected, selected, tried, realVariantTried: tried.length ? tried.some(v => v.status === 'same') : null }, dice: null };
+  const out = { turn, choices: { expected, selected, tried, realVariantTried: tried.some(v => v.hiddenStatus === 'same') ? true : tried.length && tried.every(v => v.hiddenStatus === 'different') ? false : null }, dice: null };
   if (selected.status !== 'same') {
     out.dice = { status: 'choices differ or unavailable; dice not aligned' };
     return out;
@@ -2837,7 +2843,7 @@ function fuzzCounts(file, { from, count, cap, teams }) {
         const a = row[label], b = old.get(row.seed)?.[label];
         if (a) { available++; for (const k of keys) totals[k] += a[k]; }
         if (a && b) { paired++; for (const k of keys) deltas[k] += a[k] - b[k]; }
-        lines.push(`seed ${row.seed} ${label}: ${a ? values(a) : 'unavailable'}; delta ${!previous ? 'no previous run' : a && b ? values(a, b) : 'unavailable (missing/error/not run)'} ` .trimEnd());
+        lines.push(`seed ${row.seed} ${label}: ${a ? values(a) : 'unavailable'}; delta ${!previous ? 'no previous run' : a && b ? values(a, b) : 'unavailable (missing/error/not run)'}`);
       }
       lines.push(`${label} totals (${available}/${count} available): ${values(totals)}; paired delta (${paired}/${count} comparable): ${paired ? keys.map(k => `${k}=${signed(deltas[k])}`).join(' ') : 'unavailable'}`);
     }
