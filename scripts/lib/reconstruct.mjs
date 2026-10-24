@@ -1606,7 +1606,12 @@ function brokenProof(common, run, proof) {
   const t = run.badTurn;
   const diff = run.diffs[0];
   if (t === null || !diff || !proof || !common.exact?.has(t)) return null;
-  if (!(diff.index < compareTurn(common, t, []).exactUpTo)) return null;
+  // A rejected choice has index -1, not a position in the log. Its preceding
+  // lines can already cover a partial proof, leaving the refusal outside it.
+  if (diff.index < 0 && run.starts?.[t] === undefined) return null;
+  const compared = compareTurn(common, t, diff.index < 0 ? run.rawLog.slice(run.starts[t]) : []);
+  const index = diff.index < 0 ? compared.gotHard.length : diff.index;
+  if (!(index < compared.exactUpTo)) return null;
   const reach = canReach(common, run, t);
   for (const d of run.trace) {
     if (d.mark >= t && !reach(d)) continue;
