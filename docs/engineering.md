@@ -3030,6 +3030,7 @@ calls (its diagnostic checks included), simulation probes, HP backtracks and die
 Nested Illusion readings add their work rather than hiding it. `reconstruct().cost` sums
 every reading it tried, not only the answer it kept. The CLI prints the counts and
 `--counts <file>` compares them (§8); recordings carry neither this work record nor warnings.
+The source's CLI total also includes discarded ability readings, not only its final inference.
 Two runs, and one versus four threads, gave identical counts. Time ceilings can still stop
 the fallback differently on different machines, even without an explicit deadline; repeatability
 is not promised when one of those ceilings is reached.
@@ -3116,6 +3117,12 @@ The restored Earthquake check raised one warning. Current code raised none acros
 recordings, 24 saved games and ten regression fuzz seeds. The restored Gengarite tie instead
 shows up in S2: rebuilds rise from four to nine and probes from 661 to 3,067. S5 detects an
 inconsistent exact hand-off, not every kind of inconsistency in the evidence.
+
+**Review correction** (`89367b8`): a rejected choice uses a sentinel index of -1, not a
+position in the log. Its actual matched-line count now decides whether it lies inside a
+partial proof. Rejection after the proved prefix must not warn. Eleven focused boundary,
+draw and choice cases passed on `lallafa`; a twelfth checked accumulation of discarded
+ability readings in the CLI's counts and warnings.
 
 <a id="s6"></a>
 
