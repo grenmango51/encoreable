@@ -37,7 +37,7 @@ The `.bat` files are double-click equivalents that need no terminal.
 | `npm run replay` | `replay.bat` | The determinism proof: play, re-simulate, diff, render a replay page. |
 | `npm run reconstruct` | `reconstruct.bat` | Turn a saved ladder replay plus both team sheets into a battle the other commands can use. With `--infer p2`, the opponent's Stat Points are worked out from the replay instead of supplied; a replay with no team sheets has the opponent's sets read off the log. |
 | `npm run stop` | — | Kill the servers. |
-| `npm run check` | — | Verify the server binds to loopback and the format loads. |
+| `npm run check` | — | Verify the server binds to loopback, the format loads and every action kind the simulator queues is read or deliberately ignored by the order reader. |
 | `npm run serve` | — | The static client host on its own (rarely needed directly). |
 | `npm run extension` | `extension.bat` | Build the Chrome extension into `extension/dist/`: the same board on play.pokemonshowdown.com, with no Node and no local server. Load that folder at `chrome://extensions` → **Load unpacked**. Starts no server; with `--check` it proves the build against the Node reference in a throwaway Chrome. |
 | `npm run catalog` | `catalog.bat` | The evidence catalog: every move, ability, item, condition and nature Reg M-C allows, put through small battles to find what it lets a replay show about a hidden Pokemon and whether the inference uses it. Writes the two work lists, `docs/evidence-open-sheets.md` and `docs/evidence-closed-sheets.md`. Starts no server. |
@@ -57,7 +57,9 @@ Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 `npm run live` also takes `--at <turn>`, `--dry-run`, `--verify <log.json>`.
 `npm run reconstruct` takes `--all`, `--saved`, `--rung s1|s2|s3`, `--teams <key>`, `--infer p1|p2|both`,
 `--sheets closed`, `--all-spent`, `--certify`, `--outside`, `--sample <n>`, `--max-probes <n>`, `--threads <n>`,
-`--dry-run`. `--sheets closed` reads the inferred side as if it published no team sheet.
+`--dry-run`, `--counts <file>`. `--sheets closed` reads the inferred side as if it published no team sheet.
+Each source prints its work counts and proof-break warnings. `--counts <file>` compares the
+counts with the previous run in that file, prints signed differences, then replaces them.
 `npm run reconstruct -- --saved` is the scoreboard over your own saved games (`recordings/showdown/mine-open/`
 and `mine-closed/`): each is rebuilt with your team from `scripts/fixtures/teams.js` and the other side
 inferred, one line per game.
@@ -68,7 +70,7 @@ plain and once with the named draws forced, and reports what moved.
 named), `--headful` and `--verbose`.
 `npm run catalog` takes `--pool`, `--list`, `--only <ids>`, `--kind <kind>`,
 `--sheets open|closed`, `--inputs <file>`, `--out <dir>`, `--no-coverage`, `--check`, `--fresh`,
-`--threads <n>` and `--verbose`. A run reuses the record of every effect whose fingerprint has
+`--regress`, `--threads <n>` and `--verbose`. A run reuses the record of every effect whose fingerprint has
 not changed, from `.cache/catalog/`: a change to the inference or the rebuild plays the whole pool
 again (about two and a half hours), a change to the reports or to one effect's battles takes
 seconds or minutes, and `--fresh` plays everything. A run of part of the pool writes only to `--out`, and
@@ -78,6 +80,10 @@ at a time, say — without running a battle.
 and what the rebuild made of it. `--fuzz <n> --seed <s>` plays n random legal Reg M-C battles with
 random Stat Points, rebuilds each from p1's view with p2 inferred, and ranks what went wrong, each
 with the command that reruns that one battle.
+`--regress` runs the fifteen-entry regression list (`docs/engineering.md` §12.5, S3),
+prints each entry's mechanism, fix commit and verdict, and exits 1 on a failure. Run it after
+each change to the inference, reconstruction or order reader; it took about three minutes
+on the school workstation. Full fuzz and catalog checks follow a batch.
 
 > Note the bare `--` in `npm run live -- --at 4`. It tells npm the flags are for the
 > script, not for npm. `live.bat --at 4` needs no such thing.
@@ -144,7 +150,7 @@ Pinned in `package.json` to upstream commit `a5df827`, the code play.pokemonshow
 not to an npm release; `npm install` builds it. MIT.
 Pin it deliberately: `docs/engineering.md` §6.5 is the register of internal call sites this
 project depends on that upstream does not promise to keep, and how to upgrade. On any upgrade, diff those and re-run
-`npm run replay`, `npm run reconstruct -- --all --rung s2`, `npm run reconstruct -- --all --rung s3`
+`npm run check`, `npm run replay`, `npm run reconstruct -- --all --rung s2`, `npm run reconstruct -- --all --rung s3`
 **and** `npm run reconstruct -- --all --rung s3 --infer p2`, which exercise the rest.
 
 **Pokémon Showdown client** — https://github.com/smogon/pokemon-showdown-client
