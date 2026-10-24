@@ -386,6 +386,8 @@ async function runOne({
   const started = Date.now();
   let built;
   let inference = null;
+  const inferenceWork = {};
+  const inferenceWarnings = [];
   let inferSets = null;
   let certified = null;
   let truthSets = [null, null];
@@ -431,6 +433,10 @@ async function runOne({
         threads,
         onProgress: chatty,
       });
+      // Rejecting an assumed ability starts another inference of this source;
+      // its earlier search still cost work, even though its answer is discarded.
+      for (const [key, count] of Object.entries(inference.work)) inferenceWork[key] = (inferenceWork[key] || 0) + count;
+      inferenceWarnings.push(...inference.warnings);
       const out = !inference.built.report.complete && announcedAbility(inference.built.report.diffs[0], reads, observed, source.formatid);
       const already = ruledOut[out?.side]?.[out?.name] || [];
       if (!out || already.some(r => r.ability === out.ability)) break;
@@ -486,14 +492,14 @@ async function runOne({
         `recorded with no target (docs/engineering.md 6.1). The real choice cannot be expressed, ` +
         `so this battle is reproduced by forcing its draws rather than by matching choices.`);
   }
-  const work = inference ? { ...inference.work, warnings: inference.warnings.length }
+  const work = inference ? { ...inferenceWork, warnings: inferenceWarnings.length }
     : { rebuilds: 1, probes: built.cost.probes, backtracks: built.cost.backtracks, dieBacktracks: built.cost.dieBacktracks };
   say(`     work: ${COUNTS.filter(([k]) => k in work).map(([k, name]) => `${name} ${work[k]}`).join(', ')}`);
   // A proved turn that failed again under its own dice and choices: the
   // evidence's guess does not fit its own proof. A whole suite prints only how
   // many, above.
   if (inference && showEvents) {
-    for (const w of inference.warnings) {
+    for (const w of inferenceWarnings) {
       say(`     warning: round ${w.round}, turn ${w.turn} was proved and fails again on its own dice - observed ${w.expected ?? '(nothing)'}, ` +
           `rebuilt ${w.actual ?? '(nothing)'}${w.pokemon.length ? ` (${w.pokemon.join(', ')})` : ''}`);
     }
