@@ -333,8 +333,11 @@ No probe battle is kept in `recordings/`: every one is rebuilt from the fixture 
    sheets of the user's saved replays and the fixture teams, random Stat Points (each at most 32, at
    most 66 in all) and the simulator's `RandomPlayerAI` choosing, and checks that every real spread
    survives, that the rebuild is a MATCH and that nothing throws. A battle that is no MATCH is rebuilt
-   again with the real Stat Points: if that fails too, the fault is the rebuild's, not the
-   inference's. Failures are ranked by the kind of their first wrong line, each with its seed. On
+   again with the real Stat Points. A retry failure also compares the played hidden choices
+   with the variants tried, and differing dice when choices and draw signatures align; it
+   does not establish which difference caused the failure. Guess and retry work and warnings
+   are reported separately; `--fuzz ... --counts <file>` compares compatible runs numerically.
+   Failures are ranked by the kind of their first wrong line, each with its seed. On
    `--fuzz 100 --seed 1` (2026-10-21): 100 MATCH, every real spread kept, nothing thrown. The last
    nine failures each closed a general gap: which of two Tyranitars' Sand Stream announces first
    (seeds 24, 73), read from the switch-in order; a full paralysis after a speed tie (19), the search's

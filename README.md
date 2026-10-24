@@ -80,6 +80,12 @@ at a time, say — without running a battle.
 and what the rebuild made of it. `--fuzz <n> --seed <s>` plays n random legal Reg M-C battles with
 random Stat Points, rebuilds each from p1's view with p2 inferred, and ranks what went wrong, each
 with the command that reruns that one battle.
+Each fuzz result shows the guess's work and warnings separately from the retry with real
+spreads. If that retry fails too, it compares the played hidden choices with the variants
+tried and, when their choices and draw signatures align, shows differing dice and their kinds.
+`--fuzz ... --counts <file>` prints signed per-seed and total differences against a compatible
+previous run, then saves the new counts. Missing results stay unavailable. Reconstruction
+counts also identify changed inputs or settings instead of comparing incompatible runs.
 `--regress` runs the fifteen-entry regression list (`docs/engineering.md` §12.5, S3),
 prints each entry's mechanism, fix commit and verdict, and exits 1 on a failure. Run it after
 each change to the inference, reconstruction or order reader; it took about three minutes

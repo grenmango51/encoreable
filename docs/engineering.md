@@ -1474,6 +1474,11 @@ Each source also prints its work: rounds, rebuilds, fallback rebuilds, probes an
 backtrack, with warnings when an exact proof fails again on its own dice and choices (§12.5,
 S2 and S5). `--counts <file>` prints signed differences per source and in total against the
 previous counts in that file, then replaces them. These are observations, not pass/fail gates.
+Each source records its effective rung, inference settings, sample seed, budgets, input and
+team hashes, simulator pin and Node version. Changed settings are named as incompatible and
+start a new baseline; old snapshots without configuration cannot supply deltas. Thread count
+and solver revision are deliberately excluded so their work can be compared. Missing results
+and unavailable counters do not contribute zeroes to the paired totals.
 They are not part of the saved inference. Probe counts include every simulation the search
 consumes, including look-back and variant-ranking work, but not unused speculative worker jobs.
 `npm run replay` takes `--force "<outcome> <subject> [move]"` (repeatable), with `--at <turn>`,
@@ -1499,9 +1504,17 @@ from `scripts/fixtures/teams.js`, random Stat Points (each at most 32, at most 6
 spent in about half the battles), choices from the simulator's `RandomPlayerAI`. It infers p2 from
 p1's view with p1 known and checks that every real spread survives, that the rebuild is a MATCH and
 that nothing throws; a battle that is no MATCH is rebuilt again with p2's real Stat Points, which
-says whether the inference or the rebuild is at fault. Failures are ranked by the kind of the first
+says whether the real spreads also encounter a rebuild failure. Failures are ranked by the kind of the first
 wrong line, each with the one command that reruns it, in `fuzz.md` and `fuzz.json`; a seed always
 plays the same battle.
+The single-seed output, `fuzz.md` and `fuzz.json` show guess work and warnings separately from
+the real-spread retry. A failed retry also compares the played hidden choices with variants
+actually tried. Only matching choices and draw signatures permit a face comparison; the first
+different die is named with its random-call kind, without attributing the failure to it.
+Multiple requests in a turn and unsupported dynamic move lists report unavailable alignment.
+`--fuzz ... --counts <file>` compares signed per-seed and paired-total work and warning counts,
+then saves the new snapshot. Seed range, turn cap, team pool, recipe and simulator must match.
+The worker count and solver revision may change. `--dump` also prints work and warning details.
 `--regress` runs ten fuzz seeds and five catalog worlds, one per historical failure mechanism.
 A fuzz entry checks MATCH, retention of the real spreads and exceptions. A listed catalog
 world also fails on any set-aside line: four of the five historical failures kept the real
@@ -3013,6 +3026,21 @@ The safeguards below follow from these. S1–S3 are harness work in `scripts/loc
 
 **Validation:** Seed 83 under `reconstruct.mjs` as it stood before the pair search names its two secondary dice; seed 2 before the variant ordering names Mawile's Sucker Punch.
 
+**Built** (`819d578`, integrating `817eeed`): the fuzzer traces the original battle before
+player setup, retains request descriptions, and compares only the existing real-spread retry.
+Choice names, targets and flags are compared rather than request indices. A signature or
+choice mismatch suppresses the dice comparison; unavailable request information is named.
+Human output stays compact and `fuzz.json` retains all variant comparisons. Debug traces do
+not enter catalog records or saved inference, and no extra simulation is added.
+
+On `wonko`, seed 220 reports matching choices and draw signatures; its first differing face
+is draw 17, `BattleActions.hitStepAccuracy`. This does not establish why the later Lightning
+Rod line differs. A scratch mutation restoring sequential variant order reproduces seed 2's
+played Mawile Sucker Punch versus selected Iron Head. Removing pair search for seed 83 instead
+stopped earlier, on turn 5: the two Muddy Water dice have **not** been reliably backtested.
+Choice/signature mismatch suppression and dynamic-slot handling passed synthetic checks.
+Seeds 101–103 and 220 retained the baseline outcomes, ranges and other pre-existing fields.
+
 <a id="s2"></a>
 
 ##### S2 — Report what each battle used, not only whether it passed
@@ -3034,6 +3062,11 @@ The source's CLI total also includes discarded ability readings, not only its fi
 Two runs, and one versus four threads, gave identical counts. Time ceilings can still stop
 the fallback differently on different machines, even without an explicit deadline; repeatability
 is not promised when one of those ceilings is reached.
+Fuzz reporting now includes these counts, separate truth retries and warning details. Three
+short battles on one versus two workers gave zero deltas. Reconstruction count snapshots
+reject configuration changes from the comparison: real CLI checks covered changed rung,
+sample seed and probe budget; focused checks covered inference settings, missing sources and
+legacy snapshots. These cases start a new baseline rather than report misleading differences.
 
 <a id="s3"></a>
 
@@ -3060,6 +3093,8 @@ The five coordinates are Iron Ball `holder-hidden/W-confusion spe 0`, Zing Zap
 `holder-hidden/W-trade def 32`, and Earthquake `user-hidden/quiet atk 32`. The Greninjite
 world was fixed by `00aff08`; Zing Zap by `fa26745`'s order reader. The list lives after
 the report marker in `local-catalog.mjs`, so editing it alone leaves the catalog cache valid.
+An empty list now fails instead of reporting a successful zero-of-zero run (`7137149`);
+the negative case was checked through the actual CLI with a scratch loader mutation.
 
 **Unseen seeds** (baseline `a5c777b`, 2026-10-24): seeds 101–300 gave 194 of 200 MATCH,
 every real spread kept in all 200, and no exceptions. Seeds 101, 135, 208, 225 and 281
@@ -3123,6 +3158,14 @@ position in the log. Its actual matched-line count now decides whether it lies i
 partial proof. Rejection after the proved prefix must not warn. Eleven focused boundary,
 draw and choice cases passed on `lallafa`; a twelfth checked accumulation of discarded
 ability readings in the CLI's counts and warnings.
+
+**Second review correction** (`c55c956`): both the proof and the next run retain draw and
+choice positions. Their relevant prefixes are compared on both sides, so a removed speed-tie
+draw cannot silently disappear from the check. Seventeen focused cases passed on `prefect`,
+including extra/missing draws and choices and draws beyond the failing line. A real tied
+Gyarados battle no longer warns when a Speed change removes its tie. Restoring the old
+Earthquake fallback check still raises one warning. All fifteen regressions passed after
+this correction; the inference and search behavior remain unchanged.
 
 <a id="s6"></a>
 
