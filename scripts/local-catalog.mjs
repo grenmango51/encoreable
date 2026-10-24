@@ -2638,6 +2638,7 @@ function diagnoseTruth(played, built, turn) {
 
 function diagnosticLines(d) {
   if (!d) return [];
+  if (d.error) return [`truth turn ${d.turn}: diagnosis unavailable: ${d.error}`];
   const out = [`truth turn ${d.turn}: selected choices ${d.choices.selected.status}; real hidden choice variant tried=${d.choices.realVariantTried ?? 'unavailable'}`];
   for (const c of d.choices.expected) out.push(`played ${c.side}: ${c.description} [${c.raw}]`);
   for (const c of d.choices.selected.actual) out.push(`rebuilt ${c.side}: ${JSON.stringify(c.choice)} [${c.raw}]`);
@@ -2710,8 +2711,12 @@ async function fuzzOne(n, teams, cap, { detail = false } = {}) {
         complete: truth.complete, verifiedThroughTurn: truth.built.report.verifiedThroughTurn ?? null,
         diff: d ? { turn: d.turn, observed: d.expected ?? null, rebuilt: d.actual ?? null } : null,
         work: truth.work, warnings: truth.warnings, warningCount: truth.warnings.length,
-        diagnosis: truth.complete ? null : diagnoseTruth(played, truth.built, d?.turn ?? null),
+        diagnosis: null,
       };
+      if (!truth.complete) {
+        try { result.truth.diagnosis = diagnoseTruth(played, truth.built, d?.turn ?? null); }
+        catch (err) { result.truth.diagnosis = { turn: d?.turn ?? null, error: err.message }; }
+      }
     } catch (err) {
       result.truth = { error: err.message.split('\n')[0], work: null, warnings: null, warningCount: null };
     }
