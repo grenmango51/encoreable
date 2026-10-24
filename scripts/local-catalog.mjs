@@ -2410,7 +2410,9 @@ async function playFuzz(recipe) {
     const dice = traceOn(battle);
     const push = dice.push;
     dice.push = row => {
-      const site = String(new Error().stack).split('\n').find(l => / at /.test(l) && !/rng-command|local-catalog|(?:Battle|PRNG)\.(?:random|randomChance|sample|sampleNoReplace|shuffle)\b/.test(l));
+      const stack = {};
+      Error.captureStackTrace(stack, dice.push);
+      const site = String(stack.stack).split('\n').find(l => / at /.test(l) && !/rng-command|(?:Battle|PRNG)\.(?:random|randomChance|sample|sampleNoReplace|shuffle)\b/.test(l));
       return push.call(dice, { ...row, kind: `${battle.effect?.id || 'draw'}:${site?.trim().replace(/ \(.*/, '').replace(/^at /, '') || 'random'}` });
     };
     markDraws(battle, 0);
@@ -2853,7 +2855,7 @@ function fuzzCounts(file, { from, count, cap, teams }) {
         if (a && b) { paired++; for (const k of keys) deltas[k] += a[k] - b[k]; }
         lines.push(`seed ${row.seed} ${label}: ${a ? values(a) : 'unavailable'}; delta ${!previous ? 'no previous run' : a && b ? values(a, b) : 'unavailable (missing/error/not run)'}`);
       }
-      lines.push(`${label} totals (${available}/${count} available): ${values(totals)}; paired delta (${paired}/${count} comparable): ${paired ? keys.map(k => `${k}=${signed(deltas[k])}`).join(' ') : 'unavailable'}`);
+      lines.push(`${label} totals (${available}/${count} available): ${available ? values(totals) : 'unavailable'}; paired delta (${paired}/${count} comparable): ${paired ? keys.map(k => `${k}=${signed(deltas[k])}`).join(' ') : 'unavailable'}`);
     }
     // Never silently turn an error or an absent truth retry into zero work.
     fs.mkdirSync(path.dirname(at), { recursive: true });
