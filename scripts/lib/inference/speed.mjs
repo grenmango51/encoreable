@@ -74,7 +74,7 @@ export const ACTION_KINDS = Object.freeze({
     priorityChargeMove: 'the charge Focus Punch, Beak Blast and Shell Trap print before the turn: two race only with two such users in one turn, and no read is shown lost to it',
     shift: 'Triples\' shift to the centre, which a doubles battle cannot choose',
     residual: 'the end of the turn, no Pokemon\'s action; its handlers\' order is read from their own sort (`fieldEvent`)',
-    event: 'an effect\'s own queued event, which only Gen 4\'s Custap Berry makes',
+    event: 'an effect\'s own queued event, which only Gen 4\'s Custap Berry and Quick Claw make',
   }),
 });
 
