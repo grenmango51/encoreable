@@ -2712,6 +2712,155 @@ async function runFuzz({ count, from, cap, threads, outDir, verbose }) {
   } else process.stdout.write(text);
 }
 
+// ------------------------------------------------------ the regression list
+
+const REGRESS_ROLE = 'catalog-regress';
+
+/**
+ * Every battle the open-sheet work saw fail, one per mechanism
+ * (docs/engineering.md §12.5, S3), with the commit that fixed it: a fuzz seed,
+ * checked as `--fuzz 1 --seed <n>` checks it, or a catalog world, named as
+ * `--dump` names it and rebuilt as the catalog's coverage rebuilds it. Each
+ * fails on the code just before its commit - seed 14 on that commit with the
+ * trial taken out, since the score component that broke it came in with the
+ * fix. Seeds 1-100 are the ones the search was tuned on, so this list is what
+ * a change to the evidence, the loop, the search or the order reader is run
+ * against before the hour-long fuzz and the full catalog.
+ */
+const REGRESSIONS = [
+  { fuzz: 2, fixed: '6ee4066', what: "a flinched Mawile's unseen Sucker Punch: the unseen choices walked furthest first" },
+  { fuzz: 14, fixed: 'fa26745', what: 'a draw that only gets more of a line right in place: held on trial, not kept for good' },
+  { fuzz: 19, fixed: 'fa26745', what: "a full paralysis after a speed tie, two dice together: the search's third score component" },
+  { fuzz: 24, fixed: 'c8a0113', what: "which of two Tyranitars' Sand Stream announces first, the known one's: read from the switch-in order" },
+  { fuzz: 44, fixed: '6ee4066', what: 'a turn that needs a bigger dice search on every new guess: a new guess starts from the budget it needed' },
+  { fuzz: 56, fixed: '6ee4066', what: 'a Focus Sash only the rebuild announced: the HP line after it read' },
+  { fuzz: 68, fixed: '6ee4066', what: 'a long battle that pins a line a round: a round counted only when it stalls' },
+  { fuzz: 73, fixed: 'c8a0113', what: "which of two Tyranitars' Sand Stream announces first, the hidden one's: read from the switch-in order" },
+  { fuzz: 83, fixed: '6ee4066', what: "Muddy Water's secondary on one target and not the other: two chances tried together" },
+  { fuzz: 88, fixed: '6ee4066', what: 'the replacements after a Perish Song under Trick Room: instaswitch read as a switch' },
+  { world: ['item:ironball', 'holder-hidden/W-confusion', 'spe', 0], fixed: '109a270', what: "a turn-2 speed tie and turn 1's confusion duration: the trial dice handed to the backtrack" },
+  { world: ['move:zingzap', 'user-hidden/after', 'spe', 32], fixed: 'fa26745', what: "a flinched Pokemon's order: read when every move it has sorts at one priority in both sorts" },
+  { world: ['item:gengarite', 'holder-hidden/W-confusion', 'atk', 0], fixed: 'fa26745', what: 'confusion self-hits on two turns: one Attack along each HP path' },
+  { world: ['item:greninjite', 'holder-hidden/W-trade', 'def', 32], fixed: '00aff08', what: 'Quick Attacks into the hidden Mega Greninja: the guess asked under the full search and on its proven HP path before a stat is moved' },
+  { world: ['move:earthquake', 'user-hidden/quiet', 'atk', 32], fixed: 'fa26745', what: "a spread hit's line on the hidden ally: the set-aside check rebuilds the guess the evidence chose on its own HP path" },
+];
+
+/** How an entry is named, and the command that shows it in full. */
+const regressName = r => (r.fuzz !== undefined ? `seed ${r.fuzz}` : r.world.join(' '));
+const regressRerun = r => `npm run catalog -- ${r.fuzz !== undefined ? `--fuzz 1 --seed ${r.fuzz}` : `--dump ${r.world.join(' ')}`}`;
+
+/** A line of the log, or a stand-in where the rebuild or the replay printed none. */
+const lineOr = text => text ?? '(no line)';
+
+/**
+ * What a fuzz entry failed on: exactly what `--fuzz 1 --seed <n>` checks -
+ * it threw, its rebuild is no MATCH, a real spread was lost - each in words.
+ */
+async function fuzzFailures(n, teams) {
+  const r = await fuzzOne(n, teams, FUZZ_TURNS);
+  const failures = [];
+  if (r.error) failures.push(`threw (${r.error.stage}): ${r.error.message.split('\n')[0]}`);
+  else if (!r.complete) {
+    const truth = r.truth?.error ? `with the real Stat Points it threw: ${r.truth.error}`
+      : r.truth?.complete ? 'with the real Stat Points it is a MATCH'
+        : `with the real Stat Points it fails too, on turn ${r.truth?.diff?.turn ?? '-'}`;
+    failures.push(`no MATCH, verified through turn ${r.verifiedThroughTurn ?? '-'}; turn ${r.diff?.turn ?? '-'}: observed ${lineOr(r.diff?.observed)}, rebuilt ${lineOr(r.diff?.rebuilt)}; ${truth}`);
+  }
+  for (const x of r.lost) {
+    failures.push(`real spread lost: ${x.species} (${x.id}) on ${x.real}, ${x.spreads} spreads left${x.event ? `, turn ${x.event.turn}: ${x.event.what}` : ', no recorded event cut it'}`);
+  }
+  return failures;
+}
+
+/**
+ * What a catalog world failed on: the battle `--dump` plays for it, rebuilt
+ * from the known side's view by `inferWorld` as the coverage rebuilds it. It
+ * fails when the battle or the rebuild throws, the rebuild is no MATCH, the
+ * hidden Pokemon's real spread is removed, or a line is set aside - evidence
+ * given up, which the open-sheet report lists as work. Four of these worlds
+ * failed only that way: the fallback got past the line on another spread and
+ * labelled it one no hook reads.
+ */
+async function worldFailures(effect, entries, [key, templateKey, stat, value]) {
+  const template = await namedTemplate(effect, entries[key], templateKey);
+  const evs = world(stat, Number(value));
+  const run = await runBattle(template, evs);
+  if (run.error) return [`battle error: ${run.error}`];
+  const r = await inferWorld(template, run);
+  if (r.error) return [`threw (inference): ${r.error.split('\n')[0]}`];
+  const failures = [];
+  if (!r.complete) failures.push(`no MATCH; turn ${r.diff?.turn ?? '-'}: observed ${lineOr(r.diff?.observed)}, rebuilt ${lineOr(r.diff?.rebuilt)}`);
+  if (!r.p.contains(evs)) failures.push(`real spread lost: ${r.p.species} on ${STATS.map(s => evs[s]).join('/')}, ${r.p.spreads} spreads left`);
+  for (const c of r.inf.checks || []) failures.push(`set aside, turn ${c.turn}: ${c.what} - ${c.reason}`);
+  return failures;
+}
+
+async function serveRegress() {
+  const { teams, inputs } = workerData;
+  const entries = loadEntries(inputs);
+  parentPort.on('message', async ({ i, effect }) => {
+    const r = REGRESSIONS[i];
+    const started = Date.now();
+    let failures;
+    try {
+      failures = r.fuzz !== undefined ? await fuzzFailures(r.fuzz, teams) : await worldFailures(effect, entries, r.world);
+    } catch (err) {
+      failures = [`threw: ${err.message.split('\n')[0]}`];
+    }
+    parentPort.postMessage({ i, failures, seconds: (Date.now() - started) / 1000 });
+  });
+}
+
+/**
+ * `--regress`: every entry of the list on the worker threads, then one line
+ * each in the list's order - pass or FAIL, its seconds, the mechanism it
+ * stands for and the commit that fixed it, and under a failure what failed
+ * and the command that shows it - and the count. Any failure sets the exit
+ * code.
+ */
+async function runRegress({ threads, inputs }) {
+  const started = Date.now();
+  const { teams } = fuzzTeams();
+  const pool = REGRESSIONS.some(r => r.world) ? buildPool() : null;
+  const effects = REGRESSIONS.map((r) => {
+    if (!r.world) return null;
+    const effect = pool.effects.find(e => e.key === r.world[0]);
+    if (!effect) throw new Error(`regression list: not in the Reg M-C pool: ${r.world[0]}`);
+    return effect;
+  });
+  const queue = REGRESSIONS.map((_, i) => i);
+  const results = new Array(REGRESSIONS.length);
+  const size = Math.max(1, Math.min(threads, queue.length));
+  console.error(`regress: ${REGRESSIONS.length} entries, ${size} thread(s)`);
+  let done = 0;
+  await Promise.all(Array.from({ length: size }, () => new Promise((resolve, reject) => {
+    const worker = new Worker(new URL(import.meta.url), { workerData: { role: REGRESS_ROLE, teams, inputs } });
+    const next = () => {
+      const i = queue.shift();
+      if (i === undefined) { worker.terminate().then(resolve); return; }
+      worker.postMessage({ i, effect: effects[i] });
+    };
+    worker.on('message', (msg) => {
+      results[msg.i] = msg;
+      done++;
+      console.error(`[${done}/${REGRESSIONS.length}] ${regressName(REGRESSIONS[msg.i])}: ${msg.failures.length ? 'FAIL' : 'pass'} ${msg.seconds.toFixed(0)}s`);
+      next();
+    });
+    worker.on('error', reject);
+    next();
+  })));
+  const width = Math.max(...REGRESSIONS.map(r => regressName(r).length));
+  for (const [i, r] of REGRESSIONS.entries()) {
+    const { failures, seconds } = results[i];
+    console.log(`${failures.length ? 'FAIL' : 'pass'} ${`${seconds.toFixed(0)}s`.padStart(5)}  ${regressName(r).padEnd(width)}  ${r.what} (${r.fixed})`);
+    for (const f of failures) console.log(`      ${f}`);
+    if (failures.length) console.log(`      rerun: ${regressRerun(r)}`);
+  }
+  const failed = results.filter(x => x.failures.length).length;
+  console.log(`regress: ${REGRESSIONS.length - failed} of ${REGRESSIONS.length} pass${failed ? `, ${failed} FAIL` : ''}, in ${((Date.now() - started) / 1000).toFixed(0)}s on ${size} thread(s)`);
+  if (failed) process.exitCode = 1;
+}
+
 // ----------------------------------------------------------- workers and main
 
 function loadEntries(extra) {
@@ -2827,6 +2976,16 @@ async function runAll(effects, { threads, inputs, coverage, sheets, verbose, fre
   return records;
 }
 
+/** One template of an effect by its `<role>/<name>`, as the catalog plays it: a pace template with its pacer found. */
+async function namedTemplate(effect, entry, templateKey) {
+  const templates = templatesFor(effect, entry);
+  const planned = templates.find(t => t.key === templateKey);
+  if (!planned) throw new Error(`${effect.key} has no template ${templateKey}; it has ${templates.map(t => t.key).join(', ')}`);
+  const found = planned.pace ? await resolvePace(planned) : planned;
+  if (!found) throw new Error(`${effect.key} ${templateKey}: no pacer reaches the hidden Pokemon's Speed`);
+  return found;
+}
+
 /**
  * The battle behind one row, for working the list: the template, the known
  * side's view of one world, and what the rebuild made of it.
@@ -2837,11 +2996,7 @@ async function runAll(effects, { threads, inputs, coverage, sheets, verbose, fre
 async function dumpWorld(pool, [key, templateKey, stat, value], { control, entries, hazard }) {
   const effect = pool.effects.find(e => e.key === key);
   if (!effect) throw new Error(`not in the Reg M-C pool: ${key}`);
-  const templates = templatesFor(effect, entries[key]);
-  const planned = templates.find(t => t.key === templateKey);
-  if (!planned) throw new Error(`${key} has no template ${templateKey}; it has ${templates.map(t => t.key).join(', ')}`);
-  const found = planned.pace ? await resolvePace(planned) : planned;
-  if (!found) throw new Error(`${key} ${templateKey}: no pacer reaches the hidden Pokemon's Speed`);
+  const found = await namedTemplate(effect, entries[key], templateKey);
   const template = control ? found.control : found;
   const evs = STATS.includes(stat) ? world(stat, Number(value)) : BASE;
   const show = set => `${set.name} (${set.species}) @ ${set.item || 'no item'}, ${set.ability}, ${set.nature}, ${STATS.map(s => `${set.evs[s]} ${STAT_NAME[s]}`).join(' / ')}: ${set.moves.join(', ')}`;
@@ -2889,6 +3044,10 @@ async function main() {
     }
     const threads = Number(opt('--threads', String(Math.max(1, os.availableParallelism() - 1))));
     await runFuzz({ count, from, cap, threads, outDir: opt('--out'), verbose: flag('--verbose') });
+    return;
+  }
+  if (flag('--regress')) {
+    await runRegress({ threads: Number(opt('--threads', String(Math.max(1, os.availableParallelism() - 1)))), inputs });
     return;
   }
   const pool = buildPool();
@@ -2993,4 +3152,6 @@ if (isMainThread) {
   serve();
 } else if (workerData?.role === FUZZ_ROLE) {
   serveFuzz();
+} else if (workerData?.role === REGRESS_ROLE) {
+  serveRegress();
 }
