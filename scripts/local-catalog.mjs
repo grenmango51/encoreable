@@ -2562,8 +2562,8 @@ function rebuiltOffers(built) {
     if (t) { turn = Number(t[1]); snapshot(turn); }
     // The simulator offers a locked move as slot 1, even when its sheet slot
     // differs. Read the executed name from the log that explicitly labels it.
-    const locked = /^\|move\|(p[12])([ab]): [^|]+\|([^|]+)\|.*\[from\] lockedmove/.exec(line);
-    if (locked) {
+    const locked = /^\|move\|(p[12])([ab]): [^|]+\|([^|]+)\|/.exec(line);
+    if (locked && (line.includes('[from] lockedmove') || toID(locked[3]) === 'struggle')) {
       const offered = offers.get(`${turn}:${locked[1]}`);
       if (offered) offered.active[locked[2] === 'a' ? 0 : 1] = [toID(locked[3])];
     }
@@ -2577,6 +2577,17 @@ function diagnoseTruth(played, built, turn) {
   const real = played.choices.filter(c => c.turn === turn && !/^team\b/.test(c.raw));
   const canonical = (c, original = false) => {
     const offered = original ? c.offered : offers.get(`${turn}:${c.side}`);
+    if (!original && offered) {
+      const request = real.find(r => r.side === c.side)?.offered;
+      const unsupported = c.choice.split(',').some((part, slot) => {
+        if (!/^\s*move\b/.test(part) || request?.pokemon[slot]?.name !== offered.pokemon[slot]?.name) return false;
+        const a = request.active?.[slot], b = offered.active?.[slot];
+        return !a || !b || [...a].map(toID).sort().join(',') !== [...b].map(toID).sort().join(',');
+      });
+      // Other dynamic move lists (for example Transform) need a live request;
+      // do not turn a missing request description into a choice difference.
+      if (unsupported) return null;
+    }
     return offered ? canonicalChoice(original ? c.raw : c.choice, offered) : null;
   };
   const expected = real.map(c => ({ side: c.side, raw: c.raw, description: c.choice, choice: canonical(c, true) }));
@@ -2743,8 +2754,8 @@ function renderFuzz(results, { from, count, cap, teams, refused, countsLines = [
   out.push(`Each battle is played by Pokemon Showdown's random player up to turn ${cap}, then p2's Stat Points are inferred from p1's`);
   out.push('view with p1 known. Checked: every real spread of a p2 Pokemon the log showed survives; the rebuild is a MATCH;');
   out.push('nothing throws. A rebuild that is no MATCH is made again with p2\'s real Stat Points known: `inferred spread only`');
-  out.push('when that one matches, so the inference kept a spread the log rules out and settled on it; `real spreads too`');
-  out.push('when it fails as well, so no spread could have matched and the fault is in rebuilding the battle.', '');
+  out.push('when that one matches; `real spreads too` when the retry also fails. The latter compares the played choices');
+  out.push('with the tried variants and, only when choices and draw signatures align, reports differing die faces. These comparisons do not attribute a search rule or a mechanics cause.', '');
   out.push(`**Teams** (${teams.length}): ${teams.map(t => t.label).join('; ')}.`);
   if (refused.length) out.push(`Left out, refused by the validator: ${refused.map(r => `${r.label} (${r.problem})`).join('; ')}.`);
   out.push('');
