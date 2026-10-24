@@ -36,7 +36,7 @@
  * Flags: --pool --list --only <ids> --kind <kind> --sheets open|closed --inputs <file>
  *        --out <dir> --no-coverage --check --fresh --threads <n> --verbose --records <file>...
  *        --dump <effect> <role/template> <stat|-> <value> [--control] [--hazard]
- *        --fuzz <count> --seed <from> [--turns <n>]
+ *        --fuzz <count> --seed <from> [--turns <n>] [--counts <file>]
  */
 
 import crypto from 'crypto';
@@ -48,7 +48,7 @@ import { fileURLToPath } from 'url';
 import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 
 import { battleLines } from './lib/protocol.mjs';
-import './lib/rng-control.mjs';
+import { traceOn, markDraws } from './lib/rng-control.mjs';
 import { inferSpreads } from './lib/inference/infer.mjs';
 import { loadSource, setsFromLog, setsFromSheet } from './lib/replay-source.mjs';
 
@@ -2406,6 +2406,14 @@ async function playFuzz(recipe) {
   try {
     await stream.write(`>start ${JSON.stringify({ formatid: FORMAT, seed: recipe.seed })}`);
     const battle = stream.battle;
+    // Install before >player: even gender rolls belong to the ordinal stream.
+    const dice = traceOn(battle);
+    const push = dice.push;
+    dice.push = row => {
+      const site = String(new Error().stack).split('\n').find(l => / at /.test(l) && !/rng-command|local-catalog|(?:Battle|PRNG)\.(?:random|randomChance|sample|sampleNoReplace|shuffle)\b/.test(l));
+      return push.call(dice, { ...row, kind: `${battle.effect?.id || 'draw'}:${site?.trim().replace(/ \(.*/, '').replace(/^at /, '') || 'random'}` });
+    };
+    markDraws(battle, 0);
     for (const [i, team] of recipe.sides.entries()) {
       await stream.write(`>player p${i + 1} ${JSON.stringify({ name: i ? 'Hidden' : 'Known', team: Teams.pack(team) })}`);
     }
@@ -2425,9 +2433,15 @@ async function playFuzz(recipe) {
           const request = side.activeRequest;
           const asked = JSON.stringify(request);
           const turn = battle.turn;
+          const offered = {
+            pokemon: request.side.pokemon.map(p => ({ name: p.ident.slice(4), moves: p.moves })),
+            active: request.active?.map(p => p?.moves?.map(m => m.id || toID(m.move))),
+          };
+          // A forced replacement is still part of the turn that fainted it.
+          markDraws(battle, turn);
           await stream.write(`>${side.id} ${ai.chosen}`);
           if (!side.choice.error) {
-            choices.push({ turn, side: side.id, choice: describeChoice(request, ai.chosen) });
+            choices.push({ turn, side: side.id, raw: ai.chosen, offered, choice: describeChoice(request, ai.chosen) });
             break;
           }
           // An unavailable choice (a trap the request could not show) updates
@@ -2441,7 +2455,7 @@ async function playFuzz(recipe) {
       }
     }
     const channels = extractChannelMessages(battle.log.join('\n'), [1]);
-    return { ch1: channels[1], turns: battle.turn, ended: battle.ended, choices };
+    return { ch1: channels[1], turns: battle.turn, ended: battle.ended, choices, dice };
   } finally {
     stream.destroy?.();
     await Promise.race([drain, Promise.resolve()]);
@@ -2487,6 +2501,126 @@ function removedBy(inf, id, real) {
   return last ? { turn: last.turn, what: last.what, stats: [], how: 'last cut' } : null;
 }
 
+const WORK_KEYS = ['rounds', 'rebuilds', 'fallback', 'probes', 'backtracks', 'dieBacktracks'];
+const workText = work => work ? WORK_KEYS.map(k => `${k}=${work[k]}`).join(' ') : 'unavailable';
+const warningText = w => `round ${w.round}, turn ${w.turn}, ${(w.pokemon || []).join(', ') || 'no Pokemon named'}: expected ${w.expected ?? '(nothing)'}, actual ${w.actual ?? '(nothing)'}`;
+function printWork(label, value) {
+  console.log(`${label}: ${workText(value.work)}; warnings=${value.warnings?.length ?? 'unavailable'}`);
+  for (const w of value.warnings || []) console.log(`  warning: ${warningText(w)}`);
+}
+
+/** Names, targets and flags, rather than move/bench indices from two requests. */
+function canonicalChoice(raw, offered) {
+  if (/^team\b/.test(raw)) return null;
+  return raw.split(',').map((part, slot) => {
+    const [action, arg, ...flags] = part.trim().split(/\s+/);
+    if (action === 'pass') return `${slot}:pass`;
+    if (action === 'switch') {
+      const name = offered.pokemon[Number(arg) - 1]?.name;
+      return name ? `${slot}:switch:${name}` : null;
+    }
+    if (action !== 'move') return null;
+    const move = offered.active?.[slot]?.[Number(arg) - 1];
+    const name = offered.pokemon[slot]?.name;
+    if (!move || !name) return null;
+    return `${slot}:${name}:${toID(move)}:${flags.map(f => /^[+-]?\d+$/.test(f) ? String(Number(f)) : f).sort().join(' ')}`;
+  });
+}
+
+/** Read roster/move indices from the returned recipe and its switch log. No replay. */
+function rebuiltOffers(built) {
+  const rosters = {};
+  for (const line of String(built.inputLog).split('\n')) {
+    const m = /^>player (p[12]) (.*)$/.exec(line);
+    if (m) rosters[m[1]] = Teams.unpack(JSON.parse(m[2]).team).map(p => ({ name: p.name || p.species, moves: p.moves.map(toID) }));
+  }
+  for (const c of built.choices || []) {
+    if (c.turn !== 0 || !/^team /.test(c.choice)) continue;
+    const indices = c.choice.slice(5).replace(/\s/g, '').split(',').map(Number);
+    if (indices.some(i => !rosters[c.side]?.[i - 1])) continue;
+    rosters[c.side] = indices.map(i => rosters[c.side][i - 1]);
+  }
+  const offers = new Map();
+  const snapshot = turn => {
+    for (const [side, pokemon] of Object.entries(rosters)) {
+      offers.set(`${turn}:${side}`, { pokemon: pokemon.map(p => ({ ...p })), active: pokemon.slice(0, 2).map(p => p.moves) });
+    }
+  };
+  snapshot(0);
+  for (const line of built.rawLog || []) {
+    const sw = /^\|(?:switch|drag)\|(p[12])([ab]): ([^|]+)\|/.exec(line);
+    if (sw) {
+      const roster = rosters[sw[1]];
+      const at = roster?.findIndex(p => p.name === sw[3]);
+      const slot = sw[2] === 'a' ? 0 : 1;
+      if (at >= 0) [roster[slot], roster[at]] = [roster[at], roster[slot]];
+    }
+    const t = /^\|turn\|(\d+)$/.exec(line);
+    if (t) snapshot(Number(t[1]));
+  }
+  return offers;
+}
+
+/** Only the existing real-spread retry can be aligned with the played dice. */
+function diagnoseTruth(played, built, turn) {
+  const offers = rebuiltOffers(built);
+  const real = played.choices.filter(c => c.turn === turn && !/^team\b/.test(c.raw));
+  const canonical = (c, original = false) => {
+    const offered = original ? c.offered : offers.get(`${turn}:${c.side}`);
+    return offered ? canonicalChoice(original ? c.raw : c.choice, offered) : null;
+  };
+  const expected = real.map(c => ({ side: c.side, raw: c.raw, description: c.choice, choice: canonical(c, true) }));
+  const describe = choices => choices.map(c => ({ side: c.side, raw: c.choice, choice: canonical(c) }));
+  const compare = choices => {
+    const actual = describe(choices);
+    // Multiple requests in one turn need request-time rosters, which the public
+    // diagnostic API does not retain. Say unavailable rather than guess indices.
+    const ambiguous = ['p1', 'p2'].some(s => real.filter(c => c.side === s).length > 1 || choices.filter(c => c.side === s).length > 1);
+    const valid = !ambiguous && [...expected, ...actual].every(c => c.choice && c.choice.every(x => x !== null));
+    const key = list => JSON.stringify(list.map(c => [c.side, c.choice]).sort((a, b) => a[0].localeCompare(b[0])));
+    return { actual, status: !valid ? 'unavailable' : key(expected) === key(actual) ? 'same' : 'different' };
+  };
+  const selected = compare((built.choices || []).filter(c => c.turn === turn && !/^team\b/.test(c.choice)));
+  const tried = built.variantsTried?.turn === turn ? built.variantsTried.variants.map(v => ({
+    variant: v.variant, searched: v.searched !== null, ...compare(v.choices.filter(c => !/^team\b/.test(c.choice))),
+  })) : [];
+  const out = { turn, choices: { expected, selected, tried, realVariantTried: tried.length ? tried.some(v => v.status === 'same') : null }, dice: null };
+  if (selected.status !== 'same') {
+    out.dice = { status: 'choices differ or unavailable; dice not aligned' };
+    return out;
+  }
+  const original = played.dice.filter(d => d.mark <= turn);
+  const rebuilt = (built.dice || []).filter(d => d.mark <= turn);
+  const signature = d => d ? { i: d.i, turn: d.mark, from: d.from, to: d.to, chance: d.chance } : null;
+  const mismatches = [];
+  let alignmentBreak = null;
+  for (let j = 0; j < Math.max(original.length, rebuilt.length); j++) {
+    const a = original[j], b = rebuilt[j];
+    if (JSON.stringify(signature(a)) !== JSON.stringify(signature(b))) {
+      alignmentBreak = { original: signature(a), rebuilt: signature(b) };
+      break;
+    }
+    if (a.mark === turn && a.value !== b.value) mismatches.push({ ...signature(a), kind: a.kind, original: a.value, rebuilt: b.value });
+  }
+  // A different signature anywhere up to the failure invalidates the ordinal
+  // comparison. Equal ranges alone cannot identify a mechanic's random call.
+  out.dice = alignmentBreak ? { status: 'signature alignment break; no dice cause inferred', alignmentBreak }
+    : { status: mismatches.length ? 'aligned signatures, differing faces (not a cause attribution)' : 'aligned signatures, no differing face', first: mismatches[0] || null, mismatches };
+  return out;
+}
+
+function diagnosticLines(d) {
+  if (!d) return [];
+  const out = [`truth turn ${d.turn}: selected choices ${d.choices.selected.status}; real hidden choice variant tried=${d.choices.realVariantTried ?? 'unavailable'}`];
+  for (const c of d.choices.expected) out.push(`played ${c.side}: ${c.description} [${c.raw}]`);
+  for (const c of d.choices.selected.actual) out.push(`rebuilt ${c.side}: ${JSON.stringify(c.choice)} [${c.raw}]`);
+  for (const v of d.choices.tried) out.push(`variant ${v.variant}: ${v.status}, dice searched=${v.searched}; ${v.actual.map(c => `${c.side} ${JSON.stringify(c.choice)} [${c.raw}]`).join('; ')}`);
+  out.push(d.dice.status);
+  if (d.dice.alignmentBreak) out.push(`signatures: ${JSON.stringify(d.dice.alignmentBreak)}`);
+  for (const x of d.dice.mismatches || []) out.push(`die ${x.i} ${x.kind}, random(${x.from},${x.to}), chance=${x.chance}: played ${x.original}, rebuilt ${x.rebuilt}`);
+  return out;
+}
+
 /**
  * One fuzz battle and its rebuild: played, then p2's Stat Points inferred from
  * p1's view with p1 known, as the catalog rebuilds a world and as
@@ -2502,6 +2636,7 @@ async function fuzzOne(n, teams, cap, { detail = false } = {}) {
     seed: n, teams: recipe.labels, spendAll: recipe.spendAll,
     spreads: recipe.sides.map(team => team.map(set => `${set.species} ${STATS.map(s => set.evs[s]).join('/')}`)),
     turns: null, ended: null, complete: null, verifiedThroughTurn: null, diff: null, lost: [], error: null, signatures: [],
+    work: null, warnings: null, warningCount: null,
   };
   let played;
   try {
@@ -2526,6 +2661,9 @@ async function fuzzOne(n, teams, cap, { detail = false } = {}) {
     return result;
   }
   const report = inf.built.report;
+  result.work = inf.work;
+  result.warnings = inf.warnings;
+  result.warningCount = inf.warnings.length;
   result.complete = inf.complete;
   result.verifiedThroughTurn = report.verifiedThroughTurn ?? null;
   const diff = report.diffs[0];
@@ -2533,17 +2671,22 @@ async function fuzzOne(n, teams, cap, { detail = false } = {}) {
     result.diff = diff ? { turn: diff.turn, observed: diff.expected ?? null, rebuilt: diff.actual ?? null } : null;
     result.choices = played.choices.filter(c => c.turn === diff?.turn).map(c => `${c.side}: ${c.choice}`);
     // The same log rebuilt with p2's real Stat Points known: when that fails
-    // too, no spread could have matched, and the fault is in rebuilding the
-    // battle (or the battle the fuzzer played), not in what the inference kept.
+    // too, compare that retry with the played battle. A failed search under the
+    // real spreads does not prove that no matching rebuild exists.
     try {
       const truth = await inferSpreads({
         formatid: FORMAT, sets: recipe.sides, known: [true, true],
         playerNames: ['Known', 'Hidden'], observed: played.ch1, channel: 1, threads: 1,
       });
       const d = truth.built.report.diffs[0];
-      result.truth = { complete: truth.complete, verifiedThroughTurn: truth.built.report.verifiedThroughTurn ?? null, diff: d ? { turn: d.turn, observed: d.expected ?? null, rebuilt: d.actual ?? null } : null };
+      result.truth = {
+        complete: truth.complete, verifiedThroughTurn: truth.built.report.verifiedThroughTurn ?? null,
+        diff: d ? { turn: d.turn, observed: d.expected ?? null, rebuilt: d.actual ?? null } : null,
+        work: truth.work, warnings: truth.warnings, warningCount: truth.warnings.length,
+        diagnosis: truth.complete ? null : diagnoseTruth(played, truth.built, d?.turn ?? null),
+      };
     } catch (err) {
-      result.truth = { error: err.message.split('\n')[0] };
+      result.truth = { error: err.message.split('\n')[0], work: null, warnings: null, warningCount: null };
     }
     const line = diff?.expected ?? diff?.actual ?? '';
     const parts = String(line).split('|');
@@ -2577,7 +2720,7 @@ async function fuzzOne(n, teams, cap, { detail = false } = {}) {
 }
 
 /** The fuzz report: failures grouped by signature and ranked by count, then every battle. */
-function renderFuzz(results, { from, count, cap, teams, refused }) {
+function renderFuzz(results, { from, count, cap, teams, refused, countsLines = [] }) {
   const out = [`# Fuzz — ${count} random Reg M-C battles from seed ${from}`, ''];
   out.push(`Generated by \`npm run catalog -- --fuzz ${count} --seed ${from}${cap !== FUZZ_TURNS ? ` --turns ${cap}` : ''}\`. Battle k is seed ${from} + k;`);
   out.push(`\`npm run catalog -- --fuzz 1 --seed <seed>${cap !== FUZZ_TURNS ? ` --turns ${cap}` : ''}\` replays one and prints what the inference made of it.`);
@@ -2619,6 +2762,7 @@ function renderFuzz(results, { from, count, cap, teams, refused }) {
         if (r.truth?.error) out.push(`With p2's real Stat Points the rebuild threw: ${code(r.truth.error)}.`);
         else if (r.truth && !r.truth.complete) out.push(`With p2's real Stat Points the rebuild fails too, on turn ${r.truth.diff?.turn ?? '—'}: observed ${code(r.truth.diff?.observed)}, rebuilt ${code(r.truth.diff?.rebuilt)}.`);
         else if (r.truth) out.push('With p2\'s real Stat Points the rebuild is a MATCH.');
+        for (const line of diagnosticLines(r.truth?.diagnosis)) out.push(esc(line));
       }
       else {
         for (const x of r.lost) out.push(`Seed ${r.seed}: ${x.species} (${x.id}) on ${x.real} lost, ${x.spreads} spreads left; ${x.event ? `turn ${x.event.turn}, ${code(x.event.what)}${x.event.stats.length ? `, past its ${x.event.stats.map(s => STAT_NAME[s]).join(', ')}` : ' (the last event that cut it)'}` : 'no recorded event cut it'}.`);
@@ -2627,10 +2771,17 @@ function renderFuzz(results, { from, count, cap, teams, refused }) {
     }
   }
   out.push('## Every battle', '');
-  out.push('| Seed | Known team (p1) | Hidden team (p2) | Spent all 66 | Turns | MATCH | Real spreads | Signatures |', '|---|---|---|---|---|---|---|---|');
+  out.push('| Seed | Known team (p1) | Hidden team (p2) | Spent all 66 | Turns | MATCH | Real spreads | Signatures | Guess work; warnings | Truth retry work; warnings |', '|---|---|---|---|---|---|---|---|---|---|');
   for (const r of results) {
-    out.push(`| ${r.seed} | ${esc(r.teams[0])} | ${esc(r.teams[1])} | ${r.spendAll ? 'yes' : 'no'} | ${r.turns ?? '—'} | ${r.complete === null ? '—' : r.complete ? 'yes' : `no, through ${r.verifiedThroughTurn}`} | ${r.error ? '—' : r.lost.length ? `${r.lost.length} lost` : 'kept'} | ${esc(r.signatures.join('; ')) || '—'} |`);
+    out.push(`| ${r.seed} | ${esc(r.teams[0])} | ${esc(r.teams[1])} | ${r.spendAll ? 'yes' : 'no'} | ${r.turns ?? '—'} | ${r.complete === null ? '—' : r.complete ? 'yes' : `no, through ${r.verifiedThroughTurn}`} | ${r.error ? '—' : r.lost.length ? `${r.lost.length} lost` : 'kept'} | ${esc(r.signatures.join('; ')) || '—'} | ${workText(r.work)}; ${r.warningCount ?? 'unavailable'} | ${r.truth ? `${workText(r.truth.work)}; ${r.truth.warningCount ?? 'unavailable'}` : 'not run'} |`);
   }
+  for (const r of results) {
+    for (const [label, value] of [['guess', r], ['truth retry', r.truth]]) {
+      for (const w of value?.warnings || []) out.push('', `Seed ${r.seed}, ${label} warning: ${esc(warningText(w))}`);
+    }
+    if (r.truth?.diagnosis) out.push('', `Seed ${r.seed}:`, ...diagnosticLines(r.truth.diagnosis).map(esc));
+  }
+  if (countsLines.length) out.push('', '## Counts against previous run', '', ...countsLines.map(esc));
   return `${out.join('\n').trimEnd()}\n`;
 }
 
@@ -2645,10 +2796,65 @@ async function serveFuzz() {
   });
 }
 
+/** An opt-in numeric snapshot, independent of worker count and solver revision. */
+function fuzzCounts(file, { from, count, cap, teams }) {
+  if (!file) return () => [];
+  const at = path.resolve(ROOT, file);
+  const hash = value => crypto.createHash('sha256').update(value).digest('hex');
+  const metadata = {
+    schema: 1, format: FORMAT, from, count, cap,
+    simulator: JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).dependencies['pokemon-showdown'],
+    teams: hash(JSON.stringify(teams)),
+    recipe: hash([seedFor, randomSpread, fuzzRecipe, FuzzPlayer].map(String).join('\n')),
+  };
+  const keys = [...WORK_KEYS, 'warnings'];
+  const previous = fs.existsSync(at) ? JSON.parse(fs.readFileSync(at, 'utf8')) : null;
+  if (previous && JSON.stringify(previous.metadata) !== JSON.stringify(metadata)) {
+    throw new Error(`incompatible --counts metadata in ${at}; use a different file for this seed range, turn cap, team pool or simulator`);
+  }
+  if (previous) {
+    if (!Array.isArray(previous.rows) || new Set(previous.rows.map(r => r.seed)).size !== previous.rows.length) throw new Error(`invalid --counts rows in ${at}`);
+    for (const row of previous.rows) {
+      if (!Number.isInteger(row.seed) || row.seed < from || row.seed >= from + count) throw new Error(`invalid --counts seed in ${at}`);
+      for (const label of ['guess', 'truth']) {
+        if (row[label] != null && !keys.every(k => Number.isSafeInteger(row[label][k]) && row[label][k] >= 0)) throw new Error(`invalid --counts ${label} for seed ${row.seed} in ${at}`);
+      }
+    }
+  }
+  return results => {
+    const numeric = value => value?.work && Array.isArray(value.warnings)
+      ? { ...Object.fromEntries(WORK_KEYS.map(k => [k, value.work[k]])), warnings: value.warnings.length } : null;
+    const rows = results.map(r => ({ seed: r.seed, guess: numeric(r), truth: numeric(r.truth), error: r.error?.stage || r.truth?.error || null }));
+    const old = new Map((previous?.rows || []).map(r => [r.seed, r]));
+    const lines = [];
+    const signed = n => n >= 0 ? `+${n}` : String(n);
+    const values = (a, b) => keys.map(k => `${k}=${b ? signed(a[k] - b[k]) : a[k]}`).join(' ');
+    for (const label of ['guess', 'truth']) {
+      const totals = Object.fromEntries(keys.map(k => [k, 0]));
+      const deltas = { ...totals };
+      let available = 0, paired = 0;
+      for (const row of rows) {
+        const a = row[label], b = old.get(row.seed)?.[label];
+        if (a) { available++; for (const k of keys) totals[k] += a[k]; }
+        if (a && b) { paired++; for (const k of keys) deltas[k] += a[k] - b[k]; }
+        lines.push(`seed ${row.seed} ${label}: ${a ? values(a) : 'unavailable'}; delta ${!previous ? 'no previous run' : a && b ? values(a, b) : 'unavailable (missing/error/not run)'} ` .trimEnd());
+      }
+      lines.push(`${label} totals (${available}/${count} available): ${values(totals)}; paired delta (${paired}/${count} comparable): ${paired ? keys.map(k => `${k}=${signed(deltas[k])}`).join(' ') : 'unavailable'}`);
+    }
+    // Never silently turn an error or an absent truth retry into zero work.
+    fs.mkdirSync(path.dirname(at), { recursive: true });
+    fs.writeFileSync(at, `${JSON.stringify({ metadata, rows }, null, 1)}\n`);
+    for (const line of lines) console.error(line);
+    console.error(`wrote counts ${at}`);
+    return lines;
+  };
+}
+
 /** `--fuzz <count> --seed <from>`: battles from..from+count-1 on the worker threads, then the report. */
-async function runFuzz({ count, from, cap, threads, outDir, verbose }) {
+async function runFuzz({ count, from, cap, threads, outDir, verbose, countsFile }) {
   const { teams, refused } = fuzzTeams();
   if (!teams.length) throw new Error('no team in the pool passes the validator');
+  const saveCounts = fuzzCounts(countsFile, { from, count, cap, teams });
   console.error(`fuzz: ${count} battle(s) from seed ${from}, ${teams.length} teams, up to turn ${cap}, ${threads} thread(s)`);
   if (count === 1) {
     const r = await fuzzOne(from, teams, cap, { detail: true });
@@ -2656,21 +2862,25 @@ async function runFuzz({ count, from, cap, threads, outDir, verbose }) {
     console.log(`seed ${from}: ${rest.teams[0]} (p1, known) against ${rest.teams[1]} (p2, inferred)${rest.spendAll ? ', every Pokemon spends 66' : ''}`);
     for (const [s, list] of rest.spreads.entries()) for (const x of list) console.log(`  p${s + 1} ${x}`);
     if (rest.error) console.log(`threw (${rest.error.stage}): ${rest.error.message}${rest.error.stack ? `\n  ${rest.error.stack}` : ''}`);
+    printWork('guess work', rest);
     if (detail) {
       if (verbose) for (const l of detail.log) console.log(l);
       console.log(`played to turn ${rest.turns}${rest.ended ? ', the battle ended' : ''}; rebuild ${rest.complete ? 'MATCH' : `verified through turn ${rest.verifiedThroughTurn}`}`);
       if (rest.diff) console.log(`  turn ${rest.diff.turn}: observed ${rest.diff.observed}\n          rebuilt  ${rest.diff.rebuilt}`);
       for (const c of rest.choices || []) console.log(`  chosen that turn, ${c}`);
       if (rest.truth) {
+        printWork('truth retry work', rest.truth);
         console.log(rest.truth.error ? `  with p2's real Stat Points the rebuild threw: ${rest.truth.error}`
           : rest.truth.complete ? '  with p2\'s real Stat Points the rebuild is a MATCH'
             : `  with p2's real Stat Points the rebuild fails too, turn ${rest.truth.diff?.turn}: observed ${rest.truth.diff?.observed}\n          rebuilt  ${rest.truth.diff?.rebuilt}`);
+        for (const line of diagnosticLines(rest.truth.diagnosis)) console.log(`  ${line}`);
       }
       for (const p of detail.pokemon) console.log(`  ${p.id} ${p.species.padEnd(16)} ${p.seen ? `${String(p.spreads).padStart(10)} spreads, real ${p.real} ${p.kept ? 'kept' : 'LOST'}  ${p.ranges}` : 'not seen'}`);
       for (const e of detail.events) console.log(`  ${e}`);
       for (const c of detail.checks) console.log(`  not used: ${c}`);
     }
     console.log(rest.signatures.length ? `signatures: ${rest.signatures.join('; ')}` : 'no failure');
+    saveCounts([r]);
     if (outDir) {
       const dir = path.resolve(ROOT, outDir);
       fs.mkdirSync(dir, { recursive: true });
@@ -2694,7 +2904,7 @@ async function runFuzz({ count, from, cap, threads, outDir, verbose }) {
       if (msg.error) { reject(new Error(`seed ${msg.n}: ${msg.error}`)); return; }
       results.push(msg.result);
       const r = msg.result;
-      console.error(`[${results.length}/${count}] seed ${r.seed}: ${r.error ? `threw (${r.error.stage})` : `${r.complete ? 'MATCH' : `through turn ${r.verifiedThroughTurn}`}, ${r.lost.length ? `${r.lost.length} real spread(s) LOST` : 'real spreads kept'}`} ${((Date.now() - started) / 1000).toFixed(0)}s`);
+      console.error(`[${results.length}/${count}] seed ${r.seed}: ${r.error ? `threw (${r.error.stage})` : `${r.complete ? 'MATCH' : `through turn ${r.verifiedThroughTurn}`}, ${r.lost.length ? `${r.lost.length} real spread(s) LOST` : 'real spreads kept'}`} ${((Date.now() - started) / 1000).toFixed(0)}s; guess ${workText(r.work)} warnings=${r.warningCount ?? 'unavailable'}${r.truth ? `; truth ${workText(r.truth.work)} warnings=${r.truth.warningCount ?? 'unavailable'}` : ''}`);
       if (verbose) for (const s of r.signatures) console.error(`    ${s}`);
       next();
     });
@@ -2702,7 +2912,8 @@ async function runFuzz({ count, from, cap, threads, outDir, verbose }) {
     next();
   })));
   results.sort((a, b) => a.seed - b.seed);
-  const text = renderFuzz(results, { from, count, cap, teams, refused });
+  const countsLines = saveCounts(results);
+  const text = renderFuzz(results, { from, count, cap, teams, refused, countsLines });
   if (outDir) {
     const dir = path.resolve(ROOT, outDir);
     fs.mkdirSync(dir, { recursive: true });
@@ -3016,6 +3227,7 @@ async function dumpWorld(pool, [key, templateKey, stat, value], { control, entri
   })() : await inferWorld(template, run);
   console.log(`--- rebuilt from it${hazard ? ', with the sets read off the log' : ''}`);
   if (r.error) { console.log(`error: ${r.error}`); return; }
+  printWork('inference work', r.inf);
   console.log(`complete ${r.complete}${r.diff ? `, first wrong line on turn ${r.diff.turn}: wanted ${r.diff.observed}, got ${r.diff.rebuilt}` : ''}`);
   console.log(`hidden Pokemon: ${r.p.spreads} spreads, real spread ${r.p.contains(evs) ? 'kept' : 'REMOVED'}; ${STATS.map(s => `${STAT_NAME[s]} ${r.p.stats[s] ? `${r.p.stats[s].min}-${r.p.stats[s].max}` : 'none'}`).join(', ')}`);
   for (const e of r.inf.events) {
@@ -3043,7 +3255,7 @@ async function main() {
       throw new Error('--fuzz <count> --seed <from> [--turns <n>]: whole numbers, count and turns at least 1');
     }
     const threads = Number(opt('--threads', String(Math.max(1, os.availableParallelism() - 1))));
-    await runFuzz({ count, from, cap, threads, outDir: opt('--out'), verbose: flag('--verbose') });
+    await runFuzz({ count, from, cap, threads, outDir: opt('--out'), verbose: flag('--verbose'), countsFile: opt('--counts') });
     return;
   }
   if (flag('--regress')) {
