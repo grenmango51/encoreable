@@ -337,7 +337,7 @@ No probe battle is kept in `recordings/`: every one is rebuilt from the fixture 
    inference's. Failures are ranked by the kind of their first wrong line, each with its seed. On
    `--fuzz 100 --seed 1` (2026-10-21): 100 MATCH, every real spread kept, nothing thrown. The last
    nine failures each closed a general gap: which of two Tyranitars' Sand Stream announces first
-   (seeds 24, 73), read from the switch-in order; a flinch after a speed tie (19), the search's
+   (seeds 24, 73), read from the switch-in order; a full paralysis after a speed tie (19), the search's
    third score component; a flinched Mawile's unseen Sucker Punch (2), the unseen choices walked
    furthest first; a Focus Sash only the rebuild announced (56), the HP line after it read; a turn
    that needed a bigger dice search on every new guess (44) and a long battle pinned a line a round

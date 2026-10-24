@@ -652,6 +652,7 @@ Stat Point inference (§7.5) hooks the simulator at more internal points than an
 | `actions.applyRecoilDamage` computes and applies recoil in one call, Struggle's, Mind Blown's and Chloroblast's cost from the user's max HP, rounded, included | each candidate's recoil or cost is a dry call of it | `sim/battle-actions.ts:1379` |
 | Wish's slot condition heals `source.maxhp / 2`, its maker's | scaled only when the Pokemon healed made it | `data/moves.ts` (`wish`) |
 | the queue is sorted by `queue.sort`, then run head-first by `battle.runAction`, and re-sorted before each move | "acted first" is read off the last sort before the action | `sim/battle-queue.ts:418`, `sim/battle.ts:2918` |
+| `queue.resolveAction` assigns action kinds an order from a literal `orders` table, with `move` and `event` allowed through without an entry | `npm run check` reads that table and checks every kind against `ACTION_KINDS` in the order reader (§12.5, S4) | `sim/battle-queue.ts:174`, `:200` |
 | `fieldEvent` (switch-in, end of turn) and `eachEvent` (weather, `Update`) sort by `battle.speedSort`, then dispatch each handler through `singleEvent` / `runEvent` | an event's order and each handler's lines are read off those calls | `sim/battle.ts:267`, `:293`, `:310` |
 | a handler sorts by the Pokemon's cached `speed`, written only by `updateSpeed` and by `setSpecies` (the bare Speed stat, until the next update); a switch-in handler subtracts under one point for position | candidate speeds are taken at those writes; the fraction never reorders whole speeds | `sim/pokemon.ts:283`, `:1005`, `sim/battle.ts:767` |
 | a held item's pinch check is its own `onUpdate`, run from `eachEvent('Update')` | the check is asked dry, per HP, of the item alone | `data/items.ts` (`sitrusberry`) |
@@ -684,7 +685,7 @@ An upgrade is a new commit in `package.json`, `npm install`, and a fresh `runtim
 `provision-local-server.mjs` copies over `runtime/` without deleting, so files upstream removed
 would linger. Set the old `runtime/` aside, provision, and copy its `logs/` back, since that holds
 recordings not yet archived to `recordings/local/`. Then the test is a diff of those call sites plus a
-re-run of `npm run replay`, `npm run reconstruct -- --all --rung s2`,
+re-run of `npm run check`, `npm run replay`, `npm run reconstruct -- --all --rung s2`,
 `npm run reconstruct -- --all --rung s3` **and**
 `npm run reconstruct -- --all --rung s3 --infer p2`, which exercise every one of them. Line
 numbers in this document were last checked against commit `a5df827`.
@@ -1450,6 +1451,7 @@ line, no Stat Point it tries changes the line.
 
 | Command | What it does |
 |---|---|
+| `npm run check` | Provision, then check the loopback binding, the format and the simulator's action kinds against the order reader (§12.5, S4). |
 | `npm run replay` | Provision, play the fixture, re-simulate, diff, render, report. The determinism + full-information proof. |
 | `npm run live` | Truncate at a turn, import it as a live room, open two windows on it. §5.9. |
 | `npm run reconstruct` | Rebuild an input log from a replay plus both teams, then check it turn by turn. §7. |
@@ -1461,13 +1463,19 @@ replay control row, which does the same thing as `npm run live` for the turn on 
 
 Shared flags: `--from <log.json>`, `--no-open`, `--verbose`, `--embed <url>`.
 `npm run live` takes `--at <turn>`, `--dry-run` and `--verify <log.json>`.
-`npm run reconstruct` takes `--all`, `--saved`, `--rung s1|s2|s3`, `--teams <key>`, `--infer p1|p2|both`,
+`npm run reconstruct` takes `--all`, `--saved`, `--rung s1|s2|s3`, `--teams <key>`, `--infer p1|p2|both`, `--counts <file>`,
 `--sheets closed`, `--all-spent`, `--certify`, `--outside`, `--with <file>` (repeatable; another game of the same
 best-of set, §7.5), `--sample <n>`, `--max-probes <n>`, `--threads <n>` and `--dry-run`. `--sheets closed` reads the inferred side as if it published no sheet (§7.6). `--saved`
 rebuilds every saved game of yours in `recordings/showdown/mine-open/` and `mine-closed/` whose one side is a team in
 `scripts/fixtures/teams.js`, with the other side inferred, and prints one line per game: the scoreboard. A saved
 replay — a `.html` page, or a replay link's `.json` — is always S4, and `--threads` only changes how long the search takes, never what it finds
 (§7.3).
+Each source also prints its work: rounds, rebuilds, fallback rebuilds, probes and both kinds of
+backtrack, with warnings when an exact proof fails again on its own dice and choices (§12.5,
+S2 and S5). `--counts <file>` prints signed differences per source and in total against the
+previous counts in that file, then replaces them. These are observations, not pass/fail gates.
+They are not part of the saved inference. Probe counts include every simulation the search
+consumes, including look-back and variant-ranking work, but not unused speculative worker jobs.
 `npm run replay` takes `--force "<outcome> <subject> [move]"` (repeatable), with `--at <turn>`,
 `--always` and `--seed <seed>`: it replays the recording twice from that turn under one shared
 reseed, once plain and once controlled, and reports what was substituted and which battle lines
@@ -1476,7 +1484,7 @@ moved. That is the headless proof for §4; `/rng` is the same engine driven from
 `--inputs <file>`, `--out <dir>`, `--no-coverage`, `--check`, `--threads <n>` and `--verbose`, and
 `--dump <effect> <role/template> <stat> <0|32>` for the battle behind one row, and
 `--fresh` to play every effect again rather than reuse its cached record (below), and
-`--records <file>` (repeatable) to render saved runs again; only records covering the whole pool
+`--regress` for the regression list (§12.5, S3), and `--records <file>` (repeatable) to render saved runs again; only records covering the whole pool
 write the reports in `docs/`, and `--check` fails when a fresh full run disagrees with them.
 Every run keeps each effect's record in `.cache/catalog/` under a fingerprint of all that makes
 it: `local-catalog.mjs` up to its reports, `scripts/lib/`, `scripts/server/`, the fixtures but the
@@ -1494,6 +1502,12 @@ that nothing throws; a battle that is no MATCH is rebuilt again with p2's real S
 says whether the inference or the rebuild is at fault. Failures are ranked by the kind of the first
 wrong line, each with the one command that reruns it, in `fuzz.md` and `fuzz.json`; a seed always
 plays the same battle.
+`--regress` runs ten fuzz seeds and five catalog worlds, one per historical failure mechanism.
+A fuzz entry checks MATCH, retention of the real spreads and exceptions. A listed catalog
+world also fails on any set-aside line: four of the five historical failures kept the real
+spread and eventually rebuilt, but gave up evidence. The command prints each entry's mechanism,
+fix commit, seconds and verdict, with a rerun command on failure, and exits 1 if any entry fails.
+Use it after each inference change; the full fuzz and catalog checks follow a batch (S7).
 `replay.bat`, `live.bat`, `battle.bat` and `catalog.bat` are the double-click entry points.
 
 | File | Role |
@@ -2980,7 +2994,7 @@ The safeguards of §12.5 are about how failures are found; none of them fixes a 
 No real spread was ever removed during that work: every check that a real spread survives passed. Every failure was in finding a rebuild — the guess, the dice search and the loop between them — and each came from one of five causes.
 
 1. **One signal, three causes.** The loop's only signal is the line a rebuild stopped on. That can mean a wrong guess (evidence missing), a right guess whose dice the search did not find within its budget, or an inconsistent hand-off between rounds. The fallback assumed the first and changed a stat, and a different spread throws different dice, so it sometimes got through by luck and labelled the line one no hook reads: 166 Quick Attack lines that the search had not finished, a Pin Missile line that passed under the full budget, a Mega Greninja HP path dropped before the fallback, an Earthquake check that paired the old guess with the new guess's HP path. A looser cause sat beside them: Attack tied per key rather than per HP path let a confusion self-hit use one Attack on turn 2 and another on turn 3, which kept every real spread but chose guesses no rebuild could reproduce (about 55 rows).
-2. **A search that changes one die at a time.** It fails where two dice have to change together and neither alone improves the score: seed 83's two Muddy Water secondaries, Zing Zap's flinch with the speed tie Gen 9's re-sort throws, Iron Ball's turn-2 tie with the turn-1 confusion duration. Its pruning rules carried assumptions that were not always true: a die thrown after the first wrong line cannot matter; the chance dice are a fixed list, which left out plain `random(100)` secondaries; unseen choices tried in a fixed order, which ran out of budget before Mawile's Sucker Punch (seed 2).
+2. **A search that changes one die at a time.** It fails where two dice have to change together and neither alone improves the score: seed 83's two Muddy Water secondaries, seed 19's full paralysis after a speed tie, Iron Ball's turn-2 tie with the turn-1 confusion duration. Its pruning rules carried assumptions that were not always true: a die thrown after the first wrong line cannot matter; the chance dice are a fixed list, which left out plain `random(100)` secondaries; unseen choices tried in a fixed order, which ran out of budget before Mawile's Sucker Punch (seed 2). Zing Zap's flinch-tie world was also investigated during that work; backtesting found its fix was the order reader, not the search.
 3. **Path dependence and shared caps.** Search commits stick, and every battle shares the round cap and budget levels, so a change to the guess, the score or a budget changes the whole path. Seed 14 broke when a new score component committed a partial match; seed 44 stopped five turns earlier when extra checks in the loop used up its rounds, and again when the budget fell to its minimum on every new guess; the Iron Ball world had passed only because its guess avoided a speed tie. Most of these were latent faults that a change exposed.
 4. **Hand-written lists that skip what they do not name.** The order reader took a switch to be `'switch'`; a faint replacement is `'instaswitch'`, so replacement order was never read until seed 88 failed outright. Stance Change's forme change prints before its move line and was not among the lines that open an action. The extension compared request ids exactly while the live client sends `14.0b04…`.
 5. **Evidence that stops at the first wrong line.** That line is often the most informative one: a guessed Special Attack made Dragon Pulse lethal, the rebuild printed a Focus Sash, and the replay's HP line that pins the attacker was past the cutoff (seed 56).
@@ -3011,6 +3025,15 @@ The safeguards below follow from these. S1–S3 are harness work in `scripts/loc
 
 **Validation:** Outside the extension's deadline the counts are deterministic; two runs of the same code give identical counts.
 
+**Built** (`95bb17c`): `inferSpreads().work` counts rounds, calls to `reconstruct`, fallback
+calls (its diagnostic checks included), simulation probes, HP backtracks and die backtracks.
+Nested Illusion readings add their work rather than hiding it. `reconstruct().cost` sums
+every reading it tried, not only the answer it kept. The CLI prints the counts and
+`--counts <file>` compares them (§8); recordings carry neither this work record nor warnings.
+Two runs, and one versus four threads, gave identical counts. Time ceilings can still stop
+the fallback differently on different machines, even without an explicit deadline; repeatability
+is not promised when one of those ceilings is reached.
+
 <a id="s3"></a>
 
 ##### S3 — A regression list of every world that failed, and fuzz seeds the code was not tuned on
@@ -3022,6 +3045,26 @@ The safeguards below follow from these. S1–S3 are harness work in `scripts/loc
 **Proposed change:** A list run after every change to `evidence.mjs`, `infer.mjs`, `reconstruct.mjs` or `speed.mjs`, one battle per distinct mechanism: fuzz seeds 2, 14, 19, 24, 44, 56, 68, 73, 83 and 88, and the catalog worlds of Iron Ball's confusion witness at Speed 0, Zing Zap's flinch tie, Gengarite's confusion witness, the hidden Mega Greninja's Quick Attacks and the Earthquake spread hit. Separately and less often, fuzz seeds 101–300; their pass rate is the measure, and their failures decide S6.
 
 **Validation:** The list runs in minutes; each entry fails on the code before the fix it stands for.
+
+**Built** (`3cf6c36`): `npm run catalog -- --regress` runs all fifteen entries. On workstation
+`random` they passed in 133 seconds on eight threads and 188 seconds on three. Each battle
+was compared with today's before backtesting; each fails before its fix and passes at its
+fix, with one exception: seed 14's breaking score change and trial-hold fix were committed
+together. It fails on a scratch copy of that commit with the trial hold removed, not on any
+committed predecessor. The list retains it and states that limitation. Four catalog worlds
+fail historically only on set-aside evidence, so a listed world checks that too.
+
+The five coordinates are Iron Ball `holder-hidden/W-confusion spe 0`, Zing Zap
+`user-hidden/after spe 32`, Gengarite `holder-hidden/W-confusion atk 0`, Greninjite
+`holder-hidden/W-trade def 32`, and Earthquake `user-hidden/quiet atk 32`. The Greninjite
+world was fixed by `00aff08`; Zing Zap by `fa26745`'s order reader. The list lives after
+the report marker in `local-catalog.mjs`, so editing it alone leaves the catalog cache valid.
+
+**Unseen seeds** (baseline `a5c777b`, 2026-10-24): seeds 101–300 gave 194 of 200 MATCH,
+every real spread kept in all 200, and no exceptions. Seeds 101, 135, 208, 225 and 281
+rebuilt with real spreads but not the inference's guess. Seed 220 also failed with real
+spreads, on a Lightning Rod line. These outcomes locate failures for diagnosis; they do not
+by themselves prove a missing evidence hook, a bad hand-off, or a pair-search failure.
 
 <a id="s4"></a>
 
@@ -3037,6 +3080,17 @@ The safeguards below follow from these. S1–S3 are harness work in `scripts/loc
 
 **Validation:** Adding a kind to the simulator's table fails the check until `speed.mjs` classifies it.
 
+**Built** (`78e314e`, `40aa5b7`): `speed.mjs` exports `ACTION_KINDS`, with `read` derived
+from the sets the reader uses and `ignored` giving one reason per remaining kind. The check
+reads `resolveAction`'s `orders` and its orderless exceptions from the pinned simulator source:
+18 kinds, six read and twelve deliberately ignored. It fails on an unclassified or stale
+kind, a kind on both lists, an empty reason, or an unreadable table. `pass` is discarded
+before the table, so it needs no entry. Removing `instaswitch` from the actual reader's set
+fails the check by name, reproducing the historical coverage gap without playing a battle.
+Fourteen negative cases failed as intended; seed 2 and 88 output was unchanged. The check
+added about 65 ms in alternating runs on `lallafa` (median 218 ms before, 283 ms after,
+provisioning excluded).
+
 <a id="s5"></a>
 
 ##### S5 — Count a proven turn that fails again
@@ -3047,7 +3101,21 @@ The safeguards below follow from these. S1–S3 are harness work in `scripts/loc
 
 **Proposed change:** Count each such failure, with its turn and Pokémon, as a warning in the fuzz and catalog output. A spread that throws a different dice sequence is the case the loop already handles and is not counted. Bundling the guess, HP path, pins and budget into one value would make the second kind impossible to write, but it rewrites the most path-sensitive code in the project for one class of fault; it belongs with other work in `infer.mjs`, not on its own.
 
-**Validation:** The per-key Attack tie, restored in a scratch copy, raises the warning on Gengarite's confusion witness in round 2.
+**Validation:** Restore the old Earthquake fallback check in a scratch copy: it must raise a
+warning when the evidence's chosen guess is checked against the previous guess's HP path.
+The originally proposed Gengarite round-2 test does not exercise this check: restoring the
+per-key Attack tie produces no exact turns to hand on, so there is no proof here to break.
+
+**Built** (`815210f`): a hand-off carries the proof's draw signatures and faces and its
+choices beside the pins, for diagnosis only. Before dropping pins, the next rebuild checks
+whether it failed inside the proved part of an exact turn while all draws and choices that
+could affect that line still match the proof. A different draw sequence or choice does not
+raise this warning. `inferSpreads().warnings` names the round, turn, expected and actual line,
+and the Pokemon those lines name. The loop's behavior is unchanged; warnings are not saved.
+The restored Earthquake check raised one warning. Current code raised none across the 29
+recordings, 24 saved games and ten regression fuzz seeds. The restored Gengarite tie instead
+shows up in S2: rebuilds rise from four to nine and probes from 661 to 3,067. S5 detects an
+inconsistent exact hand-off, not every kind of inconsistency in the evidence.
 
 <a id="s6"></a>
 
