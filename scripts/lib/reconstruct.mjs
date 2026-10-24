@@ -2016,15 +2016,22 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
  *          last run threw as the RNG engine's trace rows (`dice`: `i`, `from`,
  *          `to`, `value`, `mark`, `chance`) and every choice it wrote
  *          (`choices`: `turn`, `side`, `choice`), where its first run broke the
- *          proof it was handed (`brokenProof`), and the
- *          `report`. What the search spent is in it: `attempts`, every run of
- *          the battle the search played - from turn 0 or from a snapshot, here
- *          or on a worker, the probes of a redrawn turn and its look-ahead to
- *          the failing one included, and none a worker ran ahead that was
- *          never asked for; `backtracks`, the earlier turns redrawn for a
- *          failing HP figure, and `dieBacktracks`, those redrawn for any other
- *          line - each counts the redraw one past its budget that ends the
- *          search, which is never played.
+ *          proof it was handed (`brokenProof`), and the `report`. A rebuild
+ *          that fails also gives the hidden choices the search walked on the
+ *          turn it failed on, the last time it searched it (`variantsTried`:
+ *          `turn`, and per variant its index, the choices it wrote on the turn,
+ *          `score`, the turn's `scoreOf` with its dice as drawn, by which the
+ *          variants are ranked, and `searched`, the score once its dice were
+ *          searched, or null) - with `dice`, what a harness that played the
+ *          battle needs to hold the search against it, read off runs the
+ *          search made anyway. What the search spent is in the report:
+ *          `attempts`, every run of the battle the search played - from turn 0
+ *          or from a snapshot, here or on a worker, the probes of a redrawn
+ *          turn and its look-ahead to the failing one included, and none a
+ *          worker ran ahead that was never asked for; `backtracks`, the
+ *          earlier turns redrawn for a failing HP figure, and `dieBacktracks`,
+ *          those redrawn for any other line - each counts the redraw one past
+ *          its budget that ends the search, which is never played.
  */
 async function reconstructOnce({
   formatid,
@@ -2133,12 +2140,21 @@ async function reconstructOnce({
   };
   remember();
 
+  // The hidden choices each turn's search walked, the last time it searched
+  // that turn: per variant, the choices it wrote on the turn, the score the
+  // turn got with its dice as drawn, by which the variants are ranked, and the
+  // score once its dice were searched, if they were.
+  const variantsAt = new Map();
+  const choicesOn = (r, t) => (r.choices || []).filter(c => c.turn === t).map(({ side, choice }) => ({ side, choice }));
+
   while (run.badTurn !== null && Date.now() < deadline) {
     const t = run.badTurn;
 
     onProgress(`turn ${t}: settling draws - observed ${run.diffs[0]?.expected ?? '(nothing)'}`);
 
     let solved = false;
+    const walked = [{ variant: variants[t], choices: choicesOn(run, t), score: scoreOf(run, t), searched: null }];
+    variantsAt.set(t, walked);
 
     // A turn that cannot be finished is still worth what it got through, and
     // trying the next variant means clearing it. So the furthest attempt is held
@@ -2159,6 +2175,7 @@ async function reconstructOnce({
       spent[t] += got.probes;
       forcedDraws += got.forced;
       solved = got.solved;
+      walked[0].searched = got.score;
       if (!solved) consider(got.score, 0, got.tried);
     }
 
@@ -2174,8 +2191,10 @@ async function reconstructOnce({
       variants[t] = v;
       forget(t);
       const probe = await runTo(common, subs, t);
+      const score = scoreOf(probe, t);
+      walked.push({ variant: v, choices: choicesOn(probe, t), score, searched: null });
       if (probe.badTurn === null) { solved = true; break; }
-      ranked.push({ v, score: scoreOf(probe, t) });
+      ranked.push({ v, score });
     }
     ranked.sort((a, b) => (outranks(b.score, a.score) ? 1 : outranks(a.score, b.score) ? -1 : a.v - b.v));
     for (const { v } of ranked) {
@@ -2185,6 +2204,7 @@ async function reconstructOnce({
       const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
       spent[t] += got.probes;
       forcedDraws += got.forced;
+      walked.findLast(w => w.variant === v).searched = got.score;
       if (got.solved) solved = true;
       else consider(got.score, v, got.tried);
     }
@@ -2263,6 +2283,7 @@ async function reconstructOnce({
     pins: { subs: { ...subs }, turns: Object.fromEntries(run.trace.map(r => [r.i, r.mark])) },
     dice: run.trace.map(({ i, from, to, value, mark, chance }) => ({ i, from, to, value, mark, chance })),
     choices: run.choices.map(({ turn, side, choice }) => ({ turn, side, choice })),
+    variantsTried: complete ? null : { turn: run.diffs[0]?.turn ?? null, variants: variantsAt.get(run.diffs[0]?.turn) || [] },
     brokenProof: broken,
     reseeds: reseeds.map((s, i) => (s ? { turn: i, seed: s } : null)).filter(Boolean),
     report: {
