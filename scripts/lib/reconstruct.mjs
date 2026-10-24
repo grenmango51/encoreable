@@ -1612,16 +1612,26 @@ function brokenProof(common, run, proof) {
   const compared = compareTurn(common, t, diff.index < 0 ? run.rawLog.slice(run.starts[t]) : []);
   const index = diff.index < 0 ? compared.gotHard.length : diff.index;
   if (!(index < compared.exactUpTo)) return null;
-  const reach = canReach(common, run, t);
-  for (const d of run.trace) {
-    if (d.mark >= t && !reach(d)) continue;
-    const p = proof.dice[d.i];
-    if (!p || p.mark !== d.mark || p.from !== d.from || p.to !== d.to || p.chance !== d.chance || p.value !== d.value) return null;
+  if (proof.starts?.[t] === undefined || !proof.rawLog) return null;
+  const diffs = [{ ...diff, index }];
+  const reach = canReach(common, { ...run, diffs }, t);
+  const proofReach = canReach(common, { ...proof, diffs }, t);
+  // Compare both prefixes at their own log positions. A spread can remove a
+  // speed-tie draw: checking only the new run would overlook the proof's extra
+  // die, especially when it was the last draw before the disagreeing line.
+  const draws = run.trace.filter(d => d.mark < t || (d.mark === t && reach(d)));
+  const provedDraws = Object.values(proof.dice).filter(d => d.mark < t || (d.mark === t && proofReach(d)));
+  if (draws.length !== provedDraws.length) return null;
+  for (const [n, d] of draws.entries()) {
+    const p = provedDraws[n];
+    if (p.i !== d.i || p.mark !== d.mark || p.from !== d.from || p.to !== d.to || p.chance !== d.chance || p.value !== d.value) return null;
   }
-  const choices = run.choices.filter(c => c.turn < t || reach(c));
+  const choices = run.choices.filter(c => c.turn < t || (c.turn === t && reach(c)));
+  const provedChoices = proof.choices.filter(c => c.turn < t || (c.turn === t && proofReach(c)));
+  if (choices.length !== provedChoices.length) return null;
   for (const [n, c] of choices.entries()) {
-    const p = proof.choices[n];
-    if (!p || p.turn !== c.turn || p.side !== c.side || p.choice !== c.choice) return null;
+    const p = provedChoices[n];
+    if (p.turn !== c.turn || p.side !== c.side || p.choice !== c.choice) return null;
   }
   return { turn: t, index: diff.index, expected: diff.expected ?? null, actual: diff.actual ?? null };
 }
@@ -2284,10 +2294,11 @@ async function reconstructOnce({
     inputLog: run.inputLog,
     log: onChannel(run.rawLog, -1),
     rawLog: run.rawLog,
+    starts: run.starts,
     seed: startSeed,
     pins: { subs: { ...subs }, turns: Object.fromEntries(run.trace.map(r => [r.i, r.mark])) },
-    dice: run.trace.map(({ i, from, to, value, mark, chance }) => ({ i, from, to, value, mark, chance })),
-    choices: run.choices.map(({ turn, side, choice }) => ({ turn, side, choice })),
+    dice: run.trace.map(({ i, from, to, value, mark, chance, at }) => ({ i, from, to, value, mark, chance, at })),
+    choices: run.choices.map(({ turn, side, choice, at }) => ({ turn, side, choice, at })),
     variantsTried: complete ? null : { turn: run.diffs[0]?.turn ?? null, variants: variantsAt.get(run.diffs[0]?.turn) || [] },
     brokenProof: broken,
     reseeds: reseeds.map((s, i) => (s ? { turn: i, seed: s } : null)).filter(Boolean),

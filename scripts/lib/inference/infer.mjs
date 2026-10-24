@@ -165,7 +165,7 @@ function handOn(built, rolls) {
   for (const [i, r] of rolls || []) put(i, r, failed);
   const dice = {};
   for (const d of built.dice) if (d.mark <= failed) dice[d.i] = { ...d, value: d.i in out.subs ? out.subs[d.i] : d.value };
-  out.proof = { dice, choices: built.choices };
+  out.proof = { dice, choices: built.choices, starts: built.starts, rawLog: built.rawLog };
   return out;
 }
 
