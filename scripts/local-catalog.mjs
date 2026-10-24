@@ -3064,6 +3064,7 @@ async function serveRegress() {
  * code.
  */
 async function runRegress({ threads, inputs }) {
+  if (!REGRESSIONS.length) throw new Error('the regression list is empty');
   const started = Date.now();
   const { teams } = fuzzTeams();
   const pool = REGRESSIONS.some(r => r.world) ? buildPool() : null;
