@@ -1130,8 +1130,11 @@ function restoreSnapshot(snap, subs) {
  * pins starts from it (`from`). Such a run replays one turn instead of all of
  * them. It carries the snapshot's recipe, not its own, so it has no input log:
  * only a run from turn 0 produces one.
+ *
+ * `tally.plays` counts the run, on the thread the search runs on.
  */
-async function playThrough({ header, segments, plans, reseeds, variants, subs, channel, exact, state0, dex, stopAt, tolerant, steer = null, snaps = null, from = null }) {
+async function playThrough({ header, segments, plans, reseeds, variants, subs, channel, exact, state0, dex, stopAt, tolerant, steer = null, snaps = null, from = null, tally = null }) {
+  if (tally) tally.plays++;
   const stream = new BattleStream({ keepAlive: true });
   const sink = [];
   const drain = (async () => { for await (const chunk of stream) sink.push(chunk); })();
@@ -1478,7 +1481,10 @@ function serveProbes() {
  * and on this thread otherwise. `ahead` names the probes the search is about to
  * ask for, in the order it will ask; `get` is the asking. A probe still waiting
  * for a worker when it is asked for is taken back and run here, and anything a
- * worker could not answer is run here too, so the pool can only save time.
+ * worker could not answer is run here too, so the pool can only save time. A
+ * probe a worker answered counts as a run the search played; one a worker ran
+ * ahead that was never asked for does not, so the count is the same for any
+ * number of threads.
  */
 function prober(common, t) {
   const jobs = new Map();
@@ -1501,6 +1507,7 @@ function prober(common, t) {
       if (job && !(job.state === 'queued' && common.pool.withdraw(job))) {
         try {
           const run = await job.promise;
+          if (common.tally) common.tally.plays++;
           return { ...run, rawLog: job.snap.log.slice(0, job.snap.logAt).concat(run.tail), steer: null, inputLog: null, notes: [] };
         } catch { /* run it here */ }
       }
@@ -1960,6 +1967,15 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
  *                     the furthest rebuild so far is the answer - for a page that
  *                     waits on it; none by default, so the answer never depends
  *                     on the machine's speed.
+ * @returns the input log and the log it prints, the dice it pins, and the
+ *          `report`. What the search spent is in it: `attempts`, every run of
+ *          the battle the search played - from turn 0 or from a snapshot, here
+ *          or on a worker, the probes of a redrawn turn and its look-ahead to
+ *          the failing one included, and none a worker ran ahead that was
+ *          never asked for; `backtracks`, the earlier turns redrawn for a
+ *          failing HP figure, and `dieBacktracks`, those redrawn for any other
+ *          line - each counts the redraw one past its budget that ends the
+ *          search, which is never played.
  */
 async function reconstructOnce({
   formatid,
@@ -2027,9 +2043,8 @@ async function reconstructOnce({
   }
   const common = {
     header, segments, plans, reseeds, variants, channel, exact, state0, dex, formatid, deadline,
-    id: ++contextCount, snaps: new Map(), pool: probePool(threads, formatid),
+    id: ++contextCount, snaps: new Map(), pool: probePool(threads, formatid), tally: { plays: 0 },
   };
-  let attempts = 0;
   let backtracks = 0;
   // A backtrack to a die proved to bring the failing turn closer costs a few
   // probes, not a guess, so it has a budget of its own.
@@ -2037,7 +2052,6 @@ async function reconstructOnce({
   let forcedDraws = 0;
 
   let run = await playThrough({ ...common, subs });
-  attempts++;
   // A handed-in pin is only as good as the turn it rebuilds: a spread that
   // throws a different sequence of dice there moves every ordinal after it. On
   // a turn proved only in part, the pins stand as long as that part holds.
@@ -2047,7 +2061,6 @@ async function reconstructOnce({
     const held = known?.partial && run.diffs[0]?.index >= compareTurn(common, t, []).exactUpTo;
     forget(held ? t + 1 : t);
     run = await playThrough({ ...common, subs });
-    attempts++;
   }
 
   // Backtracking throws away turns that were already right, on the chance that a
@@ -2093,7 +2106,6 @@ async function reconstructOnce({
     // the substitutions.
     if (run.diffs[0]?.index !== -1) {
       const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
-      attempts += got.probes;
       spent[t] += got.probes;
       forcedDraws += got.forced;
       solved = got.solved;
@@ -2112,7 +2124,6 @@ async function reconstructOnce({
       variants[t] = v;
       forget(t);
       const probe = await runTo(common, subs, t);
-      attempts++;
       if (probe.badTurn === null) { solved = true; break; }
       ranked.push({ v, score: scoreOf(probe, t) });
     }
@@ -2122,7 +2133,6 @@ async function reconstructOnce({
       variants[t] = v;
       forget(t);
       const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
-      attempts += got.probes;
       spent[t] += got.probes;
       forcedDraws += got.forced;
       if (got.solved) solved = true;
@@ -2137,13 +2147,11 @@ async function reconstructOnce({
         Object.assign(subTurn, partial.subTurn);
       }
       run = await playThrough({ ...common, subs });
-      attempts++;
       remember();
     }
 
     if (solved) {
       run = await playThrough({ ...common, subs });
-      attempts++;
       remember();
       continue;
     }
@@ -2182,7 +2190,6 @@ async function reconstructOnce({
     onProgress(`turn ${t}: unreachable, redrawing turn ${back}`);
     for (let i = back + 1; i < variants.length; i++) { variants[i] = 0; spent[i] = 0; }
     run = await playThrough({ ...common, subs });
-    attempts++;
     remember();
   }
 
@@ -2194,7 +2201,6 @@ async function reconstructOnce({
     Object.assign(subs, best.subs);
     best.variants.forEach((v, i) => { variants[i] = v; });
     run = await playThrough({ ...common, subs, tolerant: true });
-    attempts++;
   }
 
   const verifiedThroughTurn = complete ? segments.length - 1 : Math.max(0, (run.diffs[0]?.turn ?? 1) - 1);
@@ -2210,8 +2216,9 @@ async function reconstructOnce({
       complete,
       verifiedThroughTurn,
       turns: segments.length - 1,
-      attempts,
+      attempts: common.tally.plays,
       backtracks,
+      dieBacktracks,
       forcedDraws,
       drawsSeen: run.trace.length,
       variantsUsed: variants.filter(Boolean).length,
@@ -2237,11 +2244,25 @@ async function reconstructOnce({
  * without the exact turns and dice it was handed, which were proved under the
  * other reading. The reading kept is handed back as `forced`, to start from
  * next time.
+ *
+ * `cost` is what every reading tried spent, the kept one's `report` only its
+ * own: `trials`, the readings rebuilt, and the sums of their `attempts`,
+ * `backtracks` and `dieBacktracks` as `probes`, `backtracks` and
+ * `dieBacktracks`.
  */
 export async function reconstruct(options) {
   const forced = new Set(options.forced || []);
-  let best = await reconstructOnce({ ...options, forced });
-  if (best.report.complete) return { ...best, forced: [...forced] };
+  const cost = { trials: 0, probes: 0, backtracks: 0, dieBacktracks: 0 };
+  const once = async (opts) => {
+    const b = await reconstructOnce(opts);
+    cost.trials++;
+    cost.probes += b.report.attempts;
+    cost.backtracks += b.report.backtracks;
+    cost.dieBacktracks += b.report.dieBacktracks;
+    return b;
+  };
+  let best = await once({ ...options, forced });
+  if (best.report.complete) return { ...best, forced: [...forced], cost };
   const lines = options.observed.filter(l => typeof l === 'string');
   const stays = illusionStays(lines, sheetsOf(options.formatid, options.packedTeams, options.channel ?? -1));
   const further = (a, b) => {
@@ -2255,7 +2276,7 @@ export async function reconstruct(options) {
     const failing = (best.report.diffs[0]?.turn ?? Infinity);
     for (const { at, turn } of stays) {
       if (forced.has(at) || turn > failing) continue;
-      const tried = await reconstructOnce({ ...options, exact: null, pins: null, forced: new Set([...forced, at]) });
+      const tried = await once({ ...options, exact: null, pins: null, forced: new Set([...forced, at]) });
       if (further(tried, best)) {
         best = tried;
         forced.add(at);
@@ -2264,7 +2285,7 @@ export async function reconstruct(options) {
       }
     }
   }
-  return { ...best, forced: [...forced] };
+  return { ...best, forced: [...forced], cost };
 }
 
 /** The switch-ins of a log that could be an Illusion user in disguise, as `illusionStays` gives them. */

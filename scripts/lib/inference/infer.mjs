@@ -174,7 +174,18 @@ function handOn(built, rolls) {
  *                 the lines it searched without getting past, shared with
  *                 the inferences this one runs again under another reading
  * @returns the surviving spreads per Pokemon, the events that removed the rest,
- *          and the reconstruction built from the spread it settled on.
+ *          and the reconstruction built from the spread it settled on; and
+ *          `work`, what it spent, with what every inference it ran again under
+ *          another reading of an Illusion spent added in: `rounds`, the rounds
+ *          of the loop; `rebuilds`, every `reconstruct` it called - a round's,
+ *          the fallback's and the fallback's check of a line it got past;
+ *          `probes`, the runs of the battle those rebuilds played, every
+ *          reading of an Illusion they tried included (`cost.probes`);
+ *          `fallback`, the rebuilds the fallback made, the check its budget
+ *          does not count included; `backtracks` and `dieBacktracks`, every
+ *          rebuild's, summed the same way. With no deadline, and short of the
+ *          fallback's ceilings on time, two runs give the same counts for any
+ *          number of threads. No recording carries it (`inferenceRecord`).
  */
 export async function inferSpreads({
   formatid,
@@ -196,6 +207,19 @@ export async function inferSpreads({
 }) {
   const options = { ...arguments[0], spend };
   const dex = Dex.forFormat(formatid);
+  const work = { rounds: 0, rebuilds: 0, probes: 0, fallback: 0, backtracks: 0, dieBacktracks: 0 };
+  const counted = (b, byFallback = false) => {
+    work.rebuilds++;
+    if (byFallback) work.fallback++;
+    work.probes += b.cost.probes;
+    work.backtracks += b.cost.backtracks;
+    work.dieBacktracks += b.cost.dieBacktracks;
+    return b;
+  };
+  const absorb = (res) => {
+    for (const k of Object.keys(work)) work[k] += res.work[k];
+    return res;
+  };
   const lines = observed.filter(l => typeof l === 'string');
 
   // Where a side's HP is printed exactly, its max HP is printed too, and that
@@ -364,13 +388,13 @@ export async function inferSpreads({
     const handed = handOn(built, null);
     const began = Date.now();
     let spent = 0;
-    const rebuild = (chosen, budget, { upTo = through, given = handed } = {}) => {
+    const rebuild = async (chosen, budget, { upTo = through, given = handed } = {}) => {
       spent++;
       spend.rebuilds--;
-      return reconstruct({
+      return counted(await reconstruct({
         formatid, packedTeams: packOf(chosen), playerNames, observed: upTo, channel, exact: null, forced: built.forced,
         seed, pins: given, sampleSeed, maxProbes: budget.maxProbes, maxBacktracks: budget.maxBacktracks, threads, deadline,
-      });
+      }), true);
     };
     const left = Math.min(FALLBACK_MS, spend.ms, deadline - Date.now());
     const affordable = () => spent < FALLBACK_REBUILDS && spend.rebuilds > 0 && Date.now() - began < left;
@@ -602,10 +626,10 @@ export async function inferSpreads({
       let read = false;
       for (const [chosen, given, ex] of [[start, handed, null], ...(proven?.exact ? [[proven.picks, proven.pins, proven.exact]] : [])]) {
         if (read) break;
-        const b = await reconstruct({
+        const b = counted(await reconstruct({
           formatid, packedTeams: packOf(chosen), playerNames, observed: through, channel, exact: ex, forced: built.forced,
           seed, pins: given, sampleSeed, maxProbes: budgets[widest].maxProbes, maxBacktracks: budgets[widest].maxBacktracks, threads, deadline,
-        });
+        }), true);
         read = b.report.complete || further(reach(b), [t, diff.index]);
       }
       if (!read) gap(mark, { turn: t, what: text, who: whoIn(text, by), reason: 'no evidence hook reads this line, and the fallback found a spread that reproduces it' }, true);
@@ -656,10 +680,11 @@ export async function inferSpreads({
   let stalled = 0;
   while (stalled < maxRounds && rounds < 4 * maxRounds && (!rounds || Date.now() < deadline)) {
     rounds++;
+    work.rounds++;
     const packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
     const searchStart = Date.now();
     const resample = budgets[level].resample || 0;
-    built = await reconstruct({
+    built = counted(await reconstruct({
       formatid, packedTeams, playerNames, observed, channel, exact, forced: built?.forced ?? forced,
       seed: resample ? null : seed,
       pins: resample ? null : pins,
@@ -668,7 +693,7 @@ export async function inferSpreads({
       maxBacktracks: budgets[level].maxBacktracks,
       threads,
       deadline,
-    });
+    }));
     const diff = built.report.diffs[0];
     const at = built.report.complete ? [Infinity, Infinity] : [diff?.turn ?? -1, diff?.index ?? -1];
     if (level > floor && !budgets[level].resample && reached && past(at, reached)) floor = level;
@@ -793,8 +818,8 @@ export async function inferSpreads({
     for (const { at, turn } of disguisableStays(formatid, packed, channel, observed)) {
       if (turn > failing || (built.forced || []).includes(at)) continue;
       onProgress(`reading the switch-in at line ${at} as the Illusion user`);
-      const other = await inferSpreads({ ...options, forced: [at], readings: false });
-      if (other.complete) return spareDisguises(other);
+      const other = absorb(await inferSpreads({ ...options, forced: [at], readings: false }));
+      if (other.complete) return spareDisguises(Object.assign(other, { work }));
     }
   }
 
@@ -845,6 +870,7 @@ export async function inferSpreads({
     cutoff: result.cutoff,
     passes: result.passes,
     knowledge: final,
+    work,
   });
 
   /**
@@ -874,7 +900,7 @@ export async function inferSpreads({
       const [side, name] = key.split('|');
       const s = Number(side[1]) - 1;
       onProgress(`reading ${name}'s unsettled switch-ins as the Illusion user`);
-      const read = ats => inferSpreads({ ...options, forced: [...base, ...ats], readings: false });
+      const read = async ats => absorb(await inferSpreads({ ...options, forced: [...base, ...ats], readings: false }));
       const late = () => Date.now() >= deadline;
       const all = late() ? null : await read(stays.map(x => x.at));
       let taken = all && (all.complete || !res.complete) ? [all] : [];

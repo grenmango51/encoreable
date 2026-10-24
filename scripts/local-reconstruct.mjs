@@ -59,9 +59,14 @@
  * announcing itself where the replay does not is ruled out, and the side is
  * inferred again under the next.
  *
+ * Every source prints what its rebuild spent: rounds, rebuilds, probes and
+ * backtracks (`inferSpreads`' `work`). `--counts <file>` holds those between
+ * runs: each source's differences against the counts the file has are printed
+ * as signed numbers, with their totals, and this run's counts replace them.
+ *
  * Flags: --from <file> --rung s1|s2|s3 --all --saved --sheets open|closed --teams <fixture> --infer p1|p2|both
  *        --all-spent --certify --outside --with <file> --sample <n> --max-probes <n> --threads <n> --out <file>
- *        --dry-run --verbose
+ *        --counts <file> --dry-run --verbose
  */
 
 import fs from 'fs';
@@ -479,6 +484,9 @@ async function runOne({
         `recorded with no target (docs/engineering.md 6.1). The real choice cannot be expressed, ` +
         `so this battle is reproduced by forcing its draws rather than by matching choices.`);
   }
+  const work = inference ? inference.work
+    : { rebuilds: 1, probes: built.cost.probes, backtracks: built.cost.backtracks, dieBacktracks: built.cost.dieBacktracks };
+  say(`     work: ${COUNTS.filter(([k]) => k in work).map(([k, name]) => `${name} ${work[k]}`).join(', ')}`);
   for (const note of r.notes) say(`     note: ${note}`);
   for (const d of r.diffs.slice(0, 3)) {
     say(`     turn ${d.turn} diverged at line ${d.index}`);
@@ -598,8 +606,49 @@ async function runOne({
 
   return {
     file, label, rung, ok: r.complete && selfConsistent && truthKept, report: r, accuracy, selfConsistent, outFile, seconds,
-    removed, spreadTruth, setWrong: setReports.flatMap(x => x.wrong), readOffLog: readOffLog.some(Boolean),
+    removed, spreadTruth, setWrong: setReports.flatMap(x => x.wrong), readOffLog: readOffLog.some(Boolean), work,
   };
+}
+
+// ---------------------------------------------------------------- work counts
+
+/** What a source's rebuild spent, in the order a line names them (`inferSpreads`' `work`). */
+const COUNTS = [
+  ['rounds', 'rounds'], ['rebuilds', 'rebuilds'], ['fallback', 'fallback rebuilds'], ['probes', 'probes'],
+  ['backtracks', 'backtracks'], ['dieBacktracks', 'die backtracks'],
+];
+
+/**
+ * Each source's work against the counts an earlier run wrote to `file`, as
+ * signed differences and their totals, and then this run's counts written
+ * there in their place. Nothing is judged: a gain in precision can rightly
+ * cost more rounds, so the numbers are only shown.
+ */
+function compareCounts(file, results) {
+  const now = {};
+  for (const r of results) if (r.work) now[toPosix(ROOT, r.file)] = { label: r.label, ...r.work };
+  if (fs.existsSync(file)) {
+    const was = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const signed = n => (n > 0 ? `+${n}` : String(n));
+    const total = Object.fromEntries(COUNTS.map(([k]) => [k, 0]));
+    say('');
+    say(`work against ${file}:`);
+    for (const key of [...new Set([...Object.keys(now), ...Object.keys(was)])]) {
+      const [a, b] = [was[key], now[key]];
+      const label = (b || a).label || key;
+      if (!a || !b) { say(`  ${label}: ${a ? 'no counts this run' : 'not in the earlier run'}`); continue; }
+      const moved = COUNTS.filter(([k]) => k in a || k in b).map(([k, name]) => {
+        const d = (b[k] || 0) - (a[k] || 0);
+        total[k] += d;
+        return `${name} ${signed(d)}`;
+      });
+      say(`  ${label}: ${moved.join(', ')}`);
+    }
+    say(`  total: ${COUNTS.map(([k, name]) => `${name} ${signed(total[k])}`).join(', ')}`);
+  }
+  fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify(now, null, 1)}\n`);
+  say(`wrote this run's counts to ${file}`);
 }
 
 // ---------------------------------------------------------------- scoreboard
@@ -769,6 +818,7 @@ async function main() {
   } else if (!results[0]?.ok) {
     process.exitCode = 1;
   }
+  if (opt('--counts')) compareCounts(path.resolve(ROOT, opt('--counts')), results);
 }
 
 main().catch((err) => {
