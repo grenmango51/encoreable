@@ -73,6 +73,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { createRequire } from 'module';
 
 import { battleLines } from './lib/protocol.mjs';
@@ -383,6 +384,17 @@ async function runOne({
     ? unreplayableChoices(source.inputLog, Dex.forFormat(source.formatid))
     : [];
 
+  // Identify the actual inputs, while allowing solver edits and thread counts
+  // to be compared. Capture the teams before inference replaces their spreads.
+  const hash = value => crypto.createHash('sha256').update(value).digest('hex');
+  const countsConfig = {
+    rung, format: source.formatid, channel, infer, closed, allSpent, sampleSeed, maxProbes,
+    seed, seedPlan, source: hash(fs.readFileSync(file)),
+    teams: hash(JSON.stringify(packedTeams)),
+    simulator: JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).dependencies['pokemon-showdown'],
+    node: process.versions.node,
+  };
+
   const started = Date.now();
   let built;
   let inference = null;
@@ -623,7 +635,7 @@ async function runOne({
 
   return {
     file, label, rung, ok: r.complete && selfConsistent && truthKept, report: r, accuracy, selfConsistent, outFile, seconds,
-    removed, spreadTruth, setWrong: setReports.flatMap(x => x.wrong), readOffLog: readOffLog.some(Boolean), work,
+    removed, spreadTruth, setWrong: setReports.flatMap(x => x.wrong), readOffLog: readOffLog.some(Boolean), work, countsConfig,
   };
 }
 
@@ -647,28 +659,48 @@ const COUNTS = [
  */
 function compareCounts(file, results) {
   const now = {};
-  for (const r of results) if (r.work) now[toPosix(ROOT, r.file)] = { label: r.label, ...r.work };
+  for (const r of results) if (r.work) now[toPosix(ROOT, r.file)] = { label: r.label, config: r.countsConfig, work: r.work };
   if (fs.existsSync(file)) {
-    const was = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const snapshot = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const legacy = snapshot.schema === undefined;
+    if (!legacy && (snapshot.schema !== 2 || !snapshot.entries || typeof snapshot.entries !== 'object' || Array.isArray(snapshot.entries))) {
+      throw new Error(`invalid --counts snapshot in ${file}`);
+    }
+    const was = legacy ? snapshot : snapshot.entries;
     const signed = n => (n > 0 ? `+${n}` : String(n));
     const total = Object.fromEntries(COUNTS.map(([k]) => [k, 0]));
+    const available = Object.fromEntries(COUNTS.map(([k]) => [k, 0]));
+    let compared = 0;
     say('');
     say(`work against ${file}:`);
     for (const key of [...new Set([...Object.keys(now), ...Object.keys(was)])]) {
       const [a, b] = [was[key], now[key]];
       const label = (b || a).label || key;
       if (!a || !b) { say(`  ${label}: ${a ? 'no counts this run' : 'not in the earlier run'}`); continue; }
-      const moved = COUNTS.filter(([k]) => k in a || k in b).map(([k, name]) => {
-        const d = (b[k] || 0) - (a[k] || 0);
+      if (legacy || !a.config || !b.config) {
+        say(`  ${label}: comparison unavailable (earlier configuration not recorded); starting a new baseline`);
+        continue;
+      }
+      const changed = [...new Set([...Object.keys(a.config), ...Object.keys(b.config)])]
+        .filter(k => JSON.stringify(a.config[k]) !== JSON.stringify(b.config[k]));
+      if (changed.length) {
+        say(`  ${label}: incompatible configuration (${changed.join(', ')} changed); starting a new baseline`);
+        continue;
+      }
+      compared++;
+      const moved = COUNTS.filter(([k]) => k in a.work || k in b.work).map(([k, name]) => {
+        if (![a.work[k], b.work[k]].every(v => Number.isSafeInteger(v) && v >= 0)) return `${name} unavailable`;
+        const d = b.work[k] - a.work[k];
         total[k] += d;
+        available[k]++;
         return `${name} ${signed(d)}`;
       });
       say(`  ${label}: ${moved.join(', ')}`);
     }
-    say(`  total: ${COUNTS.map(([k, name]) => `${name} ${signed(total[k])}`).join(', ')}`);
+    say(`  total (${compared} comparable sources): ${COUNTS.map(([k, name]) => `${name} ${available[k] ? signed(total[k]) : 'unavailable'}`).join(', ')}`);
   }
   fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(now, null, 1)}\n`);
+  fs.writeFileSync(file, `${JSON.stringify({ schema: 2, entries: now }, null, 1)}\n`);
   say(`wrote this run's counts to ${file}`);
 }
 
