@@ -2547,6 +2547,7 @@ function rebuiltOffers(built) {
     }
   };
   snapshot(0);
+  let turn = 0;
   for (const line of built.rawLog || []) {
     const sw = /^\|(?:switch|drag)\|(p[12])([ab]): ([^|]+)\|/.exec(line);
     if (sw) {
@@ -2556,7 +2557,14 @@ function rebuiltOffers(built) {
       if (at >= 0) [roster[slot], roster[at]] = [roster[at], roster[slot]];
     }
     const t = /^\|turn\|(\d+)$/.exec(line);
-    if (t) snapshot(Number(t[1]));
+    if (t) { turn = Number(t[1]); snapshot(turn); }
+    // The simulator offers a locked move as slot 1, even when its sheet slot
+    // differs. Read the executed name from the log that explicitly labels it.
+    const locked = /^\|move\|(p[12])([ab]): [^|]+\|([^|]+)\|.*\[from\] lockedmove/.exec(line);
+    if (locked) {
+      const offered = offers.get(`${turn}:${locked[1]}`);
+      if (offered) offered.active[locked[2] === 'a' ? 0 : 1] = [toID(locked[3])];
+    }
   }
   return offers;
 }
