@@ -60,9 +60,11 @@
  * inferred again under the next.
  *
  * Every source prints what its rebuild spent: rounds, rebuilds, probes and
- * backtracks (`inferSpreads`' `work`). `--counts <file>` holds those between
- * runs: each source's differences against the counts the file has are printed
- * as signed numbers, with their totals, and this run's counts replace them.
+ * backtracks (`inferSpreads`' `work`), and how many turns the evidence proved
+ * failed again on their own dice (its `warnings`), each named when there is
+ * one source. `--counts <file>` holds those numbers between runs: each
+ * source's differences against the counts the file has are printed as signed
+ * numbers, with their totals, and this run's counts replace them.
  *
  * Flags: --from <file> --rung s1|s2|s3 --all --saved --sheets open|closed --teams <fixture> --infer p1|p2|both
  *        --all-spent --certify --outside --with <file> --sample <n> --max-probes <n> --threads <n> --out <file>
@@ -484,9 +486,18 @@ async function runOne({
         `recorded with no target (docs/engineering.md 6.1). The real choice cannot be expressed, ` +
         `so this battle is reproduced by forcing its draws rather than by matching choices.`);
   }
-  const work = inference ? inference.work
+  const work = inference ? { ...inference.work, warnings: inference.warnings.length }
     : { rebuilds: 1, probes: built.cost.probes, backtracks: built.cost.backtracks, dieBacktracks: built.cost.dieBacktracks };
   say(`     work: ${COUNTS.filter(([k]) => k in work).map(([k, name]) => `${name} ${work[k]}`).join(', ')}`);
+  // A proved turn that failed again under its own dice and choices: the
+  // evidence's guess does not fit its own proof. A whole suite prints only how
+  // many, above.
+  if (inference && showEvents) {
+    for (const w of inference.warnings) {
+      say(`     warning: round ${w.round}, turn ${w.turn} was proved and fails again on its own dice - observed ${w.expected ?? '(nothing)'}, ` +
+          `rebuilt ${w.actual ?? '(nothing)'}${w.pokemon.length ? ` (${w.pokemon.join(', ')})` : ''}`);
+    }
+  }
   for (const note of r.notes) say(`     note: ${note}`);
   for (const d of r.diffs.slice(0, 3)) {
     say(`     turn ${d.turn} diverged at line ${d.index}`);
@@ -612,10 +623,14 @@ async function runOne({
 
 // ---------------------------------------------------------------- work counts
 
-/** What a source's rebuild spent, in the order a line names them (`inferSpreads`' `work`). */
+/**
+ * What a source's rebuild spent, in the order a line names them
+ * (`inferSpreads`' `work`), and how many proved turns failed again (its
+ * `warnings`).
+ */
 const COUNTS = [
   ['rounds', 'rounds'], ['rebuilds', 'rebuilds'], ['fallback', 'fallback rebuilds'], ['probes', 'probes'],
-  ['backtracks', 'backtracks'], ['dieBacktracks', 'die backtracks'],
+  ['backtracks', 'backtracks'], ['dieBacktracks', 'die backtracks'], ['warnings', 'warnings'],
 ];
 
 /**
