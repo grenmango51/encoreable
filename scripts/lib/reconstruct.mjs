@@ -1189,6 +1189,9 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
   if (!from) await stream.write(header.slice(1).join('\n'));
 
   const notes = from ? from.notes.slice() : [];
+  // Each choice written, with how long the log was when it was: like a die, a
+  // choice cannot change a line written before it.
+  const choices = [];
   const diffs = [];
   const widths = from ? from.widths.slice() : [];
   const starts = from ? from.starts.slice() : [];
@@ -1254,6 +1257,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
         // once the other side's choice resolves the turn: nothing to write.
         if (!side.requestState) continue;
         written[side.id] = choiceFor(side, plans[k], state, notes);
+        choices.push({ turn: k, side: side.id, choice: written[side.id], at: battle.log.length });
         await stream.write(`>${side.id} ${written[side.id]}`);
       }
       const after = `${battle.turn}:${battle.log.length}:${battle.sides.map(s => s.requestState).join('')}`;
@@ -1299,6 +1303,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
     starts,
     notes,
     trace,
+    choices,
     steer: steered,
     inputLog: from ? null : [...battle.inputLog],
     rawLog: [...battle.log],
@@ -1576,6 +1581,44 @@ function canReach(common, run, t) {
     }
     return reach <= limit;
   };
+}
+
+/**
+ * Where a run fails inside a turn the evidence proved, under the dice and the
+ * choices the proof was read under, as `{ turn, index, expected, actual }`;
+ * otherwise null.
+ *
+ * Stat Point inference reads its proof off a rebuild and hands the next one
+ * the turns it proved (`exact`) and the dice that rebuild them, and with them
+ * every die that rebuild threw up to the turn it failed on, with the face the
+ * proof read it under, and every choice it wrote (`pins.proof`). A run that
+ * fails inside the proved part of a proved turn - on a refused choice too,
+ * when nothing printed before it disagrees - while every die that could reach
+ * the failing line (`canReach`) was thrown on the same turn, from the same
+ * range and with the same face as in the proof, and every choice that could
+ * reach it is the proof's, played the battle the proof was read off with
+ * nothing changed but the Stat Points, to the ones the proof chose: the proof
+ * does not fit its own guess. A run that threw a die another way, or wrote
+ * another choice, played another battle - a spread that moves the dice, a
+ * hidden choice the search had not settled - and is not one.
+ */
+function brokenProof(common, run, proof) {
+  const t = run.badTurn;
+  const diff = run.diffs[0];
+  if (t === null || !diff || !proof || !common.exact?.has(t)) return null;
+  if (!(diff.index < compareTurn(common, t, []).exactUpTo)) return null;
+  const reach = canReach(common, run, t);
+  for (const d of run.trace) {
+    if (d.mark >= t && !reach(d)) continue;
+    const p = proof.dice[d.i];
+    if (!p || p.mark !== d.mark || p.from !== d.from || p.to !== d.to || p.chance !== d.chance || p.value !== d.value) return null;
+  }
+  const choices = run.choices.filter(c => c.turn < t || reach(c));
+  for (const [n, c] of choices.entries()) {
+    const p = proof.choices[n];
+    if (!p || p.turn !== c.turn || p.side !== c.side || p.choice !== c.choice) return null;
+  }
+  return { turn: t, index: diff.index, expected: diff.expected ?? null, actual: diff.actual ?? null };
 }
 
 const outranks = (a, b) => (a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] > b[2]);
@@ -1956,10 +1999,12 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
  *                     the omniscient channel instead. Stat Point inference supplies
  *                     it: where the evidence has proved which exact HP a percentage
  *                     hid, sampling it again can only pick wrong.
- * @param pins         `{ subs, turns }`: draws already settled, by ordinal, and the turn
+ * @param pins         `{ subs, turns, proof }`: draws already settled, by ordinal, and the turn
  *                     each belongs to. Stat Point inference supplies the dice that
  *                     rebuild its proved turns, so only the turn after them is
  *                     searched. A pin on a turn that fails is dropped and searched.
+ *                     `proof`, the dice and choices the proof was read under, only
+ *                     says whether the first run broke it (`brokenProof`).
  * @param threads      how many threads the dice search may use, this one included;
  *                     the machine's own count by default. The answer is the same
  *                     for any count.
@@ -1967,7 +2012,11 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
  *                     the furthest rebuild so far is the answer - for a page that
  *                     waits on it; none by default, so the answer never depends
  *                     on the machine's speed.
- * @returns the input log and the log it prints, the dice it pins, and the
+ * @returns the input log and the log it prints, the dice it pins, every die its
+ *          last run threw as the RNG engine's trace rows (`dice`: `i`, `from`,
+ *          `to`, `value`, `mark`, `chance`) and every choice it wrote
+ *          (`choices`: `turn`, `side`, `choice`), where its first run broke the
+ *          proof it was handed (`brokenProof`), and the
  *          `report`. What the search spent is in it: `attempts`, every run of
  *          the battle the search played - from turn 0 or from a snapshot, here
  *          or on a worker, the probes of a redrawn turn and its look-ahead to
@@ -2052,6 +2101,7 @@ async function reconstructOnce({
   let forcedDraws = 0;
 
   let run = await playThrough({ ...common, subs });
+  const broken = brokenProof(common, run, pins?.proof);
   // A handed-in pin is only as good as the turn it rebuilds: a spread that
   // throws a different sequence of dice there moves every ordinal after it. On
   // a turn proved only in part, the pins stand as long as that part holds.
@@ -2211,6 +2261,9 @@ async function reconstructOnce({
     rawLog: run.rawLog,
     seed: startSeed,
     pins: { subs: { ...subs }, turns: Object.fromEntries(run.trace.map(r => [r.i, r.mark])) },
+    dice: run.trace.map(({ i, from, to, value, mark, chance }) => ({ i, from, to, value, mark, chance })),
+    choices: run.choices.map(({ turn, side, choice }) => ({ turn, side, choice })),
+    brokenProof: broken,
     reseeds: reseeds.map((s, i) => (s ? { turn: i, seed: s } : null)).filter(Boolean),
     report: {
       complete,
@@ -2248,7 +2301,8 @@ async function reconstructOnce({
  * `cost` is what every reading tried spent, the kept one's `report` only its
  * own: `trials`, the readings rebuilt, and the sums of their `attempts`,
  * `backtracks` and `dieBacktracks` as `probes`, `backtracks` and
- * `dieBacktracks`.
+ * `dieBacktracks`. `brokenProof` is the first reading's, the only one handed
+ * the proof.
  */
 export async function reconstruct(options) {
   const forced = new Set(options.forced || []);
@@ -2262,6 +2316,7 @@ export async function reconstruct(options) {
     return b;
   };
   let best = await once({ ...options, forced });
+  const { brokenProof: broken } = best;
   if (best.report.complete) return { ...best, forced: [...forced], cost };
   const lines = options.observed.filter(l => typeof l === 'string');
   const stays = illusionStays(lines, sheetsOf(options.formatid, options.packedTeams, options.channel ?? -1));
@@ -2285,7 +2340,7 @@ export async function reconstruct(options) {
       }
     }
   }
-  return { ...best, forced: [...forced], cost };
+  return { ...best, forced: [...forced], cost, brokenProof: broken };
 }
 
 /** The switch-ins of a log that could be an Illusion user in disguise, as `illusionStays` gives them. */

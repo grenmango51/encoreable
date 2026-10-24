@@ -101,6 +101,12 @@ function locate(segment, diff) {
   return { what: `${line}${from}; the rebuild printed ${diff.actual ?? 'nothing'}${order}`, action };
 }
 
+/** Every Pokemon some protocol lines name, as `p2: Gengar`, in the order they name them. */
+const namedBy = lines => [...new Set(lines.flatMap(l => String(l || '').split('|')
+  .map(part => /^(?:\[\w+\]\s*)?(p[1-4])[a-d]?: (.+)$/.exec(part.trim()))
+  .filter(Boolean)
+  .map(m => `${m[1]}: ${m[2]}`)))];
+
 /**
  * An input log played again with other teams - the same choices and the same
  * dice - as `channel` sees it, through the line that opens the turn after
@@ -140,6 +146,11 @@ async function replayWith(inputLog, packedTeams, turn, channel) {
  * that turn are not, since the search that failed there chose them. A spread
  * that throws a different sequence is caught by `reconstruct`, which drops the
  * pins from that turn on.
+ *
+ * `proof` is what the evidence read the turns under: every die the scaffold
+ * threw through the failing turn, with the face it had there or the roll
+ * handed in its place, and every choice it wrote. It moves nothing; a rebuild
+ * only checks against it whether the proof breaks (`brokenProof`).
  */
 function handOn(built, rolls) {
   const failed = built.report.diffs[0]?.turn ?? Infinity;
@@ -152,6 +163,9 @@ function handOn(built, rolls) {
   };
   for (const [i, v] of Object.entries(subs)) put(i, v, failed - 1);
   for (const [i, r] of rolls || []) put(i, r, failed);
+  const dice = {};
+  for (const d of built.dice) if (d.mark <= failed) dice[d.i] = { ...d, value: d.i in out.subs ? out.subs[d.i] : d.value };
+  out.proof = { dice, choices: built.choices };
   return out;
 }
 
@@ -185,7 +199,15 @@ function handOn(built, rolls) {
  *          does not count included; `backtracks` and `dieBacktracks`, every
  *          rebuild's, summed the same way. With no deadline, and short of the
  *          fallback's ceilings on time, two runs give the same counts for any
- *          number of threads. No recording carries it (`inferenceRecord`).
+ *          number of threads. And `warnings`, each proof a rebuild was handed
+ *          and broke - it failed inside a turn the evidence proved, on the
+ *          proof's own dice and choices (`brokenProof` in `reconstruct.mjs`) -
+ *          as `{ round, turn, expected, actual, pokemon }`: the round that
+ *          rebuilt it, or whose fallback did, the line the replay shows and the
+ *          one rebuilt, and every Pokemon either names; the inferences run
+ *          again under another reading add theirs. The loop goes on as if it
+ *          had not been counted. No recording carries either
+ *          (`inferenceRecord`).
  */
 export async function inferSpreads({
   formatid,
@@ -208,16 +230,26 @@ export async function inferSpreads({
   const options = { ...arguments[0], spend };
   const dex = Dex.forFormat(formatid);
   const work = { rounds: 0, rebuilds: 0, probes: 0, fallback: 0, backtracks: 0, dieBacktracks: 0 };
-  const counted = (b, byFallback = false) => {
+  const warnings = [];
+  // A proof the fallback's check broke is handed to the next round as well,
+  // and breaks there again: each is counted once.
+  const broken = new Set();
+  const counted = (b, byFallback = false, proved = null) => {
     work.rebuilds++;
     if (byFallback) work.fallback++;
     work.probes += b.cost.probes;
     work.backtracks += b.cost.backtracks;
     work.dieBacktracks += b.cost.dieBacktracks;
+    const at = b.brokenProof;
+    if (at && proved && !broken.has(proved)) {
+      broken.add(proved);
+      warnings.push({ round: rounds, turn: at.turn, expected: at.expected, actual: at.actual, pokemon: namedBy([at.expected, at.actual]) });
+    }
     return b;
   };
   const absorb = (res) => {
     for (const k of Object.keys(work)) work[k] += res.work[k];
+    warnings.push(...res.warnings);
     return res;
   };
   const lines = observed.filter(l => typeof l === 'string');
@@ -629,7 +661,7 @@ export async function inferSpreads({
         const b = counted(await reconstruct({
           formatid, packedTeams: packOf(chosen), playerNames, observed: through, channel, exact: ex, forced: built.forced,
           seed, pins: given, sampleSeed, maxProbes: budgets[widest].maxProbes, maxBacktracks: budgets[widest].maxBacktracks, threads, deadline,
-        }), true);
+        }), true, ex);
         read = b.report.complete || further(reach(b), [t, diff.index]);
       }
       if (!read) gap(mark, { turn: t, what: text, who: whoIn(text, by), reason: 'no evidence hook reads this line, and the fallback found a spread that reproduces it' }, true);
@@ -693,7 +725,7 @@ export async function inferSpreads({
       maxBacktracks: budgets[level].maxBacktracks,
       threads,
       deadline,
-    }));
+    }), false, exact);
     const diff = built.report.diffs[0];
     const at = built.report.complete ? [Infinity, Infinity] : [diff?.turn ?? -1, diff?.index ?? -1];
     if (level > floor && !budgets[level].resample && reached && past(at, reached)) floor = level;
@@ -819,7 +851,7 @@ export async function inferSpreads({
       if (turn > failing || (built.forced || []).includes(at)) continue;
       onProgress(`reading the switch-in at line ${at} as the Illusion user`);
       const other = absorb(await inferSpreads({ ...options, forced: [at], readings: false }));
-      if (other.complete) return spareDisguises(Object.assign(other, { work }));
+      if (other.complete) return spareDisguises(Object.assign(other, { work, warnings }));
     }
   }
 
@@ -871,6 +903,7 @@ export async function inferSpreads({
     passes: result.passes,
     knowledge: final,
     work,
+    warnings,
   });
 
   /**
