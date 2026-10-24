@@ -2,13 +2,13 @@
 
 *Replay the position, not the video.*
 
-An analysis board for competitive Pokémon. Take a finished battle, pick any turn, and get
-the **real Showdown battle interface** sitting at that exact position — then play forward,
+An analysis board for competitive Pok�mon. Take a finished battle, pick any turn, and get
+the **real Showdown battle interface** sitting at that exact position - then play forward,
 choosing moves for **both** sides.
 
-Chess players have had this for decades. Pokémon players rewatch a video.
+Chess players have had this for decades. Pok�mon players rewatch a video.
 
-Target ruleset is **Pokémon Champions VGC** (`[Gen 9 Champions] VGC 2026 Reg M-C`), doubles.
+Target ruleset is **Pok�mon Champions VGC** (`[Gen 9 Champions] VGC 2026 Reg M-C`), doubles.
 
 ---
 
@@ -19,7 +19,7 @@ Target ruleset is **Pokémon Champions VGC** (`[Gen 9 Champions] VGC 2026 Reg M-
   ```powershell
   $env:Path = "C:\Program Files\nodejs;" + $env:Path
   ```
-- **A Chromium browser** — Chrome or Edge. Two windows get opened side by side.
+- **A Chromium browser** - Chrome or Edge. Two windows get opened side by side.
 - `npm install`, once. It downloads the pinned Showdown commit from GitHub and builds it, which
   takes about a minute.
 
@@ -36,10 +36,10 @@ The `.bat` files are double-click equivalents that need no terminal.
 | `npm run battle` | `battle.bat` | Record a new battle. Two browser windows, teams pre-loaded, challenge auto-issued. |
 | `npm run replay` | `replay.bat` | The determinism proof: play, re-simulate, diff, render a replay page. |
 | `npm run reconstruct` | `reconstruct.bat` | Turn a saved ladder replay plus both team sheets into a battle the other commands can use. With `--infer p2`, the opponent's Stat Points are worked out from the replay instead of supplied; a replay with no team sheets has the opponent's sets read off the log. |
-| `npm run stop` | — | Kill the servers. |
-| `npm run check` | — | Verify the server binds to loopback, the format loads and every action kind the simulator queues is read or deliberately ignored by the order reader. |
-| `npm run serve` | — | The static client host on its own (rarely needed directly). |
-| `npm run extension` | `extension.bat` | Build the Chrome extension into `extension/dist/`: the same board on play.pokemonshowdown.com, with no Node and no local server. Load that folder at `chrome://extensions` → **Load unpacked**. Starts no server; with `--check` it proves the build against the Node reference in a throwaway Chrome. |
+| `npm run stop` | - | Kill the servers. |
+| `npm run check` | - | Verify the server binds to loopback, the format loads and every action kind the simulator queues is read or deliberately ignored by the order reader. |
+| `npm run serve` | - | The static client host on its own (rarely needed directly). |
+| `npm run extension` | `extension.bat` | Build the Chrome extension into `extension/dist/`: the same board on play.pokemonshowdown.com, with no Node and no local server. Load that folder at `chrome://extensions`  **Load unpacked**. Starts no server; with `--check` it proves the build against the Node reference in a throwaway Chrome. |
 | `npm run catalog` | `catalog.bat` | The evidence catalog: every move, ability, item, condition and nature Reg M-C allows, put through small battles to find what it lets a replay show about a hidden Pokemon and whether the inference uses it. Writes the two work lists, `docs/evidence-open-sheets.md` and `docs/evidence-closed-sheets.md`. Starts no server. |
 
 **Start here:**
@@ -74,8 +74,8 @@ named), `--headful` and `--verbose`.
 not changed, from `.cache/catalog/`: a change to the inference or the rebuild plays the whole pool
 again (about two and a half hours), a change to the reports or to one effect's battles takes
 seconds or minutes, and `--fresh` plays everything. A run of part of the pool writes only to `--out`, and
-`--records <file>` (repeatable) renders the reports again from saved runs — the pool run a kind
-at a time, say — without running a battle.
+`--records <file>` (repeatable) renders the reports again from saved runs - the pool run a kind
+at a time, say - without running a battle.
 `--dump <effect> <role/template> <stat> <0|32>` prints the battle behind one row of the reports
 and what the rebuild made of it. `--fuzz <n> --seed <s>` plays n random legal Reg M-C battles with
 random Stat Points, rebuilds each from p1's view with p2 inferred, and ranks what went wrong, each
@@ -86,7 +86,7 @@ tried and, when their choices and draw signatures align, shows differing dice an
 `--fuzz ... --counts <file>` prints signed per-seed and total differences against a compatible
 previous run, then saves the new counts. Missing results stay unavailable. Reconstruction
 counts also identify changed inputs or settings instead of comparing incompatible runs.
-`--regress` runs the fifteen-entry regression list (`docs/engineering.md` §12.5, S3),
+`--regress` runs the fifteen-entry regression list (`docs/engineering.md` 12.5, S3),
 prints each entry's mechanism, fix commit and verdict, and exits 1 on a failure. Run it after
 each change to the inference, reconstruction or order reader; it took about three minutes
 on the school workstation. Full fuzz and catalog checks follow a batch.
@@ -100,17 +100,17 @@ on the school workstation. Full fuzz and catalog checks follow a batch.
 
 | Path | What it is |
 |---|---|
-| `scripts/local-*.mjs` | The entry points — one file per command in the table above. |
+| `scripts/local-*.mjs` | The entry points - one file per command in the table above. |
 | `scripts/lib/` | Shared machinery: truncation, RNG control, protocol diffing, the WebSocket clients, the browser launcher, reconstruction. `scripts/lib/inference/` is the Stat Point inference. |
-| `scripts/client/` | Scripts that run **in the browser**, served over HTTP — not runnable with `node`. |
+| `scripts/client/` | Scripts that run **in the browser**, served over HTTP - not runnable with `node`. |
 | `scripts/server/` | Code that runs **inside the Showdown server process**, copied into `runtime/config/` by provisioning. |
 | `scripts/fixtures/` | The two fixture teams, as export text, and the cast and hand-set battles of `npm run catalog`. |
-| `recordings/` | Every battle we keep, sorted by how it was made: `local/` battles our server ran, with their input logs (tracked — they cannot be regenerated); `reconstructed/` input logs rebuilt from a replay; `showdown/` replay pages saved from play.pokemonshowdown.com, the input to `npm run reconstruct`; `video/` battle videos. `recordings/README.md` says where a new one goes. |
+| `recordings/` | Every battle we keep, sorted by how it was made: `local/` battles our server ran, with their input logs (tracked - they cannot be regenerated); `reconstructed/` input logs rebuilt from a replay; `showdown/` replay pages saved from play.pokemonshowdown.com, the input to `npm run reconstruct`; `video/` battle videos. `recordings/README.md` says where a new one goes. |
 | `replays/` | Rendered replay pages. Generated output, gitignored. |
-| `runtime/` | The local Showdown server. **Generated** from `node_modules` — safe to delete. |
+| `runtime/` | The local Showdown server. **Generated** from `node_modules` - safe to delete. |
 | `vendor/` | A clone of the upstream Showdown *client*. Only `play.pokemonshowdown.com/` is used, to serve the real battle UI. |
 | `extension/` | The Chrome extension: `src/` its code, `check/` the checks that hold it to the Node reference, `dist/` the built extension (generated, gitignored). See `extension/README.md`. |
-| `docs/` | The project's documents — see Documentation below. |
+| `docs/` | The project's documents - see Documentation below. |
 
 `.js` versus `.mjs` is not decoration: `.mjs` is a Node ES module, `.js` under
 `scripts/client/` and `extension/src/` is browser code, and `.js` under `scripts/fixtures/` and
@@ -122,7 +122,7 @@ on the school workstation. Full fuzz and catalog checks follow a batch.
 
 | Doc | Question it answers |
 |---|---|
-| `docs/plan.md` | Why we are building this — premise, scope guards, landscape, risks. |
+| `docs/plan.md` | Why we are building this - premise, scope guards, landscape, risks. |
 | `docs/engineering.md` | How it works, what is proven, and what breaks. The engineering reference. |
 | `docs/branching.md` | How a recorded battle becomes a playable position, from either entry point. |
 | `docs/extension.md` | How the board runs as a Chrome extension: the live-site probes it rests on, how it is built, and what each step proved. |
@@ -138,29 +138,29 @@ on the school workstation. Full fuzz and catalog checks follow a batch.
 
 ## How it works, in four sentences
 
-Showdown's simulator records an **input log** — the RNG seed, both packed teams, and every
+Showdown's simulator records an **input log** - the RNG seed, both packed teams, and every
 choice either player made. Feed that log back into a fresh simulator and you get the same
 battle, byte for byte. Cut the log off at turn N and you get the position at turn N, which
 the server will accept as a *live room* via `/importinputlog`. Two browser windows join it,
 one per side, and the battle carries on from there.
 
-The simulator is never modified. We do not write damage, accuracy, or turn-order logic —
-Showdown's is the only source of truth. See the scope guards in `docs/plan.md` §3.
+The simulator is never modified. We do not write damage, accuracy, or turn-order logic -
+Showdown's is the only source of truth. See the scope guards in `docs/plan.md` 3.
 
 ---
 
 ## Upstream references
 
-**Pokémon Showdown server** — https://github.com/smogon/pokemon-showdown
+**Pok�mon Showdown server** - https://github.com/smogon/pokemon-showdown
 Pinned in `package.json` to upstream commit `a5df827`, the code play.pokemonshowdown.com runs,
 not to an npm release; `npm install` builds it. MIT.
-Pin it deliberately: `docs/engineering.md` §6.5 is the register of internal call sites this
+Pin it deliberately: `docs/engineering.md` 6.5 is the register of internal call sites this
 project depends on that upstream does not promise to keep, and how to upgrade. On any upgrade, diff those and re-run
 `npm run check`, `npm run replay`, `npm run reconstruct -- --all --rung s2`, `npm run reconstruct -- --all --rung s3`
 **and** `npm run reconstruct -- --all --rung s3 --infer p2`, which exercise the rest.
 
-**Pokémon Showdown client** — https://github.com/smogon/pokemon-showdown-client
+**Pok�mon Showdown client** - https://github.com/smogon/pokemon-showdown-client
 Commit `218cc779512d67961e8aea0ae666d319e8ccf398`, built with `node build`.
-AGPLv3 — see `vendor/pokemon-showdown-client/LICENSE`.
+AGPLv3 - see `vendor/pokemon-showdown-client/LICENSE`.
 
 Neither is committed here; both are gitignored and re-fetchable.
