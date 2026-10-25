@@ -34,9 +34,11 @@ import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
+import { FORMAT_PROFILES, assertFormatCapability } from './lib/format-profile.mjs';
 
 const require = createRequire(import.meta.url);
 const esbuild = require('esbuild');
+const { Dex } = require('pokemon-showdown');
 
 const ROOT = process.cwd();
 const EXT = path.join(ROOT, 'extension');
@@ -46,7 +48,7 @@ const DIST = path.join(EXT, 'dist');
 const packageDir = name => path.dirname(require.resolve(`${name}/package.json`));
 const PS = path.join(packageDir('pokemon-showdown'), 'dist');
 
-/** Mods whose data is embedded. Every mod is still listed, so every format loads. */
+/** Mod data embedded in the browser. Admission is checked before simulation. */
 const BUNDLED_MODS = ['champions', 'championsregmb'];
 
 const CHECKS = ['sim', 'room', 'entry', 'rng', 'package'];
@@ -91,6 +93,19 @@ const jsIn = dir => fs.readdirSync(dir).filter(f => f.endsWith('.js')).map(f => 
 
 /** Virtual path -> source text, for every file the loader can require. */
 function embeddedFiles() {
+  // Check both identity and complete ancestry. An installed mod directory is
+  // not evidence that its data will be in the extension.
+  for (const profile of FORMAT_PROFILES) {
+    const f = Dex.formats.get(profile.formatid);
+    const dex = Dex.forFormat(profile.formatid);
+    if (!f.exists) throw new Error(`supported format missing from pin: ${profile.formatid}`);
+    assertFormatCapability(profile.formatid, 'exactReplay', { gen: dex.gen, mod: f.mod, gameType: f.gameType });
+    let mod = dex;
+    while (mod.currentMod !== 'base') {
+      if (!BUNDLED_MODS.includes(mod.currentMod)) throw new Error(`extension lacks mod ${mod.currentMod} required by ${profile.formatid}`);
+      mod = Dex.mod(mod.parentMod);
+    }
+  }
   const files = {};
   const addPs = (abs) => {
     const rel = path.relative(PS, abs).split(path.sep).join('/');
@@ -139,6 +154,9 @@ const NODE_BUILTINS = {
 };
 
 function extensionPlugin(files) {
+  // config/formats names every installed mod; its loader requires registry
+  // entries even for formats we refuse. These names are registry placeholders,
+  // not capabilities. embeddedFiles verifies ancestry of every admitted profile.
   const mods = fs.readdirSync(path.join(PS, 'data', 'mods'), { withFileTypes: true })
     .filter(e => e.isDirectory()).map(e => e.name);
   return {

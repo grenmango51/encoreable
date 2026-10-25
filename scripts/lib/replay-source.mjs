@@ -24,9 +24,31 @@ import fs from 'fs';
 import { createRequire } from 'module';
 
 import { unmaskIllusion } from './protocol.mjs';
+import { assertFormatCapability, profileFromInputLog, profileFromObservation } from './format-profile.mjs';
 
 const require = createRequire(import.meta.url);
-const { Dex, Teams, toID } = require('pokemon-showdown');
+const { Battle, Dex, Teams, toID } = require('pokemon-showdown');
+
+/** Stats of the supplied teams, computed entirely by the selected simulator. */
+export function statsFromTeams(formatid, packedTeams) {
+  assertFormatCapability(formatid, 'exactReplay');
+  if (packedTeams.length !== 2) {
+    throw new Error('team stats require two slots; an unknown team must be null');
+  }
+  return packedTeams.map(team => {
+    if (team === null) return null;
+    if (typeof team !== 'string' || !team) throw new Error('team stats require a complete packed team or null');
+    // Only create the supplied side. No stand-in for an unknown foe is needed
+    // to ask the simulator for the supplied team's initial stats.
+    const battle = new Battle({ formatid, seed: '1,2,3,4', p1: { name: 'p1', team } });
+    try {
+      return battle.sides[0].pokemon.map(p => ({
+        name: p.name, species: p.species.name, level: p.level,
+        maxhp: p.maxhp, stats: { ...p.storedStats },
+      }));
+    } finally { battle.destroy(); }
+  });
+}
 
 /** Pull the protocol log out of a saved replay page. */
 function logFromReplayHtml(html) {
@@ -366,6 +388,7 @@ function standInMove(dex, species) {
  * (`standInMove`), named in `boxes` as `standIn`, so a rebuild can play it.
  */
 export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = false } = {}) {
+  profileFromObservation(formatid, lines, 'closedInference');
   const dex = Dex.forFormat(formatid);
   const mons = [];
   for (const line of lines) {
@@ -740,13 +763,17 @@ export function loadSource(file) {
   if (file.endsWith('.log.json')) {
     const data = JSON.parse(raw);
     const inputLog = Array.isArray(data.inputLog) ? data.inputLog : String(data.inputLog || '').split('\n');
+    const profile = profileFromInputLog(inputLog);
+    if (data.format && toID(data.format) !== profile.formatid) throw new Error('recording format metadata disagrees with >start formatid');
+    profileFromObservation(profile.formatid, data.log || [], 'exactReplay');
     const players = playerOptionsFromInputLog(inputLog);
     const start = inputLog.find(l => l.startsWith('>start '));
     const options = start ? JSON.parse(start.slice(start.indexOf('{'))) : {};
     return {
       kind: 'recording',
       file,
-      formatid: options.formatid || toID(data.format || ''),
+      formatid: profile.formatid,
+      profile,
       players: players.map(p => p.name),
       packedTeams: players.map(p => p.team),
       sheets: sheetsFromLog(data.log || []),
@@ -761,10 +788,12 @@ export function loadSource(file) {
     const lines = link
       ? String(link.log || '').split('\n').map(line => line.replace(/\r$/, ''))
       : logFromReplayHtml(raw);
+    const profile = profileFromObservation(formatFromTier(lines), lines, 'exactReplay');
     return {
       kind: 'replay',
       file,
-      formatid: formatFromTier(lines),
+      formatid: profile.formatid,
+      profile,
       players: playersFromLog(lines),
       packedTeams: [null, null], // a replay never carries stat points
       sheets: sheetsFromLog(lines),

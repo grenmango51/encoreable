@@ -9,6 +9,9 @@ choosing moves for **both** sides.
 Chess players have had this for decades. Pokémon players rewatch a video.
 
 Target ruleset is **Pokémon Champions VGC** (`[Gen 9 Champions] VGC 2026 Reg M-C`), doubles.
+Known-team recordings also support **[Gen 9] VGC 2024 Reg G** at the pinned simulator.
+Replay reconstruction and hidden-team inference remain Champions-specific. The exact
+capability matrix and admission rules are in `docs/engineering.md` §2.8.
 
 ---
 
@@ -67,6 +70,13 @@ inferred, one line per game.
 `npm run replay` takes `--force "<outcome> <subject> [move]"` (repeatable) with `--at <turn>`
 and `--seed <seed>`: it replays a recording twice from that turn under one shared reseed, once
 plain and once with the named draws forced, and reports what moved.
+`--format gen9vgc2024regg` records the standard VGC fixture; without it the fixture
+is still Champions Reg M-C. `--from` always uses the recording's own format.
+`--probe` archives a newly played regression battle to `recordings/local/probes/`.
+`--logs <directory>` reads a shared local server's logs from that directory; the
+completed battle is matched by its room ID. It does not move or restart the server.
+`reconstruct --all` explicitly skips formats whose reconstruction capability is disabled;
+`--format <exact-id>` filters its corpus. Requesting one unsupported source directly fails.
 `npm run extension` takes `--check [sim|room|entry|rng|package]` (all of them when none is
 named), `--headful` and `--verbose`.
 `npm run catalog` takes `--pool`, `--list`, `--only <ids>`, `--kind <kind>`,

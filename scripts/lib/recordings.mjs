@@ -100,13 +100,16 @@ export function localFolderFor(file) {
  * is returned as it is, and one archived before under the same name, in any
  * folder, returns that copy.
  */
-export function archiveLogFile(root, file) {
+export function archiveLogFile(root, file, { folder = null } = {}) {
+  if (folder !== null && !['scripted', 'probes', 'self-play', 'branched'].includes(folder)) {
+    throw new Error(`invalid recording folder: ${folder}`);
+  }
   const recordings = path.join(root, 'recordings');
   const inside = path.relative(recordings, path.resolve(file));
   if (inside && !inside.startsWith('..') && !path.isAbsolute(inside)) return file;
   const existing = walk(recordings).find(f => path.basename(f) === path.basename(file));
   if (existing) return existing;
-  const dest = path.join(recordings, 'local', localFolderFor(file), path.basename(file));
+  const dest = path.join(recordings, 'local', folder || localFolderFor(file), path.basename(file));
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.copyFileSync(file, dest);
   return dest;

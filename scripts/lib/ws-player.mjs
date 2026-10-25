@@ -169,6 +169,7 @@ export class WsPlayer {
       foeSide,
       foeAlive: ['a', 'b'].map(x => this.slotAlive[`${foeSide}${x}`]),
       allyAlive: ['a', 'b'].map(x => this.slotAlive[`${this.mySide}${x}`]),
+      activeCount: request.active?.length || request.forceSwitch?.length || 1,
     });
     if (!choice) return;
     this.log('->', choice);
@@ -231,6 +232,7 @@ export function makePolicy(preferred = []) {
   const wanted = preferred.map(m => m.replace(/[^a-z0-9]/gi, '').toLowerCase());
 
   const targetFor = (move, activeIndex, ctx) => {
+    if (ctx.activeCount === 1) return '';
     if (!CHOOSABLE_TARGETS.has(move.target)) return '';
     if (move.target === 'adjacentAllyOrSelf') return ` -${activeIndex + 1}`;
     if (move.target === 'adjacentAlly') {

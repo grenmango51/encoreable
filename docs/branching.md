@@ -29,6 +29,11 @@ live battle room driven into a known position.
 There are two ways in — a command, and a button in the replay view — and one implementation
 behind both.
 
+Known-team recordings can also use the explicitly admitted formats in engineering.md §2.8.
+This does not enable reconstruction of those formats from public replays. The input-log
+format ID is checked before truncation; unsupported generations and custom-rule suffixes
+are refused instead of being interpreted with Champions data.
+
 ---
 
 ## 1. Running it

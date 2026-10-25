@@ -149,6 +149,68 @@ stable across versions, so a seed does not pin a team. Read the packed teams out
 
 ---
 
+### 2.8 Format capabilities and stat-model admission
+
+`scripts/lib/format-profile.mjs` is the shared Node/extension admission contract.
+An exact format ID identifies generation, mod, game type and stat model, with separate
+gates for recording, exact replay, branching, RNG control, known-team reconstruction,
+open-sheet spread inference and closed-sheet inference. An unknown ID, custom-rule
+suffix, mismatched replay generation/game type/tier, or disabled capability is an error.
+No source is reinterpreted as Gen 9 Champions. The extension checks admitted profiles'
+full mod ancestry against its embedded data at build time and checks requests before
+entering the simulator; the simulator's registry of format names does not grant support.
+
+| Exact IDs | Stat model | Known-team recording / exact replay / branch / RNG | Replay reconstruction | Open-sheet spreads | Closed sheets |
+|---|---|---|---|---|---|
+| `gen9championsvgc2026regmc`, `gen9championsvgc2026regmb` (and their `bo3` IDs) | Champions SP | existing support | existing support | partial inference | assumed sets; candidate inference incomplete |
+| `gen9championsdoublescustomgame` | Champions SP, custom levels/budgets | sandbox only | disabled | disabled | disabled |
+| `gen9vgc2024regg` | standard EV/IV | admitted | disabled | disabled | disabled |
+| `gen9ou`, `gen9randombattle` | standard EV/IV | pending admission | disabled | disabled | disabled |
+
+The first standard format is `[Gen 9] VGC 2024 Reg G`: it is the searchable standard
+VGC ladder at pin `a5df827`. `gen9vgc2025regi` exists but is not searchable, while
+`gen9vgc2026regf` is absent. This popularity/availability distinction determines the
+fixture; it requires no upstream upgrade. OU and Random Battle follow it in order.
+
+The assumption inventory and acceptance requirements are:
+
+- **Identity and generation:** the fixture default remains Champions; loaded recordings
+  carry their own `>start` identity into simulator admission, filenames and replay metadata.
+  Replay facts (`gen`, `gametype`, `tier`) must agree. Unsupported combinations fail before
+  reading species or allocating inference knowledge.
+- **Stats, levels and legality:** Champions' 0–32/66 representation applies only to its
+  supported inference profiles. Standard EV/IV data is retained as recorded. TeamValidator
+  decides legal totals, IVs, natures, levels and rules; the selected Battle computes initial
+  stats and max HP. The replay command has no independent stat formula or max-HP test.
+  Exactly 66 SP is a fixture assertion, not a validity requirement for arbitrary recordings.
+- **Team selection and game type:** the simulator's preview/request determines the decision.
+  The VGC fixture brings six and selects four; singles must retain their own active-slot and
+  preview behavior. No two-slot assumption may change a legal singles choice.
+- **Observations and replay:** source logs remain immutable. Input-log equality and protocol
+  equality are distinct checks. Exact HP comes from simulator channel -1, not a denominator
+  heuristic: an exact max HP of 100 is possible. Per-player channels remain Showdown's.
+- **Restoration and continuation:** test at least turns 1, 3 and the final playable turn,
+  preserve the prefix under the recorded seed, reseed only the continuation, accept legal
+  alternate choices, and replay the resulting continuation exactly. Snapshot round trips
+  supplement these checks; they do not replace them.
+- **RNG:** use the shared per-draw controller and the selected simulator's rules. Test actual
+  forced draws, reseed persistence and controlled replay equality for each admitted format.
+- **Reconstruction/inference:** admission of a full-information recording proves neither.
+  Non-Champions reconstruction and inference are disabled in public Node and Worker paths.
+  `reconstruct --all` reports these sources as skipped; a direct request fails. Any future
+  admission needs truth-known true-set/spread survival, not merely a matching witness.
+- **Extension:** compare the built Worker with Node, open/restored requests and legal
+  continuation, and inspect the native rooms. Standard formats receive no Champions SP
+  sliders. Random Battle also requires complete recorded teams; a public replay cannot
+  supply unrevealed sets or moves by itself.
+
+Current VGC evidence: preserved real-server `gen9vgc2024regg-15` (scripted) and `-16`
+(probe), validated full EV/IV teams, exact replay, snapshot turns 1–5, restored alternate
+continuations at 1/3/5, a forced Grassy Glide critical hit, and Node/Worker re-simulation
+parity. The capability regression harness and visible room check are still campaign work.
+Existing Champions `-34` still matches at S2; the full regression suite remains required
+before coordinated integration. These results do not claim VGC reconstruction or inference.
+
 ## 3. Channel −1 is the entire answer to "full information"
 
 This is the single most useful thing learned. Showdown already computes an omniscient log; it

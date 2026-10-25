@@ -20,6 +20,7 @@
 
 import crypto from 'crypto';
 import { createRequire } from 'module';
+import { profileFromInputLog } from './format-profile.mjs';
 
 const require = createRequire(import.meta.url);
 const { BattleStream } = require('pokemon-showdown');
@@ -138,9 +139,7 @@ export async function truncateAtTurn(raw, target, { reseed = false } = {}) {
 
   const startAt = lines.findIndex(l => l.startsWith('>start '));
   if (startAt < 0) throw new Error('input log has no >start line');
-  if (!lines[startAt].includes('"formatid":"')) {
-    throw new Error('>start line has no formatid - /importinputlog will reject it');
-  }
+  profileFromInputLog(lines, 'branching');
 
   // Everything before the first choice is the header: `>start` plus `>player`.
   const firstChoice = lines.findIndex(l => /^>p[1-4] /.test(l));
