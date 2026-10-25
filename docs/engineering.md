@@ -3167,6 +3167,31 @@ Gyarados battle no longer warns when a Speed change removes its tie. Restoring t
 Earthquake fallback check still raises one warning. All fifteen regressions passed after
 this correction; the inference and search behavior remain unchanged.
 
+**Batch validation (2026-10-25).** The integrated code at `7e7406e` passed `npm run check`
+and all fifteen regressions on `wonko` (158 seconds, four threads). S3 with p2 inferred
+rebuilt 29 of 29 recordings and retained all 115 real spreads. Its per-source work counts
+and surviving ranges were identical to `89367b8` on `lallafa` with eight threads. The short
+101–103 fuzz run also gave identical results and counts on one and two workers. Seed 220's
+final diagnostic retained the known failure, zero warnings and the aligned accuracy draw
+17 described under S1. Replay verification passed on `prefect` at `40aa5b7`; the complete
+extension check passed there again at `1a2e043`, including the second proof correction.
+
+The full catalog check at `89367b8` played all 917 simulated effects on `random` in 3,817
+seconds: both committed evidence reports matched, also confirmed by a separate render and
+diff. The held-out 101–300 repeat on `lallafa` gave 195 of 200 MATCH, every real spread kept,
+and no exceptions. Its failures were 101, 208, 220, 225 and 281; only 220 also failed with
+real spreads. Seed 135 passed in this repeat, versus failing in the earlier 194-of-200 run.
+These runs used different machines and can reach wall-clock fallback ceilings; that one
+changed verdict is not evidence that these diagnostic changes improved reconstruction.
+
+The suite is not uniformly green. Without Stat Point inference, S2 gave 28 of 29 and S3
+27 of 29 at both `a5c777b` and `89367b8`: the supplied-team check rejects Ditto's transformed
+Body Slam in recording `gen9championsvgc2026regmc-296.log.json` (A73), and S3 also stops on
+Clefable's turn-2 HP in `gen9championsvgc2026regmc-1.log.json`. Default S1 at `7e7406e` has
+the same Ditto rejection, giving 28 of 29. The saved-game scoreboard remains 17 of 24.
+These existing failures and S1's unproven historical seed-83 backtest remain separate from
+the safeguards' passing regression, diagnostic and retention checks.
+
 <a id="s6"></a>
 
 ##### S6 — Read more dice off the replay (deferred)
