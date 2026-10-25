@@ -13,6 +13,15 @@ import os from 'os';
 import path from 'path';
 
 export function findBrowser() {
+  // A concrete override also supports CI and installations outside the usual
+  // locations. Do not silently use another executable when it is misspelled.
+  if (process.env.ENCOREABLE_BROWSER) {
+    const browserPath = process.env.ENCOREABLE_BROWSER;
+    if (!fs.existsSync(browserPath) || !fs.statSync(browserPath).isFile()) {
+      throw new Error(`ENCOREABLE_BROWSER is not a browser executable: ${browserPath}`);
+    }
+    return { type: /firefox/i.test(path.basename(browserPath)) ? 'firefox' : 'chrome', path: browserPath };
+  }
   const candidates = [
     { type: 'chrome', path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' },
     { type: 'chrome', path: 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe' },
@@ -20,11 +29,36 @@ export function findBrowser() {
     { type: 'edge', path: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' },
     { type: 'edge', path: 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe' },
     { type: 'firefox', path: 'C:\\Program Files\\Mozilla Firefox\\firefox.exe' },
+    ...['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium',
+      '/usr/bin/chromium-browser', '/snap/bin/chromium',
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    ].map(browserPath => ({ type: 'chrome', path: browserPath })),
   ];
+  // Reuse a locally installed Playwright Chromium; no download or persistent
+  // service is started by discovery. Prefer it to a Firefox-only fallback.
+  const cache = path.join(os.homedir(), '.cache', 'ms-playwright');
+  if (fs.existsSync(cache)) {
+    for (const entry of fs.readdirSync(cache).filter(name => /^chromium-\d+$/.test(name)).sort().reverse()) {
+      for (const executable of ['chrome-linux64/chrome', 'chrome-linux/chrome']) {
+        candidates.push({ type: 'chrome', path: path.join(cache, entry, executable) });
+      }
+    }
+  }
+  candidates.push({ type: 'firefox', path: '/usr/bin/firefox' });
   for (const item of candidates) {
     if (fs.existsSync(item.path)) return item;
   }
   return null;
+}
+
+/** Open a URL with the host's default browser. */
+export function openBrowser(url) {
+  const command = process.platform === 'win32' ? 'cmd.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+  const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
+  const proc = spawn(command, args, { detached: true, stdio: 'ignore' });
+  proc.on('error', err => console.error(`Could not open browser: ${err.message}. Open ${url}`));
+  proc.unref();
 }
 
 /**
@@ -99,6 +133,7 @@ foreach ($pass in 1, 2) {
  * running, and an attached one dies with this process, so the caller waits.
  */
 function arrangeHalves(leftPid, rightPid) {
+  if (process.platform !== 'win32') return Promise.resolve();
   const encoded = Buffer.from(arrangeScript(leftPid, rightPid), 'utf16le').toString('base64');
   return new Promise(resolve => {
     spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], {
@@ -148,8 +183,8 @@ export async function launchPair({ left, right, tag }) {
     return 'firefox';
   }
 
-  spawn('cmd.exe', ['/c', 'start', '', right], { detached: true, stdio: 'ignore' }).unref();
+  openBrowser(right);
   await new Promise(r => setTimeout(r, 600));
-  spawn('cmd.exe', ['/c', 'start', '', left], { detached: true, stdio: 'ignore' }).unref();
+  openBrowser(left);
   return 'default';
 }

@@ -20,6 +20,9 @@ Target ruleset is **Pokémon Champions VGC** (`[Gen 9 Champions] VGC 2026 Reg M-
   $env:Path = "C:\Program Files\nodejs;" + $env:Path
   ```
 - **A Chromium browser** — Chrome or Edge. Two windows get opened side by side.
+  Linux also discovers Chromium installed by Playwright in `~/.cache/ms-playwright/`.
+  Set `ENCOREABLE_BROWSER` to an executable's full path to select another installation.
+  Window arrangement is automatic on Windows; Linux uses the window manager.
 - `npm install`, once. It downloads the pinned Showdown commit from GitHub and builds it, which
   takes about a minute.
 
