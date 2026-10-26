@@ -219,6 +219,7 @@ The native-room matrix also passes for all three: turn-3 restoration, correct ow
 and opponent percentages, legal button choices on both sides, exact continuation replay,
 no Champions SP controls and no fake-room WebSocket traffic. Fainted requests use the
 simulator’s `0 fnt` without treating the client’s default denominator as an observed max HP.
+
 OU evidence: preserved real-server `gen9ou-17` (probe), six selected Pokémon, level 100,
 underspent EV totals and non-31 IVs, hazards, burn, Toxic Orb poison, switching and Tera.
 The same Node/Worker acceptance matrix passes, including restoration at 1/3/5 and RNG.
@@ -235,8 +236,44 @@ no-supplied-team policy from validation of recorded sets under the same rules wi
 generator restriction disabled. Sources announcing a non-default PotD configuration are
 explicitly unsupported. This proves no hidden-set or unrevealed-move inference.
 
-Existing Champions `-34` still matches at S2; the full regression suite remains required
-before coordinated integration. These results do not claim VGC reconstruction or inference.
+The browser’s automatic fresh-team fixture remains Champions Reg M-C only; an explicit
+other-format request fails instead of relabelling its Stat Points as EVs. Joining a recorded
+battle never injects fixture teams into the teambuilder. Use `replay --format` to record the
+standard fixtures, then `live --from` to play them interactively.
+
+Campaign acceptance evidence (2026-10-26, Node 26.12.1, four-CPU server; Node reconstruction
+and saved-entry checks used one probe thread):
+
+- `npm run check`: PASS. Champions replay from `gen9championsvgc2026regmc-14`
+  and Reg M-B `-34` round-trip and match their source protocol.
+- `npm run replay -- --check-formats`: PASS for all three standard formats and Champions
+  regression cases. `--format <id>` can restrict the format fixtures.
+- `npm run extension -- --check sim formats`: PASS; all 35 recordings have Node/Worker
+  parity, and all three standard formats pass the native-room matrix. Forced RNG input
+  logs also match Node in the Worker. This distinguishes parity from source fidelity:
+  the check still reports historical source mismatches in some old recordings; all new
+  standard recordings match their original server protocol.
+- `npm run reconstruct -- --all --rung s2 --threads 1 --dry-run`: 30/30 MATCH.
+- `npm run reconstruct -- --all --rung s3 --infer p2 --threads 1 --dry-run`:
+  30/30 MATCH, all 119 true-spread checks survive. These matching witnesses and surviving
+  true spreads do not establish complete inference.
+- `npm run reconstruct -- --all --rung s3 --threads 1 --dry-run`: 29/30 MATCH. Probe
+  `gen9championsvgc2026regmc-1` remains verified only through turn 1/7 (87/100 versus
+  88/100 on the turn-2 heal). The same failure was reproduced on the pre-campaign code.
+- `npm run extension -- --check`: all checks ran; one failure remains. The live replay
+  entry for `gen9championsvgc2026regmbbo3-2704658159` was still rebuilding both missing
+  teams after four minutes. Saved S4 games (6/10 turns), their inferred/combined sets,
+  recording import/export, native Champions rooms, RNG, packaging and format checks pass.
+  The full suite is not green: bounded handling of this legacy public-replay path is an
+  integration dependency, separate from the admitted known-team formats.
+
+All 29 pre-campaign local battle recordings are byte-identical. The simulator pin and
+mechanics are unchanged. No main merge is part of this campaign. Standard replay
+reconstruction, EV/IV inference, hidden Random Battle sets and unrevealed moves remain
+disabled; admitting them requires separate truth-known survival and witness checks.
+The format/stat contract is ready for the audit and closed-sheet entry points to consume.
+Final Grok review was unavailable after the provider reported its usage limit; no other
+model/provider was substituted.
 
 ## 3. Channel −1 is the entire answer to "full information"
 
@@ -672,8 +709,8 @@ softly with the other pre-turn lines (§7).
 
 ### 6.3 The vendored client is not usable in a browser
 
-`scripts/lib/replay-html.mjs` emits the same shell as a downloaded Showdown replay, with two
-deliberate deviations, both documented in the file. **A fully offline replay is not possible
+`scripts/lib/replay-html.mjs` emits the same shell as a downloaded Showdown replay, with
+compatibility requirements documented in the file. **A fully offline replay is not possible
 from the checkout as it stands:**
 
 - `config/config.js` is a placeholder whose contents are literally the text
@@ -685,6 +722,10 @@ from the checkout as it stands:**
 
 So the player loads from upstream `https://play.pokemonshowdown.com`. `--embed <url>` is the
 escape hatch if a local build ever exists. Building that bundle is the only route to offline.
+
+The live embed inserts classic scripts asynchronously. Generated pages force those inserted
+scripts to execute in dependency-list order, preventing config/jQuery races that otherwise
+leave `BattleTextParser` undefined. Upstream client files remain unchanged.
 
 Also: the container must **not** carry `class="wrapper"`. `Replays.init` in `replay-embed.js`
 only builds `.battle` / `.battle-log` / `.replay-controls` when no `.wrapper` element exists —
@@ -698,8 +739,9 @@ with it, the page renders nothing at all and gives no error.
   `updatechallenges`.
 - Local config needs `noguestsecurity` for guest `/trn` with an empty assertion, and
   `logchallenges` (§3.1).
-- Team preview honours `request.maxChosenTeamSize`, but VGC still requires **six** Pokémon on
-  the team even when only four are brought. A four-mon team is rejected at validation.
+- Team preview honours `request.maxChosenTeamSize`. Champions requires six and selects four;
+  pinned standard VGC Reg G accepts four to six and selects four. OU selects its whole team.
+  The simulator’s resolved rule table and validator decide each format’s limits.
 - `BattleStream` requires `>`-prefixed lines. `version` / `version-origin` are no-ops.
 - Headless Chrome `--dump-dom` returns 0 bytes when captured with `>` or a pipe. Use
   `Start-Process -Wait -NoNewWindow -RedirectStandardOutput`.
