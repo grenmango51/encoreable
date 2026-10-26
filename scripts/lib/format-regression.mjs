@@ -20,6 +20,7 @@ import { inputLogLines, truncateAtTurn } from './truncate.mjs';
 import { battleLines, firstDivergence } from './protocol.mjs';
 import { buildControlled, replayControlled, traceOn } from './rng-control.mjs';
 import { listLogFilesIn } from './recordings.mjs';
+import { crossCheckLog, setsFromLog } from './replay-source.mjs';
 import {
   SIMULATOR_PIN, FORMAT_PROFILES, formatProfile, assertFormatCapability,
   profileFromInputLog, profileFromObservation,
@@ -844,6 +845,20 @@ async function execute({ root, formatid = null, say }) {
   };
 
   await section('format contract', () => { contractChecks(); validatorChecks(); });
+  await section('Champions Transform source facts', () => {
+    const data = JSON.parse(fs.readFileSync(path.join(root, 'recordings/local/probes/gen9championsvgc2026regmc-296.log.json'), 'utf8'));
+    const profile = profileFromInputLog(data.inputLog);
+    const players = data.inputLog.filter(line => line.startsWith('>player ')).slice(0, 2).map(line => JSON.parse(line.slice(line.indexOf('{'))));
+    assert(data.log.some(line => line.startsWith('|-transform|')), 'Transform truth case has no transformation');
+    const ditto = setsFromLog(data.log, 'p2', profile.formatid).sets.find(set => set.species === 'Ditto');
+    assert(ditto && !ditto.moves.includes('Body Slam'), 'copied Body Slam became a fact about Ditto’s original set');
+    for (const [index, player] of players.entries()) {
+      assert(!crossCheckLog(data.log, `p${index + 1}`, profile.formatid, player.team).length, 'original truth-known team rejected');
+    }
+    const wrong = Teams.unpack(players[0].team);
+    for (const mon of wrong) mon.moves = ['Splash'];
+    assert(crossCheckLog(data.log, 'p1', profile.formatid, Teams.pack(wrong)).length, 'native observed moves stopped checking supplied sets');
+  });
 
   for (const profile of standardProfiles(formatid)) {
     const fixture = FORMATS[profile.formatid];

@@ -482,6 +482,9 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
   let trick = null;
   let transit = null;
   const eating = new Map();
+  // A copied move is an observation of the transformed state, not a fact
+  // about the Pokémon's original set. Switching restores its original moves.
+  const transformed = new Set();
 
   for (const line of unmaskIllusion(lines).lines) {
     const p = line.split('|');
@@ -491,6 +494,8 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
     const sKey = keyOf(identOf(p[2]));
     const oKey = keyOf(identOf(tags.of));
     const subject = monOf(sKey);
+    if ((kind === 'switch' || kind === 'drag') && sKey) transformed.delete(sKey);
+    if (kind === '-transform' && sKey) transformed.add(sKey);
     if (['switch', 'drag', 'replace', 'detailschange'].includes(kind) && sKey) shownAs.set(sKey, parseDetails(p[3]).species);
 
     // A Pokemon switched in has the ability it brought, or once it has Mega
@@ -503,13 +508,13 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
 
     if (kind === 'move') {
       lastMover = sKey;
-      if (!from || from === 'lockedmove') addMove(subject, p[3]);
+      if (!transformed.has(sKey) && (!from || from === 'lockedmove')) addMove(subject, p[3]);
     }
     // `|cant|X|ability: A|Move|[of] Y` - Armor Tail, Queenly Majesty, Dazzling,
     // Damp: X's ability stopped Y's move, which Y's own move line already named.
     if (kind === 'cant' && p[4]) {
       if (/^ability: /.test(p[3] || '')) nameAbility(abilityOf(sKey), p[3].slice(9));
-      else addMove(subject, p[4]);
+      else if (!transformed.has(sKey)) addMove(subject, p[4]);
     }
 
     // Items. Trick and Switcheroo swap what two Pokemon hold, then name what each
