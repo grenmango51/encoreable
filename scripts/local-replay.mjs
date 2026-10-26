@@ -47,13 +47,17 @@ import { listLogFilesIn, archiveLogFile, posix, reconstructedBanner } from './li
 import { buildReplayHtml } from './lib/replay-html.mjs';
 import { battleLines, firstDivergence } from './lib/protocol.mjs';
 import { buildControlled, replayControlled, verdict } from './lib/rng-control.mjs';
+import { profileFromInputLog, assertFormatCapability } from './lib/format-profile.mjs';
+import { statsFromTeams } from './lib/replay-source.mjs';
+import { openBrowser } from './lib/browser.mjs';
+import { inputLogFromRecording } from './lib/recording-input.mjs';
 
 const require = createRequire(import.meta.url);
-const { Teams, BattleStream, Dex } = require('pokemon-showdown');
+const { Teams, BattleStream, Dex, TeamValidator } = require('pokemon-showdown');
 const { P1_EXPORT, P2_EXPORT } = require('./fixtures/teams.js');
+const { FORMATS } = require('./fixtures/formats.js');
 
 const ROOT = process.cwd();
-const RUNTIME_LOGS = path.join(ROOT, 'runtime', 'logs');
 const REPLAY_DIR = path.join(ROOT, 'replays');
 const FORMAT = 'gen9championsvgc2026regmc';
 
@@ -67,6 +71,7 @@ const opt = (name) => {
 const opts = name => argv.reduce((acc, a, i) => (a === name && argv[i + 1] ? acc.concat(argv[i + 1]) : acc), []);
 
 const VERBOSE = flag('--verbose');
+const RUNTIME_LOGS = path.resolve(opt('--logs') || path.join(ROOT, 'runtime', 'logs'));
 
 // ---------------------------------------------------------------- server setup
 
@@ -102,11 +107,16 @@ async function ensureServers() {
 // ------------------------------------------------------------- fixture battle
 
 async function playFixtureBattle() {
+  const formatid = opt('--format') || FORMAT;
+  assertFormatCapability(formatid, 'recording');
+  const fixture = FORMATS[formatid];
+  if (formatid !== FORMAT && !fixture) throw new Error(`no recording fixture for ${formatid}`);
+  if (fixture && !fixture.plan) throw new Error(`no recording policy yet for ${formatid}`);
   const uid = Math.floor(1000 + Math.random() * 9000);
   const p1 = new WsPlayer({
     name: `Ghosts${uid}`,
-    team: Teams.pack(Teams.import(P1_EXPORT)),
-    format: FORMAT,
+    team: Teams.pack(Teams.import(fixture?.p1 || P1_EXPORT)),
+    format: formatid,
     // Attack rather than set up, so both sides take damage and the log carries
     // exact HP numbers for p1 as well as p2.
     policy: makePolicy([
@@ -117,8 +127,8 @@ async function playFixtureBattle() {
   });
   const p2 = new WsPlayer({
     name: `Boom${uid}`,
-    team: Teams.pack(Teams.import(P2_EXPORT)),
-    format: FORMAT,
+    team: Teams.pack(Teams.import(fixture?.p2 || P2_EXPORT)),
+    format: formatid,
     // Default is the fast fixture: everything on p2 removes itself turn one.
     // --fight trades speed for a longer battle that actually deals damage.
     policy: makePolicy(flag('--fight')
@@ -127,6 +137,26 @@ async function playFixtureBattle() {
     verbose: VERBOSE,
   });
 
+  if (fixture) {
+    // These are fixture choices, not a move-selection engine. Stop by forfeit
+    // once the entire prescribed sequence has been recorded.
+    for (const [side, player] of [['p1', p1], ['p2', p2]]) {
+      const plan = fixture.plan.filter(step => step[side]);
+      let next = 0;
+      player.policy = request => {
+        const step = plan[next++];
+        if (!step) {
+          if (side === 'p2') player.send(player.battleRoom, '/forfeit');
+          return null;
+        }
+        const phase = request.teamPreview ? 'teampreview' : request.forceSwitch ? 'switch' : 'move';
+        if (step.phase !== phase) throw new Error(`${formatid} ${side}: fixture expected ${step.phase}, got ${phase}`);
+        return step[side];
+      };
+    }
+  }
+
+  try {
   await Promise.all([p1.connect(), p2.connect()]);
   await Promise.all([p1.waitNamed(), p2.waitNamed()]);
 
@@ -155,17 +185,20 @@ async function playFixtureBattle() {
     console.log(`\nWARNING: ${rejected.length} choice(s) were rejected and skipped:`);
     for (const e of new Set(rejected)) console.log(`  ${e}`);
   }
+  if (rejected.length) throw new Error(`${rejected.length} fixture choices rejected`);
   return { winner, roomid: p1.battleRoom, rejected };
+  } finally { p1.close(); p2.close(); }
 }
 
 // ------------------------------------------------------------------ log files
 
 const findLogFiles = () => listLogFilesIn(RUNTIME_LOGS);
 
-async function waitForNewLog(since, timeoutMs = 15000) {
+async function waitForNewLog(roomid, since, timeoutMs = 15000) {
+  const expected = `${roomid.replace(/^battle-/, '')}.log.json`;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const newest = findLogFiles()[0];
+    const newest = findLogFiles().find(file => path.basename(file) === expected);
     if (newest && fs.statSync(newest).mtimeMs > since) return newest;
     await new Promise(r => setTimeout(r, 300));
   }
@@ -217,61 +250,32 @@ function spTotal(set) {
   return STATS.reduce((a, k) => a + (set.evs?.[k] ?? 0), 0);
 }
 
-function describeSet(set) {
+function describeSet(set, profile) {
   const sp = STATS.map(k => `${k} ${set.evs?.[k] ?? 0}`).join(' / ');
   const ivs = STATS.map(k => (set.ivs?.[k] ?? 31)).join('/');
   return [
     `    ${set.species || set.name}  @ ${set.item || '(none)'}`,
-    `      ability ${set.ability}   nature ${set.nature}   level ${set.level || 50}`,
-    `      stat points  ${sp}   (total ${spTotal(set)})`,
+    `      ability ${set.ability}   nature ${set.nature}   level ${set.level || 100}`,
+    `      ${profile.statModel === 'champions-sp' ? 'stat points' : 'EVs'}  ${sp}   (total ${spTotal(set)})`,
     `      ivs ${ivs}`,
     `      moves ${set.moves.join(', ')}`,
   ].join('\n');
 }
 
-function exactHpEvidence(debugLog) {
-  const seen = { p1: new Set(), p2: new Set() };
-  const re = /\|(?:-damage|-heal|-sethp)\|(p[12])[a-c]: [^|]+\|(\d+)\/(\d+)/g;
-  let m;
-  while ((m = re.exec(debugLog))) {
-    if (m[3] !== '100') seen[m[1]].add(`${m[2]}/${m[3]}`);
-  }
-  return seen;
-}
-
-/**
- * The decisive check. Champions computes HP as `baseStat + StatPoints + 75` at
- * level 50 (data/mods/champions/scripts.ts, statModify). If the stat points
- * recovered from the input log reproduce every max-HP integer the log reports -
- * for both sides - then the recovered spreads are the real ones, not a guess.
- */
-function hpMatchesRecoveredStatPoints(debugLog, sides) {
-  const dex = Dex.mod('champions');
-  const rows = [];
-  const re = /\|(?:switch|drag|replace)\|(p[12])[a-c]: [^|]+\|([^,|]+)[^|]*\|(\d+)\/(\d+)/g;
-  let m;
-  while ((m = re.exec(debugLog))) {
-    const [, side, speciesName, , maxHp] = m;
-    const species = dex.species.get(speciesName);
-    const set = sides[side]?.sets.find(s => (
-      dex.species.get(s.species || s.name).baseSpecies === species.baseSpecies
-    ));
-    if (!set || !species.exists) continue;
-    const expected = species.baseStats.hp + (set.evs?.hp ?? 0) + 75;
-    const observed = Number(maxHp);
-    if (!rows.some(r => r.side === side && r.species === species.name)) {
-      rows.push({ side, species: species.name, expected, observed, ok: expected === observed });
-    }
-  }
-  return rows;
-}
-
 // ----------------------------------------------------------------------- main
 
 async function main() {
+  if (opt('--format')) assertFormatCapability(opt('--format'), 'exactReplay');
+  if (flag('--check-formats')) {
+    const formatid = opt('--format');
+    const { run } = await import('./lib/format-regression.mjs');
+    if (!await run({ root: ROOT, formatid })) process.exitCode = 1;
+    return;
+  }
   fs.mkdirSync(REPLAY_DIR, { recursive: true });
 
   let logFile = opt('--from');
+  const fixture = !logFile;
 
   // The page is served from the client host so its branch button can reach
   // /branch, so the servers have to be up either way.
@@ -280,10 +284,10 @@ async function main() {
   if (!logFile) {
     const before = Date.now();
     const { roomid } = await playFixtureBattle();
-    logFile = await waitForNewLog(before);
+    logFile = await waitForNewLog(roomid, before);
     if (!logFile) {
       throw new Error(
-        `no battle log appeared under runtime/logs after ${roomid}. Check that ` +
+        `no battle log appeared under ${RUNTIME_LOGS} after ${roomid}. Use --logs for a shared server's log directory. Check that ` +
         `runtime/config/config.js has logchallenges = true, then restart the server with npm run stop.`
       );
     }
@@ -294,14 +298,17 @@ async function main() {
   if (banner) console.log(banner);
   const logData = JSON.parse(fs.readFileSync(logFile, 'utf8'));
 
-  // runtime/ is generated and gets deleted to reset the server, so keep a copy
-  // of the recording outside it, in the recordings/local/ folder for how it was
-  // played.
-  const archived = archiveLogFile(ROOT, logFile);
-  if (archived !== logFile) console.log(`Archived to:  ${posix(ROOT, archived)}`);
-
-  const inputLog = Array.isArray(logData.inputLog) ? logData.inputLog.join('\n') : String(logData.inputLog || '');
+  const sourceInput = inputLogFromRecording(logData);
+  const inputLog = sourceInput.inputLog;
   if (!inputLog.trim()) throw new Error('battle log contains no inputLog');
+  const profile = profileFromInputLog(inputLog);
+  const formatid = profile.formatid;
+  if (logData.format && Dex.toID(logData.format) !== formatid) throw new Error('recording format metadata disagrees with >start formatid');
+  if (opt('--format') && opt('--format') !== formatid) throw new Error('--format disagrees with recording formatid');
+
+  // Archive admitted source bytes, before deriving any replay artifact.
+  const archived = archiveLogFile(ROOT, logFile, { folder: flag('--probe') ? 'probes' : null });
+  if (archived !== logFile) console.log(`Archived to:  ${posix(ROOT, archived)}`);
 
   console.log('Re-simulating the input log in a fresh battle...');
   const sim = await resimulate(inputLog);
@@ -313,23 +320,27 @@ async function main() {
 
   const sides = unpackFromInputLog(inputLog);
   const seed = seedFromInputLog(inputLog);
-  const hp = exactHpEvidence(sim.debugLog);
-  const hpRows = hpMatchesRecoveredStatPoints(sim.debugLog, sides);
+  const packedTeams = ['p1', 'p2'].map(side => Teams.pack(sides[side]?.sets || []));
+  const stats = statsFromTeams(formatid, packedTeams);
+  const validator = new TeamValidator(formatid);
+  const validation = Object.entries(sides).flatMap(([side, team]) =>
+    (validator.validateTeam(structuredClone(team.sets)) || []).map(problem => `${side}: ${problem}`));
 
   const names = Object.values(sides).map(s => s.name);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 
   console.log('\n================ RECOVERED FROM THE LOG ================\n');
   console.log(`  RNG seed:      ${seed}`);
+  console.log(`  Format:        ${formatid} (${profile.gameType}, ${profile.statModel})`);
+  console.log('  HP source:     simulator channel -1 (exact HP for both sides)');
   console.log(`  Turns:         ${sim.turns}`);
   console.log(`  Battle ended:  ${sim.ended}`);
   for (const [slot, side] of Object.entries(sides)) {
     console.log(`\n  ${slot} - ${side.name}  (${side.sets.length} Pokemon)`);
-    for (const set of side.sets) console.log(describeSet(set));
+    for (const set of side.sets) console.log(describeSet(set, profile));
   }
 
   console.log('\n================ CHECKS ================\n');
-  const spOk = Object.values(sides).every(s => s.sets.every(set => spTotal(set) === 66));
   console.log(`  [${inputLogRoundTrips ? 'PASS' : 'FAIL'}] input log round-trips byte-identically through a fresh battle`);
   console.log(`  [${logDiff ? 'FAIL' : 'PASS'}] re-simulated protocol log matches the server's (${simLines.length} battle lines compared)`);
   if (logDiff) {
@@ -337,21 +348,18 @@ async function main() {
     console.log(`         server: ${logDiff.expected}`);
     console.log(`         resim:  ${logDiff.actual}`);
   }
-  console.log(`  [${spOk ? 'PASS' : 'FAIL'}] every recovered spread sums to the 66 stat-point budget`);
-
-  const perSide = { p1: 0, p2: 0 };
-  for (const [side, set] of Object.entries(hp)) perSide[side] = set.size;
-  const exactHp = /\|(?:switch|drag|replace)\|p[12][a-c]: [^|]+\|[^|]*\|\d+\/(\d+)/g;
-  let anyPercent = false;
-  for (const m of sim.debugLog.matchAll(exactHp)) if (m[1] === '100') anyPercent = true;
-  console.log(`  [${anyPercent ? 'FAIL' : 'PASS'}] no HP is reported as a percentage anywhere in the log`);
-  console.log(`         (mid-battle HP changes seen: p1 ${perSide.p1}, p2 ${perSide.p2})`);
-
-  const allOk = hpRows.length && hpRows.every(r => r.ok);
-  console.log(`  [${allOk ? 'PASS' : 'FAIL'}] recovered stat points reproduce every max-HP integer in the log`);
-  for (const r of hpRows) {
-    console.log(`         ${r.ok ? 'ok  ' : 'BAD '} ${r.side} ${r.species.padEnd(14)} expected ${r.expected}  log says ${r.observed}`);
+  console.log(`  [${validation.length ? 'FAIL' : 'PASS'}] recovered teams accepted by the ${formatid} validator`);
+  for (const problem of validation) console.log(`         ${problem}`);
+  console.log('  Simulator-computed initial max HP (a denominator of 100 can be exact):');
+  for (const [i, team] of stats.entries()) {
+    console.log(`         p${i + 1}: ${team.map(p => `${p.name} ${p.maxhp}`).join(', ')}`);
   }
+  if (fixture && formatid === FORMAT) {
+    const spOk = Object.values(sides).every(s => s.sets.every(set => spTotal(set) === 66));
+    console.log(`  [${spOk ? 'PASS' : 'FAIL'}] fixture-specific proof: all fixture spreads spend exactly 66 Stat Points`);
+    if (!spOk) process.exitCode = 1;
+  }
+  if (!inputLogRoundTrips || logDiff || validation.length) process.exitCode = 1;
 
   // --------------------------------------------------------- RNG control
 
@@ -359,6 +367,7 @@ async function main() {
   let page = { log: sim.debugLog, inputLog, tag: '' };
 
   if (forces.length) {
+    assertFormatCapability(formatid, 'rngControl');
     const turn = Number(opt('--at') || 1);
     const built = await buildControlled(inputLog, turn, forces, {
       seed: opt('--seed'),
@@ -418,10 +427,10 @@ async function main() {
     page = { log: ctrl.debugLog, inputLog: ctrl.inputLog, tag: '-forced' };
   }
 
-  const outFile = path.join(REPLAY_DIR, `${FORMAT}-${names.join('-vs-')}-${stamp}${page.tag}.html`);
+  const outFile = path.join(REPLAY_DIR, `${formatid}-${names.join('-vs-')}-${stamp}${page.tag}.html`);
   fs.writeFileSync(outFile, buildReplayHtml({
-    title: `${Dex.formats.get(FORMAT).name} replay: ${names.join(' vs. ')}`,
-    formatid: FORMAT,
+    title: `${Dex.formats.get(formatid).name} replay: ${names.join(' vs. ')}`,
+    formatid,
     log: page.log,
     inputLog: page.inputLog,
     ...(opt('--embed') ? { embedBase: opt('--embed') } : {}),
@@ -433,7 +442,7 @@ async function main() {
   console.log('The control row carries a "Play from here" button from turn 1 to the last turn.');
 
   if (!flag('--no-open')) {
-    spawn('cmd.exe', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref();
+    openBrowser(url);
     console.log('Opening in your default browser.');
   }
 }

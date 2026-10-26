@@ -9,6 +9,9 @@ choosing moves for **both** sides.
 Chess players have had this for decades. Pokémon players rewatch a video.
 
 Target ruleset is **Pokémon Champions VGC** (`[Gen 9 Champions] VGC 2026 Reg M-C`), doubles.
+Known-team recordings also support **[Gen 9] OU** at the pinned simulator.
+Replay reconstruction and hidden-team inference remain Champions-specific. The exact
+capability matrix and admission rules are in `docs/engineering.md` §2.8.
 
 ---
 
@@ -20,6 +23,9 @@ Target ruleset is **Pokémon Champions VGC** (`[Gen 9 Champions] VGC 2026 Reg M-
   $env:Path = "C:\Program Files\nodejs;" + $env:Path
   ```
 - **A Chromium browser** — Chrome or Edge. Two windows get opened side by side.
+  Linux also discovers Chromium installed by Playwright in `~/.cache/ms-playwright/`.
+  Set `ENCOREABLE_BROWSER` to an executable's full path to select another installation.
+  Window arrangement is automatic on Windows; Linux uses the window manager.
 - `npm install`, once. It downloads the pinned Showdown commit from GitHub and builds it, which
   takes about a minute.
 
@@ -64,7 +70,23 @@ inferred, one line per game.
 `npm run replay` takes `--force "<outcome> <subject> [move]"` (repeatable) with `--at <turn>`
 and `--seed <seed>`: it replays a recording twice from that turn under one shared reseed, once
 plain and once with the named draws forced, and reports what moved.
-`npm run extension` takes `--check [sim|room|entry|rng|package]` (all of them when none is
+`npm run replay -- --check-formats` runs the simulator-backed capability suite without a server.
+`npm run extension -- --check formats` compares the same cases with the built Worker.
+
+`--format gen9ou` records the OU fixture; without it the fixture
+is still Champions Reg M-C. `--from` always uses the recording's own format.
+The `battle` command’s automatic interactive teams remain Champions Reg M-C only;
+use `replay -- --format <id>` and then `live -- --from <recording>` for OU.
+`npm run live -- --from recordings/local/probes/gen9ou-17.log.json --at 3` opens the
+preserved OU example at turn 3. OU currently requires a full-information input log with
+both complete teams and the battle seed. Ordinary ladder replay pages/URLs and team
+sheets alone are not supported OU inputs; reconstruction and EV/IV inference are disabled.
+`--probe` archives a newly played regression battle to `recordings/local/probes/`.
+`--logs <directory>` reads a shared local server's logs from that directory; the
+completed battle is matched by its room ID. It does not move or restart the server.
+`reconstruct --all` explicitly skips formats whose reconstruction capability is disabled;
+`--format <exact-id>` filters its corpus. Requesting one unsupported source directly fails.
+`npm run extension` takes `--check [sim|room|entry|rng|package|formats]` (all of them when none is
 named), `--headful` and `--verbose`.
 `npm run catalog` takes `--pool`, `--list`, `--only <ids>`, `--kind <kind>`,
 `--sheets open|closed`, `--inputs <file>`, `--out <dir>`, `--no-coverage`, `--check`, `--fresh`,

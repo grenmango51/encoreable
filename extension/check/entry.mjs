@@ -42,7 +42,7 @@ function nodeReconstruct(root, file, more = []) {
   const out = path.join(os.tmpdir(), `encoreable-s4-${process.pid}-${path.basename(file).replace(/\W+/g, '_')}.json`);
   const started = Date.now();
   try {
-    execFileSync(process.execPath, [path.join(root, 'scripts', 'local-reconstruct.mjs'), '--from', file, '--teams', 'alt', ...more, '--out', out], {
+    execFileSync(process.execPath, [path.join(root, 'scripts', 'local-reconstruct.mjs'), '--from', file, '--teams', 'alt', '--threads', '1', ...more, '--out', out], {
       cwd: root, stdio: 'pipe',
     });
   } catch (err) {
@@ -67,7 +67,7 @@ async function s4(page, root) {
     const browser = await page.evaluate(`encoreable.call('reconstructReplay', {
       source: { name: ${JSON.stringify(path.basename(file))}, html: ${JSON.stringify(html)} },
       teams: [{ text: ${JSON.stringify(TEAM_SETS.alt.p1)} }, { text: ${JSON.stringify(TEAM_SETS.alt.p2)} }],
-      threads: navigator.hardwareConcurrency,
+      threads: 1,
     })`);
     const r = browser.report;
     const sameLog = JSON.stringify(browser.recording.inputLog) === JSON.stringify(node.data.inputLog);
@@ -114,7 +114,7 @@ async function bestOfSet(chrome, page, root) {
     const node = nodeReconstruct(root, file, ['--infer', 'p2']);
     const browser = await page.evaluate(`encoreable.call('reconstructReplay', {
       source: { name: ${JSON.stringify(path.basename(file))}, html: ${JSON.stringify(fs.readFileSync(file, 'utf8'))} },
-      teams: [{ text: ${JSON.stringify(TEAM_SETS.alt.p1)} }, null], infer: 'p2', threads: navigator.hardwareConcurrency,
+      teams: [{ text: ${JSON.stringify(TEAM_SETS.alt.p1)} }, null], infer: 'p2', threads: 1,
     })`);
     const rec = browser.recording;
     const pass = rec.complete && node.data.complete && JSON.stringify(rec.bestOf) === JSON.stringify(node.data.bestOf) && !!rec.bestOf;

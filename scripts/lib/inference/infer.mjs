@@ -25,6 +25,7 @@
 import { createRequire } from 'module';
 
 import { battleLines } from '../protocol.mjs';
+import { profileFromObservation } from '../format-profile.mjs';
 import {
   ACTION_START, disguisableStays, identName, identSide, reconstruct, sampler, splitTurns, unsettledDisguises,
 } from '../reconstruct.mjs';
@@ -194,6 +195,7 @@ export async function inferSpreads({
   readings = true,
   spend = { rebuilds: FALLBACK_TOTAL, ms: FALLBACK_TOTAL_MS, fruitless: new Set() },
 }) {
+  const profile = profileFromObservation(formatid, observed, 'openSpreadInference');
   const options = { ...arguments[0], spend };
   const dex = Dex.forFormat(formatid);
   const lines = observed.filter(l => typeof l === 'string');
@@ -830,6 +832,7 @@ export async function inferSpreads({
   }
 
   return spareDisguises({
+    profile,
     complete: built.report.complete,
     rounds,
     seconds: Number(((Date.now() - started) / 1000).toFixed(1)),
@@ -916,11 +919,14 @@ export async function inferSpreads({
  */
 export function inferenceRecord(inf, inferred, certified = null) {
   return {
+    profile: inf.profile,
     inferred,
     complete: inf.complete,
     rounds: inf.rounds,
     pokemon: inf.pokemon.filter(p => !p.known)
-      .map(({ contains, known, ...rest }) => ({ ...rest, knowledge: packKnowledge(inf.knowledge.get(rest.id)) })),
+      .map(({ contains, known, ...rest }) => ({
+        ...rest, knowledge: { ...packKnowledge(inf.knowledge.get(rest.id)), profile: inf.profile },
+      })),
     events: inf.events,
     checks: inf.checks,
     ...(certified ? { certified } : {}),
@@ -1049,6 +1055,7 @@ export function combineGames(game, others) {
 export async function certifyRanges(inf, {
   formatid, sets, playerNames, observed, channel = 1, sampleSeed = 1, maxProbes = 600, threads, outside = false, onProgress = () => {},
 }) {
+  profileFromObservation(formatid, observed, 'openSpreadInference');
   const seed = sampler(sampleSeed ^ 0x5eed).seed();
   const tried = new Map();
   const signature = picks => JSON.stringify(picks.map(team => team.map(e => STAT_IDS.map(s => e[s]))));

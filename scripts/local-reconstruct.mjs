@@ -69,13 +69,14 @@ import path from 'path';
 import { createRequire } from 'module';
 
 import { battleLines } from './lib/protocol.mjs';
+import { formatProfile, profileFromObservation } from './lib/format-profile.mjs';
 import { listLogFiles, newestLogFile, posix as toPosix } from './lib/recordings.mjs';
 import { certifyRanges, combineGames, inferSpreads, inferenceRecord } from './lib/inference/infer.mjs';
 import { containsSpread, unpackKnowledge } from './lib/inference/knowledge.mjs';
 import { reconstruct, splitTurns, tagsOf, unpackTeams } from './lib/reconstruct.mjs';
 import {
   alignSpeciesToSheet, bestOfFromLog, crossCheckLog, crossCheckSheet, loadSource, maxHpFromLog, sameSpecies, setsFromLog, setsFromSheet,
-  teamsForSides, unreplayableChoices, withLogIdentity,
+  statsFromTeams, teamsForSides, unreplayableChoices, withLogIdentity,
 } from './lib/replay-source.mjs';
 
 const require = createRequire(import.meta.url);
@@ -291,6 +292,7 @@ async function runOne({
 }) {
   let rung = requestedRung;
   const source = loadSource(file);
+  profileFromObservation(source.formatid, source.lines, infer ? 'openSpreadInference' : 'knownTeamReconstruction');
   const label = path.basename(file);
   const inferred = infer === 'both' ? ['p1', 'p2'] : infer ? [infer] : [];
   const supplied = i => !inferred.includes(`p${i + 1}`);
@@ -349,14 +351,13 @@ async function runOne({
   }
   const statedMax = maxHpFromLog(observed);
   if (statedMax.size) {
-    const dex = Dex.forFormat(source.formatid);
+    const stats = statsFromTeams(source.formatid, packedTeams);
     for (const [i, packed] of packedTeams.entries()) {
       if (!supplied(i)) continue;
-      for (const set of Teams.unpack(packed)) {
-        const key = `p${i + 1} ${set.name || set.species}`;
+      for (const set of stats[i]) {
+        const key = `p${i + 1} ${set.name}`;
         if (!statedMax.has(key)) continue;
-        const base = dex.species.get(set.species || set.name).baseStats.hp;
-        const mine = base + (set.evs?.hp || 0) + 75;
+        const mine = set.maxhp;
         if (mine !== statedMax.get(key)) {
           problems.push(`p${i + 1} ${set.species || set.name}: log says max HP ${statedMax.get(key)}, supplied spread gives ${mine}`);
         }
@@ -679,6 +680,16 @@ function closedSummary(results) {
 
 // ------------------------------------------------------------------- main
 
+/** Bulk runs report archived unsupported formats without admitting them. */
+function sourceForCorpus(file) {
+  try { return loadSource(file); }
+  catch (err) {
+    if (!String(err.message).startsWith('Unsupported format ')) throw err;
+    say(`  ${path.basename(file)}: SKIP ${err.message}`);
+    return null;
+  }
+}
+
 async function main() {
   const rung = (opt('--rung', 's1') || 's1').toLowerCase();
   const teamsKey = opt('--teams', 'alt');
@@ -707,6 +718,14 @@ async function main() {
     files = [from ? path.resolve(ROOT, from) : newestLogFile(ROOT)];
   }
   if (!files.length || !files[0]) throw new Error('no source found - pass --from <file>');
+  if (opt('--format')) {
+    const selected = formatProfile(opt('--format')).formatid;
+    files = files.filter(file => {
+      const source = flag('--all') ? sourceForCorpus(file) : loadSource(file);
+      return source?.formatid === selected;
+    });
+    if (!files.length) throw new Error(`no sources match --format ${selected}`);
+  }
   const many = files.length > 1 || !!saved;
 
   // A saved replay is always S4 whatever `--rung` said - the rung only chooses
@@ -725,6 +744,15 @@ async function main() {
     const job = saved?.jobs[n];
     if (job) say(`## ${job.label}  (${job.teamsKey} is p${job.infer === 'p1' ? 2 : 1}, ${job.infer} inferred)`);
     try {
+      if (flag('--all')) {
+        const source = sourceForCorpus(file);
+        if (!source) continue;
+        const capability = infer ? 'openSpreadInference' : 'knownTeamReconstruction';
+        if (!source.profile.capabilities[capability]) {
+          say(`  ${path.basename(file)}: SKIP unsupported ${capability} for ${source.formatid}`);
+          continue;
+        }
+      }
       results.push(await runOne({
         file, rung, teamsKey: job?.teamsKey || teamsKey, teamSet: job?.teamSet, sampleSeed, maxProbes, threads,
         write: write && !many,

@@ -16,3 +16,11 @@ S1–S3 test set.
 | `…-24`, `-26`, `-48`, `-70`, `-71`, `-75`, `-78`, `-79` | 2 | |
 | `…-25`, `-34`, `-76` | 5 | `-34` is the source of four battles in `../branched/` |
 | `…-100`, `-111`, `-122` | 5, 4, 6 | Played under the retired `>eval` RNG controller, which wrote `\|-message\|#rng` lines into the log; `battleLines` drops them |
+
+`gen9championsvgc2026regmc-14.log.json` preserves the campaign's fresh Champions
+baseline and replays exactly at the pinned simulator.
+
+`gen9vgc2024regg-15.log.json` is immutable archived evidence from removed VGC Reg G
+work. The fixture and format admission were removed; Node and the extension now
+reject this recording as unsupported. The source file is retained under the
+recording-preservation rule.

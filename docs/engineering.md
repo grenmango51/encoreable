@@ -149,6 +149,110 @@ stable across versions, so a seed does not pin a team. Read the packed teams out
 
 ---
 
+### 2.8 Format capabilities and stat-model admission
+
+`scripts/lib/format-profile.mjs` is the shared Node/extension admission contract.
+An exact format ID identifies generation, mod, game type and stat model, with separate
+gates for recording, exact replay, branching, RNG control, known-team reconstruction,
+open-sheet spread inference and closed-sheet inference. Unknown IDs, custom rules,
+conflicting replay generation/game type/tier and disabled capabilities fail explicitly.
+No source is reinterpreted as Gen 9 Champions. The extension verifies admitted profiles'
+complete mod ancestry against its embedded simulator data.
+
+| Exact IDs | Stat model | Known-team recording / exact replay / branch / RNG | Replay reconstruction | Open-sheet spreads | Closed sheets |
+|---|---|---|---|---|---|
+| `gen9championsvgc2026regmc`, `gen9championsvgc2026regmb` (and their `bo3` IDs) | Champions SP | existing support | existing support | partial inference | assumed sets; candidate inference incomplete |
+| `gen9championsdoublescustomgame` | Champions SP, custom levels/budgets | sandbox only | disabled | disabled | disabled |
+| `gen9ou` | standard EV/IV | admitted | disabled | disabled | disabled |
+
+OU is the only admitted standard format. VGC 2024 Reg G and Random Battle support,
+their fixtures, team-generation handling and dedicated positive checks were removed
+at the user's request. Their immutable local probe logs remain as unsupported-format
+rejection cases. Availability in the simulator does not grant product support.
+
+The assumption inventory and acceptance requirements are:
+
+- **Identity and generation:** the fixture default remains Champions; each recording's
+  `>start`, `gen`, `gametype` and `tier` facts must agree before admission.
+- **Stats, levels and legality:** Champions' 0–32/66 representation applies only to its
+  supported inference profiles. OU retains standard EVs, IVs and natures.
+  TeamValidator decides legal totals, IVs, levels and rules; Battle computes initial
+  stats and max HP. Exactly 66 SP is a fixture assertion, not a general requirement.
+- **Team selection:** Showdown's preview/request decides the choice. The OU fixture
+  selects all six, has one active slot, and keeps singles move/switch syntax.
+- **Observations and replay:** source logs remain immutable. Input equality and protocol
+  equality are separate checks. Exact HP comes from simulator channel -1; 100 can be
+  an exact max-HP denominator. Player views remain Showdown's own channels.
+- **Restoration and continuation:** test turns 1, 3 and 5, preserve the recorded prefix,
+  reseed only the continuation, accept legal alternatives and replay them exactly.
+  Snapshot round trips supplement these checks.
+- **RNG:** test effective forced draws, reseed persistence and controlled replay equality.
+- **Reconstruction/inference:** OU reconstruction, open spread inference and closed
+  inference are disabled at public Node and Worker boundaries. `reconstruct --all`
+  skips unsupported sources explicitly; a direct request fails. Future admission needs
+  truth-known true-set/spread survival, not merely a reconstructed witness.
+- **Extension:** compare Worker and Node, restore requests, play actual move buttons
+  for both sides, and verify the continuation and native room observations.
+  OU receives no Champions Stat Point controls.
+
+OU's preserved real-server regression is `recordings/local/probes/gen9ou-17.log.json`:
+six Pokémon per side, level 100, underspent EV totals, non-31 IVs, Stealth Rock/Spikes,
+burn, Toxic Orb poison, switches and Terastallization. The suite verifies validator
+acceptance/rejection, exact input/protocol replay, snapshots and restored alternate
+continuations at turns 1/3/5, player observations, reseeding and forced RNG.
+An additional legal OU fixture tests an exact max HP of 100.
+
+Node and the Worker share the known-team path. The native OU room check opens turn 3
+in the real Showdown client, checks tier/generation/singles identity, own exact HP and
+opponent percentages, clicks legal moves for both sides, and verifies the continuation.
+It rejects Champions SP controls and fake-room WebSocket traffic. Fainted requests use
+`0 fnt` without interpreting a client placeholder as observed max HP. The replay embed
+dependency-order fix keeps generated OU pages rendering correctly.
+
+**Practical input boundary:** OU needs a full-information `.log.json` with both packed
+teams, the battle seed and recorded choices. A normal ladder replay URL/page or team
+sheets alone cannot be restored by this path. Automatic OU ladder capture, replay
+reconstruction, hidden-team inference and EV/IV sliders are not implemented.
+`replay -- --format gen9ou` records the scripted example, not arbitrary interactive teams.
+Use `live -- --from recordings/local/probes/gen9ou-17.log.json --at 3` to play the saved
+example forward. The extension recordings page imports the same file and opens a turn.
+
+The browser's fresh automatic-team fixture remains Champions Reg M-C only; an explicit
+OU automatic-team request fails rather than relabelling Stat Points as EVs. Joining a
+recording never injects Champions fixture teams into the teambuilder. Default recording
+selection excludes unsupported archived formats.
+
+Campaign acceptance evidence (2026-10-26, Node 26.12.1, four-CPU server):
+
+- `npm run replay -- --check-formats`: PASS after narrowing to OU, including Champions
+  regression cases and explicit rejection of removed formats.
+- `npm run check`: PASS. Exact replay of OU `-17` and Champions M-C `-14` matches
+  each original server log. OU `live --at 3 --dry-run` restores the expected position.
+- `npm run extension -- --check sim formats`: PASS after cleanup: 32 supported
+  recordings have Node/Worker parity; all three archived unsupported recordings are
+  rejected by both. OU passes the native-room matrix, effective forced RNG and legal
+  continuations, with no fake-room traffic. Both player screenshots were inspected.
+- `npm run reconstruct -- --all --rung s2 --threads 1 --dry-run`: 30/30 MATCH after
+  cleanup. Bulk runs explicitly skip unsupported archived formats; direct requests fail.
+- Prior S3 baseline with `--infer p2`: 30/30 MATCH and all 119 true spreads survive.
+  Matching witnesses and survival do not establish complete inference.
+- S3 without inference remains 29/30 MATCH: `gen9championsvgc2026regmc-1` is verified
+  through turn 1/7 (87/100 versus 88/100 on the turn-2 heal). This was reproduced on
+  pre-campaign code.
+- The post-cleanup full `npm run extension -- --check` is not green. Public replay
+  `gen9championsvgc2026regmbbo3-2704779142` was still rebuilding both missing teams
+  after four minutes, reproducing the prior public-entry timeout on another replay.
+  The run also exposed a rejection-test matcher that expected a bare message while
+  the Worker returns a stack prefix; that check was corrected and the complete sim
+  and formats checks rerun successfully. Saved S4 games, inferred/combined sets,
+  import/export, Champions rooms, RNG and packaging passed in the full run. The
+  public-entry timeout remains an unresolved integration dependency.
+
+All existing local recordings are unchanged. The simulator pin and mechanics are
+unchanged. Main remains unmerged. This is a bounded known-team OU milestone; the full
+acceptance suite must be green before calling the branch merge-ready. Final Grok review
+was unavailable after its usage limit; no substitute model/provider was used.
+
 ## 3. Channel −1 is the entire answer to "full information"
 
 This is the single most useful thing learned. Showdown already computes an omniscient log; it
@@ -583,8 +687,8 @@ softly with the other pre-turn lines (§7).
 
 ### 6.3 The vendored client is not usable in a browser
 
-`scripts/lib/replay-html.mjs` emits the same shell as a downloaded Showdown replay, with two
-deliberate deviations, both documented in the file. **A fully offline replay is not possible
+`scripts/lib/replay-html.mjs` emits the same shell as a downloaded Showdown replay, with
+compatibility requirements documented in the file. **A fully offline replay is not possible
 from the checkout as it stands:**
 
 - `config/config.js` is a placeholder whose contents are literally the text
@@ -596,6 +700,10 @@ from the checkout as it stands:**
 
 So the player loads from upstream `https://play.pokemonshowdown.com`. `--embed <url>` is the
 escape hatch if a local build ever exists. Building that bundle is the only route to offline.
+
+The live embed inserts classic scripts asynchronously. Generated pages force those inserted
+scripts to execute in dependency-list order, preventing config/jQuery races that otherwise
+leave `BattleTextParser` undefined. Upstream client files remain unchanged.
 
 Also: the container must **not** carry `class="wrapper"`. `Replays.init` in `replay-embed.js`
 only builds `.battle` / `.battle-log` / `.replay-controls` when no `.wrapper` element exists —
@@ -609,8 +717,9 @@ with it, the page renders nothing at all and gives no error.
   `updatechallenges`.
 - Local config needs `noguestsecurity` for guest `/trn` with an empty assertion, and
   `logchallenges` (§3.1).
-- Team preview honours `request.maxChosenTeamSize`, but VGC still requires **six** Pokémon on
-  the team even when only four are brought. A four-mon team is rejected at validation.
+- Team preview honours `request.maxChosenTeamSize`. Champions requires six and selects four;
+  OU selects its whole team.
+  The simulator’s resolved rule table and validator decide each format’s limits.
 - `BattleStream` requires `>`-prefixed lines. `version` / `version-origin` are no-ops.
 - Headless Chrome `--dump-dom` returns 0 bytes when captured with `>` or a pipe. Use
   `Start-Process -Wait -NoNewWindow -RedirectStandardOutput`.

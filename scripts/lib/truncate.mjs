@@ -18,11 +18,11 @@
  * rolls fresh (`sim/battle-stream.ts:113`).
  */
 
-import crypto from 'crypto';
 import { createRequire } from 'module';
+import { profileFromInputLog } from './format-profile.mjs';
 
 const require = createRequire(import.meta.url);
-const { BattleStream } = require('pokemon-showdown');
+const { BattleStream, PRNG } = require('pokemon-showdown');
 
 // A controlled recording carries `>rng` lines in its input log. Replaying the
 // prefix is how the recorded position is reproduced, so the stream must know
@@ -32,10 +32,12 @@ const { BattleStream } = require('pokemon-showdown');
 const rng = require('../server/rng-command.js');
 rng.teachStream(BattleStream);
 
-/** A fresh seed in the shape `sim/prng.ts` writes: `sodium,` + 32 hex. */
+/** Let the pinned simulator define its seed representation. */
 export function freshSeed() {
-  return `sodium,${crypto.randomBytes(16).toString('hex')}`;
+  return PRNG.generateSeed();
 }
+
+export function normalizeSeed(seed) { return new PRNG(seed).getSeed(); }
 
 /** Normalise a log.json `inputLog` (string or array) to protocol lines. */
 export function inputLogLines(raw) {
@@ -138,9 +140,7 @@ export async function truncateAtTurn(raw, target, { reseed = false } = {}) {
 
   const startAt = lines.findIndex(l => l.startsWith('>start '));
   if (startAt < 0) throw new Error('input log has no >start line');
-  if (!lines[startAt].includes('"formatid":"')) {
-    throw new Error('>start line has no formatid - /importinputlog will reject it');
-  }
+  profileFromInputLog(lines, 'branching');
 
   // Everything before the first choice is the header: `>start` plus `>player`.
   const firstChoice = lines.findIndex(l => /^>p[1-4] /.test(l));
@@ -164,7 +164,7 @@ export async function truncateAtTurn(raw, target, { reseed = false } = {}) {
     if (battle.ended) break;
   }
 
-  const seed = reseed ? (typeof reseed === 'string' ? reseed : freshSeed()) : null;
+  const seed = reseed ? normalizeSeed(typeof reseed === 'string' ? reseed : freshSeed()) : null;
   const tail = seed ? [`>reseed ${seed}`] : [];
   const drawsKept = rng.snapshot(battle).draws;
 

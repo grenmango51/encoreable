@@ -14,8 +14,8 @@ An analysis board for Pokémon, the way chess.com lets you play on from any posi
 Take a battle. Pick a turn. Get the **real Showdown battle interface**, in the browser,
 sitting at that exact position — and play forward, choosing moves for **both** teams.
 
-The battle does not have to be one we recorded. A saved public-ladder replay plus both team
-sheets is enough: `npm run reconstruct` rebuilds the input log those replays never carried
+For admitted Champions reconstruction profiles, the battle does not have to be one we
+recorded. A saved replay plus supported team inputs can be enough: `npm run reconstruct` rebuilds the input log those replays never carried
 (`engineering.md` §7), and everything below then works on it unchanged.
 
 - **Simultaneous, not alternating.** Both sides commit blind and the turn resolves once both
@@ -28,6 +28,11 @@ live battle room driven into a known position.
 
 There are two ways in — a command, and a button in the replay view — and one implementation
 behind both.
+
+Known-team recordings can also use the explicitly admitted formats in engineering.md §2.8.
+This does not enable reconstruction of those formats from public replays. The input-log
+format ID is checked before truncation; unsupported generations and custom-rule suffixes
+are refused instead of being interpreted with Champions data.
 
 ---
 

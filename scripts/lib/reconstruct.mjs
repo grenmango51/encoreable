@@ -35,6 +35,7 @@ import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 
 import { battleLines, firstDivergence, illusionStays, unmaskIllusion, unsettledStays } from './protocol.mjs';
 import { install, traceOn, markDraws, atLine } from './rng-control.mjs';
+import { profileFromObservation } from './format-profile.mjs';
 
 const require = createRequire(import.meta.url);
 const { Battle, BattleStream, Dex, Teams, toID } = require('pokemon-showdown');
@@ -2239,6 +2240,7 @@ async function reconstructOnce({
  * next time.
  */
 export async function reconstruct(options) {
+  profileFromObservation(options.formatid, options.observed, 'knownTeamReconstruction');
   const forced = new Set(options.forced || []);
   let best = await reconstructOnce({ ...options, forced });
   if (best.report.complete) return { ...best, forced: [...forced] };

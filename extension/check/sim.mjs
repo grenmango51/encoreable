@@ -20,6 +20,7 @@ import { createRequire } from 'module';
 import { connect, launchChrome, serveStatic } from './harness.mjs';
 import { listLogFilesIn, posix } from '../../scripts/lib/recordings.mjs';
 import { battleLines, firstDivergence } from '../../scripts/lib/protocol.mjs';
+import { inputLogFromRecording } from '../../scripts/lib/recording-input.mjs';
 
 const require = createRequire(import.meta.url);
 const { BattleStream } = require('pokemon-showdown');
@@ -83,6 +84,7 @@ export async function run({ root, dist, headful, verbose }) {
   const server = await serveStatic(dist, { '/check.html': PAGE });
   const chrome = await launchChrome({ headful });
   let failures = 0;
+  let rejected = 0;
   try {
     const page = await connect(chrome.port);
     await page.send('Page.enable');
@@ -95,7 +97,20 @@ export async function run({ root, dist, headful, verbose }) {
     for (const file of files) {
       const name = posix(root, file);
       const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-      const recorded = Array.isArray(data.inputLog) ? data.inputLog.join('\n') : String(data.inputLog || '');
+      let recorded;
+      try { recorded = inputLogFromRecording(data).inputLog; }
+      catch (err) {
+        if (!String(err.message).startsWith('Unsupported format ')) throw err;
+        const workerError = await page.evaluate(
+          `__sim('recordingInput', ${JSON.stringify(data)}).then(() => null, err => String(err.message))`,
+        );
+        const ok = workerError && /Unsupported format "/.test(workerError);
+        if (!ok) failures++;
+        rejected++;
+        console.log(`  [${ok ? 'PASS' : 'FAIL'}] ${name}  unsupported format rejected in Node and Worker`);
+        if (!ok) console.log(`         Worker: ${workerError || 'accepted unsupported recording'}`);
+        continue;
+      }
       let node;
       let page_;
       try {
@@ -138,6 +153,6 @@ export async function run({ root, dist, headful, verbose }) {
     await server.close();
   }
 
-  console.log(`\n  ${files.length - failures} of ${files.length} recordings re-simulate identically in the page and in Node`);
+  console.log(`\n  ${files.length - rejected} supported recordings compared between Node and Worker; ${rejected} unsupported recordings checked for rejection; ${failures} failures`);
   return failures === 0;
 }

@@ -17,6 +17,8 @@
 
 import fs from 'fs';
 import path from 'path';
+import { inputLogFromRecording } from './recording-input.mjs';
+import { profileFromInputLog } from './format-profile.mjs';
 
 /** Every `.log.json` under `dir`, recursively. Missing directories yield none. */
 function walk(dir, out = []) {
@@ -49,9 +51,18 @@ export function listLogFiles(root) {
   return all.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
 }
 
-/** The most recently written recording, or null if there are none. */
+/** Default selection excludes archived evidence for unsupported formats. */
+function canBranch(file) {
+  try {
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    profileFromInputLog(data.inputLog, 'branching');
+    return true;
+  } catch { return false; }
+}
+
+/** The most recently written supported recording, or null if there are none. */
 export function newestLogFile(root) {
-  return listLogFiles(root)[0] || null;
+  return listLogFiles(root).find(canBranch) || null;
 }
 
 /**
@@ -64,7 +75,7 @@ export function newestLogFile(root) {
  * The turn count is written into the log file, so this costs one read each.
  */
 export function newestLogFileWithTurns(root, turns) {
-  const files = listLogFiles(root);
+  const files = listLogFiles(root).filter(canBranch);
   for (const file of files) {
     try {
       if (Number(JSON.parse(fs.readFileSync(file, 'utf8')).turns) >= turns) return file;
@@ -100,13 +111,16 @@ export function localFolderFor(file) {
  * is returned as it is, and one archived before under the same name, in any
  * folder, returns that copy.
  */
-export function archiveLogFile(root, file) {
+export function archiveLogFile(root, file, { folder = null } = {}) {
+  if (folder !== null && !['scripted', 'probes', 'self-play', 'branched'].includes(folder)) {
+    throw new Error(`invalid recording folder: ${folder}`);
+  }
   const recordings = path.join(root, 'recordings');
   const inside = path.relative(recordings, path.resolve(file));
   if (inside && !inside.startsWith('..') && !path.isAbsolute(inside)) return file;
   const existing = walk(recordings).find(f => path.basename(f) === path.basename(file));
   if (existing) return existing;
-  const dest = path.join(recordings, 'local', localFolderFor(file), path.basename(file));
+  const dest = path.join(recordings, 'local', folder || localFolderFor(file), path.basename(file));
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.copyFileSync(file, dest);
   return dest;
@@ -145,7 +159,5 @@ export function posix(root, file) {
 /** Read the inputLog out of a `.log.json`, normalised to a single string. */
 export function readInputLog(file) {
   const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-  const raw = Array.isArray(data.inputLog) ? data.inputLog.join('\n') : String(data.inputLog || '');
-  if (!raw.trim()) throw new Error(`${file} contains no inputLog`);
-  return raw;
+  return inputLogFromRecording(data).inputLog;
 }

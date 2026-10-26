@@ -18,6 +18,7 @@
 import { spawn } from 'child_process';
 import http from 'http';
 import { launchPair } from './lib/browser.mjs';
+import { assertFormatCapability } from './lib/format-profile.mjs';
 
 const ROOT_DIR = process.cwd();
 
@@ -41,6 +42,15 @@ async function waitForPort(port, host = '127.0.0.1', timeoutMs = 15000) {
 }
 
 async function main() {
+  const argv = process.argv.slice(2);
+  const at = argv.indexOf('--format');
+  if (at >= 0) {
+    const id = argv[at + 1];
+    assertFormatCapability(id, 'recording');
+    if (id !== 'gen9championsvgc2026regmc') {
+      throw new Error(`Automatic interactive teams are Champions Reg M-C only. Record ${id} with npm run replay -- --format ${id}, then open its recording with npm run live.`);
+    }
+  }
   console.log('=====================================================');
   console.log('       ENCOREABLE 1-CLICK INSTANT AUTO-BATTLE        ');
   console.log('=====================================================\n');

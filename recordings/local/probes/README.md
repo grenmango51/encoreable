@@ -6,11 +6,11 @@ script itself is scratch and lives in the session scratchpad. Only a battle wort
 comes here.
 
 **Goes here:** copy the `.log.json` out of `runtime/logs/`, keep its name, and add a row below.
-`npm run replay` never files anything here.
+`npm run replay -- --probe` files a newly played format regression here too.
 
 ## Contents
 
-Each is a Reg M-C doubles battle, `gen9championsvgc2026regmc-<n>.log.json`, with p2 hidden, built
+The inference probes below are Reg M-C doubles battles, `gen9championsvgc2026regmc-<n>.log.json`, with p2 hidden, built
 from the table in
 `docs/open-sheet-plan.md` §4 Phase 6. A probe passes when
 `npm run reconstruct -- --from <file> --rung s3 --infer p2 --certify --outside` is a MATCH, every
@@ -31,3 +31,16 @@ a flinch does not knock the script off course.
 | `…-295` the partner | Helping Hand on Maushold's Bite; Friend Guard under Gardevoir's Dazzling Gleam on Indeedee-F; Hospitality healing Indeedee-F and later Garchomp; Heal Pulse on Sinistcha; Matcha Gotcha's drain and Leftovers; Garchomp's Earthquake hitting its own ally Maushold; Ally Switch on the known side; the hidden Indeedee-F racing the hidden Sinistcha. 6 turns, p2 forfeits | Maushold 20/24/4/0/2/16 Jolly, Black Glasses · Indeedee-F 26/0/10/6/14/10 Calm, Twisted Spoon · Sinistcha 30/0/20/4/8/4 Bold, Leftovers · Garchomp 12/30/6/0/2/16 Adamant, Soft Sand | Maushold Atk 7–28 (Bite with Helping Hand); HP 2–32 and SpD 0–19 (Dazzling Gleam). Indeedee-F HP 12–32 (Hospitality's quarter of its max HP); SpD 14–32 (Dazzling Gleam through Friend Guard); SpA 0–6 (Psychic into Snorlax); Def 0–21 (Body Slam); Spe 0–11 (Gardevoir moved first). Sinistcha HP 26–32 (Heal Pulse, Leftovers and Matcha Gotcha's drain); SpD 0–12; SpA 0–18; Spe 0–26 (Indeedee-F moved before it). Garchomp Atk 21–30 (Earthquake and Rock Slide into Farigiraf and Snorlax); HP 0–31 (Hospitality) |
 | `…-302` formes | Zoroark-Hisui leads disguised as Lucario, and its Hyper Voice is printed under the disguise until Dazzling Gleam breaks it with `|replace|`; Palafin switches out and back in as Palafin-Hero (Zero to Hero); Lucario Mega Evolves on its second turn in; Aegislash's King's Shield in Shield Forme, then Shadow Ball and Iron Head in Blade Forme; Leftovers and Rough Skin. 6 turns, p2 forfeits | Zoroark-Hisui 10/0/4/28/6/18 Timid, Spell Tag · Palafin 20/28/6/0/4/8 Adamant, Mystic Water · Aegislash 26/4/10/20/6/0 Quiet, Leftovers · Lucario 20/26/4/0/4/12 Jolly, Lucarionite | Zoroark-Hisui SpA 25–32 (its Hyper Voice under the disguise, read as its own once the `|replace|` settles who it was). Palafin Atk 22–32 (Jet Punch before Zero to Hero); SpA 0–19, SpD 0–28 and Spe 0–19 (Dazzling Gleam and Body Slam). Aegislash HP 12–29 (Shadow Ball, Rough Skin and Leftovers); Atk 0–6 (Iron Head in Blade Forme). Lucario Def 0–28 (Body Slam); Spe 0–28 (Gengar moved before the Mega) |
 | `…-303` a real game | Two of your Reg M-C teams, sun (known) against sand (hidden), each Pokemon using a damaging move of its own on a random foe every turn and Mega Evolving when it can; no die is forced. Both Mega Evolutions on turn 1, Drought and Sand Stream, spread moves, a flinch, recoil, Life Orb, sand chip, Hospitality, drain and Rough Skin. 7 turns, p2 wins | Tyranitar 12/26/0/0/1/27 Adamant, Tyranitarite · Excadrill 2/32/0/0/0/32 Adamant, Focus Sash · Salamence 1/0/0/32/1/32 Timid, Salamencite · Sinistcha 31/0/10/0/25/0 Calm, Sitrus Berry | Tyranitar Atk 21–32 (Rock Slide and two Low Kicks); HP 0–15, SpD 0–18 (Leaf Storm). Excadrill Atk 15–32 (Iron Head); Def 0–17 (Rock Slide); Spe 8–32 (it moved before Garchomp). Salamence HP 0–3, Def 0–1 (Rock Slide and the recoil it took); SpA 8–32 (Flamethrower). Sinistcha HP 31–32 (sand, drain and Hospitality); SpD 15–32 (Leaf Storm); SpA 0–5? (Matcha Gotcha); Atk, Def and Spe 0–19 |
+
+## Known-team format regressions
+
+`gen9ou-17.log.json` preserves the standard OU singles fixture through turn 5: six
+Pokémon per side, ordinary EV/IV spreads, level 100, Stealth Rock/Spikes, burn,
+Toxic Orb, switches and Terastallization. It supplies both complete teams; it is
+not evidence of hidden-team inference. The shared format checks replay and branch it.
+
+The immutable `gen9vgc2024regg-16.log.json` and `gen9randombattle-18.log.json`
+are archived evidence from removed format work. Those formats are unsupported; the
+extension parity check verifies that Node and the Worker both reject them. Their
+source files are retained under the recording-preservation rule, with no active fixtures
+or replay admission.

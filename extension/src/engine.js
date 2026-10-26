@@ -17,6 +17,7 @@ import { simRequire, SIM_ENTRY, RNG_COMMAND } from './cjs.js';
 import fs from './node/fs.js';
 import { truncateAtTurn, inputLogLines } from '../../scripts/lib/truncate.mjs';
 import { battleLines } from '../../scripts/lib/protocol.mjs';
+import { formatProfile, assertFormatCapability, profileFromInputLog, profileFromObservation } from '../../scripts/lib/format-profile.mjs';
 import { reconstruct, unpackTeams } from '../../scripts/lib/reconstruct.mjs';
 import { combineGames, inferSpreads, inferenceRecord } from '../../scripts/lib/inference/infer.mjs';
 import {
@@ -24,8 +25,9 @@ import {
 } from '../../scripts/lib/inference/knowledge.mjs';
 import {
   alignSpeciesToSheet, bestOfFromLog, crossCheckLog, crossCheckSheet, loadSource, maxHpFromLog, setsFromLog, setsFromSheet,
-  teamsForSides, withLogIdentity,
+  statsFromTeams, teamsForSides, withLogIdentity,
 } from '../../scripts/lib/replay-source.mjs';
+import { inputLogFromRecording } from '../../scripts/lib/recording-input.mjs';
 
 const { BattleStream, Dex, Teams, extractChannelMessages } = simRequire(SIM_ENTRY);
 const rng = simRequire(RNG_COMMAND);
@@ -203,11 +205,16 @@ function opened(key, s) {
 
 /** Starts a battle from a complete input log - a branch prefix, or a saved branch after a reload. */
 export async function open(inputLog) {
+  profileFromInputLog(inputLog, 'branching');
+  inputLog = inputLogFromRecording({ inputLog }, { capability: 'branching' }).inputLog;
   const lines = inputLogLines(inputLog);
   if (!lines.some(l => l.startsWith('>start '))) throw new Error('input log has no >start line');
   const s = new Session();
   for (const line of lines) await s.write(line);
   if (!s.battle) throw new Error('the input log started no battle');
+  assertFormatCapability(s.battle.format.id, 'branching', {
+    gen: s.battle.gen, mod: s.battle.format.mod, gameType: s.battle.gameType,
+  });
   // A side that had already chosen when the log was saved is waiting again.
   for (const [i, side] of SIDES.entries()) {
     if (s.players[side].isWait === false && s.battle.sides[i]?.isChoiceDone?.()) s.players[side].isWait = true;
@@ -314,11 +321,15 @@ export async function close(key) {
  * for byte.
  */
 export async function resim(inputLog) {
-  const stream = new BattleStream({ keepAlive: true });
+  const profile = profileFromInputLog(inputLog);
+  inputLog = inputLogFromRecording({ inputLog }).inputLog;
+  const stream = new BattleStream({ keepAlive: true, noCatch: true });
   const drain = (async () => { for await (const chunk of stream) void chunk; })();
+  try {
   await stream.write(inputLog);
   const battle = stream.battle;
   if (!battle) throw new Error('re-simulation produced no battle');
+  assertFormatCapability(profile.formatid, 'exactReplay', { gen: battle.gen, mod: battle.format.mod, gameType: battle.gameType });
   const result = {
     debugLog: battle.getDebugLog(),
     inputLog: battle.inputLog.join('\n'),
@@ -326,9 +337,8 @@ export async function resim(inputLog) {
     turns: battle.turn,
     seed: battle.prngSeed,
   };
-  await stream.writeEnd();
-  await drain;
   return result;
+  } finally { await stream.writeEnd(); await drain; }
 }
 
 // ------------------------------------------------------------ reconstruction
@@ -377,6 +387,7 @@ export async function reconstructReplay({ source: input, teams = [null, null], i
   fs.writeFileSync(file, input.html ?? replayPage(input.log));
   try {
     const source = loadSource(file);
+    profileFromObservation(source.formatid, source.lines, infer ? 'openSpreadInference' : 'knownTeamReconstruction');
     const inferred = infer === 'both' ? ['p1', 'p2'] : infer ? [infer] : [];
     const observed = source.lines;
     const exactSides = new Set([...maxHpFromLog(observed).keys()].map(key => key.slice(0, 2)));
@@ -399,13 +410,13 @@ export async function reconstructReplay({ source: input, teams = [null, null], i
     }
     const statedMax = maxHpFromLog(observed);
     if (statedMax.size) {
-      const dex = Dex.forFormat(source.formatid);
+      const stats = statsFromTeams(source.formatid, packedTeams);
       for (const [i, packed] of packedTeams.entries()) {
         if (!supplied(i) || !packed) continue;
-        for (const set of Teams.unpack(packed)) {
-          const key = `p${i + 1} ${set.name || set.species}`;
+        for (const set of stats[i]) {
+          const key = `p${i + 1} ${set.name}`;
           if (!statedMax.has(key)) continue;
-          const mine = dex.species.get(set.species || set.name).baseStats.hp + (set.evs?.hp || 0) + 75;
+          const mine = set.maxhp;
           if (mine !== statedMax.get(key)) problems.push(`p${i + 1} ${set.species || set.name}: log says max HP ${statedMax.get(key)}, the team gives ${mine}`);
         }
       }
@@ -516,6 +527,8 @@ const reachFrom = (kn, values, spread) => Object.fromEntries(STAT_IDS.map(s => [
  */
 export function spreadPanel(key, inference) {
   const battle = session(key).battle;
+  const profile = formatProfile(battle.format.id);
+  if (profile.statModel !== 'champions-sp' || !profile.capabilities.openSpreadInference) return null;
   const handle = ++nextPanel;
   const byId = new Map((inference?.pokemon || []).map(p => [p.id, p]));
   const inferredSides = new Set(inference?.inferred || []);
@@ -583,6 +596,7 @@ export function spreadPanelClose(handle) {
 }
 
 export const methods = {
+  recordingInput: inputLogFromRecording,
   resim, open, branch, choose, undo, forfeit, view, exportLog, close, reconstructReplay, rngCommand,
   combineSet, spreadPanel, spreadMove, spreadReach, spreadPanelClose,
 };

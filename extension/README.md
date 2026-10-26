@@ -31,12 +31,15 @@ esbuild comes in as a dependency of the pinned `pokemon-showdown`.
   both games rebuilt line for line; one that did not is shown alone. Nothing combined is saved,
   so each recording keeps its own game's.
 - **From a recording.** Click the extension's toolbar button for the recordings page. Import
-  any `.log.json` (the files in `recordings/` work as they are), pick a turn, press **Open**.
+  a supported `.log.json` (see `docs/engineering.md` §2.8), pick a turn, press **Open**.
+  Gen 9 OU requires a full-information input log with both packed teams and the battle
+  seed. OU replay pages/URLs, replay reconstruction and hidden-set inference are unsupported.
   **Export** gives back the exact file; recordings cannot be regenerated, so export what matters.
 - **Playing.** A branch opens as two rooms, one per side, each seeing only its own exact HP.
   Switch between them in the client's tab bar. Hover a move or a Pokémon for the RNG controls.
   A reload keeps the branch.
-- **Stat Points.** Hover any Pokémon for a slider per stat. A Pokémon whose team was supplied
+- **Stat Points.** Supported Champions profiles offer a slider per stat in Pokémon tooltips;
+  standard EV/IV formats show no Champions Stat Point panel. A Pokémon whose team was supplied
   sits fixed on its spread. One whose Stat Points were worked out from the replay spans only
   the values some spread the replay leaves still has, so the slider skips any value none has.
   Moving one slider moves the others to the nearest spread still possible with it; the dark
