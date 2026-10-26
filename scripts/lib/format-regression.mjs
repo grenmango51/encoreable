@@ -38,8 +38,8 @@ export {
 
 const toId = Dex.toID;
 const policy = makePolicy([]);
-const RESEED = 'sodium,0123456789abcdeffedcba9876543210';
-const FORCE_SEED = 'sodium,fedcba98765432100123456789abcdef';
+const RESEED = 'sodium,' + '0123456789abcdeffedcba9876543210'.padEnd(64, '0');
+const FORCE_SEED = 'sodium,' + 'fedcba98765432100123456789abcdef'.padEnd(64, '0');
 const BOUNDARIES = [1, 3, 5];
 const CHOOSABLE_TARGETS = new Set(['normal', 'any', 'adjacentAlly', 'adjacentAllyOrSelf', 'adjacentFoe']);
 const ACCURACY_FIRST = ['willowisp', 'thunderwave', 'spore', 'toxic', 'hurricane', 'hydropump', 'fireblast', 'blizzard', 'focusblast', 'stoneedge', 'playrough', 'moonblast'];
@@ -578,8 +578,8 @@ async function scripted(fixture, profile) {
   }
   const protocol = extractChannelMessages(played.rawLog, [-1])[-1];
   if (profile) profileFromObservation(fixture.id, protocol, 'exactReplay');
-  const branches = await boundaries(played, fixture);
-  const forced = await rngSmoke(played, fixture);
+  const branches = profile ? await boundaries(played, fixture) : [];
+  const forced = profile ? await rngSmoke(played, fixture) : null;
   return { worker: workerCase(fixture, played, branches), forced, protocol, packed: played.packed };
 }
 

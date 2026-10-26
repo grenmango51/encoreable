@@ -264,6 +264,11 @@ function describeSet(set, profile) {
 // ----------------------------------------------------------------------- main
 
 async function main() {
+  if (flag('--check-formats')) {
+    const { run } = await import('./lib/format-regression.mjs');
+    if (!await run({ root: ROOT })) process.exitCode = 1;
+    return;
+  }
   fs.mkdirSync(REPLAY_DIR, { recursive: true });
 
   let logFile = opt('--from');

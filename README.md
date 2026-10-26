@@ -70,6 +70,9 @@ inferred, one line per game.
 `npm run replay` takes `--force "<outcome> <subject> [move]"` (repeatable) with `--at <turn>`
 and `--seed <seed>`: it replays a recording twice from that turn under one shared reseed, once
 plain and once with the named draws forced, and reports what moved.
+`npm run replay -- --check-formats` runs the simulator-backed capability suite without a server.
+`npm run extension -- --check formats` compares the same cases with the built Worker.
+
 `--format gen9vgc2024regg` records the standard VGC fixture; without it the fixture
 is still Champions Reg M-C. `--from` always uses the recording's own format.
 `--probe` archives a newly played regression battle to `recordings/local/probes/`.

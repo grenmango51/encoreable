@@ -207,7 +207,11 @@ The assumption inventory and acceptance requirements are:
 Current VGC evidence: preserved real-server `gen9vgc2024regg-15` (scripted) and `-16`
 (probe), validated full EV/IV teams, exact replay, snapshot turns 1–5, restored alternate
 continuations at 1/3/5, a forced Grassy Glide critical hit, and Node/Worker re-simulation
-parity. The capability regression harness and visible room check are still campaign work.
+parity. `npm run replay -- --check-formats` and `npm run extension -- --check formats`
+now cover validator acceptance/rejection, observations, snapshot/restore at 1/3/5, legal
+continuations, reseeding/forced draws, preserved recordings and unsupported combinations.
+The visible room check is still campaign work; the live replay embed currently fails to
+construct its text parser, independently of format.
 Existing Champions `-34` still matches at S2; the full regression suite remains required
 before coordinated integration. These results do not claim VGC reconstruction or inference.
 

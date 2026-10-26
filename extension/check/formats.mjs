@@ -88,7 +88,7 @@ async function playRounds(page, key, view, rounds) {
 async function compareBranch(page, label, inputLog, branch) {
   const opened = await call(page, 'branch', [inputLog, branch.turn, { seed: branch.seed }]);
   if (opened.inputLog.trim() !== branch.inputLog.trim()) {
-    throw new Error(`${label} branch input does not match the Node cut`);
+    throw new Error(`${label} branch input does not match the Node cut: ${sameLog(label, branch.inputLog.trim().split('\n'), opened.inputLog.trim().split('\n'))}`);
   }
   const cut = await call(page, 'resim', [opened.inputLog]);
   const cutDiff = sameLog(`${label} branch resim`, branch.lines, linesOf(cut.debugLog));
@@ -131,7 +131,7 @@ export async function run({ root, dist, headful, verbose }) {
     console.log('Node reference');
     reference = await workerCases({ root, say: console.log });
   } catch (err) {
-    console.log(`  [FAIL] node reference\n         ${String(err.message || err).split('\n')[0]}`);
+    console.log(`  [FAIL] node reference\n         ${String(err.message || err)}`);
     return false;
   }
   const workerFile = path.join(dist, 'sim-worker.js');
@@ -198,7 +198,7 @@ export async function run({ root, dist, headful, verbose }) {
     console.log('  [PASS] worker rejections');
     return true;
   } catch (err) {
-    console.log(`  [FAIL] worker\n         ${String(err.message || err).split('\n')[0]}`);
+    console.log(`  [FAIL] worker\n         ${String(err.message || err)}`);
     return false;
   } finally {
     if (page) page.close();

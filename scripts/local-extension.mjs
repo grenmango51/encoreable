@@ -51,7 +51,7 @@ const PS = path.join(packageDir('pokemon-showdown'), 'dist');
 /** Mod data embedded in the browser. Admission is checked before simulation. */
 const BUNDLED_MODS = ['champions', 'championsregmb'];
 
-const CHECKS = ['sim', 'room', 'entry', 'rng', 'package'];
+const CHECKS = ['sim', 'room', 'entry', 'rng', 'package', 'formats'];
 
 const argv = process.argv.slice(2);
 const flag = name => argv.includes(name);
