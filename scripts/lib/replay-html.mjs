@@ -13,7 +13,15 @@
  *    placeholder, `data/pokedex-mini*.js` are absent, and its per-file
  *    `battledata.js` references `BattleTextParser` without defining it, because
  *    upstream deploys a bundle. Pass `--embed <base-url>` once the client is
- *    built with `node build`.
+ *    built with `node build`. The live `battledata.js` bundle does define
+ *    `BattleTextParser`, but only after it reads `Config`, and `graphics.js`
+ *    calls `$` while it is loading. `replay-embed.js` inserts those files with
+ *    `appendChild`. A classic script inserted that way is async, so a later
+ *    file can run before `config.js` or jQuery and abort. `BattleLog` is
+ *    already assigned by then, and `new BattleTextParser()` throws
+ *    "is not a constructor". `battle-text-parser.js` is not a separate embed
+ *    request: that constructor is the tail of the bundle. The inline script
+ *    forces the inserted files to run in the embed's list order.
  *  - The container is not given `class="wrapper"`. The embed only builds its
  *    battle DOM when no `.wrapper` exists (replay-embed.js, `Replays.init`), so
  *    claiming that class produces an empty page.
@@ -25,6 +33,27 @@
  */
 
 const UPSTREAM = 'https://play.pokemonshowdown.com';
+
+// See the note above. `async = false` has to be set before the node is inserted.
+const ORDER_EMBED_SCRIPTS = `<script>
+(function () {
+  function order(node) {
+    if (!node || node.nodeType !== 1 || String(node.tagName).toUpperCase() !== 'SCRIPT' || !node.src) return;
+    node.async = false;
+  }
+  var appendChild = Node.prototype.appendChild;
+  Node.prototype.appendChild = function (node) {
+    order(node);
+    return appendChild.call(this, node);
+  };
+  var insertBefore = Node.prototype.insertBefore;
+  Node.prototype.insertBefore = function (node, child) {
+    order(node);
+    return insertBefore.call(this, node, child);
+  };
+})();
+</script>
+`;
 
 export function buildReplayHtml({ title, formatid, log, inputLog = null, embedBase = UPSTREAM }) {
   const branch = inputLog ? `
@@ -40,6 +69,7 @@ body {padding:12px 0;}
 </style>
 <input type="hidden" name="replayid" value="${escapeHtml(formatid)}-local" />
 <script type="text/plain" class="battle-log-data">${plainText(log)}</script>${branch}
+${ORDER_EMBED_SCRIPTS}
 <script src="${embedBase}/js/replay-embed.js"></script>
 `;
 }
