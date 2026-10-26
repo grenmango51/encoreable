@@ -20,6 +20,7 @@
 
 import { createRequire } from 'module';
 import { profileFromInputLog } from './format-profile.mjs';
+import { inputLogFromRecording } from './recording-input.mjs';
 
 const require = createRequire(import.meta.url);
 const { BattleStream, PRNG } = require('pokemon-showdown');
@@ -140,7 +141,8 @@ export async function truncateAtTurn(raw, target, { reseed = false } = {}) {
 
   const startAt = lines.findIndex(l => l.startsWith('>start '));
   if (startAt < 0) throw new Error('input log has no >start line');
-  profileFromInputLog(lines, 'branching');
+  const profile = profileFromInputLog(lines, 'branching');
+  if (profile.formatid === 'gen9randombattle') inputLogFromRecording({ inputLog: lines }, { capability: 'branching' });
 
   // Everything before the first choice is the header: `>start` plus `>player`.
   const firstChoice = lines.findIndex(l => /^>p[1-4] /.test(l));

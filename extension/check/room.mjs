@@ -193,9 +193,7 @@ export async function run({ root, dist, headful, verbose }) {
 
 const KNOWN_TURN = 3;
 const KNOWN_CLICKS = 24;
-// Read-only probes that may not be in this checkout yet. Ignored when absent.
-const EXTRA_RECORDINGS = '/home/user/.t3/worktrees/encoreable/campaign-format-expansion/recordings';
-const SHOTS = '/tmp/encoreable-format-rooms';
+const SHOTS = path.join(os.tmpdir(), 'encoreable-format-rooms');
 
 const normName = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 const fuzzyName = (a, b) => {
@@ -216,14 +214,8 @@ function walkLogs(dir, out = []) {
 }
 
 function recordingDirs(root) {
-  const dirs = [];
   const primary = path.join(root, 'recordings');
-  if (fs.existsSync(primary)) dirs.push(primary);
-  if (fs.existsSync(EXTRA_RECORDINGS)) {
-    const extraReal = fs.realpathSync(EXTRA_RECORDINGS);
-    if (!dirs.some(dir => fs.realpathSync(dir) === extraReal)) dirs.push(EXTRA_RECORDINGS);
-  }
-  return dirs;
+  return fs.existsSync(primary) ? [primary] : [];
 }
 
 function formatIdOf(data) {
@@ -274,13 +266,7 @@ function standardProfiles(profiles) {
 }
 
 async function loadRecordingInput(root) {
-  const local = path.join(root, 'scripts/lib/recording-input.mjs');
-  const file = fs.existsSync(local) ? local : EXTRA_RECORDINGS && fs.existsSync(path.join(path.dirname(EXTRA_RECORDINGS), 'scripts/lib/recording-input.mjs'))
-    ? path.join(path.dirname(EXTRA_RECORDINGS), 'scripts/lib/recording-input.mjs')
-    : '';
-  if (!file) throw new Error('scripts/lib/recording-input.mjs is absent from this checkout and from the parent worktree');
-  if (path.resolve(file) !== path.resolve(local)) console.log(`  recording-input ${file}`);
-  return import(pathToFileURL(file).href);
+  return import(pathToFileURL(path.join(root, 'scripts/lib/recording-input.mjs')).href);
 }
 
 /**
@@ -460,6 +446,11 @@ function inspectFormatRoom(spec) {
     for (const mon of expectMons) {
       const row = findMon(mine, mon.name);
       if (!row) problems.push(`${side} own party is missing ${mon.name}`);
+      // Showdown sends "0 fnt" with no denominator for a fainted Pokémon.
+      // The client's default 100 is not a max-HP observation.
+      else if (mon.fainted) {
+        if (row.hp !== 0 || !row.fainted) problems.push(`${side} ${mon.name} lost its fainted state`);
+      }
       else if (row.hp !== mon.hp || row.maxhp !== mon.maxhp) {
         problems.push(`${side} ${mon.name} is ${row.hp}/${row.maxhp} on its own side, expected ${mon.hp}/${mon.maxhp}`);
       }

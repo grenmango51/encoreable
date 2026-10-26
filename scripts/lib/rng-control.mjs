@@ -20,6 +20,7 @@
 import { createRequire } from 'module';
 
 import { inputLogLines, truncateAtTurn, trimPins, freshSeed, normalizeSeed } from './truncate.mjs';
+import { inputLogFromRecording } from './recording-input.mjs';
 
 const require = createRequire(import.meta.url);
 const { BattleStream } = require('pokemon-showdown');
@@ -125,6 +126,7 @@ export async function buildControlled(raw, turn, specs, { seed = null } = {}) {
  * `rng` is null when the log arms nothing.
  */
 export async function replayControlled(inputLog) {
+  inputLog = inputLogFromRecording({ inputLog }, { capability: 'rngControl' }).inputLog;
   const stream = new BattleStream({ keepAlive: true });
   const chunks = [];
   const drain = (async () => { for await (const chunk of stream) chunks.push(chunk); })();

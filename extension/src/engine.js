@@ -27,6 +27,7 @@ import {
   alignSpeciesToSheet, bestOfFromLog, crossCheckLog, crossCheckSheet, loadSource, maxHpFromLog, setsFromLog, setsFromSheet,
   statsFromTeams, teamsForSides, withLogIdentity,
 } from '../../scripts/lib/replay-source.mjs';
+import { inputLogFromRecording } from '../../scripts/lib/recording-input.mjs';
 
 const { BattleStream, Dex, Teams, extractChannelMessages } = simRequire(SIM_ENTRY);
 const rng = simRequire(RNG_COMMAND);
@@ -205,6 +206,7 @@ function opened(key, s) {
 /** Starts a battle from a complete input log - a branch prefix, or a saved branch after a reload. */
 export async function open(inputLog) {
   profileFromInputLog(inputLog, 'branching');
+  inputLog = inputLogFromRecording({ inputLog }, { capability: 'branching' }).inputLog;
   const lines = inputLogLines(inputLog);
   if (!lines.some(l => l.startsWith('>start '))) throw new Error('input log has no >start line');
   const s = new Session();
@@ -320,6 +322,7 @@ export async function close(key) {
  */
 export async function resim(inputLog) {
   const profile = profileFromInputLog(inputLog);
+  inputLog = inputLogFromRecording({ inputLog }).inputLog;
   const stream = new BattleStream({ keepAlive: true, noCatch: true });
   const drain = (async () => { for await (const chunk of stream) void chunk; })();
   try {
@@ -593,6 +596,7 @@ export function spreadPanelClose(handle) {
 }
 
 export const methods = {
+  recordingInput: inputLogFromRecording,
   resim, open, branch, choose, undo, forfeit, view, exportLog, close, reconstructReplay, rngCommand,
   combineSet, spreadPanel, spreadMove, spreadReach, spreadPanelClose,
 };

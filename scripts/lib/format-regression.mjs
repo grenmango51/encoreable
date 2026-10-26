@@ -20,6 +20,7 @@ import { inputLogLines, truncateAtTurn } from './truncate.mjs';
 import { battleLines, firstDivergence } from './protocol.mjs';
 import { buildControlled, replayControlled, traceOn } from './rng-control.mjs';
 import { listLogFilesIn } from './recordings.mjs';
+import { inputLogFromRecording } from './recording-input.mjs';
 import { crossCheckLog, setsFromLog } from './replay-source.mjs';
 import {
   SIMULATOR_PIN, FORMAT_PROFILES, formatProfile, assertFormatCapability,
@@ -373,6 +374,10 @@ async function playLines(start, players, choose) {
 
 async function playFixture(fixture) {
   const sets = [Teams.import(fixture.p1), Teams.import(fixture.p2)];
+  for (const [index, team] of sets.entries()) {
+    const rejected = problems(fixture.id, team);
+    assert(!rejected.length, `${fixture.id} p${index + 1} validator rejected fixture: ${rejected.join('; ')}`);
+  }
   const packed = sets.map(team => Teams.pack(team));
   const queues = {
     p1: fixture.plan.filter(step => step.p1),
@@ -535,7 +540,7 @@ async function rngSmoke(played, fixture) {
     assert(built.baseline.includes(`>reseed ${built.seed}`) && built.controlled.includes(`>reseed ${built.seed}`), `${fixture.id} controlled pair does not share a reseed`);
     const changed = firstDivergence(battleLines(baseline.debugLog), battleLines(forced.debugLog));
     if (!changed) continue;
-    matched = spec;
+    matched = { spec, inputLog: forced.inputLog.trim(), lines: battleLines(forced.debugLog), forced: forced.rng.forced };
     break;
   }
   assert(matched, `${fixture.id} trace had ${traced.length} draws but no upstream force changed the battle`);
@@ -587,7 +592,7 @@ async function scripted(fixture, profile) {
   if (profile) profileFromObservation(fixture.id, protocol, 'exactReplay');
   const branches = profile ? await boundaries(played, fixture) : [];
   const forced = profile ? await rngSmoke(played, fixture) : null;
-  return { worker: workerCase(fixture, played, branches), forced, protocol, packed: played.packed };
+  return { worker: { ...workerCase(fixture, played, branches), rng: forced }, forced, protocol, packed: played.packed };
 }
 
 function problems(formatid, sets) {
@@ -614,6 +619,9 @@ function validatorChecks() {
   const non31 = structuredClone(vgc);
   non31[0].ivs = { hp: 0, atk: 15, def: 31, spa: 0, spd: 30, spe: 1 };
   assert(!problems('gen9vgc2024regg', non31).length, `standard non-31 IVs rejected: ${problems('gen9vgc2024regg', non31)[0]}`);
+  const ouLevel50 = Teams.import(FORMATS.gen9ou.p1);
+  ouLevel50[0].level = 50;
+  assert(problems('gen9ou', ouLevel50).some(problem => /level 50/.test(problem)), 'OU level-50 import warning was silently changed to VGC level adjustment');
 
   const champions = Teams.import(P1_EXPORT);
   assert(!problems('gen9championsvgc2026regmc', champions).length, `Champions fixture rejected: ${problems('gen9championsvgc2026regmc', champions)[0]}`);
@@ -651,6 +659,7 @@ function contractChecks() {
     ['gen8 format', () => formatProfile('gen8ou'), /Unsupported format/],
     ['gen8 vgc', () => formatProfile('gen8vgc2022'), /Unsupported format/],
     ['custom rules', () => profileFromInputLog('>start {"formatid":"gen9vgc2024regg","customRules":["HP Percentage Mod"]}\n'), /overrides/],
+    ['falsy generation override', () => profileFromInputLog('>start {"formatid":"gen9ou","gen":0}\n'), /overrides/],
     ['format override', () => profileFromInputLog('>start {"formatid":"gen9vgc2024regg","format":"gen9ou"}\n'), /overrides/],
     ['gameType override', () => profileFromInputLog('>start {"formatid":"gen9vgc2024regg","gameType":"singles"}\n'), /overrides/],
     ['gen override', () => profileFromInputLog('>start {"formatid":"gen9vgc2024regg","gen":8}\n'), /overrides/],
@@ -689,7 +698,7 @@ async function randomKnown(fixture, profile) {
     { formatid: fixture.id, seed: fixture.seed },
     [{ slot: 'p1', name: 'Red', team: packed[0] }, { slot: 'p2', name: 'Blue', team: packed[1] }],
     (battle, owing) => {
-      if (movesDone >= 2 && owing.every(side => phaseOf(side.activeRequest) === 'move')) return null;
+      if (movesDone >= 4 && owing.every(side => phaseOf(side.activeRequest) === 'move')) return null;
       const choices = {};
       for (const side of owing) {
         choices[side.id] = policy(side.activeRequest, ctxFor(battle, side));
@@ -710,13 +719,22 @@ async function randomKnown(fixture, profile) {
     assert(team.every((set, mon) => set.level === battleSets[index][mon]), `random levels were not kept: ${team.map(set => set.level)} vs ${battleSets[index]}`);
   });
   await assertReplay(played, fixture.id);
+  assertObservations(played.rawLog, fixture.id);
+  assert(!played.rawLog.includes('|teampreview|'), 'Random Battle unexpectedly has team preview');
+  const setValidator = new TeamValidator({ ...Dex.formats.get(fixture.id), team: undefined });
+  for (const team of generated) assert(!setValidator.validateTeam(structuredClone(team)), 'generated source sets failed their format rules');
+  assert(!new TeamValidator(fixture.id).validateTeam(null), 'Random Battle rejected generator input');
+  assert(new TeamValidator(fixture.id).validateTeam(structuredClone(generated[0]))?.length, 'Random Battle accepted a supplied team as generator input');
+  const fixturePlayed = { ...played, sets: generated, packed };
+  const branches = profile ? await boundaries(fixturePlayed, fixture) : [];
+  const forced = profile ? await rngSmoke(fixturePlayed, fixture) : null;
   if (profile) {
     for (const capability of ['knownTeamReconstruction', 'openSpreadInference', 'closedInference']) {
       assert(!profile.capabilities[capability], `${fixture.id} claims ${capability}; packed teams are not hidden-set reconstruction`);
     }
     assert(profile.inferenceStatus === 'unsupported', `${fixture.id} inference status is ${profile.inferenceStatus}`);
   }
-  return workerCase(fixture, played, []);
+  return { ...workerCase(fixture, played, branches), rng: forced };
 }
 
 async function championsRegression() {
@@ -791,11 +809,43 @@ async function preservedLogs(root, formatid) {
   for (const file of files) {
     let data;
     try { data = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { continue; }
-    const inputLog = textOf(data.inputLog);
+    const rawInputLog = textOf(data.inputLog);
     let profile;
-    try { profile = profileFromInputLog(inputLog, 'exactReplay'); } catch { continue; }
+    try { profile = profileFromInputLog(rawInputLog, 'exactReplay'); } catch { continue; }
     if (profile.statModel !== 'standard-ev-iv') continue;
     if (formatid && profile.formatid !== formatid) continue;
+    const original = JSON.stringify(data);
+    const sourceInput = inputLogFromRecording(data);
+    const inputLog = sourceInput.inputLog;
+    assert(JSON.stringify(data) === original, 'source materialization changed its recording');
+    if (profile.formatid === 'gen9randombattle') {
+      assert(!sourceInput.materialization.generatorInvoked, 'source materialization invoked a generator');
+      const generate = Teams.generate;
+      const getGenerator = Teams.getGenerator;
+      Teams.generate = Teams.getGenerator = () => { throw new Error('recording replay must never generate private teams'); };
+      try {
+        assert(inputLogFromRecording(data).inputLog === inputLog, 'materialization depended on a generator');
+      } finally { Teams.generate = generate; Teams.getGenerator = getGenerator; }
+      expectThrow(() => inputLogFromRecording({ ...data, log: ['|rule|Pokemon of the Day: Pikachu', ...data.log] }), /non-default PotD/);
+      const packedAgain = inputLogFromRecording({ ...data, inputLog });
+      assert(packedAgain.inputLog === inputLog, 'materialized random input is not stable');
+      for (const slot of ['p1', 'p2']) {
+        const missing = structuredClone(data);
+        delete missing[`${slot}team`];
+        expectThrow(() => inputLogFromRecording(missing), /absent/);
+        const partial = structuredClone(data);
+        delete partial[`${slot}team`][0].moves;
+        expectThrow(() => inputLogFromRecording(partial), /moves/);
+        const inconsistent = { ...data, inputLog };
+        inconsistent[`${slot}team`] = structuredClone(data[`${slot}team`]);
+        inconsistent[`${slot}team`][0].level -= 1;
+        expectThrow(() => inputLogFromRecording(inconsistent), /does not match/);
+      }
+      await truncateAtTurn(inputLog, 3);
+      let seedOnlyRejected = false;
+      try { await truncateAtTurn(rawInputLog, 1); } catch (err) { seedOnlyRejected = /absent/.test(err.message); }
+      assert(seedOnlyRejected, 'seed-only random input entered branching without recorded teams');
+    }
     const played = await replayInputLog(inputLog);
     assert(played.inputLog.trim() === inputLog.trim(), `${path.basename(file)} input log did not round-trip`);
     assertFormatCapability(profile.formatid, 'exactReplay', { gen: played.gen, mod: played.mod, gameType: played.gameType });
@@ -815,6 +865,8 @@ async function preservedLogs(root, formatid) {
     }
     kept.push({
       file: path.relative(root, file),
+      recording: data,
+      materialization: sourceInput.materialization.mode,
       inputLog: played.inputLog.trim(),
       lines: played.lines,
       branch: {
@@ -851,6 +903,21 @@ async function execute({ root, formatid = null, say }) {
   };
 
   await section('format contract', () => { contractChecks(); validatorChecks(); });
+  await section('public reconstruction and inference gates', async () => {
+    const { reconstruct } = await import('./reconstruct.mjs');
+    const { inferSpreads } = await import('./inference/infer.mjs');
+    for (const profile of standardProfiles()) {
+      for (const [name, call] of [
+        ['knownTeamReconstruction', () => reconstruct({ formatid: profile.formatid, observed: [] })],
+        ['openSpreadInference', () => inferSpreads({ formatid: profile.formatid })],
+      ]) {
+        let error;
+        try { await call(); } catch (err) { error = err; }
+        assert(error?.message.includes(`Unsupported capability ${name}`), `${profile.formatid} entered ${name}: ${error?.message || 'accepted'}`);
+      }
+      expectThrow(() => setsFromLog([], 'p2', profile.formatid), /Unsupported capability closedInference/);
+    }
+  });
   await section('Champions Transform source facts', () => {
     const data = JSON.parse(fs.readFileSync(path.join(root, 'recordings/local/probes/gen9championsvgc2026regmc-296.log.json'), 'utf8'));
     const profile = profileFromInputLog(data.inputLog);

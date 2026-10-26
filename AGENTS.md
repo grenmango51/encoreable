@@ -1,6 +1,6 @@
 # Encoreable
 
-Analysis board for competitive Pokémon: restore a recorded battle at any turn in the real Showdown UI and play it forward for both sides. Target format: `[Gen 9 Champions] VGC 2026 Reg M-C`, doubles.
+Analysis board for competitive Pokémon: restore a recorded battle at any turn in the real Showdown UI and play it forward for both sides. Primary inference target: `[Gen 9 Champions] VGC 2026 Reg M-C`, doubles. Known-team replay and branching also support the exact format/capability profiles in `docs/engineering.md` §2.8; this does not imply reconstruction or hidden-team inference for those formats.
 
 ## Before you start
 - **Work on `main`.** Feature branches get merged into it; I also work on this from other devices, so `git pull` first.

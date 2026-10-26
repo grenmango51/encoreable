@@ -34,13 +34,14 @@ backwards.
 
 ## 2. North star
 
-**Champions is the destination.** Every design decision assumes we end up there.
+**Champions remains the primary inference destination.** Its Stat Point domain stays
+separate from standard EV/IV formats.
 
-Showdown is the *vehicle*, not the target — it is where we develop, validate mechanics, and
-find our first users. To keep the two aligned, we build against Showdown's
-`[Gen 9 Champions] VGC 2026` formats (Reg M-C now, after M-A and M-B) from day one, not against any other
-ruleset. Same rules, same legality, same stat model. Only the **input source** changes
-between phases:
+Showdown is also a supported source of known-team analysis boards. Exact Gen 9 VGC, OU
+and Random Battle profiles are admitted capability by capability, with simulator-backed
+acceptance checks; `engineering.md` §2.8 is the scope contract. Known-team replay and
+branching do not establish hidden-team reconstruction or complete inference. Champions
+ingestion still progresses through these input-source phases:
 
 | Phase | Input source | Difficulty |
 |---|---|---|

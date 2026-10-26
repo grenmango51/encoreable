@@ -46,3 +46,9 @@ inferred hidden sets or EVs. Engineering §2.8 defines the capability acceptance
 Pokémon per side, ordinary EV/IV spreads, level 100, Stealth Rock/Spikes, burn,
 Toxic Orb, switches and Terastallization. It supplies both complete teams; it is
 not evidence of hidden-team inference. The shared format checks replay and branch it.
+
+`gen9randombattle-18.log.json` is a real server-generated Random Battle through
+turn 6, including variable levels, six complete generated sets per side and seed-only
+player input lines. Its saved teams are source facts. Replay derives packed player
+lines in memory; the original recording stays unchanged. Neither hidden sets nor
+unrevealed moves are inferred or regenerated from seeds.

@@ -17,6 +17,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { inputLogFromRecording } from './recording-input.mjs';
 
 /** Every `.log.json` under `dir`, recursively. Missing directories yield none. */
 function walk(dir, out = []) {
@@ -148,7 +149,5 @@ export function posix(root, file) {
 /** Read the inputLog out of a `.log.json`, normalised to a single string. */
 export function readInputLog(file) {
   const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-  const raw = Array.isArray(data.inputLog) ? data.inputLog.join('\n') : String(data.inputLog || '');
-  if (!raw.trim()) throw new Error(`${file} contains no inputLog`);
-  return raw;
+  return inputLogFromRecording(data).inputLog;
 }

@@ -9,7 +9,7 @@ choosing moves for **both** sides.
 Chess players have had this for decades. Pokémon players rewatch a video.
 
 Target ruleset is **Pokémon Champions VGC** (`[Gen 9 Champions] VGC 2026 Reg M-C`), doubles.
-Known-team recordings also support **[Gen 9] VGC 2024 Reg G** and **[Gen 9] OU** at the pinned simulator.
+Known-team recordings also support **[Gen 9] VGC 2024 Reg G**, **[Gen 9] OU**, and **[Gen 9] Random Battle** at the pinned simulator.
 Replay reconstruction and hidden-team inference remain Champions-specific. The exact
 capability matrix and admission rules are in `docs/engineering.md` §2.8.
 
@@ -73,14 +73,14 @@ plain and once with the named draws forced, and reports what moved.
 `npm run replay -- --check-formats` runs the simulator-backed capability suite without a server.
 `npm run extension -- --check formats` compares the same cases with the built Worker.
 
-`--format gen9vgc2024regg` or `--format gen9ou` records its standard fixture; without it the fixture
+`--format gen9vgc2024regg`, `--format gen9ou`, or `--format gen9randombattle` records that format; without it the fixture
 is still Champions Reg M-C. `--from` always uses the recording's own format.
 `--probe` archives a newly played regression battle to `recordings/local/probes/`.
 `--logs <directory>` reads a shared local server's logs from that directory; the
 completed battle is matched by its room ID. It does not move or restart the server.
 `reconstruct --all` explicitly skips formats whose reconstruction capability is disabled;
 `--format <exact-id>` filters its corpus. Requesting one unsupported source directly fails.
-`npm run extension` takes `--check [sim|room|entry|rng|package]` (all of them when none is
+`npm run extension` takes `--check [sim|room|entry|rng|package|formats]` (all of them when none is
 named), `--headful` and `--verbose`.
 `npm run catalog` takes `--pool`, `--list`, `--only <ids>`, `--kind <kind>`,
 `--sheets open|closed`, `--inputs <file>`, `--out <dir>`, `--no-coverage`, `--check`, `--fresh`,

@@ -50,6 +50,7 @@ import { buildControlled, replayControlled, verdict } from './lib/rng-control.mj
 import { profileFromInputLog, assertFormatCapability } from './lib/format-profile.mjs';
 import { statsFromTeams } from './lib/replay-source.mjs';
 import { openBrowser } from './lib/browser.mjs';
+import { inputLogFromRecording } from './lib/recording-input.mjs';
 
 const require = createRequire(import.meta.url);
 const { Teams, BattleStream, Dex, TeamValidator } = require('pokemon-showdown');
@@ -110,11 +111,12 @@ async function playFixtureBattle() {
   assertFormatCapability(formatid, 'recording');
   const fixture = FORMATS[formatid];
   if (formatid !== FORMAT && !fixture) throw new Error(`no recording fixture for ${formatid}`);
-  if (fixture && !fixture.plan) throw new Error(`no recording policy yet for ${formatid}`);
+  const randomTeam = Dex.formats.get(formatid).team === 'random';
+  if (fixture && !fixture.plan && !randomTeam) throw new Error(`no recording policy yet for ${formatid}`);
   const uid = Math.floor(1000 + Math.random() * 9000);
   const p1 = new WsPlayer({
     name: `Ghosts${uid}`,
-    team: Teams.pack(Teams.import(fixture?.p1 || P1_EXPORT)),
+    team: randomTeam ? 'null' : Teams.pack(Teams.import(fixture?.p1 || P1_EXPORT)),
     format: formatid,
     // Attack rather than set up, so both sides take damage and the log carries
     // exact HP numbers for p1 as well as p2.
@@ -126,7 +128,7 @@ async function playFixtureBattle() {
   });
   const p2 = new WsPlayer({
     name: `Boom${uid}`,
-    team: Teams.pack(Teams.import(fixture?.p2 || P2_EXPORT)),
+    team: randomTeam ? 'null' : Teams.pack(Teams.import(fixture?.p2 || P2_EXPORT)),
     format: formatid,
     // Default is the fast fixture: everything on p2 removes itself turn one.
     // --fight trades speed for a longer battle that actually deals damage.
@@ -136,7 +138,19 @@ async function playFixtureBattle() {
     verbose: VERBOSE,
   });
 
-  if (fixture) {
+  if (randomTeam) {
+    for (const [side, player] of [['p1', p1], ['p2', p2]]) {
+      const choose = makePolicy([]);
+      let moveRequests = 0;
+      player.policy = (request, context) => {
+        if (request.active && ++moveRequests > 5) {
+          if (side === 'p2') player.send(player.battleRoom, '/forfeit');
+          return null;
+        }
+        return choose(request, context);
+      };
+    }
+  } else if (fixture) {
     // These are fixture choices, not a move-selection engine. Stop by forfeit
     // once the entire prescribed sequence has been recorded.
     for (const [side, player] of [['p1', p1], ['p2', p2]]) {
@@ -265,8 +279,10 @@ function describeSet(set, profile) {
 
 async function main() {
   if (flag('--check-formats')) {
+    const formatid = opt('--format');
+    if (formatid) assertFormatCapability(formatid, 'exactReplay');
     const { run } = await import('./lib/format-regression.mjs');
-    if (!await run({ root: ROOT })) process.exitCode = 1;
+    if (!await run({ root: ROOT, formatid })) process.exitCode = 1;
     return;
   }
   fs.mkdirSync(REPLAY_DIR, { recursive: true });
@@ -295,18 +311,17 @@ async function main() {
   if (banner) console.log(banner);
   const logData = JSON.parse(fs.readFileSync(logFile, 'utf8'));
 
-  // runtime/ is generated and gets deleted to reset the server, so keep a copy
-  // of the recording outside it, in the recordings/local/ folder for how it was
-  // played.
-  const archived = archiveLogFile(ROOT, logFile, { folder: flag('--probe') ? 'probes' : null });
-  if (archived !== logFile) console.log(`Archived to:  ${posix(ROOT, archived)}`);
-
-  const inputLog = Array.isArray(logData.inputLog) ? logData.inputLog.join('\n') : String(logData.inputLog || '');
+  const sourceInput = inputLogFromRecording(logData);
+  const inputLog = sourceInput.inputLog;
   if (!inputLog.trim()) throw new Error('battle log contains no inputLog');
   const profile = profileFromInputLog(inputLog);
   const formatid = profile.formatid;
   if (logData.format && Dex.toID(logData.format) !== formatid) throw new Error('recording format metadata disagrees with >start formatid');
   if (opt('--format') && opt('--format') !== formatid) throw new Error('--format disagrees with recording formatid');
+
+  // Archive admitted source bytes, before deriving any replay artifact.
+  const archived = archiveLogFile(ROOT, logFile, { folder: flag('--probe') ? 'probes' : null });
+  if (archived !== logFile) console.log(`Archived to:  ${posix(ROOT, archived)}`);
 
   console.log('Re-simulating the input log in a fresh battle...');
   const sim = await resimulate(inputLog);
@@ -321,8 +336,14 @@ async function main() {
   const packedTeams = ['p1', 'p2'].map(side => Teams.pack(sides[side]?.sets || []));
   const stats = statsFromTeams(formatid, packedTeams);
   const validator = new TeamValidator(formatid);
+  const generatedFormat = Dex.formats.get(formatid).team === 'random';
+  // Keep the recorded battle format. Its validator rejects supplied teams;
+  // a clone without the generator restriction checks the same set rules.
+  const setValidator = generatedFormat
+    ? new TeamValidator({ ...Dex.formats.get(formatid), team: undefined }) : validator;
   const validation = Object.entries(sides).flatMap(([side, team]) =>
-    (validator.validateTeam(structuredClone(team.sets)) || []).map(problem => `${side}: ${problem}`));
+    (setValidator.validateTeam(structuredClone(team.sets)) || []).map(problem => `${side}: ${problem}`));
+  if (generatedFormat) validation.push(...(validator.validateTeam(null) || []));
 
   const names = Object.values(sides).map(s => s.name);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -339,14 +360,17 @@ async function main() {
   }
 
   console.log('\n================ CHECKS ================\n');
-  console.log(`  [${inputLogRoundTrips ? 'PASS' : 'FAIL'}] input log round-trips byte-identically through a fresh battle`);
+  console.log(`  [${inputLogRoundTrips ? 'PASS' : 'FAIL'}] ${sourceInput.materialization.mode === 'recorded-teams' ? 'derived replay input' : 'input log'} round-trips byte-identically through a fresh battle`);
   console.log(`  [${logDiff ? 'FAIL' : 'PASS'}] re-simulated protocol log matches the server's (${simLines.length} battle lines compared)`);
   if (logDiff) {
     console.log(`         first divergence at line ${logDiff.index}`);
     console.log(`         server: ${logDiff.expected}`);
     console.log(`         resim:  ${logDiff.actual}`);
   }
-  console.log(`  [${validation.length ? 'FAIL' : 'PASS'}] recovered teams accepted by the ${formatid} validator`);
+  console.log(`  [${validation.length ? 'FAIL' : 'PASS'}] ${generatedFormat ? 'generator input policy and recorded sets under the same rules with generator disabled' : `recovered teams accepted by the ${formatid} validator`}`);
+  if (sourceInput.materialization.mode === 'recorded-teams') {
+    console.log('         replay input uses complete recorded p1team/p2team; original source unchanged; team seeds unused');
+  }
   for (const problem of validation) console.log(`         ${problem}`);
   console.log('  Simulator-computed initial max HP (a denominator of 100 can be exact):');
   for (const [i, team] of stats.entries()) {

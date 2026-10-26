@@ -166,7 +166,7 @@ entering the simulator; the simulator's registry of format names does not grant 
 | `gen9championsdoublescustomgame` | Champions SP, custom levels/budgets | sandbox only | disabled | disabled | disabled |
 | `gen9vgc2024regg` | standard EV/IV | admitted | disabled | disabled | disabled |
 | `gen9ou` | standard EV/IV | admitted | disabled | disabled | disabled |
-| `gen9randombattle` | standard EV/IV | pending admission | disabled | disabled | disabled |
+| `gen9randombattle` | standard EV/IV | complete recorded teams only | disabled | disabled | disabled |
 
 The first standard format is `[Gen 9] VGC 2024 Reg G`: it is the searchable standard
 VGC ladder at pin `a5df827`. `gen9vgc2025regi` exists but is not searchable, while
@@ -211,12 +211,29 @@ continuations at 1/3/5, a forced Grassy Glide critical hit, and Node/Worker re-s
 parity. `npm run replay -- --check-formats` and `npm run extension -- --check formats`
 now cover validator acceptance/rejection, observations, snapshot/restore at 1/3/5, legal
 continuations, reseeding/forced draws, preserved recordings and unsupported combinations.
-The visible room check is still campaign work; the live replay embed currently fails to
-construct its text parser, independently of format.
+The live replay embed’s asynchronously inserted scripts were racing config/jQuery;
+newly generated pages enforce dependency list order, tested under a delayed config load.
+The regenerated VGC, OU and Random Battle pages were inspected at turn 1 on the server:
+correct tier/title, doubles versus singles, levels and Play from here, with no page errors.
+The native-room matrix also passes for all three: turn-3 restoration, correct own HP
+and opponent percentages, legal button choices on both sides, exact continuation replay,
+no Champions SP controls and no fake-room WebSocket traffic. Fainted requests use the
+simulator’s `0 fnt` without treating the client’s default denominator as an observed max HP.
 OU evidence: preserved real-server `gen9ou-17` (probe), six selected Pokémon, level 100,
 underspent EV totals and non-31 IVs, hazards, burn, Toxic Orb poison, switching and Tera.
 The same Node/Worker acceptance matrix passes, including restoration at 1/3/5 and RNG.
 Replay reconstruction and hidden inference remain disabled.
+
+Random Battle evidence: real-server probe `gen9randombattle-18`, no preview, variable levels,
+complete generated source teams, original seed-only player lines and exact channel -1 log.
+`recording-input.mjs` packs the saved `p1team`/`p2team` into an in-memory derived log,
+retaining the battle seed and dropping unused team seeds. The original file is unchanged.
+Both CLI and Worker use this derivation; seed-only input without full source teams fails.
+Generated truth-known fixtures cover turns 1/3/5, snapshots, alternate singles choices,
+player observations and forced RNG. Validator acceptance distinguishes the generator’s
+no-supplied-team policy from validation of recorded sets under the same rules with the
+generator restriction disabled. Sources announcing a non-default PotD configuration are
+explicitly unsupported. This proves no hidden-set or unrevealed-move inference.
 
 Existing Champions `-34` still matches at S2; the full regression suite remains required
 before coordinated integration. These results do not claim VGC reconstruction or inference.

@@ -486,7 +486,7 @@ import { annotate, install as installSpreads, loadPanel } from './spread-panel.j
     if (request.recording) {
       banner(`opening ${request.recording.name} at turn ${request.turn}...`);
       const data = JSON.parse(request.recording.text);
-      const inputLog = Array.isArray(data.inputLog) ? data.inputLog.join('\n') : String(data.inputLog);
+      const { inputLog } = await call('recordingInput', data);
       const set = await withSet(request.recording.name, data);
       const opened = await openBranch({ inputLog, turn: request.turn, source: request.recording.name, inference: set.inference });
       banner([`${request.recording.name} branched at turn ${opened.turn}.`, ...set.said].join(' '), { done: true });

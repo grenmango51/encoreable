@@ -34,6 +34,7 @@ export const FORMAT_PROFILES = Object.freeze([
   profile('gen9championsdoublescustomgame', 'champions', 'doubles', 'champions-sp'),
   profile('gen9vgc2024regg', 'gen9', 'doubles', 'standard-ev-iv'),
   profile('gen9ou', 'gen9', 'singles', 'standard-ev-iv'),
+  profile('gen9randombattle', 'gen9', 'singles', 'standard-ev-iv'),
 ]);
 
 const byId = new Map(FORMAT_PROFILES.map(p => [p.formatid, p]));
@@ -71,7 +72,7 @@ export function profileFromInputLog(raw, capability = 'exactReplay') {
   if (!options || typeof options !== 'object' || Array.isArray(options) || typeof options.formatid !== 'string') {
     throw new Error('>start requires an explicit formatid');
   }
-  if (options.format || options.gameType || options.gen || options.mod || options.ruleTable || options.customRules) {
+  if (['format', 'gameType', 'gen', 'mod', 'ruleTable', 'customRules'].some(key => Object.hasOwn(options, key))) {
     throw new Error('>start overrides of the supported format profile are unsupported');
   }
   return assertFormatCapability(options.formatid, capability);

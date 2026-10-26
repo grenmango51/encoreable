@@ -15,10 +15,7 @@
  *
  * Format admission stays in `format-profile.mjs`. This module asks that
  * contract whether `capability` (default `exactReplay`) is granted. An unknown
- * format, including `gen9randombattle` until it is admitted, still produces a
- * derived log: `provenance.admitted` and `provenance.capabilityGranted` are
- * false, and `provenance.admissionError` is the format-profile message.
- * An admitted format that does not grant the capability throws.
+ * format or disabled capability throws before any team materialization.
  */
 
 import { createRequire } from 'module';
@@ -100,7 +97,7 @@ function parseStart(lines) {
   if (!isPlainObject(options) || typeof options.formatid !== 'string' || !options.formatid) {
     fail('malformed', '>start requires an explicit formatid', { field: '>start' });
   }
-  if (options.format || options.gameType || options.gen || options.mod || options.ruleTable || options.customRules) {
+  if (['format', 'gameType', 'gen', 'mod', 'ruleTable', 'customRules'].some(key => Object.hasOwn(options, key))) {
     fail('malformed', '>start overrides of the supported format profile are unsupported', { field: '>start' });
   }
   const seed = canonicalSeed(options.seed);
@@ -115,7 +112,7 @@ function admissionFor(lines, capability) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (message.startsWith('Unsupported format ')) {
-      return { profile: null, admitted: false, capabilityGranted: false, admissionError: message };
+      fail('capability', message, { capability });
     }
     if (
       message.startsWith('Unsupported capability ') ||
@@ -562,6 +559,10 @@ export function inputLogFromRecording(data, options = {}) {
   const start = parseStart(lines);
   const admission = admissionFor(lines, capability);
   assertMetadata(data, start);
+  const observed = Array.isArray(data.log) ? data.log : String(data.log || '').split('\n');
+  if (start.formatid === 'gen9randombattle' && observed.some(line => /^\|rule\|Pokemon of the Day:/.test(line))) {
+    fail('capability', 'Random Battle with non-default PotD server configuration is unsupported; the recorded rule must not be silently discarded', { field: 'log' });
+  }
 
   const groups = groupPlayers(lines);
   const initials = groups.map(group => {

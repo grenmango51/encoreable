@@ -9,6 +9,7 @@ import path from 'node:path';
 import { battleLines, firstDivergence } from '../../scripts/lib/protocol.mjs';
 import { workerCases } from '../../scripts/lib/format-regression.mjs';
 import { connect, launchChrome, serveStatic } from './harness.mjs';
+import { runKnownFormatRooms } from './room.mjs';
 
 const PAGE = `<!doctype html><meta charset="utf-8"><title>format check</title>
 <script>
@@ -109,6 +110,7 @@ async function compareBattle(page, label, inputLog, lines, branches) {
   const logDiff = sameLog(`${label} resim`, lines, linesOf(played.debugLog));
   if (logDiff) throw new Error(logDiff);
   for (const branch of branches) await compareBranch(page, `${label} turn ${branch.turn}`, inputLog, branch);
+  return played;
 }
 
 async function expectRejected(page, method, args, pattern, timeoutMs = 12000) {
@@ -125,7 +127,7 @@ async function expectRejected(page, method, args, pattern, timeoutMs = 12000) {
 /**
  * @param {{root: string, dist: string, headful?: boolean, verbose?: boolean}} opts
  */
-export async function run({ root, dist, headful, verbose }) {
+async function workerChecks({ root, dist, headful, verbose }) {
   let reference;
   try {
     console.log('Node reference');
@@ -155,7 +157,14 @@ export async function run({ root, dist, headful, verbose }) {
     await page.send('Page.navigate', { url: `${server.url}/check.html` });
     await page.waitFor('window.__simReady && window.__simReady.then(() => true)', 60000);
     for (const item of reference.cases) {
-      await compareBattle(page, item.formatid, item.inputLog, item.lines, item.branches);
+      const played = await compareBattle(page, item.formatid, item.inputLog, item.lines, item.branches);
+      if (!item.rng?.forced) throw new Error(`${item.formatid} has no effective RNG reference`);
+      await compareBattle(page, `${item.formatid} forced RNG (${item.rng.spec})`, item.rng.inputLog, item.rng.lines, []);
+      for (const [infer, capability] of [[null, 'knownTeamReconstruction'], ['p1', 'openSpreadInference']]) {
+        await expectRejected(page, 'reconstructReplay', [{
+          source: { name: `${item.formatid}-unsupported.html`, log: played.debugLog }, infer,
+        }], new RegExp(`Unsupported capability ${capability}`));
+      }
       const opened = await call(page, 'open', [item.inputLog]);
       const panel = await call(page, 'spreadPanel', [opened.key, null]);
       await call(page, 'close', [opened.key]);
@@ -165,6 +174,20 @@ export async function run({ root, dist, headful, verbose }) {
       console.log(`  [PASS] worker ${item.formatid}`);
     }
     for (const item of reference.preserved) {
+      const normalized = await call(page, 'recordingInput', [item.recording]);
+      if (normalized.inputLog !== item.inputLog || normalized.materialization.mode !== item.materialization || normalized.materialization.generatorInvoked) {
+        throw new Error(`${item.file} Worker source materialization differs from Node`);
+      }
+      if (item.materialization === 'recorded-teams') {
+        const raw = item.recording.inputLog.join('\n');
+        await expectRejected(page, 'resim', [raw], /absent/);
+        await expectRejected(page, 'open', [raw], /absent/);
+        for (const slot of ['p1', 'p2']) {
+          const incomplete = structuredClone(item.recording);
+          delete incomplete[`${slot}team`];
+          await expectRejected(page, 'recordingInput', [incomplete], /absent/);
+        }
+      }
       await compareBattle(page, item.file, item.inputLog, item.lines, item.branch ? [item.branch] : []);
       console.log(`  [PASS] worker ${item.file}`);
     }
@@ -205,4 +228,10 @@ export async function run({ root, dist, headful, verbose }) {
     await chrome.close();
     await server.close();
   }
+}
+
+/** Simulator parity first, then actual move buttons and player observations. */
+export async function run(options) {
+  if (!await workerChecks(options)) return false;
+  return runKnownFormatRooms(options);
 }

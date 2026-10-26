@@ -32,6 +32,9 @@ esbuild comes in as a dependency of the pinned `pokemon-showdown`.
   so each recording keeps its own game's.
 - **From a recording.** Click the extension's toolbar button for the recordings page. Import
   a supported `.log.json` (see `docs/engineering.md` §2.8), pick a turn, press **Open**.
+  Standard VGC, OU and Random Battle require complete known teams; Random Battle uses
+  the server’s saved teams and rejects seed-only input without them. These formats
+  do not support replay reconstruction or hidden-set inference.
   **Export** gives back the exact file; recordings cannot be regenerated, so export what matters.
 - **Playing.** A branch opens as two rooms, one per side, each seeing only its own exact HP.
   Switch between them in the client's tab bar. Hover a move or a Pokémon for the RNG controls.

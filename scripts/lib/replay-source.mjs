@@ -25,6 +25,7 @@ import { createRequire } from 'module';
 
 import { unmaskIllusion } from './protocol.mjs';
 import { assertFormatCapability, profileFromInputLog, profileFromObservation } from './format-profile.mjs';
+import { inputLogFromRecording } from './recording-input.mjs';
 
 const require = createRequire(import.meta.url);
 const { Battle, Dex, Teams, toID } = require('pokemon-showdown');
@@ -767,7 +768,8 @@ export function loadSource(file) {
 
   if (file.endsWith('.log.json')) {
     const data = JSON.parse(raw);
-    const inputLog = Array.isArray(data.inputLog) ? data.inputLog : String(data.inputLog || '').split('\n');
+    const sourceInput = inputLogFromRecording(data);
+    const inputLog = sourceInput.lines;
     const profile = profileFromInputLog(inputLog);
     if (data.format && toID(data.format) !== profile.formatid) throw new Error('recording format metadata disagrees with >start formatid');
     profileFromObservation(profile.formatid, data.log || [], 'exactReplay');
@@ -779,6 +781,7 @@ export function loadSource(file) {
       file,
       formatid: profile.formatid,
       profile,
+      sourceInput,
       players: players.map(p => p.name),
       packedTeams: players.map(p => p.team),
       sheets: sheetsFromLog(data.log || []),

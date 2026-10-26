@@ -20,6 +20,7 @@ import { createRequire } from 'module';
 import { connect, launchChrome, serveStatic } from './harness.mjs';
 import { listLogFilesIn, posix } from '../../scripts/lib/recordings.mjs';
 import { battleLines, firstDivergence } from '../../scripts/lib/protocol.mjs';
+import { inputLogFromRecording } from '../../scripts/lib/recording-input.mjs';
 
 const require = createRequire(import.meta.url);
 const { BattleStream } = require('pokemon-showdown');
@@ -95,7 +96,7 @@ export async function run({ root, dist, headful, verbose }) {
     for (const file of files) {
       const name = posix(root, file);
       const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-      const recorded = Array.isArray(data.inputLog) ? data.inputLog.join('\n') : String(data.inputLog || '');
+      const recorded = inputLogFromRecording(data).inputLog;
       let node;
       let page_;
       try {
