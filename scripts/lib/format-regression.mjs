@@ -410,6 +410,12 @@ function mustInclude(lines, pattern, what) {
 }
 
 async function boundaries(played, fixture) {
+  for (const seed of [true, 'sodium,0123456789abcdef0123456789abcdef']) {
+    const cut = await truncateAtTurn(played.inputLog, 1, { reseed: seed });
+    const replayed = await replayInputLog(cut.inputLog);
+    assert(replayed.inputLog.trim() === cut.inputLog.trim(), `${fixture.id} fresh/short reseed did not round-trip canonically`);
+    assert(cut.inputLog.includes(`>reseed ${cut.seed}`), 'reported seed differs from serialized reseed');
+  }
   let namedTarget = false;
   const branches = [];
   for (const turn of BOUNDARIES) {

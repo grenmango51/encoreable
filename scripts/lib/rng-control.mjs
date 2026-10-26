@@ -19,7 +19,7 @@
 
 import { createRequire } from 'module';
 
-import { inputLogLines, truncateAtTurn, trimPins, freshSeed } from './truncate.mjs';
+import { inputLogLines, truncateAtTurn, trimPins, freshSeed, normalizeSeed } from './truncate.mjs';
 
 const require = createRequire(import.meta.url);
 const { BattleStream } = require('pokemon-showdown');
@@ -98,7 +98,7 @@ async function splitAtTurn(raw, turn) {
  * @returns { baseline, controlled, seed, turn, arms }
  */
 export async function buildControlled(raw, turn, specs, { seed = null } = {}) {
-  const use = seed || freshSeed();
+  const use = normalizeSeed(seed || freshSeed());
   const { header, before, after, cut } = await splitAtTurn(raw, turn);
 
   const arms = [];
