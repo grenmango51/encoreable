@@ -25,7 +25,7 @@
 import { createRequire } from 'module';
 
 import { battleLines } from '../protocol.mjs';
-import { assertFormatCapability } from '../format-profile.mjs';
+import { profileFromObservation } from '../format-profile.mjs';
 import {
   ACTION_START, disguisableStays, identName, identSide, reconstruct, sampler, splitTurns, unsettledDisguises,
 } from '../reconstruct.mjs';
@@ -195,7 +195,7 @@ export async function inferSpreads({
   readings = true,
   spend = { rebuilds: FALLBACK_TOTAL, ms: FALLBACK_TOTAL_MS, fruitless: new Set() },
 }) {
-  const profile = assertFormatCapability(formatid, 'openSpreadInference');
+  const profile = profileFromObservation(formatid, observed, 'openSpreadInference');
   const options = { ...arguments[0], spend };
   const dex = Dex.forFormat(formatid);
   const lines = observed.filter(l => typeof l === 'string');
@@ -1055,7 +1055,7 @@ export function combineGames(game, others) {
 export async function certifyRanges(inf, {
   formatid, sets, playerNames, observed, channel = 1, sampleSeed = 1, maxProbes = 600, threads, outside = false, onProgress = () => {},
 }) {
-  assertFormatCapability(formatid, 'openSpreadInference');
+  profileFromObservation(formatid, observed, 'openSpreadInference');
   const seed = sampler(sampleSeed ^ 0x5eed).seed();
   const tried = new Map();
   const signature = picks => JSON.stringify(picks.map(team => team.map(e => STAT_IDS.map(s => e[s]))));

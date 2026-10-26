@@ -906,6 +906,15 @@ async function execute({ root, formatid = null, say }) {
   await section('public reconstruction and inference gates', async () => {
     const { reconstruct } = await import('./reconstruct.mjs');
     const { inferSpreads } = await import('./inference/infer.mjs');
+    for (const [observed, message] of [
+      [['|gen|8'], 'Replay generation 8 disagrees'],
+      [['|gametype|singles'], 'Replay game type singles disagrees'],
+      [['|tier|[Gen 9] OU'], 'Replay tier [Gen 9] OU disagrees'],
+    ]) {
+      let error;
+      try { await inferSpreads({ formatid: 'gen9championsvgc2026regmc', observed }); } catch (err) { error = err; }
+      assert(error?.message.includes(message), `inference admitted mismatched replay facts: ${error?.message || 'accepted'}`);
+    }
     for (const profile of standardProfiles()) {
       for (const [name, call] of [
         ['knownTeamReconstruction', () => reconstruct({ formatid: profile.formatid, observed: [] })],
