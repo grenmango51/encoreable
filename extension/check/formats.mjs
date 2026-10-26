@@ -174,6 +174,8 @@ async function workerChecks({ root, dist, headful, verbose }) {
       console.log(`  [PASS] worker ${item.formatid}`);
     }
     for (const item of reference.preserved) {
+      const wrongGen = { ...item.recording, log: item.recording.log.map(line => line.startsWith('|gen|') ? '|gen|8' : line) };
+      await expectRejected(page, 'recordingInput', [wrongGen], /Replay generation 8 disagrees/);
       const normalized = await call(page, 'recordingInput', [item.recording]);
       if (normalized.inputLog !== item.inputLog || normalized.materialization.mode !== item.materialization || normalized.materialization.generatorInvoked) {
         throw new Error(`${item.file} Worker source materialization differs from Node`);

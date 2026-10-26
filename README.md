@@ -75,6 +75,8 @@ plain and once with the named draws forced, and reports what moved.
 
 `--format gen9vgc2024regg`, `--format gen9ou`, or `--format gen9randombattle` records that format; without it the fixture
 is still Champions Reg M-C. `--from` always uses the recording's own format.
+The `battle` command’s automatic interactive teams remain Champions Reg M-C only;
+use `replay -- --format <id>` and then `live -- --from <recording>` for the standard formats.
 `--probe` archives a newly played regression battle to `recordings/local/probes/`.
 `--logs <directory>` reads a shared local server's logs from that directory; the
 completed battle is matched by its room ID. It does not move or restart the server.

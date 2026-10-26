@@ -71,6 +71,13 @@ window.POKEMON_SHOWDOWN_TESTCLIENT_KEY = 'local';
   if (!autoName && !autoTeam && !autoChallenge && !autoAccept && !autoJoin) {
     return; // Normal manual mode
   }
+  if (!autoJoin && format !== 'gen9championsvgc2026regmc') {
+    const notice = document.createElement('p');
+    notice.setAttribute('role', 'alert');
+    notice.textContent = 'Automatic teams are available for Champions Reg M-C. Open a recorded battle to play this format.';
+    (document.body || document.documentElement).appendChild(notice);
+    return;
+  }
 
   console.log('[Encoreable Autobattle] Started for:', { autoName, autoTeam, autoChallenge, autoAccept, autoJoin });
 
@@ -82,17 +89,19 @@ window.POKEMON_SHOWDOWN_TESTCLIENT_KEY = 'local';
   const team1Line = `[${format}]Champions Reg M-C (Rain/Sun Team)|${P2_PACKED}`;
   const team2Line = `[${format}]Champions Reg M-C (Sand/TrickRoom Team)|${P1_PACKED}`;
   
-  try {
-    let existing = localStorage.getItem('showdown_teams') || '';
-    let newTeams = existing;
-    if (!newTeams.includes('Champions Reg M-C (Sand/TrickRoom Team)')) {
-      newTeams = team2Line + (newTeams ? '\n' + newTeams : '');
-    }
-    if (!newTeams.includes('Champions Reg M-C (Rain/Sun Team)')) {
-      newTeams = team1Line + (newTeams ? '\n' + newTeams : '');
-    }
-    localStorage.setItem('showdown_teams', newTeams);
-  } catch (e) {}
+  if (!autoJoin) {
+    try {
+      let existing = localStorage.getItem('showdown_teams') || '';
+      let newTeams = existing;
+      if (!newTeams.includes('Champions Reg M-C (Sand/TrickRoom Team)')) {
+        newTeams = team2Line + (newTeams ? '\n' + newTeams : '');
+      }
+      if (!newTeams.includes('Champions Reg M-C (Rain/Sun Team)')) {
+        newTeams = team1Line + (newTeams ? '\n' + newTeams : '');
+      }
+      localStorage.setItem('showdown_teams', newTeams);
+    } catch (e) {}
+  }
 
   function inBattle() {
     return !!(

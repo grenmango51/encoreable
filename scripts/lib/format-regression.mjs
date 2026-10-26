@@ -14,6 +14,7 @@
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
+import vm from 'node:vm';
 
 import { makePolicy } from './ws-player.mjs';
 import { inputLogLines, truncateAtTurn } from './truncate.mjs';
@@ -818,6 +819,10 @@ async function preservedLogs(root, formatid) {
     const sourceInput = inputLogFromRecording(data);
     const inputLog = sourceInput.inputLog;
     assert(JSON.stringify(data) === original, 'source materialization changed its recording');
+    for (const [kind, value] of [['gen', '8'], ['gametype', profile.gameType === 'singles' ? 'doubles' : 'singles'], ['tier', '[Gen 8] OU']]) {
+      const wrong = { ...data, log: data.log.map(line => line.startsWith(`|${kind}|`) ? `|${kind}|${value}` : line) };
+      expectThrow(() => inputLogFromRecording(wrong), /disagrees/);
+    }
     if (profile.formatid === 'gen9randombattle') {
       assert(!sourceInput.materialization.generatorInvoked, 'source materialization invoked a generator');
       const generate = Teams.generate;
@@ -903,6 +908,31 @@ async function execute({ root, formatid = null, say }) {
   };
 
   await section('format contract', () => { contractChecks(); validatorChecks(); });
+  await section('browser fixture stat-model boundary', () => {
+    const script = fs.readFileSync(path.join(root, 'scripts/client/autobattle.js'), 'utf8');
+    const bootstrap = (search) => {
+      const writes = [], alerts = [];
+      const document = {
+        readyState: 'complete', head: { appendChild() {} },
+        body: { appendChild(node) { alerts.push(node.textContent); } },
+        createElement() { return { setAttribute() {} }; },
+      };
+      const context = { document, URLSearchParams, location: { search }, console: { log() {} },
+        setTimeout() {}, setInterval() {},
+        localStorage: { getItem: () => '', setItem: (key, value) => writes.push({ key, value }) },
+      };
+      context.window = context;
+      vm.runInNewContext(script, context, { timeout: 1000 });
+      return { writes, alerts };
+    };
+    for (const profile of standardProfiles()) {
+      const join = bootstrap(`?autoname=Test&autojoin=battle-${profile.formatid}-1&format=${profile.formatid}`);
+      assert(!join.writes.length && !join.alerts.length, `${profile.formatid} branch injected Champions teams`);
+      const fresh = bootstrap(`?autoname=Test&autoteam=p1&format=${profile.formatid}`);
+      assert(!fresh.writes.length && fresh.alerts.some(text => text.includes('Champions Reg M-C')), `${profile.formatid} automatic fixture silently used Champions stats`);
+    }
+    assert(bootstrap('?autoname=Test&autoteam=p1').writes.length, 'default Champions automatic teams stopped loading');
+  });
   await section('public reconstruction and inference gates', async () => {
     const { reconstruct } = await import('./reconstruct.mjs');
     const { inferSpreads } = await import('./inference/infer.mjs');

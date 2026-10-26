@@ -20,7 +20,7 @@
 
 import { createRequire } from 'module';
 
-import { profileFromInputLog } from './format-profile.mjs';
+import { profileFromInputLog, profileFromObservation } from './format-profile.mjs';
 
 const require = createRequire(import.meta.url);
 const { Dex, Teams } = require('pokemon-showdown');
@@ -560,6 +560,8 @@ export function inputLogFromRecording(data, options = {}) {
   const admission = admissionFor(lines, capability);
   assertMetadata(data, start);
   const observed = Array.isArray(data.log) ? data.log : String(data.log || '').split('\n');
+  try { profileFromObservation(start.formatid, observed, capability); }
+  catch (err) { fail('inconsistent', err.message, { field: 'log' }); }
   if (start.formatid === 'gen9randombattle' && observed.some(line => /^\|rule\|Pokemon of the Day:/.test(line))) {
     fail('capability', 'Random Battle with non-default PotD server configuration is unsupported; the recorded rule must not be silently discarded', { field: 'log' });
   }
