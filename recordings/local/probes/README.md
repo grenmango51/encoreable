@@ -41,3 +41,8 @@ and level-50 adjustment. It selects four per side and exercises hazards, switche
 Terastallization and Parting Shot's extra replacement request before a turn-5 forfeit.
 It is a replay/restoration/continuation regression, with no claim of reconstructed or
 inferred hidden sets or EVs. Engineering §2.8 defines the capability acceptance checks.
+
+`gen9ou-17.log.json` preserves the standard OU singles fixture through turn 5: six
+Pokémon per side, ordinary EV/IV spreads, level 100, Stealth Rock/Spikes, burn,
+Toxic Orb, switches and Terastallization. It supplies both complete teams; it is
+not evidence of hidden-team inference. The shared format checks replay and branch it.

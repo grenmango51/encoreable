@@ -165,7 +165,8 @@ entering the simulator; the simulator's registry of format names does not grant 
 | `gen9championsvgc2026regmc`, `gen9championsvgc2026regmb` (and their `bo3` IDs) | Champions SP | existing support | existing support | partial inference | assumed sets; candidate inference incomplete |
 | `gen9championsdoublescustomgame` | Champions SP, custom levels/budgets | sandbox only | disabled | disabled | disabled |
 | `gen9vgc2024regg` | standard EV/IV | admitted | disabled | disabled | disabled |
-| `gen9ou`, `gen9randombattle` | standard EV/IV | pending admission | disabled | disabled | disabled |
+| `gen9ou` | standard EV/IV | admitted | disabled | disabled | disabled |
+| `gen9randombattle` | standard EV/IV | pending admission | disabled | disabled | disabled |
 
 The first standard format is `[Gen 9] VGC 2024 Reg G`: it is the searchable standard
 VGC ladder at pin `a5df827`. `gen9vgc2025regi` exists but is not searchable, while
@@ -212,6 +213,11 @@ now cover validator acceptance/rejection, observations, snapshot/restore at 1/3/
 continuations, reseeding/forced draws, preserved recordings and unsupported combinations.
 The visible room check is still campaign work; the live replay embed currently fails to
 construct its text parser, independently of format.
+OU evidence: preserved real-server `gen9ou-17` (probe), six selected Pokémon, level 100,
+underspent EV totals and non-31 IVs, hazards, burn, Toxic Orb poison, switching and Tera.
+The same Node/Worker acceptance matrix passes, including restoration at 1/3/5 and RNG.
+Replay reconstruction and hidden inference remain disabled.
+
 Existing Champions `-34` still matches at S2; the full regression suite remains required
 before coordinated integration. These results do not claim VGC reconstruction or inference.
 
