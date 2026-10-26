@@ -154,126 +154,104 @@ stable across versions, so a seed does not pin a team. Read the packed teams out
 `scripts/lib/format-profile.mjs` is the shared Node/extension admission contract.
 An exact format ID identifies generation, mod, game type and stat model, with separate
 gates for recording, exact replay, branching, RNG control, known-team reconstruction,
-open-sheet spread inference and closed-sheet inference. An unknown ID, custom-rule
-suffix, mismatched replay generation/game type/tier, or disabled capability is an error.
-No source is reinterpreted as Gen 9 Champions. The extension checks admitted profiles'
-full mod ancestry against its embedded data at build time and checks requests before
-entering the simulator; the simulator's registry of format names does not grant support.
+open-sheet spread inference and closed-sheet inference. Unknown IDs, custom rules,
+conflicting replay generation/game type/tier and disabled capabilities fail explicitly.
+No source is reinterpreted as Gen 9 Champions. The extension verifies admitted profiles'
+complete mod ancestry against its embedded simulator data.
 
 | Exact IDs | Stat model | Known-team recording / exact replay / branch / RNG | Replay reconstruction | Open-sheet spreads | Closed sheets |
 |---|---|---|---|---|---|
 | `gen9championsvgc2026regmc`, `gen9championsvgc2026regmb` (and their `bo3` IDs) | Champions SP | existing support | existing support | partial inference | assumed sets; candidate inference incomplete |
 | `gen9championsdoublescustomgame` | Champions SP, custom levels/budgets | sandbox only | disabled | disabled | disabled |
-| `gen9vgc2024regg` | standard EV/IV | admitted | disabled | disabled | disabled |
 | `gen9ou` | standard EV/IV | admitted | disabled | disabled | disabled |
-| `gen9randombattle` | standard EV/IV | complete recorded teams only | disabled | disabled | disabled |
 
-The first standard format is `[Gen 9] VGC 2024 Reg G`: it is the searchable standard
-VGC ladder at pin `a5df827`. `gen9vgc2025regi` exists but is not searchable, while
-`gen9vgc2026regf` is absent. This popularity/availability distinction determines the
-fixture; it requires no upstream upgrade. OU and Random Battle follow it in order.
+OU is the only admitted standard format. VGC 2024 Reg G and Random Battle support,
+their fixtures, team-generation handling and dedicated positive checks were removed
+at the user's request. Their immutable local probe logs remain as unsupported-format
+rejection cases. Availability in the simulator does not grant product support.
 
 The assumption inventory and acceptance requirements are:
 
-- **Identity and generation:** the fixture default remains Champions; loaded recordings
-  carry their own `>start` identity into simulator admission, filenames and replay metadata.
-  Replay facts (`gen`, `gametype`, `tier`) must agree. Unsupported combinations fail before
-  reading species or allocating inference knowledge.
+- **Identity and generation:** the fixture default remains Champions; each recording's
+  `>start`, `gen`, `gametype` and `tier` facts must agree before admission.
 - **Stats, levels and legality:** Champions' 0–32/66 representation applies only to its
-  supported inference profiles. Standard EV/IV data is retained as recorded. TeamValidator
-  decides legal totals, IVs, natures, levels and rules; the selected Battle computes initial
-  stats and max HP. The replay command has no independent stat formula or max-HP test.
-  Exactly 66 SP is a fixture assertion, not a validity requirement for arbitrary recordings.
-- **Team selection and game type:** the simulator's preview/request determines the decision.
-  The VGC fixture brings six and selects four; singles must retain their own active-slot and
-  preview behavior. No two-slot assumption may change a legal singles choice.
-- **Observations and replay:** source logs remain immutable. Input-log equality and protocol
-  equality are distinct checks. Exact HP comes from simulator channel -1, not a denominator
-  heuristic: an exact max HP of 100 is possible. Per-player channels remain Showdown's.
-- **Restoration and continuation:** test at least turns 1, 3 and the final playable turn,
-  preserve the prefix under the recorded seed, reseed only the continuation, accept legal
-  alternate choices, and replay the resulting continuation exactly. Snapshot round trips
-  supplement these checks; they do not replace them.
-- **RNG:** use the shared per-draw controller and the selected simulator's rules. Test actual
-  forced draws, reseed persistence and controlled replay equality for each admitted format.
-- **Reconstruction/inference:** admission of a full-information recording proves neither.
-  Non-Champions reconstruction and inference are disabled in public Node and Worker paths.
-  `reconstruct --all` reports these sources as skipped; a direct request fails. Any future
-  admission needs truth-known true-set/spread survival, not merely a matching witness.
-- **Extension:** compare the built Worker with Node, open/restored requests and legal
-  continuation, and inspect the native rooms. Standard formats receive no Champions SP
-  sliders. Random Battle also requires complete recorded teams; a public replay cannot
-  supply unrevealed sets or moves by itself.
+  supported inference profiles. OU retains standard EVs, IVs and natures.
+  TeamValidator decides legal totals, IVs, levels and rules; Battle computes initial
+  stats and max HP. Exactly 66 SP is a fixture assertion, not a general requirement.
+- **Team selection:** Showdown's preview/request decides the choice. The OU fixture
+  selects all six, has one active slot, and keeps singles move/switch syntax.
+- **Observations and replay:** source logs remain immutable. Input equality and protocol
+  equality are separate checks. Exact HP comes from simulator channel -1; 100 can be
+  an exact max-HP denominator. Player views remain Showdown's own channels.
+- **Restoration and continuation:** test turns 1, 3 and 5, preserve the recorded prefix,
+  reseed only the continuation, accept legal alternatives and replay them exactly.
+  Snapshot round trips supplement these checks.
+- **RNG:** test effective forced draws, reseed persistence and controlled replay equality.
+- **Reconstruction/inference:** OU reconstruction, open spread inference and closed
+  inference are disabled at public Node and Worker boundaries. `reconstruct --all`
+  skips unsupported sources explicitly; a direct request fails. Future admission needs
+  truth-known true-set/spread survival, not merely a reconstructed witness.
+- **Extension:** compare Worker and Node, restore requests, play actual move buttons
+  for both sides, and verify the continuation and native room observations.
+  OU receives no Champions Stat Point controls.
 
-Current VGC evidence: preserved real-server `gen9vgc2024regg-15` (scripted) and `-16`
-(probe), validated full EV/IV teams, exact replay, snapshot turns 1–5, restored alternate
-continuations at 1/3/5, a forced Grassy Glide critical hit, and Node/Worker re-simulation
-parity. `npm run replay -- --check-formats` and `npm run extension -- --check formats`
-now cover validator acceptance/rejection, observations, snapshot/restore at 1/3/5, legal
-continuations, reseeding/forced draws, preserved recordings and unsupported combinations.
-The live replay embed’s asynchronously inserted scripts were racing config/jQuery;
-newly generated pages enforce dependency list order, tested under a delayed config load.
-The regenerated VGC, OU and Random Battle pages were inspected at turn 1 on the server:
-correct tier/title, doubles versus singles, levels and Play from here, with no page errors.
-The native-room matrix also passes for all three: turn-3 restoration, correct own HP
-and opponent percentages, legal button choices on both sides, exact continuation replay,
-no Champions SP controls and no fake-room WebSocket traffic. Fainted requests use the
-simulator’s `0 fnt` without treating the client’s default denominator as an observed max HP.
+OU's preserved real-server regression is `recordings/local/probes/gen9ou-17.log.json`:
+six Pokémon per side, level 100, underspent EV totals, non-31 IVs, Stealth Rock/Spikes,
+burn, Toxic Orb poison, switches and Terastallization. The suite verifies validator
+acceptance/rejection, exact input/protocol replay, snapshots and restored alternate
+continuations at turns 1/3/5, player observations, reseeding and forced RNG.
+An additional legal OU fixture tests an exact max HP of 100.
 
-OU evidence: preserved real-server `gen9ou-17` (probe), six selected Pokémon, level 100,
-underspent EV totals and non-31 IVs, hazards, burn, Toxic Orb poison, switching and Tera.
-The same Node/Worker acceptance matrix passes, including restoration at 1/3/5 and RNG.
-Replay reconstruction and hidden inference remain disabled.
+Node and the Worker share the known-team path. The native OU room check opens turn 3
+in the real Showdown client, checks tier/generation/singles identity, own exact HP and
+opponent percentages, clicks legal moves for both sides, and verifies the continuation.
+It rejects Champions SP controls and fake-room WebSocket traffic. Fainted requests use
+`0 fnt` without interpreting a client placeholder as observed max HP. The replay embed
+dependency-order fix keeps generated OU pages rendering correctly.
 
-Random Battle evidence: real-server probe `gen9randombattle-18`, no preview, variable levels,
-complete generated source teams, original seed-only player lines and exact channel -1 log.
-`recording-input.mjs` packs the saved `p1team`/`p2team` into an in-memory derived log,
-retaining the battle seed and dropping unused team seeds. The original file is unchanged.
-Both CLI and Worker use this derivation; seed-only input without full source teams fails.
-Generated truth-known fixtures cover turns 1/3/5, snapshots, alternate singles choices,
-player observations and forced RNG. Validator acceptance distinguishes the generator’s
-no-supplied-team policy from validation of recorded sets under the same rules with the
-generator restriction disabled. Sources announcing a non-default PotD configuration are
-explicitly unsupported. This proves no hidden-set or unrevealed-move inference.
+**Practical input boundary:** OU needs a full-information `.log.json` with both packed
+teams, the battle seed and recorded choices. A normal ladder replay URL/page or team
+sheets alone cannot be restored by this path. Automatic OU ladder capture, replay
+reconstruction, hidden-team inference and EV/IV sliders are not implemented.
+`replay -- --format gen9ou` records the scripted example, not arbitrary interactive teams.
+Use `live -- --from recordings/local/probes/gen9ou-17.log.json --at 3` to play the saved
+example forward. The extension recordings page imports the same file and opens a turn.
 
-The browser’s automatic fresh-team fixture remains Champions Reg M-C only; an explicit
-other-format request fails instead of relabelling its Stat Points as EVs. Joining a recorded
-battle never injects fixture teams into the teambuilder. Use `replay --format` to record the
-standard fixtures, then `live --from` to play them interactively.
+The browser's fresh automatic-team fixture remains Champions Reg M-C only; an explicit
+OU automatic-team request fails rather than relabelling Stat Points as EVs. Joining a
+recording never injects Champions fixture teams into the teambuilder. Default recording
+selection excludes unsupported archived formats.
 
-Campaign acceptance evidence (2026-10-26, Node 26.12.1, four-CPU server; Node reconstruction
-and saved-entry checks used one probe thread):
+Campaign acceptance evidence (2026-10-26, Node 26.12.1, four-CPU server):
 
-- `npm run check`: PASS. Champions replay from `gen9championsvgc2026regmc-14`
-  and Reg M-B `-34` round-trip and match their source protocol.
-- `npm run replay -- --check-formats`: PASS for all three standard formats and Champions
-  regression cases. `--format <id>` can restrict the format fixtures.
-- `npm run extension -- --check sim formats`: PASS; all 35 recordings have Node/Worker
-  parity, and all three standard formats pass the native-room matrix. Forced RNG input
-  logs also match Node in the Worker. This distinguishes parity from source fidelity:
-  the check still reports historical source mismatches in some old recordings; all new
-  standard recordings match their original server protocol.
-- `npm run reconstruct -- --all --rung s2 --threads 1 --dry-run`: 30/30 MATCH.
-- `npm run reconstruct -- --all --rung s3 --infer p2 --threads 1 --dry-run`:
-  30/30 MATCH, all 119 true-spread checks survive. These matching witnesses and surviving
-  true spreads do not establish complete inference.
-- `npm run reconstruct -- --all --rung s3 --threads 1 --dry-run`: 29/30 MATCH. Probe
-  `gen9championsvgc2026regmc-1` remains verified only through turn 1/7 (87/100 versus
-  88/100 on the turn-2 heal). The same failure was reproduced on the pre-campaign code.
-- `npm run extension -- --check`: all checks ran; one failure remains. The live replay
-  entry for `gen9championsvgc2026regmbbo3-2704658159` was still rebuilding both missing
-  teams after four minutes. Saved S4 games (6/10 turns), their inferred/combined sets,
-  recording import/export, native Champions rooms, RNG, packaging and format checks pass.
-  The full suite is not green: bounded handling of this legacy public-replay path is an
-  integration dependency, separate from the admitted known-team formats.
+- `npm run replay -- --check-formats`: PASS after narrowing to OU, including Champions
+  regression cases and explicit rejection of removed formats.
+- `npm run check`: PASS. Exact replay of OU `-17` and Champions M-C `-14` matches
+  each original server log. OU `live --at 3 --dry-run` restores the expected position.
+- `npm run extension -- --check sim formats`: PASS after cleanup: 32 supported
+  recordings have Node/Worker parity; all three archived unsupported recordings are
+  rejected by both. OU passes the native-room matrix, effective forced RNG and legal
+  continuations, with no fake-room traffic. Both player screenshots were inspected.
+- `npm run reconstruct -- --all --rung s2 --threads 1 --dry-run`: 30/30 MATCH after
+  cleanup. Bulk runs explicitly skip unsupported archived formats; direct requests fail.
+- Prior S3 baseline with `--infer p2`: 30/30 MATCH and all 119 true spreads survive.
+  Matching witnesses and survival do not establish complete inference.
+- S3 without inference remains 29/30 MATCH: `gen9championsvgc2026regmc-1` is verified
+  through turn 1/7 (87/100 versus 88/100 on the turn-2 heal). This was reproduced on
+  pre-campaign code.
+- The post-cleanup full `npm run extension -- --check` is not green. Public replay
+  `gen9championsvgc2026regmbbo3-2704779142` was still rebuilding both missing teams
+  after four minutes, reproducing the prior public-entry timeout on another replay.
+  The run also exposed a rejection-test matcher that expected a bare message while
+  the Worker returns a stack prefix; that check was corrected and the complete sim
+  and formats checks rerun successfully. Saved S4 games, inferred/combined sets,
+  import/export, Champions rooms, RNG and packaging passed in the full run. The
+  public-entry timeout remains an unresolved integration dependency.
 
-All 29 pre-campaign local battle recordings are byte-identical. The simulator pin and
-mechanics are unchanged. No main merge is part of this campaign. Standard replay
-reconstruction, EV/IV inference, hidden Random Battle sets and unrevealed moves remain
-disabled; admitting them requires separate truth-known survival and witness checks.
-The format/stat contract is ready for the audit and closed-sheet entry points to consume.
-Final Grok review was unavailable after the provider reported its usage limit; no other
-model/provider was substituted.
+All existing local recordings are unchanged. The simulator pin and mechanics are
+unchanged. Main remains unmerged. This is a bounded known-team OU milestone; the full
+acceptance suite must be green before calling the branch merge-ready. Final Grok review
+was unavailable after its usage limit; no substitute model/provider was used.
 
 ## 3. Channel −1 is the entire answer to "full information"
 
@@ -740,7 +718,7 @@ with it, the page renders nothing at all and gives no error.
 - Local config needs `noguestsecurity` for guest `/trn` with an empty assertion, and
   `logchallenges` (§3.1).
 - Team preview honours `request.maxChosenTeamSize`. Champions requires six and selects four;
-  pinned standard VGC Reg G accepts four to six and selects four. OU selects its whole team.
+  OU selects its whole team.
   The simulator’s resolved rule table and validator decide each format’s limits.
 - `BattleStream` requires `>`-prefixed lines. `version` / `version-origin` are no-ops.
 - Headless Chrome `--dump-dom` returns 0 bytes when captured with `>` or a pipe. Use

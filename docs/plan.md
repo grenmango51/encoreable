@@ -37,10 +37,10 @@ backwards.
 **Champions remains the primary inference destination.** Its Stat Point domain stays
 separate from standard EV/IV formats.
 
-Showdown is also a supported source of known-team analysis boards. Exact Gen 9 VGC, OU
-and Random Battle profiles are admitted capability by capability, with simulator-backed
-acceptance checks; `engineering.md` §2.8 is the scope contract. Known-team replay and
-branching do not establish hidden-team reconstruction or complete inference. Champions
+Showdown is also a supported source of known-team analysis boards. Gen 9 OU is admitted
+capability by capability, with simulator-backed acceptance checks; `engineering.md` §2.8
+is the scope contract. Known-team replay and branching do not establish hidden-team
+reconstruction or complete inference. Champions
 ingestion still progresses through these input-source phases:
 
 | Phase | Input source | Difficulty |

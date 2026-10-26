@@ -34,21 +34,13 @@ a flinch does not knock the script off course.
 
 ## Known-team format regressions
 
-`gen9vgc2024regg-16.log.json` is a real-server standard VGC Reg G battle from
-`scripts/fixtures/formats.js`, preserved by `npm run replay -- --format gen9vgc2024regg --probe`.
-Both complete six-member teams are facts in its input log, with ordinary EVs, non-31 IVs
-and level-50 adjustment. It selects four per side and exercises hazards, switches,
-Terastallization and Parting Shot's extra replacement request before a turn-5 forfeit.
-It is a replay/restoration/continuation regression, with no claim of reconstructed or
-inferred hidden sets or EVs. Engineering §2.8 defines the capability acceptance checks.
-
 `gen9ou-17.log.json` preserves the standard OU singles fixture through turn 5: six
 Pokémon per side, ordinary EV/IV spreads, level 100, Stealth Rock/Spikes, burn,
 Toxic Orb, switches and Terastallization. It supplies both complete teams; it is
 not evidence of hidden-team inference. The shared format checks replay and branch it.
 
-`gen9randombattle-18.log.json` is a real server-generated Random Battle through
-turn 6, including variable levels, six complete generated sets per side and seed-only
-player input lines. Its saved teams are source facts. Replay derives packed player
-lines in memory; the original recording stays unchanged. Neither hidden sets nor
-unrevealed moves are inferred or regenerated from seeds.
+The immutable `gen9vgc2024regg-16.log.json` and `gen9randombattle-18.log.json`
+are archived evidence from removed format work. Those formats are unsupported; the
+extension parity check verifies that Node and the Worker both reject them. Their
+source files are retained under the recording-preservation rule, with no active fixtures
+or replay admission.

@@ -49,10 +49,10 @@ const ACCURACY_FIRST = ['willowisp', 'thunderwave', 'spore', 'toxic', 'hurricane
 
 const DIGLETT_100 = `
 Diglett @ Focus Sash
-Ability: Sand Veil
+Ability: Sand Force
 Level: 50
 Tera Type: Ground
-EVs: 240 HP / 4 Atk
+EVs: 241 HP / 4 Atk
 Serious Nature
 IVs: 0 HP / 31 Atk / 31 Def / 31 SpA / 31 SpD / 31 Spe
 - Agility
@@ -276,10 +276,6 @@ function expectThrow(fn, pattern) {
     return;
   }
   throw new Error(`expected a throw matching ${pattern}`);
-}
-
-function admittedById(formatid) {
-  try { return formatProfile(formatid); } catch { return null; }
 }
 
 function standardProfiles(formatid) {
@@ -577,11 +573,6 @@ async function scripted(fixture, profile) {
     facts.some(fact => fact.den !== 100 && /\/100(?:\||$)/.test(fact.shared)),
     `${fixture.id} opponent channel did not use the public HP protocol`,
   );
-  if (fixture.id === 'gen9vgc2024regg') {
-    mustInclude(played.lines, /\|-terastallize\|/, 'VGC log has no Terastallization');
-    mustInclude(played.lines, /\|-status\|[^|]+\|brn/, 'VGC log has no burn');
-    mustInclude(played.lines, /\|-sidestart\|.*Stealth Rock/, 'VGC log has no Stealth Rock');
-  }
   if (fixture.id === 'gen9ou') {
     mustInclude(played.lines, /\|-terastallize\|/, 'OU log has no Terastallization');
     mustInclude(played.lines, /\|-status\|[^|]+\|brn/, 'OU log has no burn');
@@ -601,28 +592,31 @@ function problems(formatid, sets) {
 }
 
 function validatorChecks() {
-  const vgc = Teams.import(FORMATS.gen9vgc2024regg.p1);
-  assert(!problems('gen9vgc2024regg', vgc).length, `VGC fixture rejected: ${problems('gen9vgc2024regg', vgc)[0]}`);
-  assert(vgc.some(set => { const total = evTotal(set); return total > 0 && total < 510; }), 'VGC fixture does not underspend');
-  const underspent = structuredClone(vgc);
+  const ou = Teams.import(FORMATS.gen9ou.p1);
+  assert(!problems('gen9ou', ou).length, `OU fixture rejected: ${problems('gen9ou', ou)[0]}`);
+  assert(ou.some(set => { const total = evTotal(set); return total > 0 && total < 510; }), 'OU fixture does not underspend');
+  const underspent = structuredClone(ou);
   underspent[0].evs = { hp: 4, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
-  assert(!problems('gen9vgc2024regg', underspent).length, `underspent standard team rejected: ${problems('gen9vgc2024regg', underspent)[0]}`);
-  const over32 = structuredClone(vgc);
+  assert(!problems('gen9ou', underspent).length, `underspent standard team rejected: ${problems('gen9ou', underspent)[0]}`);
+  const over32 = structuredClone(ou);
   over32[0].evs = { ...over32[0].evs, hp: 36 };
   assert(evTotal(over32[0]) <= 510, 'EV 36 sample exceeds 510');
-  assert(!problems('gen9vgc2024regg', over32).length, `standard EV 36 rejected: ${problems('gen9vgc2024regg', over32)[0]}`);
-  const ev255 = structuredClone(vgc);
-  ev255[0].evs = { ...ev255[0].evs, hp: 255 };
-  assert(!problems('gen9vgc2024regg', ev255).length, `standard EV 255 rejected: ${problems('gen9vgc2024regg', ev255)[0]}`);
-  const ev256 = structuredClone(vgc);
-  ev256[0].evs = { ...ev256[0].evs, hp: 256 };
-  assert(problems('gen9vgc2024regg', ev256).some(problem => /255 EVs/.test(problem)), 'standard EV 256 was not rejected at the pinned 255 ceiling');
-  const non31 = structuredClone(vgc);
+  assert(!problems('gen9ou', over32).length, `standard EV 36 rejected: ${problems('gen9ou', over32)[0]}`);
+  const ev255 = structuredClone(ou);
+  ev255[0].evs = { hp: 255, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
+  assert(!problems('gen9ou', ev255).length, `standard EV 255 rejected: ${problems('gen9ou', ev255)[0]}`);
+  const ev256 = structuredClone(ou);
+  ev256[0].evs = { hp: 256, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
+  assert(problems('gen9ou', ev256).some(problem => /255 EVs/.test(problem)), 'standard EV 256 was not rejected at the pinned 255 ceiling');
+  const overBudget = structuredClone(ou);
+  overBudget[0].evs = { hp: 252, atk: 252, def: 8, spa: 0, spd: 0, spe: 0 };
+  assert(problems('gen9ou', overBudget).length, 'OU accepted a spread over its 510 EV budget');
+  const non31 = structuredClone(ou);
   non31[0].ivs = { hp: 0, atk: 15, def: 31, spa: 0, spd: 30, spe: 1 };
-  assert(!problems('gen9vgc2024regg', non31).length, `standard non-31 IVs rejected: ${problems('gen9vgc2024regg', non31)[0]}`);
+  assert(!problems('gen9ou', non31).length, `standard non-31 IVs rejected: ${problems('gen9ou', non31)[0]}`);
   const ouLevel50 = Teams.import(FORMATS.gen9ou.p1);
   ouLevel50[0].level = 50;
-  assert(problems('gen9ou', ouLevel50).some(problem => /level 50/.test(problem)), 'OU level-50 import warning was silently changed to VGC level adjustment');
+  assert(problems('gen9ou', ouLevel50).some(problem => /level 50/.test(problem)), 'OU level-50 import warning was silently adjusted');
 
   const champions = Teams.import(P1_EXPORT);
   assert(!problems('gen9championsvgc2026regmc', champions).length, `Champions fixture rejected: ${problems('gen9championsvgc2026regmc', champions)[0]}`);
@@ -641,14 +635,14 @@ function validatorChecks() {
 
 function contractChecks() {
   assert(PIN === SIMULATOR_PIN, `fixture pin ${PIN} is not ${SIMULATOR_PIN}`);
-  assert(Dex.formats.get('gen9vgc2024regg').exists, 'pinned dex has no gen9vgc2024regg');
-  const vgc = formatProfile('gen9vgc2024regg');
-  assert(vgc.statModel === 'standard-ev-iv' && vgc.gameType === 'doubles' && vgc.mod === 'gen9', 'VGC profile is not the admitted standard doubles contract');
+  assert(Dex.formats.get('gen9ou').exists, 'pinned dex has no gen9ou');
+  const ou = formatProfile('gen9ou');
+  assert(ou.statModel === 'standard-ev-iv' && ou.gameType === 'singles' && ou.mod === 'gen9', 'OU profile is not the admitted standard singles contract');
   for (const capability of ['recording', 'exactReplay', 'branching', 'rngControl']) {
-    assertFormatCapability('gen9vgc2024regg', capability);
+    assertFormatCapability('gen9ou', capability);
   }
-  profileFromInputLog('>start { "formatid" : "gen9vgc2024regg" }\n', 'exactReplay');
-  profileFromObservation('gen9vgc2024regg', ['|gen|9', '|gametype|doubles', '|tier|[Gen 9] VGC 2024 Reg G'], 'exactReplay');
+  profileFromInputLog('>start { "formatid" : "gen9ou" }\n', 'exactReplay');
+  profileFromObservation('gen9ou', ['|gen|9', '|gametype|singles', '|tier|[Gen 9] OU'], 'exactReplay');
   profileFromObservation('gen9championsvgc2026regmcbo3', [
     '|gen|9', '|gametype|doubles', '|tier|[Gen 9 Champions] VGC 2026 Reg M-C (Bo3)',
   ], 'exactReplay');
@@ -657,85 +651,34 @@ function contractChecks() {
   }
 
   const rejected = [
+    ['removed VGC format', () => formatProfile('gen9vgc2024regg'), /Unsupported format/],
+    ['removed Random Battle format', () => formatProfile('gen9randombattle'), /Unsupported format/],
     ['gen8 format', () => formatProfile('gen8ou'), /Unsupported format/],
     ['gen8 vgc', () => formatProfile('gen8vgc2022'), /Unsupported format/],
-    ['custom rules', () => profileFromInputLog('>start {"formatid":"gen9vgc2024regg","customRules":["HP Percentage Mod"]}\n'), /overrides/],
+    ['custom rules', () => profileFromInputLog('>start {"formatid":"gen9ou","customRules":["HP Percentage Mod"]}\n'), /overrides/],
     ['falsy generation override', () => profileFromInputLog('>start {"formatid":"gen9ou","gen":0}\n'), /overrides/],
-    ['format override', () => profileFromInputLog('>start {"formatid":"gen9vgc2024regg","format":"gen9ou"}\n'), /overrides/],
-    ['gameType override', () => profileFromInputLog('>start {"formatid":"gen9vgc2024regg","gameType":"singles"}\n'), /overrides/],
-    ['gen override', () => profileFromInputLog('>start {"formatid":"gen9vgc2024regg","gen":8}\n'), /overrides/],
-    ['mod override', () => profileFromInputLog('>start {"formatid":"gen9vgc2024regg","mod":"gen8"}\n'), /overrides/],
-    ['rule table override', () => profileFromInputLog('>start {"formatid":"gen9vgc2024regg","ruleTable":{}}\n'), /overrides/],
-    ['vgc reconstruction', () => assertFormatCapability('gen9vgc2024regg', 'knownTeamReconstruction'), /Unsupported capability knownTeamReconstruction/],
-    ['vgc open inference', () => assertFormatCapability('gen9vgc2024regg', 'openSpreadInference'), /Unsupported capability openSpreadInference/],
-    ['vgc closed inference', () => assertFormatCapability('gen9vgc2024regg', 'closedInference'), /Unsupported capability closedInference/],
-    ['observation reconstruction', () => profileFromObservation('gen9vgc2024regg', ['|gen|9'], 'knownTeamReconstruction'), /Unsupported capability/],
-    ['gen disagree', () => assertFormatCapability('gen9vgc2024regg', 'exactReplay', { gen: 8 }), /gen 8 disagrees/],
-    ['mod disagree', () => assertFormatCapability('gen9vgc2024regg', 'exactReplay', { mod: 'champions' }), /mod champions disagrees/],
-    ['gameType disagree', () => assertFormatCapability('gen9vgc2024regg', 'exactReplay', { gameType: 'singles' }), /gameType singles disagrees/],
-    ['statModel disagree', () => assertFormatCapability('gen9vgc2024regg', 'exactReplay', { statModel: 'champions-sp' }), /statModel champions-sp disagrees/],
-    ['observation gen', () => profileFromObservation('gen9vgc2024regg', ['|gen|8', '|gametype|doubles', '|tier|[Gen 9] VGC 2024 Reg G'], 'exactReplay'), /generation 8 disagrees/],
-    ['observation game type', () => profileFromObservation('gen9vgc2024regg', ['|gametype|singles'], 'exactReplay'), /game type singles disagrees/],
-    ['observation tier', () => profileFromObservation('gen9vgc2024regg', ['|tier|[Gen 9] OU'], 'exactReplay'), /tier \[Gen 9\] OU disagrees/],
-    ['two starts', () => profileFromInputLog('>start {"formatid":"gen9vgc2024regg"}\n>start {"formatid":"gen9vgc2024regg"}\n'), /exactly one/],
+    ['format override', () => profileFromInputLog('>start {"formatid":"gen9ou","format":"gen9ou"}\n'), /overrides/],
+    ['gameType override', () => profileFromInputLog('>start {"formatid":"gen9ou","gameType":"singles"}\n'), /overrides/],
+    ['gen override', () => profileFromInputLog('>start {"formatid":"gen9ou","gen":8}\n'), /overrides/],
+    ['mod override', () => profileFromInputLog('>start {"formatid":"gen9ou","mod":"gen8"}\n'), /overrides/],
+    ['rule table override', () => profileFromInputLog('>start {"formatid":"gen9ou","ruleTable":{}}\n'), /overrides/],
+    ['OU reconstruction', () => assertFormatCapability('gen9ou', 'knownTeamReconstruction'), /Unsupported capability knownTeamReconstruction/],
+    ['OU open inference', () => assertFormatCapability('gen9ou', 'openSpreadInference'), /Unsupported capability openSpreadInference/],
+    ['OU closed inference', () => assertFormatCapability('gen9ou', 'closedInference'), /Unsupported capability closedInference/],
+    ['observation reconstruction', () => profileFromObservation('gen9ou', ['|gen|9'], 'knownTeamReconstruction'), /Unsupported capability/],
+    ['gen disagree', () => assertFormatCapability('gen9ou', 'exactReplay', { gen: 8 }), /gen 8 disagrees/],
+    ['mod disagree', () => assertFormatCapability('gen9ou', 'exactReplay', { mod: 'champions' }), /mod champions disagrees/],
+    ['gameType disagree', () => assertFormatCapability('gen9ou', 'exactReplay', { gameType: 'doubles' }), /gameType doubles disagrees/],
+    ['statModel disagree', () => assertFormatCapability('gen9ou', 'exactReplay', { statModel: 'champions-sp' }), /statModel champions-sp disagrees/],
+    ['observation gen', () => profileFromObservation('gen9ou', ['|gen|8', '|gametype|doubles', '|tier|[Gen 9] OU'], 'exactReplay'), /generation 8 disagrees/],
+    ['observation game type', () => profileFromObservation('gen9ou', ['|gametype|doubles'], 'exactReplay'), /game type doubles disagrees/],
+    ['observation tier', () => profileFromObservation('gen9ou', ['|tier|[Gen 9] UU'], 'exactReplay'), /tier \[Gen 9\] UU disagrees/],
+    ['two starts', () => profileFromInputLog('>start {"formatid":"gen9ou"}\n>start {"formatid":"gen9ou"}\n'), /exactly one/],
   ];
   for (const [name, fn, pattern] of rejected) {
     try { expectThrow(fn, pattern); }
     catch (err) { throw new Error(`${name}: ${err.message}`); }
   }
-}
-
-async function randomKnown(fixture, profile) {
-  const seeds = [fixture.seed, `${fixture.seed.slice(0, -1)}1`];
-  const generated = seeds.map(seed => Teams.generate(fixture.id, { seed }));
-  assert(JSON.stringify(generated[0]) === JSON.stringify(Teams.generate(fixture.id, { seed: seeds[0] })), 'Teams.generate was not deterministic for the fixture seed');
-  const levels = generated.flat().map(set => set.level);
-  const ivs = generated.flat().flatMap(set => Object.values(set.ivs || {}));
-  assert(levels.some(level => level && level !== 100), `random levels were flattened: ${levels.join(',')}`);
-  assert(ivs.some(iv => iv !== 31), 'random IVs were all 31');
-  const packed = generated.map(team => Teams.pack(team));
-  let movesDone = 0;
-  const played = await playLines(
-    { formatid: fixture.id, seed: fixture.seed },
-    [{ slot: 'p1', name: 'Red', team: packed[0] }, { slot: 'p2', name: 'Blue', team: packed[1] }],
-    (battle, owing) => {
-      if (movesDone >= 4 && owing.every(side => phaseOf(side.activeRequest) === 'move')) return null;
-      const choices = {};
-      for (const side of owing) {
-        choices[side.id] = policy(side.activeRequest, ctxFor(battle, side));
-        assert(choices[side.id], `random battle has no legal choice for ${side.id}`);
-      }
-      if (owing.some(side => phaseOf(side.activeRequest) === 'move')) movesDone += 1;
-      return choices;
-    },
-  );
-  assert(movesDone >= 1, 'random known-team battle made no move');
-  for (const [index, line] of played.inputLog.split('\n').filter(line => line.startsWith('>player ')).entries()) {
-    const options = JSON.parse(line.slice(line.indexOf('{')));
-    assert(options.team === packed[index], 'player line is not the packed generated team');
-    assert(!options.seed, 'packed random player line also carries a team seed');
-  }
-  const battleSets = [0, 1].map(index => played.rich.sides[index].pokemon.map(p => p.level));
-  generated.forEach((team, index) => {
-    assert(team.every((set, mon) => set.level === battleSets[index][mon]), `random levels were not kept: ${team.map(set => set.level)} vs ${battleSets[index]}`);
-  });
-  await assertReplay(played, fixture.id);
-  assertObservations(played.rawLog, fixture.id);
-  assert(!played.rawLog.includes('|teampreview|'), 'Random Battle unexpectedly has team preview');
-  const setValidator = new TeamValidator({ ...Dex.formats.get(fixture.id), team: undefined });
-  for (const team of generated) assert(!setValidator.validateTeam(structuredClone(team)), 'generated source sets failed their format rules');
-  assert(!new TeamValidator(fixture.id).validateTeam(null), 'Random Battle rejected generator input');
-  assert(new TeamValidator(fixture.id).validateTeam(structuredClone(generated[0]))?.length, 'Random Battle accepted a supplied team as generator input');
-  const fixturePlayed = { ...played, sets: generated, packed };
-  const branches = profile ? await boundaries(fixturePlayed, fixture) : [];
-  const forced = profile ? await rngSmoke(fixturePlayed, fixture) : null;
-  if (profile) {
-    for (const capability of ['knownTeamReconstruction', 'openSpreadInference', 'closedInference']) {
-      assert(!profile.capabilities[capability], `${fixture.id} claims ${capability}; packed teams are not hidden-set reconstruction`);
-    }
-    assert(profile.inferenceStatus === 'unsupported', `${fixture.id} inference status is ${profile.inferenceStatus}`);
-  }
-  return { ...workerCase(fixture, played, branches), rng: forced };
 }
 
 async function championsRegression() {
@@ -776,22 +719,22 @@ async function championsRegression() {
 }
 
 async function hpDenominator100() {
-  const vgc = FORMATS.gen9vgc2024regg;
-  const team = [Teams.import(DIGLETT_100)[0], ...Teams.import(vgc.p1).slice(0, 5)];
-  const rejected = problems('gen9vgc2024regg', team);
+  const ou = FORMATS.gen9ou;
+  const team = [Teams.import(DIGLETT_100)[0], ...Teams.import(ou.p1).slice(0, 5)];
+  const rejected = problems('gen9ou', team);
   assert(!rejected.length, `max HP 100 team rejected: ${rejected[0]}`);
   const played = await playLines(
-    { formatid: 'gen9vgc2024regg', seed: vgc.seed },
+    { formatid: 'gen9ou', seed: ou.seed },
     [
       { slot: 'p1', name: 'Red', team: Teams.pack(team) },
-      { slot: 'p2', name: 'Blue', team: Teams.pack(Teams.import(vgc.p2)) },
+      { slot: 'p2', name: 'Blue', team: Teams.pack(Teams.import(ou.p2)) },
     ],
     (battle, owing) => {
       if (battle.turn > 0) return null;
       const choices = {};
       for (const side of owing) {
         assert(phaseOf(side.activeRequest) === 'teampreview', 'HP 100 battle did not open at team preview');
-        choices[side.id] = 'team 1, 2, 3, 4';
+        choices[side.id] = 'team 1, 2, 3, 4, 5, 6';
       }
       return choices;
     },
@@ -819,37 +762,24 @@ async function preservedLogs(root, formatid) {
     const sourceInput = inputLogFromRecording(data);
     const inputLog = sourceInput.inputLog;
     assert(JSON.stringify(data) === original, 'source materialization changed its recording');
+    assert(inputLog === rawInputLog.trimEnd(), 'known-team source commands changed');
+    for (const slot of ['p1', 'p2']) {
+      const missing = structuredClone(data);
+      missing.inputLog = inputLogLines(missing.inputLog).map(line => {
+        if (!line.startsWith(`>player ${slot} `)) return line;
+        const options = JSON.parse(line.slice(line.indexOf('{')));
+        delete options.team;
+        options.seed = RESEED;
+        return `>player ${slot} ${JSON.stringify(options)}`;
+      });
+      expectThrow(() => inputLogFromRecording(missing), /team is absent/);
+      const inconsistent = structuredClone(data);
+      inconsistent[`${slot}team`][0].level -= 1;
+      expectThrow(() => inputLogFromRecording(inconsistent), /does not match/);
+    }
     for (const [kind, value] of [['gen', '8'], ['gametype', profile.gameType === 'singles' ? 'doubles' : 'singles'], ['tier', '[Gen 8] OU']]) {
       const wrong = { ...data, log: data.log.map(line => line.startsWith(`|${kind}|`) ? `|${kind}|${value}` : line) };
       expectThrow(() => inputLogFromRecording(wrong), /disagrees/);
-    }
-    if (profile.formatid === 'gen9randombattle') {
-      assert(!sourceInput.materialization.generatorInvoked, 'source materialization invoked a generator');
-      const generate = Teams.generate;
-      const getGenerator = Teams.getGenerator;
-      Teams.generate = Teams.getGenerator = () => { throw new Error('recording replay must never generate private teams'); };
-      try {
-        assert(inputLogFromRecording(data).inputLog === inputLog, 'materialization depended on a generator');
-      } finally { Teams.generate = generate; Teams.getGenerator = getGenerator; }
-      expectThrow(() => inputLogFromRecording({ ...data, log: ['|rule|Pokemon of the Day: Pikachu', ...data.log] }), /non-default PotD/);
-      const packedAgain = inputLogFromRecording({ ...data, inputLog });
-      assert(packedAgain.inputLog === inputLog, 'materialized random input is not stable');
-      for (const slot of ['p1', 'p2']) {
-        const missing = structuredClone(data);
-        delete missing[`${slot}team`];
-        expectThrow(() => inputLogFromRecording(missing), /absent/);
-        const partial = structuredClone(data);
-        delete partial[`${slot}team`][0].moves;
-        expectThrow(() => inputLogFromRecording(partial), /moves/);
-        const inconsistent = { ...data, inputLog };
-        inconsistent[`${slot}team`] = structuredClone(data[`${slot}team`]);
-        inconsistent[`${slot}team`][0].level -= 1;
-        expectThrow(() => inputLogFromRecording(inconsistent), /does not match/);
-      }
-      await truncateAtTurn(inputLog, 3);
-      let seedOnlyRejected = false;
-      try { await truncateAtTurn(rawInputLog, 1); } catch (err) { seedOnlyRejected = /absent/.test(err.message); }
-      assert(seedOnlyRejected, 'seed-only random input entered branching without recorded teams');
     }
     const played = await replayInputLog(inputLog);
     assert(played.inputLog.trim() === inputLog.trim(), `${path.basename(file)} input log did not round-trip`);
@@ -977,26 +907,18 @@ async function execute({ root, formatid = null, say }) {
     const result = await section(profile.formatid, async () => {
       assert(fixture, `${profile.formatid} is admitted but has no formats.js fixture`);
       if (fixture.plan) return scripted(fixture, profile);
-      if (fixture.team === 'random' || fixture.generator) return { worker: await randomKnown(fixture, profile) };
-      throw new Error(`${profile.formatid} has neither a scripted plan nor a generator`);
+      throw new Error(`${profile.formatid} has no scripted plan`);
     });
     if (result?.worker) cases.push(result.worker);
-    if (result?.protocol && profile.formatid === 'gen9vgc2024regg') {
+    if (result?.protocol && profile.formatid === 'gen9ou') {
       rejection = { protocol: result.protocol, packed: result.packed };
     }
   }
 
-  if ((!formatid || formatid === 'gen9ou') && !admittedById('gen9ou')) {
-    const result = await section('gen9ou fixture (admission pending)', () => scripted(FORMATS.gen9ou, null));
-    if (result?.worker) cases.push({ ...result.worker, pendingAdmission: true });
-  }
-  if ((!formatid || formatid === 'gen9randombattle') && !admittedById('gen9randombattle')) {
-    await section('gen9randombattle packed teams (admission pending)', () => randomKnown(FORMATS.gen9randombattle, null));
-  }
   if (!formatid || formatid.startsWith('gen9champions')) {
     champions = await section('champions regression', () => championsRegression());
   }
-  if (!formatid || formatid === 'gen9vgc2024regg') {
+  if (!formatid || formatid === 'gen9ou') {
     await section('exact HP denominator 100', () => hpDenominator100());
   }
   const found = await section('preserved standard logs', () => preservedLogs(root, formatid));

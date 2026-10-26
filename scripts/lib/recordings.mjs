@@ -18,6 +18,7 @@
 import fs from 'fs';
 import path from 'path';
 import { inputLogFromRecording } from './recording-input.mjs';
+import { profileFromInputLog } from './format-profile.mjs';
 
 /** Every `.log.json` under `dir`, recursively. Missing directories yield none. */
 function walk(dir, out = []) {
@@ -50,9 +51,18 @@ export function listLogFiles(root) {
   return all.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
 }
 
-/** The most recently written recording, or null if there are none. */
+/** Default selection excludes archived evidence for unsupported formats. */
+function canBranch(file) {
+  try {
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    profileFromInputLog(data.inputLog, 'branching');
+    return true;
+  } catch { return false; }
+}
+
+/** The most recently written supported recording, or null if there are none. */
 export function newestLogFile(root) {
-  return listLogFiles(root)[0] || null;
+  return listLogFiles(root).find(canBranch) || null;
 }
 
 /**
@@ -65,7 +75,7 @@ export function newestLogFile(root) {
  * The turn count is written into the log file, so this costs one read each.
  */
 export function newestLogFileWithTurns(root, turns) {
-  const files = listLogFiles(root);
+  const files = listLogFiles(root).filter(canBranch);
   for (const file of files) {
     try {
       if (Number(JSON.parse(fs.readFileSync(file, 'utf8')).turns) >= turns) return file;

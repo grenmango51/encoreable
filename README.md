@@ -9,7 +9,7 @@ choosing moves for **both** sides.
 Chess players have had this for decades. Pokémon players rewatch a video.
 
 Target ruleset is **Pokémon Champions VGC** (`[Gen 9 Champions] VGC 2026 Reg M-C`), doubles.
-Known-team recordings also support **[Gen 9] VGC 2024 Reg G**, **[Gen 9] OU**, and **[Gen 9] Random Battle** at the pinned simulator.
+Known-team recordings also support **[Gen 9] OU** at the pinned simulator.
 Replay reconstruction and hidden-team inference remain Champions-specific. The exact
 capability matrix and admission rules are in `docs/engineering.md` §2.8.
 
@@ -73,10 +73,14 @@ plain and once with the named draws forced, and reports what moved.
 `npm run replay -- --check-formats` runs the simulator-backed capability suite without a server.
 `npm run extension -- --check formats` compares the same cases with the built Worker.
 
-`--format gen9vgc2024regg`, `--format gen9ou`, or `--format gen9randombattle` records that format; without it the fixture
+`--format gen9ou` records the OU fixture; without it the fixture
 is still Champions Reg M-C. `--from` always uses the recording's own format.
 The `battle` command’s automatic interactive teams remain Champions Reg M-C only;
-use `replay -- --format <id>` and then `live -- --from <recording>` for the standard formats.
+use `replay -- --format <id>` and then `live -- --from <recording>` for OU.
+`npm run live -- --from recordings/local/probes/gen9ou-17.log.json --at 3` opens the
+preserved OU example at turn 3. OU currently requires a full-information input log with
+both complete teams and the battle seed. Ordinary ladder replay pages/URLs and team
+sheets alone are not supported OU inputs; reconstruction and EV/IV inference are disabled.
 `--probe` archives a newly played regression battle to `recordings/local/probes/`.
 `--logs <directory>` reads a shared local server's logs from that directory; the
 completed battle is matched by its room ID. It does not move or restart the server.

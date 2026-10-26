@@ -242,21 +242,6 @@ function isComplete(data) {
 }
 
 /** True when both initial player lines carry a team seed and no packed team. */
-function seedOnlyRecording(data) {
-  const lines = Array.isArray(data.inputLog) ? data.inputLog : String(data.inputLog || '').split('\n');
-  const found = {};
-  for (const line of lines) {
-    const header = /^>player (p[12]) /.exec(line);
-    if (!header || found[header[1]]) continue;
-    try {
-      const opts = JSON.parse(line.slice(header[0].length));
-      const packed = typeof opts.team === 'string' && opts.team;
-      found[header[1]] = !packed && opts.seed != null && opts.seed !== '';
-    } catch { found[header[1]] = false; }
-  }
-  return found.p1 === true && found.p2 === true;
-}
-
 function standardProfiles(profiles) {
   return (profiles || []).filter(profile => profile
     && profile.statModel === 'standard-ev-iv'
@@ -269,46 +254,18 @@ async function loadRecordingInput(root) {
   return import(pathToFileURL(path.join(root, 'scripts/lib/recording-input.mjs')).href);
 }
 
-/**
- * The derived log keeps the recorded seed and replaces a seed-only team with
- * the server's `p1team` / `p2team`. It must not leave the seed in place, and
- * it must not ask the generator for a new team.
- */
-function assertMaterialized(data, derived, profile) {
+/** Known-team room checks keep the source commands unchanged. */
+function assertRecordingInput(data, derived, profile) {
   const prov = derived.provenance;
-  const mat = derived.materialization;
-  if (!prov || !prov.admitted || !prov.capabilityGranted) {
-    throw new Error(`not admitted for branching (${prov && prov.admissionError || 'capability not granted'})`);
+  if (!prov?.admitted || !prov.capabilityGranted) throw new Error('not admitted for branching');
+  if (prov.formatid !== profile.formatid || prov.statModel !== 'standard-ev-iv' || prov.gameType !== profile.gameType) {
+    throw new Error('recording identity disagrees with the supported profile');
   }
-  if (prov.formatid !== profile.formatid) throw new Error(`materialized format is ${prov.formatid}`);
-  if (prov.statModel !== 'standard-ev-iv') throw new Error(`stat model is ${prov.statModel}`);
-  if (prov.gameType !== profile.gameType) throw new Error(`game type is ${prov.gameType}`);
-  if (!mat || mat.generatorInvoked) throw new Error('team generator ran while deriving the input log');
-  if (mat.mode !== 'packed-passthrough' && mat.mode !== 'recorded-teams') {
-    throw new Error(`unknown materialization mode ${mat.mode}`);
+  if (derived.materialization?.mode !== 'packed-passthrough' || derived.materialization.generatorInvoked) {
+    throw new Error('known-team input was materialized or generated');
   }
   const raw = Array.isArray(data.inputLog) ? data.inputLog.join('\n') : String(data.inputLog || '');
-  let seedOnly = false;
-  for (const player of prov.players || []) {
-    if (player.slot !== 'p1' && player.slot !== 'p2') continue;
-    const line = derived.lines[player.lineIndex];
-    let opts;
-    try { opts = JSON.parse(String(line).replace(/^>player p[1-4] /, '')); }
-    catch { throw new Error(`${player.slot} derived player line is not JSON`); }
-    if (opts.seed != null && opts.seed !== '') throw new Error(`${player.slot} derived line still carries a team seed`);
-    if (typeof opts.team !== 'string' || opts.team.length < 8) throw new Error(`${player.slot} derived line has no packed team`);
-    if (!player.teamSeed) continue;
-    seedOnly = true;
-    if (mat.mode !== 'recorded-teams') throw new Error(`${player.slot} seed-only team was not taken from the recorded sets`);
-    if (player.teamSeedUsed) throw new Error(`${player.slot} team seed was used to generate a team`);
-    const slot = mat.slots[player.slot];
-    if (!slot || slot.droppedSeed !== true || slot.source !== `${player.slot}team` || slot.packed !== opts.team) {
-      throw new Error(`${player.slot} packed team is not the recorded ${player.slot}team`);
-    }
-    if (String(line).includes(String(player.teamSeed))) throw new Error(`${player.slot} line still contains its team seed`);
-    if (!raw.includes(String(player.teamSeed))) throw new Error(`${player.slot} recording was rewritten`);
-  }
-  if (seedOnly && mat.mode !== 'recorded-teams') throw new Error('a seed-only team was not replaced from the server sets');
+  if (derived.inputLog !== raw.trimEnd()) throw new Error('source commands changed');
 }
 
 function candidatesFor(root, formatid) {
@@ -322,11 +279,10 @@ function candidatesFor(root, formatid) {
       if (formatIdOf(data) !== formatid || !isComplete(data)) continue;
       let inRoot = false;
       try { inRoot = !!primaryReal && fs.realpathSync(file).startsWith(primaryReal + path.sep); } catch { inRoot = false; }
-      found.push({ file, data, inRoot, seedOnly: seedOnlyRecording(data) });
+      found.push({ file, data, inRoot });
     }
   }
   found.sort((a, b) => {
-    if (a.seedOnly !== b.seedOnly) return a.seedOnly ? -1 : 1;
     if (a.inRoot !== b.inRoot) return a.inRoot ? -1 : 1;
     return path.basename(b.file).localeCompare(path.basename(a.file));
   });
@@ -344,7 +300,7 @@ async function prepareFormat(root, profile, inputLogFromRecording, truncateAtTur
   for (const item of files) {
     try {
       const derived = inputLogFromRecording(item.data, { capability: 'branching' });
-      assertMaterialized(item.data, derived, profile);
+      assertRecordingInput(item.data, derived, profile);
       const tier = protocolFact(item.data, 'tier');
       const gameType = protocolFact(item.data, 'gametype');
       const gen = protocolFact(item.data, 'gen');
@@ -630,7 +586,7 @@ export async function runKnownFormatRooms({ root, dist, headful = false, verbose
     try {
       const item = await prepareFormat(root, profile, inputLogFromRecording, truncateAtTurn, verbose);
       ready.push({ profile, ...item });
-      console.log(`  [ready] ${profile.formatid} ${sourceLabel(root, item.file)} ${item.derived.materialization.mode}${item.seedOnly ? ' seed-only' : ''} turn ${KNOWN_TURN}`);
+      console.log(`  [ready] ${profile.formatid} ${sourceLabel(root, item.file)} ${item.derived.materialization.mode} turn ${KNOWN_TURN}`);
     } catch (err) {
       failures.push(`${profile.formatid}: ${err.message}`);
       console.log(`  [FAIL] ${profile.formatid}\n         ${err.message}`);

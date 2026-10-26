@@ -180,16 +180,6 @@ async function workerChecks({ root, dist, headful, verbose }) {
       if (normalized.inputLog !== item.inputLog || normalized.materialization.mode !== item.materialization || normalized.materialization.generatorInvoked) {
         throw new Error(`${item.file} Worker source materialization differs from Node`);
       }
-      if (item.materialization === 'recorded-teams') {
-        const raw = item.recording.inputLog.join('\n');
-        await expectRejected(page, 'resim', [raw], /absent/);
-        await expectRejected(page, 'open', [raw], /absent/);
-        for (const slot of ['p1', 'p2']) {
-          const incomplete = structuredClone(item.recording);
-          delete incomplete[`${slot}team`];
-          await expectRejected(page, 'recordingInput', [incomplete], /absent/);
-        }
-      }
       await compareBattle(page, item.file, item.inputLog, item.lines, item.branch ? [item.branch] : []);
       console.log(`  [PASS] worker ${item.file}`);
     }
@@ -199,19 +189,25 @@ async function workerChecks({ root, dist, headful, verbose }) {
     if (!championsPanel?.pokemon?.length) throw new Error('champions spreadPanel did not return the SP panel');
     console.log('  [PASS] worker champions spread panel');
 
+    for (const formatid of ['gen9vgc2024regg', 'gen9randombattle']) {
+      const removed = `>start ${JSON.stringify({ formatid, seed: 'sodium,0123456789abcdeffedcba9876543210' })}\n`;
+      await expectRejected(page, 'resim', [removed], /Unsupported format/);
+      await expectRejected(page, 'open', [removed], /Unsupported format/);
+      await expectRejected(page, 'recordingInput', [{ inputLog: removed }], /Unsupported format/);
+    }
     const gen8 = `>start ${JSON.stringify({ formatid: 'gen8ou', seed: 'sodium,0123456789abcdeffedcba9876543210' })}\n`;
     await expectRejected(page, 'resim', [gen8], /Unsupported format/);
     await expectRejected(page, 'open', [gen8], /Unsupported format/);
     const custom = `>start ${JSON.stringify({
-      formatid: 'gen9vgc2024regg', customRules: ['HP Percentage Mod'], seed: 'sodium,0123456789abcdeffedcba9876543210',
+      formatid: 'gen9ou', customRules: ['HP Percentage Mod'], seed: 'sodium,0123456789abcdeffedcba9876543210',
     })}\n`;
     await expectRejected(page, 'resim', [custom], /overrides of the supported format profile/);
     await expectRejected(page, 'reconstructReplay', [{
-      source: { name: 'vgc-format-check.html', log: reference.rejection.protocol.join('\n') },
+      source: { name: 'ou-format-check.html', log: reference.rejection.protocol.join('\n') },
       teams: reference.rejection.packed.map(packed => ({ packed })),
     }], /Unsupported capability knownTeamReconstruction/);
     await expectRejected(page, 'reconstructReplay', [{
-      source: { name: 'vgc-inference-check.html', log: reference.rejection.protocol.join('\n') },
+      source: { name: 'ou-inference-check.html', log: reference.rejection.protocol.join('\n') },
       teams: reference.rejection.packed.map(packed => ({ packed })),
       infer: 'p1',
     }], /Unsupported capability openSpreadInference/);

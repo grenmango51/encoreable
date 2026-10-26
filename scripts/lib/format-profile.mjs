@@ -32,9 +32,7 @@ export const FORMAT_PROFILES = Object.freeze([
   profile('gen9championsvgc2026regmbbo3', 'championsregmb', 'doubles', 'champions-sp', true),
   // Custom Game's unbounded levels/budgets are deliberately outside inference.
   profile('gen9championsdoublescustomgame', 'champions', 'doubles', 'champions-sp'),
-  profile('gen9vgc2024regg', 'gen9', 'doubles', 'standard-ev-iv'),
   profile('gen9ou', 'gen9', 'singles', 'standard-ev-iv'),
-  profile('gen9randombattle', 'gen9', 'singles', 'standard-ev-iv'),
 ]);
 
 const byId = new Map(FORMAT_PROFILES.map(p => [p.formatid, p]));

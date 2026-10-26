@@ -111,12 +111,11 @@ async function playFixtureBattle() {
   assertFormatCapability(formatid, 'recording');
   const fixture = FORMATS[formatid];
   if (formatid !== FORMAT && !fixture) throw new Error(`no recording fixture for ${formatid}`);
-  const randomTeam = Dex.formats.get(formatid).team === 'random';
-  if (fixture && !fixture.plan && !randomTeam) throw new Error(`no recording policy yet for ${formatid}`);
+  if (fixture && !fixture.plan) throw new Error(`no recording policy yet for ${formatid}`);
   const uid = Math.floor(1000 + Math.random() * 9000);
   const p1 = new WsPlayer({
     name: `Ghosts${uid}`,
-    team: randomTeam ? 'null' : Teams.pack(Teams.import(fixture?.p1 || P1_EXPORT)),
+    team: Teams.pack(Teams.import(fixture?.p1 || P1_EXPORT)),
     format: formatid,
     // Attack rather than set up, so both sides take damage and the log carries
     // exact HP numbers for p1 as well as p2.
@@ -128,7 +127,7 @@ async function playFixtureBattle() {
   });
   const p2 = new WsPlayer({
     name: `Boom${uid}`,
-    team: randomTeam ? 'null' : Teams.pack(Teams.import(fixture?.p2 || P2_EXPORT)),
+    team: Teams.pack(Teams.import(fixture?.p2 || P2_EXPORT)),
     format: formatid,
     // Default is the fast fixture: everything on p2 removes itself turn one.
     // --fight trades speed for a longer battle that actually deals damage.
@@ -138,19 +137,7 @@ async function playFixtureBattle() {
     verbose: VERBOSE,
   });
 
-  if (randomTeam) {
-    for (const [side, player] of [['p1', p1], ['p2', p2]]) {
-      const choose = makePolicy([]);
-      let moveRequests = 0;
-      player.policy = (request, context) => {
-        if (request.active && ++moveRequests > 5) {
-          if (side === 'p2') player.send(player.battleRoom, '/forfeit');
-          return null;
-        }
-        return choose(request, context);
-      };
-    }
-  } else if (fixture) {
+  if (fixture) {
     // These are fixture choices, not a move-selection engine. Stop by forfeit
     // once the entire prescribed sequence has been recorded.
     for (const [side, player] of [['p1', p1], ['p2', p2]]) {
@@ -278,9 +265,9 @@ function describeSet(set, profile) {
 // ----------------------------------------------------------------------- main
 
 async function main() {
+  if (opt('--format')) assertFormatCapability(opt('--format'), 'exactReplay');
   if (flag('--check-formats')) {
     const formatid = opt('--format');
-    if (formatid) assertFormatCapability(formatid, 'exactReplay');
     const { run } = await import('./lib/format-regression.mjs');
     if (!await run({ root: ROOT, formatid })) process.exitCode = 1;
     return;
@@ -336,14 +323,8 @@ async function main() {
   const packedTeams = ['p1', 'p2'].map(side => Teams.pack(sides[side]?.sets || []));
   const stats = statsFromTeams(formatid, packedTeams);
   const validator = new TeamValidator(formatid);
-  const generatedFormat = Dex.formats.get(formatid).team === 'random';
-  // Keep the recorded battle format. Its validator rejects supplied teams;
-  // a clone without the generator restriction checks the same set rules.
-  const setValidator = generatedFormat
-    ? new TeamValidator({ ...Dex.formats.get(formatid), team: undefined }) : validator;
   const validation = Object.entries(sides).flatMap(([side, team]) =>
-    (setValidator.validateTeam(structuredClone(team.sets)) || []).map(problem => `${side}: ${problem}`));
-  if (generatedFormat) validation.push(...(validator.validateTeam(null) || []));
+    (validator.validateTeam(structuredClone(team.sets)) || []).map(problem => `${side}: ${problem}`));
 
   const names = Object.values(sides).map(s => s.name);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -360,17 +341,14 @@ async function main() {
   }
 
   console.log('\n================ CHECKS ================\n');
-  console.log(`  [${inputLogRoundTrips ? 'PASS' : 'FAIL'}] ${sourceInput.materialization.mode === 'recorded-teams' ? 'derived replay input' : 'input log'} round-trips byte-identically through a fresh battle`);
+  console.log(`  [${inputLogRoundTrips ? 'PASS' : 'FAIL'}] input log round-trips byte-identically through a fresh battle`);
   console.log(`  [${logDiff ? 'FAIL' : 'PASS'}] re-simulated protocol log matches the server's (${simLines.length} battle lines compared)`);
   if (logDiff) {
     console.log(`         first divergence at line ${logDiff.index}`);
     console.log(`         server: ${logDiff.expected}`);
     console.log(`         resim:  ${logDiff.actual}`);
   }
-  console.log(`  [${validation.length ? 'FAIL' : 'PASS'}] ${generatedFormat ? 'generator input policy and recorded sets under the same rules with generator disabled' : `recovered teams accepted by the ${formatid} validator`}`);
-  if (sourceInput.materialization.mode === 'recorded-teams') {
-    console.log('         replay input uses complete recorded p1team/p2team; original source unchanged; team seeds unused');
-  }
+  console.log(`  [${validation.length ? 'FAIL' : 'PASS'}] recovered teams accepted by the ${formatid} validator`);
   for (const problem of validation) console.log(`         ${problem}`);
   console.log('  Simulator-computed initial max HP (a denominator of 100 can be exact):');
   for (const [i, team] of stats.entries()) {

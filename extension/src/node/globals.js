@@ -6,10 +6,6 @@
  * nested `setTimeout(0)` gets, which a search yielding thousands of times feels.
  */
 
-// The pinned PotD rule reads Node's `global.Config?.potd`, even when both
-// random teams are supplied. Leave Config absent, as in the Node reference.
-if (!globalThis.global) globalThis.global = globalThis;
-
 if (typeof globalThis.setImmediate !== 'function') {
   const channel = new MessageChannel();
   const queue = new Map();

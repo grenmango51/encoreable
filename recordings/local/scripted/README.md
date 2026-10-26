@@ -18,7 +18,9 @@ S1–S3 test set.
 | `…-100`, `-111`, `-122` | 5, 4, 6 | Played under the retired `>eval` RNG controller, which wrote `\|-message\|#rng` lines into the log; `battleLines` drops them |
 
 `gen9championsvgc2026regmc-14.log.json` preserves the campaign's fresh Champions
-baseline. `gen9vgc2024regg-15.log.json` is the standard VGC fixture from
-`scripts/fixtures/formats.js`: ordinary EVs and IVs, choose four of six, hazards,
-switches, Terastallization and a Parting Shot replacement. It ends by forfeit at turn 5.
-Both were recorded by the real local server and replay exactly at the pinned simulator.
+baseline and replays exactly at the pinned simulator.
+
+`gen9vgc2024regg-15.log.json` is immutable archived evidence from removed VGC Reg G
+work. The fixture and format admission were removed; Node and the extension now
+reject this recording as unsupported. The source file is retained under the
+recording-preservation rule.

@@ -680,6 +680,16 @@ function closedSummary(results) {
 
 // ------------------------------------------------------------------- main
 
+/** Bulk runs report archived unsupported formats without admitting them. */
+function sourceForCorpus(file) {
+  try { return loadSource(file); }
+  catch (err) {
+    if (!String(err.message).startsWith('Unsupported format ')) throw err;
+    say(`  ${path.basename(file)}: SKIP ${err.message}`);
+    return null;
+  }
+}
+
 async function main() {
   const rung = (opt('--rung', 's1') || 's1').toLowerCase();
   const teamsKey = opt('--teams', 'alt');
@@ -710,7 +720,10 @@ async function main() {
   if (!files.length || !files[0]) throw new Error('no source found - pass --from <file>');
   if (opt('--format')) {
     const selected = formatProfile(opt('--format')).formatid;
-    files = files.filter(file => loadSource(file).formatid === selected);
+    files = files.filter(file => {
+      const source = flag('--all') ? sourceForCorpus(file) : loadSource(file);
+      return source?.formatid === selected;
+    });
     if (!files.length) throw new Error(`no sources match --format ${selected}`);
   }
   const many = files.length > 1 || !!saved;
@@ -732,7 +745,8 @@ async function main() {
     if (job) say(`## ${job.label}  (${job.teamsKey} is p${job.infer === 'p1' ? 2 : 1}, ${job.infer} inferred)`);
     try {
       if (flag('--all')) {
-        const source = loadSource(file);
+        const source = sourceForCorpus(file);
+        if (!source) continue;
         const capability = infer ? 'openSpreadInference' : 'knownTeamReconstruction';
         if (!source.profile.capabilities[capability]) {
           say(`  ${path.basename(file)}: SKIP unsupported ${capability} for ${source.formatid}`);
