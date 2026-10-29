@@ -36,8 +36,8 @@ lunkwill, nullify, phouchg, poodoo, prefect, quordlepleen, random, thrashbarg, t
 vantrashell, varntvar, versenwald, vranx, vroomfondel, wonko, wowbagger, zarniwoop, zarquon and
 zem.
 
-- The hosts are shared with students. Use hosts whose load is under 1 (`cat /proc/loadavg`), at
-  most 8 workers per host and 10 hosts at a time.
+- Use as many hosts and workers as the work needs. Hosts that are already busy (`cat
+  /proc/loadavg`) run slower, so prefer idle ones.
 - Access is by SSH key, through the owner's home server (`ssh aalto-server`), which keeps a
   gateway to `kosh` open. Never ask for the Aalto password; nothing needs it.
 - If `ssh kosh` fails on the laptop after a network change, run `aalto-link status` to re-sync
