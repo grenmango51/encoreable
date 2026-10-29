@@ -22,27 +22,8 @@ planned).
 - `git pull` first. Work on `main` or a short branch merged into it, and push what you finish:
   the owner works from several devices.
 - Node 22.18+ (`C:\Program Files\nodejs` on the Windows laptop), then `npm install` once.
-- Heavy runs never go on the laptop. Use **Compute**.
-
-## Compute
-
-Use the Aalto workstations, 10 cores and 30 GB each. This line runs any command on a pushed
-branch or commit, in a worktree of its own, with Node 24, under `nice`:
-
-    ssh kosh 'ssh <host>.org.aalto.fi bash ~/projects/encoreable-cluster/run-branch.sh <branch-or-sha> <command>'
-
-The hosts are agda, effrafax, fenchurch, gargravarr, hactar, kapelsen, lallafa, loonquawl,
-lunkwill, nullify, phouchg, poodoo, prefect, quordlepleen, random, thrashbarg, tragula,
-vantrashell, varntvar, versenwald, vranx, vroomfondel, wonko, wowbagger, zarniwoop, zarquon and
-zem.
-
-- Use as many hosts and workers as the work needs. Hosts that are already busy (`cat
-  /proc/loadavg`) run slower, so prefer idle ones.
-- Access is by SSH key, through the owner's home server (`ssh aalto-server`), which keeps a
-  gateway to `kosh` open. Never ask for the Aalto password; nothing needs it.
-- If `ssh kosh` fails on the laptop after a network change, run `aalto-link status` to re-sync
-  the route. If the gateway is closed: `ssh aalto-server '~/.local/bin/aalto-link on 0'`.
-- Long agent sessions run on the home server, in `~/projects/github/grenmango51/encoreable`.
+- Heavy runs never go on the laptop. They go to the Aalto workstations, as
+  `~/.agents/AALTO_COMPUTE.md` says (outside the repo, beside the global `AGENTS.md`).
 
 ## Hard rules
 
@@ -68,7 +49,7 @@ zem.
 - A change to inference, reconstruction or the order reader: `npm run catalog -- --regress` passes
   (15 entries, about 3 minutes on 8 threads). `npm run reconstruct -- --all --rung s3 --infer p2`
   must keep every real spread. After a batch of such changes, run the full fuzz and catalog on
-  Compute.
+  the Aalto workstations.
 - An extension change, or any change in `scripts/lib/inference/` (the extension bundles it):
   `npm run extension -- --check`.
 - Anything visible: open it and look. A passing script is not proof the board looks right.
