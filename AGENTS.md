@@ -142,6 +142,10 @@ scratchpad and get deleted. Only a battle worth keeping goes to `recordings/loca
   `Battle.toJSON()` and `Battle.fromJSON()`.
 - **Views:** a public replay is the spectator's view (channel 0), with both sides' HP as
   percentages. A page downloaded from the battle room shows the uploader's own HP exactly.
+- **Local server:** it rebuilds the simulator when it starts after provisioning. If
+  `npm run replay` reports the servers did not come up, start `npm run serve` and wait for ports
+  8000 and 8080. A server killed mid-build leaves `runtime/dist` broken, and the next start fails
+  loading learnsets: delete `runtime/dist` and run `node build` in `runtime/`.
 
 ## Dead ends — do not retry
 
