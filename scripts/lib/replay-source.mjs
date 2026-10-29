@@ -702,8 +702,7 @@ export function teamsForSides(lines, teams) {
  * non-zero, and an auto-chosen target leaves it zero - so a move needing a
  * target can be written down without one. Replaying that line takes the
  * explicit path, which rejects it (`sim/side.ts:663`). The log is unreplayable
- * through no fault of ours; `docs/engineering.md` 6.1 documents the same defect
- * arriving via `/choose default`.
+ * through no fault of ours. The same defect arrives through `/choose default`.
  *
  * Worth naming out loud: a source with any of these cannot be reproduced
  * exactly, because the choice that was really made cannot be expressed.

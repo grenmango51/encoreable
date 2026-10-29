@@ -3,8 +3,8 @@
  * at `document_start`, so it is in place before the client's first send.
  *
  * The live client builds a battle room from any `>roomid` frame that opens with
- * `|init|battle` (`docs/extension.md` P3), and every message it sends passes
- * through `app.send` (P1). So the server is replaced at that one point:
+ * `|init|battle`, and every message it sends passes
+ * through `app.send`. So the server is replaced at that one point:
  *
  *   - a branch is a battle in the simulator Worker (`engine.js`), shown as two
  *     rooms, one per side, each fed its own channel - exact HP for its own

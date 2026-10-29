@@ -7,7 +7,7 @@
  * work as it goes.
  *
  *   1. the simulator says what choice it wants and what is legal
- *      (`side.activeRequest`, docs/engineering.md 5.7). We only answer "which of the
+ *      (`side.activeRequest`). We only answer "which of the
  *      offered options did the player pick", and the observed log says.
  *   2. the turn is written, and the protocol lines it emitted are compared - in
  *      the same channel the observation came from - against the observed ones.
@@ -23,10 +23,10 @@
  * simulator every question that takes.
  *
  * Searching for a seed that reproduces a whole turn at once costs the *product*
- * of every random event in it, which is why docs/engineering.md 4 opens by saying
- * seed search was never required. Settling draws one at a time costs their sum.
+ * of every random event in it, so seed search is never used. Settling draws one
+ * at a time costs their sum.
  * `>editbattle hp` stays rejected: it writes an HP no roll can produce, a log
- * inconsistent with its own seed (docs/engineering.md 4.3).
+ * inconsistent with its own seed.
  */
 
 import os from 'os';
@@ -38,7 +38,7 @@ import { install, traceOn, markDraws, atLine } from './rng-control.mjs';
 
 const require = createRequire(import.meta.url);
 const { Battle, BattleStream, Dex, Teams, toID } = require('pokemon-showdown');
-// Not re-exported by `sim/index.ts`; see docs/engineering.md 6.5. This is the sim's
+// Not re-exported by `sim/index.ts`. This is the sim's
 // own resolver for the secret/public split, so no percentage arithmetic of ours
 // exists anywhere in this project.
 const { extractChannelMessages } = require('pokemon-showdown/dist/sim/battle.js');
@@ -341,7 +341,7 @@ function targetOptions(side, actorSlot, moveTarget, preferred = null) {
   // choosable-target move with no target outright. A recorded log CAN still
   // contain one - `getChoice()` omits a `targetLoc` of 0, which is what an
   // auto-chosen target leaves behind - and such a log is unreplayable through
-  // no fault of ours (docs/engineering.md 6.1). Detected and reported, not guessed.
+  // no fault of ours. Detected and reported, not guessed.
   const doubles = side.active.length >= 2;
   if (moveTarget === 'adjacentAllyOrSelf') return [` -${actorSlot + 1}`];
   if (moveTarget === 'adjacentAlly') return [` -${actorSlot === 0 ? 2 : 1}`];
@@ -373,7 +373,7 @@ function selfSwitchLast(dex) {
  * The choice string for one side's current request.
  *
  * Everything legal is read off the live request. Nothing is read off the set's
- * movelist: legality is dynamic (docs/engineering.md 5.6), and a locked or disabled
+ * movelist: legality is dynamic, and a locked or disabled
  * move is offered or withheld by the simulator, not by us.
  */
 function choiceFor(side, plan, state, notes) {
@@ -1165,7 +1165,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
   const battle = stream.battle;
   // A move a hidden disable turned into Struggle - Imprison's, in doubles - is
   // recorded as `move struggle`, which the request it answered never offered,
-  // so that line would be refused on replay (docs/engineering.md 6.1). The
+  // so that line would be refused on replay. The
   // choice that was written is recorded in its place.
   const written = {};
   const recordInput = battle.inputLog.push;
@@ -1264,7 +1264,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
       if (before === after) {
         // A rejected choice is a silent no-op: the error goes to the side
         // channel, never to the battle log, and the turn simply does not
-        // advance (docs/engineering.md 5.7). Assert progress or it hangs unnoticed.
+        // advance. Assert progress or it hangs unnoticed.
         state.unsatisfied = `turn ${k}: a choice was rejected - nothing advanced`;
         break;
       }

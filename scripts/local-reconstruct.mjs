@@ -16,7 +16,7 @@
  *   s4  a saved replay: .html, or a replay link's .json      -> everything
  *
  * `--infer p1|p2|both` withholds one more thing: that side's Stat Points. They
- * are inferred from the replay (docs/engineering.md 7.5) instead of read from a
+ * are inferred from the replay instead of read from a
  * fixture - `p2` is "I know my team, not theirs", `both` knows neither. On a
  * recording the real spreads stay available as the check; on a replay, the
  * fixture named by `--teams` is the check when it has that side.
@@ -111,7 +111,7 @@ const chatty = (...a) => { if (VERBOSE) console.log(' ', ...a); };
  *
  * A recording produced by branching carries a `>reseed`: `npm run live` keeps
  * the position and rolls fresh dice from that turn on. Turn boundaries are not
- * derivable by counting (docs/engineering.md 5.8), so the log is replayed one line at
+ * derivable by counting, so the log is replayed one line at
  * a time and `battle.turn` is read off at the moment the reseed lands.
  */
 async function reseedPlan(inputLog) {
@@ -501,7 +501,7 @@ async function runOne({
   }
   if (inexpressible.length) {
     say(`     warning: the source's own input log is unreplayable - ${inexpressible.join(', ')} ` +
-        `recorded with no target (docs/engineering.md 6.1). The real choice cannot be expressed, ` +
+        `recorded with no target, an upstream defect. The real choice cannot be expressed, ` +
         `so this battle is reproduced by forcing its draws rather than by matching choices.`);
   }
   const work = inference ? { ...inferenceWork, warnings: inferenceWarnings.length }

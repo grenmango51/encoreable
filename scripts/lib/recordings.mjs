@@ -9,7 +9,7 @@
  * `node_modules/pokemon-showdown`, and deleting it to reset the server is a
  * normal thing to do. So recordings worth keeping are archived to
  * `recordings/local/<how it was played>/`, which is tracked and outside the
- * generated tree (recordings/README.md).
+ * generated tree.
  *
  * Both directories are searched, `recordings/` at any depth. On a name collision
  * `recordings/` wins, so an archived copy is authoritative once it exists.
@@ -75,7 +75,7 @@ export function newestLogFileWithTurns(root, turns) {
 
 /**
  * The `recordings/local/` folder a battle this server ran belongs in, read off
- * its input log (recordings/local/README.md):
+ * its input log:
  *
  * - `branched`: a `>player` line after the first choice - `npm run live`
  *   restored it from another recording and the players rejoined mid-battle.
@@ -117,7 +117,7 @@ export function archiveLogFile(root, file) {
  *
  * A reconstructed log reproduces its replay line for line, but its dice were
  * chosen and the opponent's HP was sampled from inside the band a percentage
- * allows (docs/engineering.md 7). It is a faithful reading of someone else's battle,
+ * allows. It is a faithful reading of someone else's battle,
  * not a record of one this server ran, and every command that loads one says so -
  * including when a side's Stat Points were inferred rather than supplied -
  * `npm run live` reaches for the newest recording by default, and the newest is

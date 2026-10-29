@@ -82,7 +82,7 @@ if (fs.existsSync(configPath)) {
 }
 
 // Every action kind the simulator queues is one the order reader reads or sets
-// aside on purpose (docs/engineering.md §12.5, S4)
+// aside on purpose
 if (!fs.existsSync(queuePath)) {
   console.error(`FAIL: ${QUEUE} not found.`);
   process.exit(1);

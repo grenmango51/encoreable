@@ -1,5 +1,5 @@
 /**
- * Step 2 - the fake room (`docs/extension.md` 5).
+ * Step 2 - the fake room.
  *
  * The built extension is installed in a throwaway Chrome, which opens the live
  * play.pokemonshowdown.com as a guest. A recording is branched at turn 4 and

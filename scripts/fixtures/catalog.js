@@ -2,7 +2,7 @@
 
 /**
  * The fixed cast, the witness moves and the hand-set battles of `npm run catalog`
- * (scripts/local-catalog.mjs, docs/evidence-catalog.md).
+ * (scripts/local-catalog.mjs).
  *
  * Every auto template is built from what is here, so every run builds the same
  * battles. p1 is the known side and p2 the hidden one; the hidden Pokemon whose
@@ -1971,7 +1971,7 @@ const cells = {
     'read:HP': "Heal Pulse heals half its target's max HP, rounded up (data/moves.ts:8408-8413). On a hidden target, twice halved first so the heal is not capped, the healed percentage is the same at every HP Stat Point (the sweep finds no edge); on a known target the amount is the known Pokemon's own.",
   },
   'ability:effectspore': {
-    'O:Spe': "The order this row measures is between the hidden Blastoise, paralysed by Effect Spore, and the hidden Avalugg, whose own Speed range covers both worlds' speeds: an order between two hidden Pokemon, which bounds neither here (evidence-catalog.md §5).",
+    'O:Spe': "The order this row measures is between the hidden Blastoise, paralysed by Effect Spore, and the hidden Avalugg, whose own Speed range covers both worlds' speeds: an order between two hidden Pokemon, which bounds neither here.",
   },
   'item:shellbell': {
     'O:SpD': 'onAfterMoveSecondarySelf heals the known holder by an eighth of what its hit dealt (data/items.ts:5657-5659); at a fixed HP that heal falls in the same step at every Special Defence the hidden Pokemon\'s percentage leaves, so telling two values apart needs HP and Special Defence swept together, which no hand-set battle does.',

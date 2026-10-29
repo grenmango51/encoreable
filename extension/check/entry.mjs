@@ -1,11 +1,11 @@
 /**
- * Step 3 - entry points (`docs/extension.md` 5).
+ * Step 3 - entry points.
  *
  * S4 in the browser: each saved Bo3 replay in `recordings/showdown/full-sheets/`
  * is rebuilt twice from the same inputs - the replay page and the `alt` fixture
  * teams - once by `npm run reconstruct` in Node and once by the extension's
  * Worker on the live play.pokemonshowdown.com, probe threads and all. Both must
- * MATCH at the turn counts in `engineering.md` 7.4, and the two input logs must
+ * MATCH, and the two input logs must
  * be the same bytes.
  *
  * The two are games 1 and 2 of one best-of-3, and the `alt` fixture holds the
@@ -280,7 +280,7 @@ async function replayButton(chrome) {
     const got = await branchOrReason(tab, 240000).catch(async () => ({
       banner: `still working after 4 minutes - banner: ${await tab.evaluate(`(document.getElementById('encoreable-banner') || {}).innerText || '(none)'`).catch(() => '?')}`,
     }));
-    // A replay the inference cannot follow to that turn is a known ceiling (engineering.md 7.4), said plainly.
+    // A replay the inference cannot follow to that turn is a known ceiling, said plainly.
     settled = !!got.branch || /rebuilt only through turn/.test(got.banner || '');
     outcome = got.branch ? `rebuilt and branched at turn ${got.turn}` : `not branched: ${got.banner}`;
     tab.close();

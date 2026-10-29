@@ -1,5 +1,5 @@
 /**
- * Step 4 - RNG control (`docs/extension.md` 5).
+ * Step 4 - RNG control.
  *
  * The panel `npm run live` injects (`scripts/client/rng-panel.js`) runs on the
  * live client; its `/rng` commands are answered by `rng-command.js` inside the

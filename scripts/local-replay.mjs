@@ -33,7 +33,7 @@
  *
  * The rules are armed *before* the reseed on purpose. `>reseed` replaces the
  * generator object, so a run that forces nothing is how a broken accessor
- * announces itself (docs/engineering.md 4.2).
+ * announces itself.
  */
 
 import { spawn } from 'child_process';

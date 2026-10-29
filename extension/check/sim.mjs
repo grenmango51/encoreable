@@ -1,5 +1,5 @@
 /**
- * Step 1 - the simulator in the browser (`docs/extension.md` 5).
+ * Step 1 - the simulator in the browser.
  *
  * Every recording under `recordings/` is re-simulated twice: in Node, exactly
  * as `npm run replay` does, and in a page, inside the Worker the extension

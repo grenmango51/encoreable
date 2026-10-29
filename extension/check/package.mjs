@@ -1,5 +1,5 @@
 /**
- * Step 5 - packaging (`docs/extension.md` 5).
+ * Step 5 - packaging.
  *
  * Statically, `extension/dist/` must be a Manifest V3 extension whose every
  * referenced file is in the package; hold only code, JSON, HTML and licence

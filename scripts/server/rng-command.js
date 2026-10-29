@@ -38,8 +38,8 @@
  *     what a live room needs, because an operator naming a die by number knows
  *     something nobody has.
  *   - by **ordinal** (`>rng at 3=5 17=0`), which names the nth draw since
- *     installation and the value it takes. This is what reconstruction needs
- *     (docs/engineering.md 7): rebuilding someone else's battle means choosing dice
+ *     installation and the value it takes. This is what reconstruction needs:
+ *     rebuilding someone else's battle means choosing dice
  *     that have no names yet, one at a time, against the log they produced.
  *
  * Every rule-matched draw identifies itself from a stack frame plus the context
@@ -407,7 +407,7 @@ function hook(st, p) {
 			d = Math.floor(from); off = 0;
 		} else { off = Math.floor(from); d = Math.floor(to) - off; }
 
-		// A dry run must not touch the generator (§4.4). Only `randomizer` gets
+		// A dry run must not touch the generator. Only `randomizer` gets
 		// the requested band. Any other draw takes the value the real run's draw
 		// of the same range took, when the dry run was handed those (`draws`);
 		// then the value a copy of the generator gives next (`ahead`), when the
@@ -605,7 +605,7 @@ function arm(battle, parts, record) {
  * Ordinals count from installation, so the pinning line has to sit at the same
  * point in the recipe that it sat at when the values were found - for
  * reconstruction that is between `>start` and `>player`, which is what puts the
- * gender roll of a genderless set under control too (docs/engineering.md 7.2).
+ * gender roll of a genderless set under control too.
  */
 function pin(battle, pairs, record) {
 	const st = install(battle);

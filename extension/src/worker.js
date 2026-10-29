@@ -1,6 +1,6 @@
 /**
  * Worker entry. The page starts this file as a blob Worker (play.pokemonshowdown.com
- * sends no Content-Security-Policy - `docs/extension.md` P2) and talks to it with
+ * sends no Content-Security-Policy) and talks to it with
  * `{ id, method, args }` requests.
  *
  * Replies are `{ id, result }` or `{ id, error }`. Pushes the worker makes on its

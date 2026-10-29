@@ -1,6 +1,6 @@
 /**
  * Evidence catalog - what every effect Reg M-C allows lets a replay show about a
- * hidden Pokemon, and whether the inference uses it (docs/evidence-catalog.md).
+ * hidden Pokemon, and whether the inference uses it.
  *
  * The simulator decides everything. For every legal move, ability, item,
  * condition and nature this builds small battles in the real format, sets one
@@ -16,12 +16,13 @@
  * whether today's assumption about it then removes the real spread.
  *
  * Nothing here fixes what it finds. The two reports it writes are the list of
- * what to fix: docs/evidence-open-sheets.md and docs/evidence-closed-sheets.md.
+ * what to fix: .cache/catalog/evidence-open-sheets.md and
+ * .cache/catalog/evidence-closed-sheets.md.
  *
  * Usage:
  *   npm run catalog                              every effect; writes both reports
  *   npm run catalog -- --only move:gyroball,item:choicescarf --out <dir>
- *   npm run catalog -- --check                   a full run, compared with the reports
+ *   npm run catalog -- --check                   a full run, compared with the last full run's reports
  *   npm run catalog -- --check --fresh           the same, every effect played again
  *
  * A run reuses the record of every effect whose fingerprint is unchanged, from
@@ -67,8 +68,8 @@ const STATS = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
 const STAT_NAME = { hp: 'HP', atk: 'Atk', def: 'Def', spa: 'SpA', spd: 'SpD', spe: 'Spe' };
 const KINDS = ['move', 'ability', 'item', 'condition', 'nature'];
 const WORKER_ROLE = 'catalog-worker';
-const OPEN_REPORT = 'docs/evidence-open-sheets.md';
-const CLOSED_REPORT = 'docs/evidence-closed-sheets.md';
+const OPEN_REPORT = '.cache/catalog/evidence-open-sheets.md';
+const CLOSED_REPORT = '.cache/catalog/evidence-closed-sheets.md';
 
 /** Every Stat Point at 2, the base the probe varies one stat around. */
 const BASE = Object.fromEntries(STATS.map(s => [s, 2]));
@@ -134,7 +135,7 @@ function buildPool() {
   for (const [id, list] of megaOf) for (const m of list) add('ability', id, m.species);
 
   // Weight is how many legal Pokemon can use an effect, until usage data
-  // replaces it (plan.md §10). Every species can hold a Mega Stone or an item
+  // replaces it. Every species can hold a Mega Stone or an item
   // made for one species, but only that species gets anything from it.
   const effects = [];
   for (const kind of ['move', 'ability', 'item']) {
@@ -1113,9 +1114,12 @@ function statsOfHit(moveId, wonderRoom) {
 }
 
 /**
- * The mechanism a change goes through (docs/evidence-catalog.md §2), by rule
- * from what printed it and whose line it is. M8 is a change, on a later turn,
- * in a stat the effect's handlers move between Pokemon.
+ * The mechanism a change goes through, by rule from what printed it and whose
+ * line it is: M1 damage taken, M2 damage dealt, M3 another hidden stat read
+ * inside a damage calculation, M4 an HP change that is a share of max HP, M5 a
+ * hidden amount carried to an exact line, M6 an HP threshold crossed or not,
+ * M7 order, M8 a stat moved between Pokemon (a change, on a later turn, in a
+ * stat the effect's handlers move), M9 a stat named or compared in a message.
  */
 function mechanismOf(change, stat, { subject, effectTurn, moved, wonderRoom }) {
   if (change.type === 'order') return 'M7';
@@ -1665,10 +1669,9 @@ function header(title, pool) {
     `# ${title}`,
     '',
     '**Generated** by `npm run catalog` (`scripts/local-catalog.mjs`). Do not edit by hand:',
-    '`npm run catalog -- --check` fails when this file and a fresh run disagree.',
+    '`npm run catalog -- --check` fails when this file and a fresh full run disagree.',
     `**Format:** \`${FORMAT}\`, simulator \`pokemon-showdown\` at \`${simCommit()}\`.`,
     `**Pool:** ${pool.species.length} species, ${n('ability')} abilities, ${n('move')} moves, ${n('item')} items, ${n('condition')} conditions, ${n('nature')} natures.`,
-    '**Read with:** `evidence-catalog.md` §1–§2.',
     '',
   ];
 }
@@ -1849,8 +1852,10 @@ function renderOpen(records, pool, entries = FIXTURE.entries) {
   out.push('these battles could see; the card says which. **Sinks:** `hidden %` an HP figure of the hidden side, `known exact`');
   out.push('one of the known side, `order` two units of a turn swapped, `presence` a line printed in one world only, `names` a');
   out.push('line whose words changed. **Spectator:** how a published replay (channel 0) shows the change — `same`, `as %`,');
-  out.push('`hidden` (it shows no change), `absent`. **Mechanisms** are `evidence-catalog.md` §2\'s, assigned by rule from what');
-  out.push('printed the line; `M?` fits none. Roles: `U` user hidden, `T` target hidden, `H` holder hidden, `O` the known side');
+  out.push('`hidden` (it shows no change), `absent`. **Mechanisms:** M1 damage taken, M2 damage dealt, M3 another hidden stat read');
+  out.push('inside a damage calculation, M4 an HP change that is a share of max HP, M5 a hidden amount carried to an exact line,');
+  out.push('M6 an HP threshold crossed or not, M7 order, M8 a stat moved between Pokemon, M9 a stat named or compared in a message;');
+  out.push('each is assigned by rule from what printed the line, and `M?` fits none. Roles: `U` user hidden, `T` target hidden, `H` holder hidden, `O` the known side');
   out.push('holds it and acts on the hidden Pokemon, `A` a hand-set battle that varies the hidden Pokemon\'s ally (p2b) instead.');
   out.push('A hand-set battle may also name its two worlds, or sweep a stat over every value 0–32 and ask about each two');
   out.push('adjacent values the known side\'s view tells apart; such a row names its pair, `HP 13|14`. A card may carry a');
@@ -2962,8 +2967,8 @@ async function runFuzz({ count, from, cap, threads, outDir, verbose, countsFile 
 const REGRESS_ROLE = 'catalog-regress';
 
 /**
- * Every battle the open-sheet work saw fail, one per mechanism
- * (docs/engineering.md §12.5, S3), with the commit that fixed it: a fuzz seed,
+ * Every battle the open-sheet work saw fail, one per mechanism, with the
+ * commit that fixed it: a fuzz seed,
  * checked as `--fuzz 1 --seed <n>` checks it, or a catalog world, named as
  * `--dump` names it and rebuilt as the catalog's coverage rebuilds it. Each
  * fails on the code just before its commit - seed 14 on that commit with the
@@ -3301,7 +3306,6 @@ async function main() {
   if (flag('--pool')) {
     const n = kind => pool.effects.filter(e => e.kind === kind).length;
     console.log(`species ${pool.species.length}, abilities ${n('ability')}, moves ${n('move')}, items ${n('item')}, conditions ${n('condition')}, natures ${n('nature')}`);
-    console.log('evidence-catalog.md §2: species 293, abilities 203, moves 510, items 166');
     return;
   }
   let effects = pool.effects;
@@ -3330,8 +3334,12 @@ async function main() {
   const partial = effects.length !== pool.effects.length;
   const check = flag('--check');
   const outDir = opt('--out');
-  if (check && (partial || outDir || opt('--records'))) throw new Error('--check runs every effect and compares with the committed reports; it takes no --only, --kind, --out or --records');
-  if (!check && !outDir && !opt('--records') && (partial || !coverage || sheetsOpt)) throw new Error('a partial run writes only to --out <dir>; the reports in docs/ come from a full run');
+  if (check && (partial || outDir || opt('--records'))) throw new Error(`--check runs every effect and compares with the last full run's reports in ${path.dirname(OPEN_REPORT)}/; it takes no --only, --kind, --out or --records`);
+  if (check) {
+    const missing = [OPEN_REPORT, CLOSED_REPORT].filter(file => !fs.existsSync(path.join(ROOT, file)));
+    if (missing.length) throw new Error(`--check has no earlier full run to compare with: ${missing.join(', ')} missing. Run npm run catalog once first.`);
+  }
+  if (!check && !outDir && !opt('--records') && (partial || !coverage || sheetsOpt)) throw new Error(`a partial run writes only to --out <dir>; the reports in ${path.dirname(OPEN_REPORT)}/ come from a full run`);
 
   let all;
   const saved = argv.flatMap((a, i) => (a === '--records' && argv[i + 1] ? [argv[i + 1]] : []));
@@ -3362,7 +3370,7 @@ async function main() {
   if (check) {
     let bad = 0;
     for (const [file, text] of [[OPEN_REPORT, open], [CLOSED_REPORT, closed]]) {
-      const had = fs.existsSync(path.join(ROOT, file)) ? fs.readFileSync(path.join(ROOT, file), 'utf8').replace(/\r\n/g, '\n') : '';
+      const had = fs.readFileSync(path.join(ROOT, file), 'utf8').replace(/\r\n/g, '\n');
       if (had === text) { console.log(`${file}: matches`); continue; }
       bad++;
       const a = had.split('\n');
@@ -3370,7 +3378,7 @@ async function main() {
       const at = a.findIndex((l, i) => l !== b[i]);
       const card = [...a.slice(0, at + 1)].reverse().find(l => l.startsWith('#')) || '(top)';
       console.log(`${file}: differs first under "${card}"`);
-      console.log(`  committed: ${a[at] ?? '(end)'}`);
+      console.log(`  last run : ${a[at] ?? '(end)'}`);
       console.log(`  fresh    : ${b[at] ?? '(end)'}`);
     }
     if (bad) process.exitCode = 1;
@@ -3384,6 +3392,7 @@ async function main() {
     fs.writeFileSync(path.join(dir, 'closed.md'), closed);
     console.log(`wrote ${path.relative(ROOT, dir) || dir}: records.json, open.md, closed.md`);
   } else {
+    fs.mkdirSync(path.join(ROOT, path.dirname(OPEN_REPORT)), { recursive: true });
     fs.writeFileSync(path.join(ROOT, OPEN_REPORT), open);
     fs.writeFileSync(path.join(ROOT, CLOSED_REPORT), closed);
     console.log(`wrote ${OPEN_REPORT}, ${CLOSED_REPORT}`);

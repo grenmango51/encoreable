@@ -8,7 +8,7 @@
  * A click sends the replay id and the turn to the extension, which opens a
  * play.pokemonshowdown.com tab that rebuilds the battle and branches it there.
  * Only Champions replays get the button: reconstruction needs the Stat Point
- * model (`engineering.md` 7.5).
+ * model.
  */
 (() => {
   'use strict';

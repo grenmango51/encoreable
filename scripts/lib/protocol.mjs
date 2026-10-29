@@ -35,7 +35,7 @@ const FORFEIT_MESSAGE = /^\|-message\|.+ (forfeited|lost due to inactivity|forfe
  * Wording that differs between simulator versions for the same event. Upstream
  * names the stat an ability kept from dropping by id (`atk`); 0.11.11, which
  * recorded every battle in `recordings/local/` until the pin moved to an upstream
- * commit (docs/engineering.md 6.5), named it (`Attack`). A comparison can mix the
+ * commit, named it (`Attack`). A comparison can mix the
  * two, so both sides are brought to the id.
  */
 const UNBOOST_BY_NAME = /^(\|-fail\|[^|]*\|unboost\|)(Attack|Defense)(\||$)/;

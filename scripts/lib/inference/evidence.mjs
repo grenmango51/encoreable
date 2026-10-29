@@ -5,7 +5,7 @@
  *
  *   - every damage calculation. At the moment the real hit is computed, the same
  *     `getDamage` is run again for every surviving attacking and defending stat,
- *     under the dry-run guards `damageLadder` established (docs/engineering.md 4): a
+ *     under the dry-run guards `damageLadder` established: a
  *     cloned move, no dice consumed, no messages, state restored. The in-flight
  *     move is cloned, so weather, Helping Hand, screens and boosts are exactly
  *     the real ones. `modifyDamage` is memoised on the value it receives, since
