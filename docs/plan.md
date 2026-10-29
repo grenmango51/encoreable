@@ -4,8 +4,10 @@
 
 **Status:** the Showdown core loop is built and proven — a recorded battle restores to any
 turn and is played forward from both sides in the real Showdown client, with per-roll RNG
-control. The frontier is Champions ingestion (Step 4) and the deferred items.
-**Last updated:** 24 August 2026
+control. Stat Point inference on open team sheets is complete (`open-sheet-plan.md`); item,
+ability and nature inference on closed team sheets is in progress (`closed-sheet-plan.md`). The
+frontier is those inference plans, Champions ingestion (Step 4), and the deferred items.
+**Last updated:** 23 October 2026
 
 ---
 
@@ -253,8 +255,8 @@ live room (`engineering.md` §4), and a saved ladder replay becomes a branchable
 `npm run reconstruct` (`engineering.md` §7) without the consent-gated input log. Deterministic
 inference ships for replays that publish team sheets: `--infer p2` narrows the opponent's Stat
 Points to every spread the replay allows and names the move that removed the rest
-(`engineering.md` §7.5). Still outstanding: showing those ranges inline, and the probabilistic
-layer (§10) that ranks what survives.
+(`engineering.md` §7.5). Still outstanding: the closed-sheet inference (`closed-sheet-plan.md`),
+the open items in `engineering.md` §9, and the probabilistic layer (§10) that ranks what survives.
 
 **Deliverable:** paste a replay, land in the position, play it differently.
 
