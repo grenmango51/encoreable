@@ -42,9 +42,10 @@ const { extractChannelMessages } = require('pokemon-showdown/dist/sim/battle.js'
 
 // What the fallback may spend: rebuilds of a failing turn, per line and per
 // inference with the readings it runs again under. Each rebuild has a probe
-// budget of its own, so these bound the fallback the same on every machine.
-// Nothing here is measured in time: a limit in time makes the answer depend on
-// the machine and its load.
+// budget of its own, so these bound the fallback the same on every machine -
+// all but a few checks it always makes, which they do not count. Nothing here
+// is measured in time: a limit in time makes the answer depend on the machine
+// and its load.
 const FALLBACK_REBUILDS = 8;
 const FALLBACK_TOTAL = 32;
 
@@ -874,7 +875,7 @@ export async function inferSpreads({
       if (turn > failing || (built.forced || []).includes(at)) continue;
       onProgress(`reading the switch-in at line ${at} as the Illusion user`);
       const other = absorb(await inferSpreads({ ...options, forced: [at], readings: false }));
-      if (other.complete) return spareDisguises(Object.assign(other, { work, warnings, limits: [...limits].sort() }));
+      if (other.complete) return spareDisguises(Object.assign(other, { work, warnings }));
     }
   }
 
@@ -928,7 +929,6 @@ export async function inferSpreads({
     work,
     warnings,
     stop,
-    limits: [...limits].sort(),
   });
 
   /**
@@ -944,7 +944,9 @@ export async function inferSpreads({
    * alone instead.
    */
   async function spareDisguises(res) {
-    if (!readings) return res;
+    // The readings below add to `limits`, which `res` carries a copy of.
+    const done = () => Object.assign(res, { limits: [...limits].sort() });
+    if (!readings) return done();
     const packed = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
     const base = res.built.forced || [];
     const groups = new Map();
@@ -975,7 +977,10 @@ export async function inferSpreads({
       }
       // A reading the deadline cut short proves nothing, so every Pokemon of
       // that side keeps every spread.
-      if (late() && !taken.some(r => r.complete)) taken = [{ knowledge: blank }];
+      if (Date.now() >= deadline && !taken.some(r => r.complete)) {
+        limits.add('deadline');
+        taken = [{ knowledge: blank }];
+      }
       if (!taken.length) continue;
       for (const [i, set] of sets[s].entries()) {
         const id = `${side}:${i}`;
@@ -993,7 +998,7 @@ export async function inferSpreads({
         reason: 'it could have been the Illusion user, so what it showed was not used on its side',
       });
     }
-    return res;
+    return done();
   }
 }
 

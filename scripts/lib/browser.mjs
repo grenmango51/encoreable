@@ -20,6 +20,11 @@ export function findBrowser() {
     { type: 'edge', path: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' },
     { type: 'edge', path: 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe' },
     { type: 'firefox', path: 'C:\\Program Files\\Mozilla Firefox\\firefox.exe' },
+    // Linux: the Aalto workstations and CI run the extension checks headless.
+    { type: 'chrome', path: '/usr/bin/google-chrome' },
+    { type: 'chrome', path: '/usr/bin/google-chrome-stable' },
+    { type: 'chrome', path: '/usr/bin/chromium' },
+    { type: 'chrome', path: '/usr/bin/chromium-browser' },
   ];
   for (const item of candidates) {
     if (fs.existsSync(item.path)) return item;

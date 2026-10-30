@@ -1249,6 +1249,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
       }
       if (++guard > 24) {
         state.unsatisfied = `turn ${k} never resolved after ${guard} choice rounds`;
+        state.cap = 'choiceRounds';
         break;
       }
       const before = `${battle.turn}:${battle.log.length}:${battle.sides.map(s => s.requestState).join('')}`;
@@ -1286,7 +1287,9 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
     const found = firstDivergence(wantHard, gotHard);
     const early = found && found.index < gotHard.length ? found : null;
     const finished = !found && k === segments.length - 1;
-    const diff = state.unsatisfied && !finished ? (early || { index: -1, expected: state.unsatisfied, actual: '' }) : found;
+    // `cap` marks a turn our own guard gave up on, which no refusal decided.
+    const diff = state.unsatisfied && !finished
+      ? (early || { index: -1, expected: state.unsatisfied, actual: '', ...(state.cap ? { cap: state.cap } : {}) }) : found;
 
     if (diff) {
       diffs.push({ turn: k, ...diff });
@@ -1728,7 +1731,11 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
   // Wide dice are tried between their ends only when nothing else moves the
   // turn, so a search that never needs it takes the path it always took.
   let wide = false;
-  while (score[0] !== Infinity && score[0] !== -1 && probes < budget && Date.now() < common.deadline) {
+  // The limit that left a candidate untried, if one did.
+  let cut = null;
+  while (score[0] !== Infinity && score[0] !== -1) {
+    if (probes >= budget) { cut = 'probes'; break; }
+    if (Date.now() >= common.deadline) { cut = 'deadline'; break; }
     let committed = false;
     // A draw that only improves the *fields* tie-break is a guess: it is the way
     // out of a line that needs two draws changed together, but it is never
@@ -1795,7 +1802,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
         const key = `${draw.i}|${v}`;
         let rec = found.get(key);
         if (!rec || !holds(rec)) {
-          if (probes >= budget) break;
+          if (probes >= budget) { cut = 'probes'; break; }
           const probe = await ask.get({ ...subs, [draw.i]: v });
           probes++;
           rec = remember(probe);
@@ -1849,7 +1856,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
           if (b.i <= a.i) continue;
           for (const va of candidates(a, run.steer)) {
             for (const vb of candidates(b, run.steer)) {
-              if (probes >= budget) break pairs;
+              if (probes >= budget) { cut = 'probes'; break pairs; }
               const probe = await ask.get({ ...subs, [a.i]: va, [b.i]: vb });
               probes++;
               if (scoreOf(probe, t)[0] > score[0]) {
@@ -1871,12 +1878,11 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     if (onTrial && score[0] > onTrial.lines) onTrial = null;
   }
   // Why the search of this turn ended: the turn reproduces, the simulator
-  // refused a choice, the probes ran out, the deadline passed, or no die and
-  // no pair of them carried the turn further. Only the first two are answers;
-  // the rest prove nothing about the guess.
-  const ended = score[0] === Infinity ? 'solved' : score[0] === -1 ? 'refused'
-    : probes >= budget ? 'probes' : Date.now() >= common.deadline ? 'deadline' : 'stuck';
-  if (ended === 'probes' || ended === 'deadline') common.limits.add(ended);
+  // refused a choice, a limit left a candidate untried, or every candidate was
+  // tried and no die and no pair of them carried the turn further. Only the
+  // first two are answers; the rest prove nothing about the guess.
+  const ended = score[0] === Infinity ? 'solved' : score[0] === -1 ? 'refused' : cut || 'stuck';
+  if (ended === cut) common.limits.add(cut);
   if (onTrial) {
     takeBack();
     run = await runTo(common, subs, t, t);
@@ -2055,14 +2061,16 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
  *          those redrawn for any other line - each counts the redraw one past
  *          its budget that ends the search, which is never played. Why it
  *          ended is `stop`: `complete`; `refused`, a choice the simulator
- *          would not take; `stuck`, no earlier turn had a die worth redrawing;
- *          `backtracks` or `dieBacktracks`, past their budget; `deadline`.
- *          `limits` names every limit that cut a search short on the way,
- *          even one the rebuild then got past: `probes`, a turn's dice search
- *          out of probes; `redrawProbes`, a redraw's; `variants`, a turn with
- *          more combinations of invisible choices than `maxVariants`; the two
- *          backtrack budgets; `deadline`. Only `complete` is an answer: a
- *          rebuild that stopped any other way proves nothing about the guess.
+ *          would not take; `choiceRounds`, a turn still asking for choices
+ *          after 24 rounds of them; `stuck`, no earlier turn had a die worth
+ *          redrawing; `backtracks` or `dieBacktracks`, past their budget;
+ *          `deadline`. `limits` names every limit that left a candidate
+ *          untried in a search that then failed, even where the rebuild got
+ *          past that turn later: `probes`, a turn's dice search; `redrawProbes`,
+ *          a redraw's; `variants`, a turn with more combinations of invisible
+ *          choices than `maxVariants`; `choiceRounds`; the two backtrack
+ *          budgets; `deadline`. Only `complete` is an answer: a rebuild that
+ *          stopped any other way proves nothing about the guess.
  */
 async function reconstructOnce({
   formatid,
@@ -2222,8 +2230,8 @@ async function reconstructOnce({
     // Each is played once with the turn's dice as drawn, and the search walks
     // them furthest first: a flinched Pokemon's unseen move that sorts where
     // the replay has it gets further than one that does not.
-    if ((run.widths?.[t] || 1) > maxVariants) common.limits.add('variants');
-    const width = Math.min(run.widths?.[t] || 1, maxVariants);
+    const allVariants = run.widths?.[t] || 1;
+    const width = Math.min(allVariants, maxVariants);
     const ranked = [];
     for (let v = 1; v < width && !solved; v++) {
       variants[t] = v;
@@ -2246,6 +2254,7 @@ async function reconstructOnce({
       if (got.solved) solved = true;
       else consider(got.score, v, got.tried);
     }
+    if (!solved && allVariants > maxVariants) common.limits.add('variants');
 
     if (!solved) {
       variants[t] = partial ? partial.variant : 0;
@@ -2267,7 +2276,11 @@ async function reconstructOnce({
     // A refused choice is not something an earlier turn can be blamed for, and
     // backtracking would only re-draw turns that were already right. Stop and
     // let the report name the turn.
-    if (run.diffs[0]?.index === -1) { stop = 'refused'; break; }
+    if (run.diffs[0]?.index === -1) {
+      stop = run.diffs[0].cap || 'refused';
+      if (run.diffs[0].cap) common.limits.add(run.diffs[0].cap);
+      break;
+    }
 
     // Exhausted. An HP sampled earlier can make this turn unreachable - the
     // Pokemon that had to faint here survives on the point that was given away -
