@@ -46,25 +46,18 @@ planned).
 ## Done means
 
 - `npm run check` passes, and `npm run replay` still reproduces exactly.
-- A change to inference, reconstruction or the order reader: `npm run catalog -- --regress` passes
-  (15 entries, about 3 minutes on 8 threads). `npm run reconstruct -- --all --rung s3 --infer p2`
-  must keep every real spread. After a batch of such changes, run the full fuzz and catalog on
-  the Aalto workstations.
+- A change to inference, reconstruction or the order reader: `npm run score` (the quick slice) and
+  `npm run catalog -- --regress` (15 entries, about 3 minutes on 8 threads) pass while you work.
+  Before merging, the full tier passes on the Aalto workstations (`score.sh`, in the compute
+  guide). A score run fails on any removed possibility, any case whose result got worse, and any
+  Pokémon left with more spreads than the baseline (`scripts/fixtures/score-baseline.json`).
+  When a full run improves on it, or is worse on purpose (a soundness fix keeps more spreads),
+  accept it (`npm run score -- --tier full --accept`, or `--merge` the shares with `--accept`) in
+  the same commit, so the diff shows what moved. After a batch of such changes, run the full
+  catalog on the workstations too.
 - An extension change, or any change in `scripts/lib/inference/` (the extension bundles it):
   `npm run extension -- --check`.
 - Anything visible: open it and look. A passing script is not proof the board looks right.
-- No number in **Baseline** gets worse. When one improves, update it in the same commit.
-
-## Baseline (2026-10-25, commit `7e7406e`; until a command writes it)
-
-| Check | Result |
-|---|---|
-| `npm run catalog -- --regress` | 15/15 |
-| `npm run reconstruct -- --all --rung s3 --infer p2` | 29/29 MATCH, 115/115 real spreads kept |
-| `--all --rung s2` / `--rung s3` | 28/29 / 27/29. Both fail on regmc-296, where Ditto's transformed Body Slam fails the supplied-team check; s3 also fails on regmc-1, Clefable's turn-2 HP |
-| `npm run reconstruct -- --saved` | 17/24 |
-| `npm run catalog -- --fuzz 200 --seed 101` | 195/200 MATCH, every real spread kept, no exceptions. Seeds 101, 208, 220, 225 and 281 fail; only 220 also fails with the real spreads |
-| full `npm run catalog` (917 effects) | no legal effect removes a real spread on open sheets |
 
 ## Commands
 
@@ -76,6 +69,7 @@ planned).
 | `npm run battle` | Record a new battle in two windows |
 | `npm run reconstruct` | Rebuild an input log from a saved replay: `--from <replay> --teams <key> --infer p1\|p2\|both`, with `--sheets closed` to withhold the sheet and `--certify`/`--outside` to prove range ends. `--all --rung s1\|s2\|s3` runs over `recordings/local/`; `--saved` runs over the owner's saved games |
 | `npm run catalog` | Every effect Reg M-C allows, put through small battles: what it reveals and whether the inference uses it. The full pool takes about an hour on 8–13 threads; unchanged effects reuse `.cache/catalog/`, where the reports `evidence-open-sheets.md` and `evidence-closed-sheets.md` are written. Also `--regress`, `--fuzz <n> --seed <s>`, `--dump`, `--check` |
+| `npm run score` | The grade: every battle in `scripts/fixtures/benchmark.js` (the 29 recordings and fuzz battles 101–300) inferred from three views - p2 from p1's screen, p1 from p2's, both from a spectator's - and checked against the answers it was played with: real spreads kept, the result, spreads left, work. Then compared with the baseline. `--tier quick\|full`, `--only`, `--views`, `--shard`/`--merge`, `--accept`. The full tier is about 75 minutes on all workstations, most of it a few spectator cases |
 | `npm run extension` | Build the Chrome extension into `extension/dist/`. `--check` proves it against the Node reference in a throwaway Chrome |
 | `npm run serve`, `npm run stop` | The static client host on its own; kill the servers |
 
@@ -88,11 +82,11 @@ saved replay is always S4.
 | Path | What |
 |---|---|
 | `scripts/local-<name>.mjs` | One per command, with a `package.json` script and a root `<name>.bat` |
-| `scripts/lib/` | Shared Node machinery. `reconstruct.mjs` rebuilds a battle. `replay-source.mjs` reads any source, and its `setsFromLog` reads a replay with no sheet. `protocol.mjs` is the one log filter and diff. `rng-control.mjs` and `truncate.mjs` are the dice and the cut |
+| `scripts/lib/` | Shared Node machinery. `reconstruct.mjs` rebuilds a battle. `replay-source.mjs` reads any source, and its `setsFromLog` reads a replay with no sheet. `protocol.mjs` is the one log filter and diff. `rng-control.mjs` and `truncate.mjs` are the dice and the cut. `fuzz.mjs` plays a fuzz battle from its number |
 | `scripts/lib/inference/` | `infer.mjs`: rounds of guess, rebuild, evidence. `knowledge.mjs`: what is still possible. `evidence.mjs`: the simulator hooked at every hit, HP change and item check. `speed.mjs`: order, read from every speed sort |
 | `scripts/server/` | Runs inside the Showdown server: CommonJS, copied into `runtime/config/`. `rng-command.js` is the one RNG interceptor |
 | `scripts/client/` | Browser scripts served over HTTP |
-| `scripts/fixtures/` | CommonJS. `teams.js` holds the owner's teams as export text; `catalog.js` holds the catalog's cast and hand-set battles |
+| `scripts/fixtures/` | CommonJS. `teams.js` holds the owner's teams as export text; `catalog.js` holds the catalog's cast and hand-set battles; `benchmark.js` the battles `npm run score` grades. `score-baseline.json` is written by `npm run score -- --accept`, never by hand |
 | `extension/` | `src/` is bundled for Chrome (a new entry point goes in `ENTRIES` in `scripts/local-extension.mjs`). `src/node/` holds browser stand-ins for Node built-ins. `check/` holds Node checks named in `CHECKS` |
 | `recordings/local/{scripted,branched,self-play,probes}/` | Battles our server ran, with full input logs: the ground truth. `npm run replay` files new ones; probes are filed by hand |
 | `recordings/showdown/{mine,others}-{open,closed}/`, `full-sheets/` | Replays from play.pokemonshowdown.com, as the downloaded `.html` or the link's `.json`. *open*: the replay has `\|showteam\|`. *mine*: the owner played. *full-sheets*: both complete sheets are known |
@@ -123,6 +117,12 @@ scratchpad and get deleted. Only a battle worth keeping goes to `recordings/loca
   `Battle.toJSON()` and `Battle.fromJSON()`.
 - **Views:** a public replay is the spectator's view (channel 0), with both sides' HP as
   percentages. A page downloaded from the battle room shows the uploader's own HP exactly.
+- **Limits:** every rebuild and inference names why it stopped and every search limit it hit (the
+  `stopped:` line of `npm run reconstruct`). A run that reproduced the log is proof whatever limits
+  it hit on the way; most finished ones hit some, because wrong guesses get small budgets first. A
+  run that did not reproduce it proves nothing about what it did not reach.
+- **Recordings and the pin:** a few recordings no longer play as they were saved under the pinned
+  simulator (regmb-23, regmb-76); `npm run score` grades the battle their input log plays now.
 - **Local server:** it rebuilds the simulator when it starts after provisioning. If
   `npm run replay` reports the servers did not come up, start `npm run serve` and wait for ports
   8000 and 8080. A server killed mid-build leaves `runtime/dist` broken, and the next start fails
@@ -142,66 +142,6 @@ scratchpad and get deleted. Only a battle worth keeping goes to `recordings/loca
 - **`@pkmn/client` and `pkmn/engine`.** The first is not needed: the simulator tracks its own
   state. The second has no modern generations.
 
-## Now: closed team sheets (phases 0–1 built)
-
-A Bo1 replay has no `|showteam|`, so the opponent's item, ability, nature and unrevealed moves are
-unknown as well as its Stat Points.
-
-**Today:** `setsFromLog` reads every name the log shows and assumes the rest: no item, the first
-ability the log does not rule out, a neutral nature. The inference then treats those assumptions
-as known. The catalog finds 56 ability, 67 item and 28 nature witnesses where a wrong assumption
-removes the real spread.
-
-**The work** replaces assumption with elimination. Each unknown box becomes a list of candidates,
-and a candidate goes only when the simulator says no spread under it fits.
-
-- **Phase 2:** candidate lists per Pokémon: every item the validator allows plus none, the ability
-  slots, and 21 nature classes. Then an equivalence replay that finds which candidates act in this
-  battle, and the evidence that needs no spread: would-have-named, illegal choices, impossible
-  dice, Item Clause.
-- **Phase 3:** natures per class, through `knowledge.mjs`, `evidence.mjs` and `infer.mjs`.
-- **Phase 4:** silent items and abilities in the dry runs. First Choice Scarf and Iron Ball through
-  order, then the damage boosters, then the abilities.
-- **Phase 5:** HP-threshold triggers and stateful candidates: Berries, Focus Sash, Sturdy, Choice
-  lock, Unburden, consumed items.
-- **Phase 6:** six closed probe recordings.
-- **Phase 7:** every `mine-closed` replay.
-- **Done when:**
-  - `npm run reconstruct -- --all --rung s3 --infer p2 --sheets closed` is a MATCH on every
-    recording and keeps every true item, ability, nature and spread;
-  - the same run without `--sheets closed` is unchanged;
-  - the closed catalog report has nothing UNSOUND or REBUILD-FAILED;
-  - MercifulBird's Gardevoir (its replay is in `mine-closed/`) keeps Choice Scarf and the +Spe
-    natures.
-- **Design detail and evidence lists:** the archive's `closed-sheet-plan.md` §3 and Appendix B.
-
-## Next: grading by machine (approved, not built)
-
-- `npm run score` grades the engine over a corpus of public replays. Soundness is a hard zero;
-  every other number is a ratchet that may only improve.
-- Open-sheet replays are graded as closed ones, against their own sheets.
-- `npm run corpus` crawls replay.pokemonshowdown.com into the Aalto home, as one compressed file
-  per format per day. Git keeps only the replays that exposed a bug, and the benchmark's list of
-  replay IDs.
-- A GitHub Actions check runs on every push.
-
-## Open problems
-
-- **Both sides unknown** (`--infer both`): frozen at 50–110 s with wide ranges. This is also what
-  the extension does on someone else's replay.
-- **No prior yet:** surviving spreads are not ranked by what people run. Smogon publishes usage
-  stats for Champions.
-- **Search limits:** dice that must change together beyond the pair search are not found, and
-  reading more dice off the replay is deferred. Fuzz seed 220 fails even with the real spreads;
-  its first differing die is an accuracy draw, and the cause is not established.
-- **The 83-finding implementation audit of 2026-10-23** is in the archive's `engineering.md` §12.
-  Its starting order: A32 (one verification contract), A28 (RNG tooltip cache across rooms), A50
-  (an incomplete search must not eliminate), A67 (HP backtracker classification), A44 (format
-  admission), A71 (supplied-team identities), A13 (recording persistence), A14 (profile before
-  optimising).
-- **Unmerged:** branch `campaign/format-expansion` (Gen 9 OU and Random Battles with known teams),
-  parked until formats come up.
-
 ## Archive
 
 The old documents are history at commit `c4c2351`, for example
@@ -210,3 +150,7 @@ The old documents are history at commit `c4c2351`, for example
 `branching.md`, `evidence-by-hand.md`) and the folder READMEs. Among those,
 `recordings/local/probes/README.md` says what each probe recording must conclude. Read the archive
 only when a line here points there; it is not maintained.
+
+The plans and open problems this file listed until the scorer existed (closed team sheets phases
+2-7, inferring both sides, usage priors, search limits, the 2026-10-23 audit) are at
+`git show 07236ff:AGENTS.md`. What to work on next comes from `npm run score` and the catalog.
