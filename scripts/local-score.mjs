@@ -43,6 +43,7 @@
  * shows what got worse.
  */
 
+import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -97,6 +98,16 @@ async function replayInputLog(inputLog) {
 let fuzzPool = null;
 
 /**
+ * The fuzz battles' team pool, as a hash: a fuzz battle's number picks from this
+ * pool, which is read off the sheets in the repo, so a sheet added there
+ * changes what every number plays.
+ */
+function poolPrint() {
+  fuzzPool ||= fuzzTeams().teams;
+  return crypto.createHash('sha256').update(JSON.stringify(fuzzPool.map(t => [t.label, Teams.pack(t.sets)]))).digest('hex').slice(0, 16);
+}
+
+/**
  * A battle as an input log, with a check that the log replays it: a recording's
  * against the log it was saved with, a fuzz battle's against the battle as it
  * was played.
@@ -147,14 +158,20 @@ async function runCase(id, view) {
       const real = Object.fromEntries(STATS.map(x => [x, truth[s][i].evs?.[x] || 0]));
       pokemon.push({
         id: p.id, species: p.species, seen: p.seen, kept: p.contains(real), spreads: p.spreads,
+        // The spread the rebuild used: when the rebuild reproduces the log, it is
+        // a spread the log allows, so it must have survived too.
+        witness: p.contains(p.used),
         exact: STATS.filter(x => p.stats[x]?.count === 1),
       });
     }
+    // Each check on its own, so one failing does not hide another; `result`
+    // sums them up.
     const limits = inf.limits || [];
-    const result = pokemon.some(p => !p.kept) ? 'REMOVED' : inf.complete ? 'PASS'
-      : limits.some(l => SEARCH_LIMITS.has(l)) ? 'GAVE UP' : 'NO MATCH';
+    const sound = pokemon.every(p => p.kept) && (!inf.complete || pokemon.every(p => p.witness));
+    const limitHit = limits.some(l => SEARCH_LIMITS.has(l));
+    const result = !sound ? 'REMOVED' : inf.complete ? 'PASS' : limitHit ? 'GAVE UP' : 'NO MATCH';
     return {
-      ...base, result, stop: inf.stop, limits, pokemon,
+      ...base, result, sound, complete: inf.complete, limitHit, stop: inf.stop, limits, pokemon,
       work: { rounds: inf.work.rounds, rebuilds: inf.work.rebuilds, probes: inf.work.probes },
       seconds: Number(((Date.now() - started) / 1000).toFixed(1)),
     };
@@ -225,6 +242,7 @@ function grade(records) {
   return {
     cases: records.length,
     removed: inferred.filter(p => !p.kept).length,
+    witnessesRemoved: records.filter(x => x.complete).flatMap(x => x.pokemon).filter(p => !p.witness).length,
     results: Object.fromEntries(['PASS', 'NO MATCH', 'GAVE UP', 'CRASH', 'REMOVED'].map(r => [r, count(r)])),
     exactShare: seen.length ? seen.reduce((t, p) => t + p.exact.length, 0) / (seen.length * STATS.length) : null,
     medianLog10Spreads: median(seen.map(p => Math.log10(Math.max(1, p.spreads)))),
@@ -251,12 +269,14 @@ function printGrade(records, tier) {
   }
   const wide = views.filter(v => { const g = grade(records.filter(r => r.view === v)); return !g.removed && !g.results.CRASH; });
   console.log('');
-  console.log(`accurate: ${grade(records).removed} real spread(s) removed (must be 0)`);
+  console.log(`accurate: ${grade(records).removed} real spread(s) removed, ${grade(records).witnessesRemoved} rebuilt spread(s) removed (both must be 0)`);
   console.log(`wide: ${wide.length} of ${views.length} view(s) with nothing removed and nothing crashed`);
   console.log('closed team sheets: not graded yet');
   for (const r of records.filter(x => x.result === 'REMOVED' || x.result === 'CRASH')) {
     const lost = (r.pokemon || []).filter(p => !p.kept).map(p => `${p.id} ${p.species}`);
-    console.log(`  ${r.result} ${r.id} ${r.view}${lost.length ? `: real spread removed for ${lost.join(', ')}` : ''}${r.error ? `: ${r.error}` : ''}`);
+    const witness = r.complete ? (r.pokemon || []).filter(p => !p.witness).map(p => `${p.id} ${p.species}`) : [];
+    console.log(`  ${r.result} ${r.id} ${r.view}${lost.length ? `: real spread removed for ${lost.join(', ')}` : ''}` +
+      `${witness.length ? `: the spread the rebuild used was removed for ${witness.join(', ')}` : ''}${r.error ? `: ${r.error}` : ''}`);
   }
 }
 
@@ -304,9 +324,18 @@ async function main() {
     const parts = merge.map(f => JSON.parse(fs.readFileSync(f, 'utf8')));
     const tiers = new Set(parts.map(p => p.tier));
     if (tiers.size !== 1) throw new Error(`--merge: shares of different tiers (${[...tiers].join(', ')})`);
+    for (const k of ['commit', 'pool', 'only', 'views']) {
+      if (new Set(parts.map(p => JSON.stringify(p[k]))).size !== 1) throw new Error(`--merge: shares of different ${k}`);
+    }
     const records = parts.flatMap(p => p.records);
     const cases = casesOf({ tier: parts[0].tier, only: parts[0].only, views: parts[0].views });
-    const have = new Map(records.map(r => [keyOf(r), r]));
+    const wanted = new Set(cases.map(keyOf));
+    const have = new Map();
+    for (const r of records) {
+      if (!wanted.has(keyOf(r))) throw new Error(`--merge: ${keyOf(r)} is no case of this run`);
+      if (have.has(keyOf(r))) throw new Error(`--merge: ${keyOf(r)} is in two shares`);
+      have.set(keyOf(r), r);
+    }
     // A case no share carries counts against the run: the denominator is the list.
     run = { ...parts[0], shard: null, records: cases.map(c => have.get(keyOf(c)) || { ...c, result: 'CRASH', error: 'no share carried this case' }) };
   } else {
@@ -325,7 +354,7 @@ async function main() {
     }
     const threads = Number(opt('--threads', String(Math.max(1, os.availableParallelism() - 1))));
     console.error(`score: ${cases.length} case(s) on ${threads} thread(s)`);
-    run = { commit: commitOf(), tier, only, views, shard, host: os.hostname(), records: await runCases(cases, threads) };
+    run = { commit: commitOf(), pool: poolPrint(), tier, only, views, shard, host: os.hostname(), records: await runCases(cases, threads) };
   }
 
   const out = opt('--out') || path.join(OUT_DIR, `${run.tier}-${run.commit || 'local'}${run.shard ? `-${run.shard.i}of${run.shard.n}` : ''}.json`);
@@ -339,6 +368,9 @@ async function main() {
   const baselineFile = path.resolve(ROOT, opt('--baseline', BASELINE));
   const baseline = fs.existsSync(baselineFile) ? JSON.parse(fs.readFileSync(baselineFile, 'utf8')) : null;
   let failed = run.records.some(r => r.result === 'REMOVED');
+  if (baseline && baseline.pool !== run.pool && !flag('--accept')) {
+    throw new Error(`the fuzz team pool changed (${baseline.pool} -> ${run.pool}): fuzz numbers play different battles, so a new baseline must be accepted`);
+  }
   if (baseline) {
     const { worse, better } = compare(run.records, baseline);
     console.log('');
@@ -354,9 +386,10 @@ async function main() {
     if (run.tier !== 'full' || run.only || run.views.length !== Object.keys(VIEWS).length) {
       throw new Error('--accept needs a full run of every view');
     }
+    if (run.records.some(r => r.result === 'REMOVED')) throw new Error('--accept: a run that removed a possible spread is never a baseline');
     const cases = baselineOf(run.records);
     const sorted = Object.fromEntries(Object.keys(cases).sort().map(k => [k, cases[k]]));
-    fs.writeFileSync(baselineFile, `${JSON.stringify({ commit: run.commit, grade: grade(run.records), cases: sorted }, null, 1)}\n`);
+    fs.writeFileSync(baselineFile, `${JSON.stringify({ commit: run.commit, pool: run.pool, grade: grade(run.records), cases: sorted }, null, 1)}\n`);
     console.log(`wrote the baseline to ${path.relative(ROOT, baselineFile)}`);
     return;
   }
