@@ -91,6 +91,7 @@ saved replay is always S4.
 | `recordings/local/{scripted,branched,self-play,probes}/` | Battles our server ran, with full input logs: the ground truth. `npm run replay` files new ones; probes are filed by hand |
 | `recordings/showdown/{mine,others}-{open,closed}/`, `full-sheets/` | Replays from play.pokemonshowdown.com, as the downloaded `.html` or the link's `.json`. *open*: the replay has `\|showteam\|`. *mine*: the owner played. *full-sheets*: both complete sheets are known |
 | `recordings/reconstructed/` | Input logs written by `npm run reconstruct` |
+| `.github/workflows/check.yml` | GitHub Actions on every push: `npm run check`, one score case against the baseline, the extension check |
 | `recordings/video/`, `replays/`, `runtime/`, `vendor/`, `extension/dist/`, `.cache/<command>/` | Gitignored: generated or too big. Never hand-edited |
 
 A new file goes in the row it fits. If it fits none, ask the owner first, naming the file. `.mjs`
