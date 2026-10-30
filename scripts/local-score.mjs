@@ -318,7 +318,12 @@ function opt(name, fallback = null) {
 const flag = name => process.argv.includes(name);
 
 async function main() {
-  const merge = flag('--merge') ? process.argv.slice(process.argv.indexOf('--merge') + 1).filter(a => !a.startsWith('--')) : null;
+  let merge = null;
+  if (flag('--merge')) {
+    const after = process.argv.slice(process.argv.indexOf('--merge') + 1);
+    const end = after.findIndex(a => a.startsWith('--'));
+    merge = end < 0 ? after : after.slice(0, end);
+  }
   let run;
   if (merge) {
     const parts = merge.map(f => JSON.parse(fs.readFileSync(f, 'utf8')));
