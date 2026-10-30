@@ -400,6 +400,7 @@ async function runOne({
   let inference = null;
   const inferenceWork = {};
   const inferenceWarnings = [];
+  const inferenceLimits = new Set();
   let inferSets = null;
   let certified = null;
   let truthSets = [null, null];
@@ -449,7 +450,8 @@ async function runOne({
       // its earlier search still cost work, even though its answer is discarded.
       for (const [key, count] of Object.entries(inference.work)) inferenceWork[key] = (inferenceWork[key] || 0) + count;
       inferenceWarnings.push(...inference.warnings);
-      const out = !inference.built.report.complete && announcedAbility(inference.built.report.diffs[0], reads, observed, source.formatid);
+      for (const l of inference.limits) inferenceLimits.add(l);
+      const out =!inference.built.report.complete && announcedAbility(inference.built.report.diffs[0], reads, observed, source.formatid);
       const already = ruledOut[out?.side]?.[out?.name] || [];
       if (!out || already.some(r => r.ability === out.ability)) break;
       ruledOut[out.side][out.name] = [...already, { ability: out.ability, why: out.why }];
@@ -507,6 +509,12 @@ async function runOne({
   const work = inference ? { ...inferenceWork, warnings: inferenceWarnings.length }
     : { rebuilds: 1, probes: built.cost.probes, backtracks: built.cost.backtracks, dieBacktracks: built.cost.dieBacktracks };
   say(`     work: ${COUNTS.filter(([k]) => k in work).map(([k, name]) => `${name} ${work[k]}`).join(', ')}`);
+  // Why the search ended, and every limit that cut it short on the way: an
+  // answer reached past a limit is no proof that a bigger search finds nothing
+  // more.
+  const stop = inference ? inference.stop : r.stop;
+  const limits = inference ? [...inferenceLimits].sort() : built.cost.limits;
+  say(`     stopped: ${stop}${limits.length ? `; limits hit: ${limits.join(', ')}` : '; no limit hit'}`);
   // A proved turn that failed again under its own dice and choices: the
   // evidence's guess does not fit its own proof. A whole suite prints only how
   // many, above.

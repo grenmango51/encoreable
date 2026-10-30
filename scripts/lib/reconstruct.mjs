@@ -1870,13 +1870,20 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     score = scoreOf(run, t);
     if (onTrial && score[0] > onTrial.lines) onTrial = null;
   }
+  // Why the search of this turn ended: the turn reproduces, the simulator
+  // refused a choice, the probes ran out, the deadline passed, or no die and
+  // no pair of them carried the turn further. Only the first two are answers;
+  // the rest prove nothing about the guess.
+  const ended = score[0] === Infinity ? 'solved' : score[0] === -1 ? 'refused'
+    : probes >= budget ? 'probes' : Date.now() >= common.deadline ? 'deadline' : 'stuck';
+  if (ended === 'probes' || ended === 'deadline') common.limits.add(ended);
   if (onTrial) {
     takeBack();
     run = await runTo(common, subs, t, t);
     score = scoreOf(run, t);
   }
 
-  return { solved: score[0] === Infinity, rejected: score[0] === -1, forced, probes, score, tried };
+  return { solved: score[0] === Infinity, rejected: score[0] === -1, ended, forced, probes, score, tried };
 }
 
 /**
@@ -1964,7 +1971,7 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
   ask.ahead(draws.flatMap(draw => candidates(draw, run.steer).map(v => ({ ...subs, [draw.i]: v }))).slice(0, budget));
   for (const draw of draws) {
     for (const v of candidates(draw, run.steer)) {
-      if (probes >= budget) break;
+      if (probes >= budget) { common.limits.add('redrawProbes'); break; }
       const probe = await ask.get({ ...subs, [draw.i]: v });
       probes++;
       if (scoreOf(probe, t)[0] !== Infinity) continue;
@@ -2046,7 +2053,16 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
  *          worker ran ahead that was never asked for; `backtracks`, the
  *          earlier turns redrawn for a failing HP figure, and `dieBacktracks`,
  *          those redrawn for any other line - each counts the redraw one past
- *          its budget that ends the search, which is never played.
+ *          its budget that ends the search, which is never played. Why it
+ *          ended is `stop`: `complete`; `refused`, a choice the simulator
+ *          would not take; `stuck`, no earlier turn had a die worth redrawing;
+ *          `backtracks` or `dieBacktracks`, past their budget; `deadline`.
+ *          `limits` names every limit that cut a search short on the way,
+ *          even one the rebuild then got past: `probes`, a turn's dice search
+ *          out of probes; `redrawProbes`, a redraw's; `variants`, a turn with
+ *          more combinations of invisible choices than `maxVariants`; the two
+ *          backtrack budgets; `deadline`. Only `complete` is an answer: a
+ *          rebuild that stopped any other way proves nothing about the guess.
  */
 async function reconstructOnce({
   formatid,
@@ -2115,6 +2131,9 @@ async function reconstructOnce({
   const common = {
     header, segments, plans, reseeds, variants, channel, exact, state0, dex, formatid, deadline,
     id: ++contextCount, snaps: new Map(), pool: probePool(threads, formatid), tally: { plays: 0 },
+    // Every limit that cut a search short somewhere in this rebuild, even one
+    // that later got past the turn some other way (`report.limits`).
+    limits: new Set(),
   };
   let backtracks = 0;
   // A backtrack to a die proved to bring the failing turn closer costs a few
@@ -2162,7 +2181,10 @@ async function reconstructOnce({
   const variantsAt = new Map();
   const choicesOn = (r, t) => (r.choices || []).filter(c => c.turn === t).map(({ side, choice }) => ({ side, choice }));
 
-  while (run.badTurn !== null && Date.now() < deadline) {
+  // Why the search ended, when the rebuild did not reproduce the whole log.
+  let stop = null;
+  while (run.badTurn !== null) {
+    if (Date.now() >= deadline) { stop = 'deadline'; common.limits.add('deadline'); break; }
     const t = run.badTurn;
 
     onProgress(`turn ${t}: settling draws - observed ${run.diffs[0]?.expected ?? '(nothing)'}`);
@@ -2200,6 +2222,7 @@ async function reconstructOnce({
     // Each is played once with the turn's dice as drawn, and the search walks
     // them furthest first: a flinched Pokemon's unseen move that sorts where
     // the replay has it gets further than one that does not.
+    if ((run.widths?.[t] || 1) > maxVariants) common.limits.add('variants');
     const width = Math.min(run.widths?.[t] || 1, maxVariants);
     const ranked = [];
     for (let v = 1; v < width && !solved; v++) {
@@ -2244,7 +2267,7 @@ async function reconstructOnce({
     // A refused choice is not something an earlier turn can be blamed for, and
     // backtracking would only re-draw turns that were already right. Stop and
     // let the report name the turn.
-    if (run.diffs[0]?.index === -1) break;
+    if (run.diffs[0]?.index === -1) { stop = 'refused'; break; }
 
     // Exhausted. An HP sampled earlier can make this turn unreachable - the
     // Pokemon that had to faint here survives on the point that was given away -
@@ -2271,7 +2294,12 @@ async function reconstructOnce({
         : await redrawTurn(back, common, subs, subTurn, sample, maxProbes, null, true, t, partial?.tried);
       if (!moved) back--;
     }
-    if (!moved || (hpFigure ? ++backtracks > maxBacktracks : ++dieBacktracks > DIE_BACKTRACKS)) break;
+    if (!moved) { stop = 'stuck'; break; }
+    if (hpFigure ? ++backtracks > maxBacktracks : ++dieBacktracks > DIE_BACKTRACKS) {
+      stop = hpFigure ? 'backtracks' : 'dieBacktracks';
+      common.limits.add(stop);
+      break;
+    }
     onProgress(`turn ${t}: unreachable, redrawing turn ${back}`);
     for (let i = back + 1; i < variants.length; i++) { variants[i] = 0; spent[i] = 0; }
     run = await playThrough({ ...common, subs });
@@ -2304,6 +2332,8 @@ async function reconstructOnce({
     reseeds: reseeds.map((s, i) => (s ? { turn: i, seed: s } : null)).filter(Boolean),
     report: {
       complete,
+      stop: complete ? 'complete' : stop,
+      limits: [...common.limits].sort(),
       verifiedThroughTurn,
       turns: segments.length - 1,
       attempts: common.tally.plays,
@@ -2338,18 +2368,19 @@ async function reconstructOnce({
  * `cost` is what every reading tried spent, the kept one's `report` only its
  * own: `trials`, the readings rebuilt, and the sums of their `attempts`,
  * `backtracks` and `dieBacktracks` as `probes`, `backtracks` and
- * `dieBacktracks`. `brokenProof` is the first reading's, the only one handed
- * the proof.
+ * `dieBacktracks`, and `limits`, every limit any of them hit. `brokenProof`
+ * is the first reading's, the only one handed the proof.
  */
 export async function reconstruct(options) {
   const forced = new Set(options.forced || []);
-  const cost = { trials: 0, probes: 0, backtracks: 0, dieBacktracks: 0 };
+  const cost = { trials: 0, probes: 0, backtracks: 0, dieBacktracks: 0, limits: [] };
   const once = async (opts) => {
     const b = await reconstructOnce(opts);
     cost.trials++;
     cost.probes += b.report.attempts;
     cost.backtracks += b.report.backtracks;
     cost.dieBacktracks += b.report.dieBacktracks;
+    cost.limits = [...new Set([...cost.limits, ...b.report.limits])].sort();
     return b;
   };
   let best = await once({ ...options, forced });

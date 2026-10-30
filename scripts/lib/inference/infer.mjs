@@ -41,13 +41,12 @@ const { BattleStream, Dex, Teams, toID } = require('pokemon-showdown');
 const { extractChannelMessages } = require('pokemon-showdown/dist/sim/battle.js');
 
 // What the fallback may spend: rebuilds of a failing turn, per line and per
-// inference with the readings it runs again under, which bound it the same on
-// every machine; and ceilings on one line's time and on the inference's that
-// only a machine many times slower than usual meets.
+// inference with the readings it runs again under. Each rebuild has a probe
+// budget of its own, so these bound the fallback the same on every machine.
+// Nothing here is measured in time: a limit in time makes the answer depend on
+// the machine and its load.
 const FALLBACK_REBUILDS = 8;
 const FALLBACK_TOTAL = 32;
-const FALLBACK_MS = 120000;
-const FALLBACK_TOTAL_MS = 240000;
 
 /**
  * The line a rebuild stopped on, in the replay's turn: the lines from the
@@ -184,9 +183,9 @@ function handOn(built, rolls) {
  *                 turn is searched further, and the furthest rebuild so far
  *                 is the answer - for a page that waits on it; none by
  *                 default, so the answer never depends on the machine's speed
- * @param spend    what the fallback has left - rebuilds and milliseconds - and
- *                 the lines it searched without getting past, shared with
- *                 the inferences this one runs again under another reading
+ * @param spend    what the fallback has left - rebuilds - and the lines it
+ *                 searched without getting past, shared with the inferences
+ *                 this one runs again under another reading
  * @returns the surviving spreads per Pokemon, the events that removed the rest,
  *          and the reconstruction built from the spread it settled on; and
  *          `work`, what it spent, with what every inference it ran again under
@@ -197,9 +196,13 @@ function handOn(built, rolls) {
  *          reading of an Illusion they tried included (`cost.probes`);
  *          `fallback`, the rebuilds the fallback made, the check its budget
  *          does not count included; `backtracks` and `dieBacktracks`, every
- *          rebuild's, summed the same way. With no deadline, and short of the
- *          fallback's ceilings on time, two runs give the same counts for any
- *          number of threads. And `warnings`, each proof a rebuild was handed
+ *          rebuild's, summed the same way. With no deadline, two runs give the
+ *          same counts for any number of threads and on any machine. `stop`,
+ *          why the rounds ended (`complete`, `searches`, `stalled`, `rounds`,
+ *          `deadline`), and `limits`, every limit that cut a search short on
+ *          the way - the rounds' own, the fallback's (`fallbackRebuilds`,
+ *          `fallbackTotal`), `guessTries`, `evidencePasses`, and every one a
+ *          rebuild names in its report. And `warnings`, each proof a rebuild was handed
  *          and broke - it failed inside a turn the evidence proved, on the
  *          proof's own dice and choices (`brokenProof` in `reconstruct.mjs`) -
  *          as `{ round, turn, expected, actual, pokemon }`: the round that
@@ -225,12 +228,16 @@ export async function inferSpreads({
   onProgress = () => {},
   forced = null,
   readings = true,
-  spend = { rebuilds: FALLBACK_TOTAL, ms: FALLBACK_TOTAL_MS, fruitless: new Set() },
+  spend = { rebuilds: FALLBACK_TOTAL, fruitless: new Set() },
 }) {
   const options = { ...arguments[0], spend };
   const dex = Dex.forFormat(formatid);
   const work = { rounds: 0, rebuilds: 0, probes: 0, fallback: 0, backtracks: 0, dieBacktracks: 0 };
   const warnings = [];
+  // Every limit that cut a search short, here or in a rebuild or an inference
+  // this one ran: an answer reached past one is no proof that more would not
+  // have found more.
+  const limits = new Set();
   // A proof the fallback's check broke is handed to the next round as well,
   // and breaks there again: each is counted once.
   const broken = new Set();
@@ -240,6 +247,7 @@ export async function inferSpreads({
     work.probes += b.cost.probes;
     work.backtracks += b.cost.backtracks;
     work.dieBacktracks += b.cost.dieBacktracks;
+    for (const l of b.cost.limits) limits.add(l);
     const at = b.brokenProof;
     if (at && proved && !broken.has(proved)) {
       broken.add(proved);
@@ -250,6 +258,7 @@ export async function inferSpreads({
   const absorb = (res) => {
     for (const k of Object.keys(work)) work[k] += res.work[k];
     warnings.push(...res.warnings);
+    for (const l of res.limits) limits.add(l);
     return res;
   };
   const lines = observed.filter(l => typeof l === 'string');
@@ -296,6 +305,7 @@ export async function inferSpreads({
         if (record) afterFirst = counts();
       }
       if (!moved) break;
+      if (passes === 8) limits.add('evidencePasses');
     }
     return {
       events: first.events,
@@ -410,7 +420,7 @@ export async function inferSpreads({
     if (!diff || !(t >= 1) || !(diff.index >= 0) || (searched.get(mark) || 0) >= 2 || spend.fruitless.has(mark)) return null;
     searched.set(mark, (searched.get(mark) || 0) + 1);
     const none = () => { searched.set(mark, 2); spend.fruitless.add(mark); return null; };
-    if (spend.rebuilds <= 0 || spend.ms <= 0) return null;
+    if (spend.rebuilds <= 0) { limits.add('fallbackTotal'); return null; }
     // The replay through the line that opens the turn after `turn`.
     const cutAt = (turn) => {
       const at = observed.findIndex(l => typeof l === 'string' && Number(/^\|turn\|(\d+)/.exec(l)?.[1]) === turn + 1);
@@ -428,8 +438,14 @@ export async function inferSpreads({
         seed, pins: given, sampleSeed, maxProbes: budget.maxProbes, maxBacktracks: budget.maxBacktracks, threads, deadline,
       }), true);
     };
-    const left = Math.min(FALLBACK_MS, spend.ms, deadline - Date.now());
-    const affordable = () => spent < FALLBACK_REBUILDS && spend.rebuilds > 0 && Date.now() - began < left;
+    // Asked only where there is more to try, so a no names the limit that
+    // stopped the search.
+    const affordable = () => {
+      const out = spent >= FALLBACK_REBUILDS ? 'fallbackRebuilds' : spend.rebuilds <= 0 ? 'fallbackTotal'
+        : Date.now() >= deadline ? 'deadline' : null;
+      if (out) limits.add(out);
+      return !out;
+    };
     const reach = b => (b.report.complete ? [Infinity, Infinity] : [b.report.diffs[0]?.turn ?? -1, b.report.diffs[0]?.index ?? -1]);
     const further = (a, b) => (a[0] !== b[0] ? a[0] > b[0] : a[1] > b[1]);
     const outcome = b => JSON.stringify([...reach(b), b.report.diffs[0]?.actual ?? null]);
@@ -710,6 +726,7 @@ export async function inferSpreads({
   const past = (a, b) => (a[0] !== b[0] ? a[0] > b[0] : a[1] > b[1]);
   let deepest = null;
   let stalled = 0;
+  let stop = null;
   while (stalled < maxRounds && rounds < 4 * maxRounds && (!rounds || Date.now() < deadline)) {
     rounds++;
     work.rounds++;
@@ -770,7 +787,7 @@ export async function inferSpreads({
       const tried = [];
       const fixed = held.has(id) ? [held.get(id)] : [];
       for (const aim of [...fixed, aimFor(kn, picks[s][i]), picks[s][i], aimFor(kn, picks[s][i], 0.25), aimFor(kn, picks[s][i], 0.75)]) {
-        if (tries <= 0) return null;
+        if (tries <= 0) { limits.add('guessTries'); return null; }
         const first = closestSpread(kn, aim);
         if (!first) continue;
         // HP, Defence and Special Defence first, and the flat stats from what
@@ -817,9 +834,7 @@ export async function inferSpreads({
     failed.add(markOf(diff));
     if (unchanged || again || read < 2) {
       const start = picks.map((team, s) => team.map((e, i) => (containsSpread(knowledge.get(`p${s + 1}:${i}`), e) ? e : next[s][i])));
-      const began = Date.now();
       const found = await fallback(seen, start, exact ? { picks: next, exact, pins } : null);
-      spend.ms -= Date.now() - began;
       if (found) {
         for (const [id, spread] of found.held) held.set(id, spread);
         picks = found.picks;
@@ -831,12 +846,20 @@ export async function inferSpreads({
       }
     }
     if (unchanged) {
-      if (++level >= budgets.length) break;
+      if (++level >= budgets.length) { stop = 'searches'; break; }
     } else {
       level = floor;
     }
     picks = next;
   }
+  // Why the rounds ended: the log reproduces; every search budget was tried on
+  // a guess the evidence did not move (`searches`); `maxRounds` rounds got no
+  // further (`stalled`); four times that many ran in all (`rounds`); the
+  // deadline. Each but the first is a limit.
+  if (!stop) {
+    stop = built.report.complete ? 'complete' : stalled >= maxRounds ? 'stalled' : rounds >= 4 * maxRounds ? 'rounds' : 'deadline';
+  }
+  if (stop !== 'complete') limits.add(stop);
 
   // A side with an Illusion user can have sent it in disguised as a teammate,
   // and the line that gives it away can be one only its own Stat Points
@@ -851,7 +874,7 @@ export async function inferSpreads({
       if (turn > failing || (built.forced || []).includes(at)) continue;
       onProgress(`reading the switch-in at line ${at} as the Illusion user`);
       const other = absorb(await inferSpreads({ ...options, forced: [at], readings: false }));
-      if (other.complete) return spareDisguises(Object.assign(other, { work, warnings }));
+      if (other.complete) return spareDisguises(Object.assign(other, { work, warnings, limits: [...limits].sort() }));
     }
   }
 
@@ -904,6 +927,8 @@ export async function inferSpreads({
     knowledge: final,
     work,
     warnings,
+    stop,
+    limits: [...limits].sort(),
   });
 
   /**
@@ -934,7 +959,11 @@ export async function inferSpreads({
       const s = Number(side[1]) - 1;
       onProgress(`reading ${name}'s unsettled switch-ins as the Illusion user`);
       const read = async ats => absorb(await inferSpreads({ ...options, forced: [...base, ...ats], readings: false }));
-      const late = () => Date.now() >= deadline;
+      const late = () => {
+        if (Date.now() < deadline) return false;
+        limits.add('deadline');
+        return true;
+      };
       const all = late() ? null : await read(stays.map(x => x.at));
       let taken = all && (all.complete || !res.complete) ? [all] : [];
       if (all && !taken.length && stays.length > 1) {
