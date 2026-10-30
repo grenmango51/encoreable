@@ -867,7 +867,9 @@ export async function inferSpreads({
   // explain - a Speed no Stat Point of the teammate reaches. The rebuild alone
   // cannot prefer that reading before its Stat Points are narrowed under it,
   // so a battle that did not rebuild is inferred again under each reading of a
-  // switch-in as the Illusion user, and the first that rebuilds is kept.
+  // switch-in as the Illusion user, and the first that rebuilds is kept. The
+  // plain reading's search ran out without proving it wrong (audit A50), so
+  // every Pokemon also keeps what the plain reading left it.
   if (!built.report.complete && readings && Date.now() < deadline) {
     const packed = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
     const failing = built.report.diffs[0]?.turn ?? Infinity;
@@ -875,7 +877,14 @@ export async function inferSpreads({
       if (turn > failing || (built.forced || []).includes(at)) continue;
       onProgress(`reading the switch-in at line ${at} as the Illusion user`);
       const other = absorb(await inferSpreads({ ...options, forced: [at], readings: false }));
-      if (other.complete) return spareDisguises(Object.assign(other, { work, warnings }));
+      if (!other.complete) continue;
+      for (const p of other.pokemon) {
+        if (p.known) continue;
+        uniteKnowledge(other.knowledge.get(p.id), knowledge.get(p.id));
+        tighten(other.knowledge.get(p.id));
+        Object.assign(p, summarise(other.knowledge.get(p.id)));
+      }
+      return spareDisguises(Object.assign(other, { work, warnings }));
     }
   }
 
@@ -938,10 +947,11 @@ export async function inferSpreads({
    * and none of it to the Illusion user. So each Pokemon shown in one is
    * inferred again with all of its unsettled switch-ins read as the Illusion
    * user, which gives it none of them, and every Pokemon of that side but the
-   * Illusion user keeps whatever either reading leaves it. A reading that does
-   * not rebuild when `res` does proves one of those switch-ins was the
-   * Pokemon shown: with only one, nothing is added; with more, each is read
-   * alone instead.
+   * Illusion user keeps whatever either reading leaves it. That reading is kept
+   * whether or not it rebuilds: its search can run out, and a search that ran
+   * out proves nothing (audit A50). Every narrower reading - only some of the
+   * switch-ins as the Illusion user - gives the Pokemon shown more of the log,
+   * so what it leaves is inside what this one leaves.
    */
   async function spareDisguises(res) {
     // The readings below add to `limits`, which `res` carries a copy of.
@@ -967,14 +977,7 @@ export async function inferSpreads({
         return true;
       };
       const all = late() ? null : await read(stays.map(x => x.at));
-      let taken = all && (all.complete || !res.complete) ? [all] : [];
-      if (all && !taken.length && stays.length > 1) {
-        for (const stay of stays) {
-          if (late()) break;
-          const one = await read([stay.at]);
-          if (one.complete) taken.push(one);
-        }
-      }
+      let taken = all ? [all] : [];
       // A reading the deadline cut short proves nothing, so every Pokemon of
       // that side keeps every spread.
       if (Date.now() >= deadline && !taken.some(r => r.complete)) {
