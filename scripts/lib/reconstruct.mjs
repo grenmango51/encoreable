@@ -516,7 +516,9 @@ function onChannel(raw, channel) {
 // ------------------------------------------------- HP displays and dry runs
 
 /** Backtracks to a die that brings a failing non-HP line closer, per rebuild. */
-const DIE_BACKTRACKS = 4;
+export const DIE_BACKTRACKS = 4;
+/** Combinations of a turn's invisible choices walked, per turn. */
+export const MAX_VARIANTS = 256;
 
 /** A damage roll has sixteen faces; face 0 is full damage. */
 export const ROLLS = 16;
@@ -2083,8 +2085,9 @@ async function reconstructOnce({
   seedPlan = null,
   sampleSeed = 1,
   maxProbes = 4000,
-  maxVariants = 256,
+  maxVariants = MAX_VARIANTS,
   maxBacktracks = 6,
+  maxDieBacktracks = DIE_BACKTRACKS,
   exact = null,
   pins = null,
   threads = os.availableParallelism(),
@@ -2308,7 +2311,7 @@ async function reconstructOnce({
       if (!moved) back--;
     }
     if (!moved) { stop = 'stuck'; break; }
-    if (hpFigure ? ++backtracks > maxBacktracks : ++dieBacktracks > DIE_BACKTRACKS) {
+    if (hpFigure ? ++backtracks > maxBacktracks : ++dieBacktracks > maxDieBacktracks) {
       stop = hpFigure ? 'backtracks' : 'dieBacktracks';
       common.limits.add(stop);
       break;

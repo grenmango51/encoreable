@@ -10,8 +10,9 @@
  *   npm run score -- --tier full --shard 3/12 --out <file>   one share of a run, for one machine
  *   npm run score -- --merge <file>...       the shares put together, graded and compared
  *   npm run score -- --tier full --accept    write this run as the new baseline
+ *   npm run score -- --tier full --budget 10  every search limit ten times as wide: what the limits cost
  *
- * Flags: --tier quick|full --only <id>[,<id>...] --views <v>[,<v>...] --threads <n>
+ * Flags: --tier quick|full --only <id>[,<id>...] --views <v>[,<v>...] --threads <n> --budget <n>
  *        --shard <i>/<n> --out <file> --merge <file>... --baseline <file> --accept
  *
  * A view is who is inferred and from whose screen:
@@ -133,7 +134,7 @@ async function battleOf(id) {
 }
 
 /** One battle from one view, graded. */
-async function runCase(id, view) {
+async function runCase(id, view, budget = 1) {
   const started = Date.now();
   const base = { id, view };
   try {
@@ -153,7 +154,7 @@ async function runCase(id, view) {
     const sets = truth.map((team, s) => team.map(set => (known[s] ? set : { ...set, evs: { ...zero } })));
     const inf = await inferSpreads({
       formatid, sets, known, playerNames: players.map(p => p.name), observed: replayed.channels[channel], channel,
-      sampleSeed: 1, threads: 1,
+      sampleSeed: 1, threads: 1, budgetScale: budget,
     });
     const pokemon = [];
     for (const p of inf.pokemon) {
@@ -194,7 +195,7 @@ function casesOf({ tier, only, views }) {
 }
 
 /** The cases on a pool of worker threads; results in case order. */
-async function runCases(cases, threads) {
+async function runCases(cases, threads, budget) {
   const out = new Array(cases.length);
   let next = 0;
   let done = 0;
@@ -205,7 +206,7 @@ async function runCases(cases, threads) {
     const feed = () => {
       if (next >= cases.length) { worker.postMessage(null); return; }
       const at = next++;
-      worker.postMessage({ at, ...cases[at] });
+      worker.postMessage({ at, budget, ...cases[at] });
     };
     worker.on('message', ({ at, record }) => {
       out[at] = record;
@@ -333,7 +334,7 @@ async function main() {
     const parts = merge.map(f => JSON.parse(fs.readFileSync(f, 'utf8')));
     const tiers = new Set(parts.map(p => p.tier));
     if (tiers.size !== 1) throw new Error(`--merge: shares of different tiers (${[...tiers].join(', ')})`);
-    for (const k of ['commit', 'pool', 'only', 'views']) {
+    for (const k of ['commit', 'pool', 'only', 'views', 'budget']) {
       if (new Set(parts.map(p => JSON.stringify(p[k]))).size !== 1) throw new Error(`--merge: shares of different ${k}`);
     }
     const records = parts.flatMap(p => p.records);
@@ -362,11 +363,13 @@ async function main() {
       cases = cases.filter((_, k) => k % n === i - 1);
     }
     const threads = Number(opt('--threads', String(Math.max(1, os.availableParallelism() - 1))));
+    const budget = Number(opt('--budget', '1'));
+    if (!(Number.isInteger(budget) && budget >= 1)) throw new Error('--budget <n>: a whole number, at least 1');
     console.error(`score: ${cases.length} case(s) on ${threads} thread(s)`);
-    run = { commit: commitOf(), pool: poolPrint(), tier, only, views, shard, host: os.hostname(), records: await runCases(cases, threads) };
+    run = { commit: commitOf(), pool: poolPrint(), budget, tier, only, views, shard, host: os.hostname(), records: await runCases(cases, threads, budget) };
   }
 
-  const out = opt('--out') || path.join(OUT_DIR, `${run.tier}-${run.commit || 'local'}${run.shard ? `-${run.shard.i}of${run.shard.n}` : ''}.json`);
+  const out = opt('--out') || path.join(OUT_DIR, `${run.tier}-${run.commit || 'local'}${run.budget > 1 ? `-budget${run.budget}` : ''}${run.shard ? `-${run.shard.i}of${run.shard.n}` : ''}.json`);
   fs.mkdirSync(path.dirname(path.resolve(ROOT, out)), { recursive: true });
   fs.writeFileSync(path.resolve(ROOT, out), JSON.stringify(run));
   console.error(`wrote ${out}`);
@@ -377,6 +380,11 @@ async function main() {
   const baselineFile = path.resolve(ROOT, opt('--baseline', BASELINE));
   const baseline = fs.existsSync(baselineFile) ? JSON.parse(fs.readFileSync(baselineFile, 'utf8')) : null;
   let failed = run.records.some(r => r.result === 'REMOVED');
+  // A wider budget is an experiment: it is compared with the baseline but
+  // never fails on what it improves or worsens, and is never a baseline.
+  const experiment = (run.budget || 1) > 1;
+  if (experiment) console.log(`
+budget x${run.budget}: every search limit ${run.budget} times as wide`);
   if (baseline && baseline.pool !== run.pool && !flag('--accept')) {
     throw new Error(`the fuzz team pool changed (${baseline.pool} -> ${run.pool}): fuzz numbers play different battles, so a new baseline must be accepted`);
   }
@@ -387,11 +395,12 @@ async function main() {
     for (const w of worse) console.log(`  WORSE  ${w}`);
     for (const b of better.slice(0, 40)) console.log(`  better ${b}`);
     if (better.length > 40) console.log(`  ... and ${better.length - 40} more better`);
-    if (worse.length) failed = true;
+    if (worse.length && !experiment) failed = true;
   } else {
     console.log('\nno baseline yet: run with --tier full --accept to write one');
   }
   if (flag('--accept')) {
+    if (experiment) throw new Error('--accept: a run with a wider budget is never a baseline');
     if (run.tier !== 'full' || run.only || run.views.length !== Object.keys(VIEWS).length) {
       throw new Error('--accept needs a full run of every view');
     }
@@ -413,6 +422,6 @@ if (isMainThread) {
 } else if (workerData?.role === WORKER_ROLE) {
   parentPort.on('message', async (job) => {
     if (!job) { process.exit(0); return; }
-    parentPort.postMessage({ at: job.at, record: await runCase(job.id, job.view) });
+    parentPort.postMessage({ at: job.at, record: await runCase(job.id, job.view, job.budget) });
   });
 }

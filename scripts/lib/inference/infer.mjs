@@ -26,7 +26,8 @@ import { createRequire } from 'module';
 
 import { battleLines } from '../protocol.mjs';
 import {
-  ACTION_START, disguisableStays, identName, identSide, reconstruct, sampler, splitTurns, unsettledDisguises,
+  ACTION_START, DIE_BACKTRACKS, MAX_VARIANTS, disguisableStays, identName, identSide, reconstruct, sampler, splitTurns,
+  unsettledDisguises,
 } from '../reconstruct.mjs';
 import { sameSheet } from '../replay-source.mjs';
 import {
@@ -229,9 +230,18 @@ export async function inferSpreads({
   onProgress = () => {},
   forced = null,
   readings = true,
-  spend = { rebuilds: FALLBACK_TOTAL, fruitless: new Set() },
+  budgetScale = 1,
+  spend = { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() },
 }) {
   const options = { ...arguments[0], spend };
+  // `budgetScale` multiplies every search limit at once - probes, backtracks,
+  // rounds, the fallback's rebuilds, guess tries, evidence passes and the
+  // invisible choices walked - to price what the limits cost
+  // (`npm run score -- --budget <n>`). The nested inferences scale the same.
+  const S = budgetScale;
+  maxProbes *= S;
+  maxRounds *= S;
+  const searchLimits = { maxVariants: MAX_VARIANTS * S, maxDieBacktracks: DIE_BACKTRACKS * S };
   const dex = Dex.forFormat(formatid);
   const work = { rounds: 0, rebuilds: 0, probes: 0, fallback: 0, backtracks: 0, dieBacktracks: 0 };
   const warnings = [];
@@ -295,7 +305,7 @@ export async function inferSpreads({
     let first = null;
     let afterFirst = null;
     let passes = 0;
-    while (passes < 8) {
+    while (passes < 8 * S) {
       const pass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, record: record && !first });
       passes++;
       let moved = false;
@@ -306,7 +316,7 @@ export async function inferSpreads({
         if (record) afterFirst = counts();
       }
       if (!moved) break;
-      if (passes === 8) limits.add('evidencePasses');
+      if (passes === 8 * S) limits.add('evidencePasses');
     }
     return {
       events: first.events,
@@ -343,10 +353,10 @@ export async function inferSpreads({
   // The last resort samples differently: the search's own uniform choices can
   // corner it where a different draw of them would not.
   const budgets = [
-    { maxProbes: Math.min(maxProbes, 150), maxBacktracks: 0 },
-    { maxProbes: Math.min(maxProbes, 600), maxBacktracks: 2 },
-    { maxProbes, maxBacktracks: 6 },
-    { maxProbes, maxBacktracks: 6, resample: 1 },
+    { maxProbes: Math.min(maxProbes, 150 * S), maxBacktracks: 0 },
+    { maxProbes: Math.min(maxProbes, 600 * S), maxBacktracks: 2 * S },
+    { maxProbes, maxBacktracks: 6 * S },
+    { maxProbes, maxBacktracks: 6 * S, resample: 1 },
   ];
 
   // What the fallback found: each line no evidence hook reads, and the spread
@@ -436,13 +446,13 @@ export async function inferSpreads({
       spend.rebuilds--;
       return counted(await reconstruct({
         formatid, packedTeams: packOf(chosen), playerNames, observed: upTo, channel, exact: null, forced: built.forced,
-        seed, pins: given, sampleSeed, maxProbes: budget.maxProbes, maxBacktracks: budget.maxBacktracks, threads, deadline,
+        seed, pins: given, sampleSeed, maxProbes: budget.maxProbes, maxBacktracks: budget.maxBacktracks, threads, deadline, ...searchLimits,
       }), true);
     };
     // Asked only where there is more to try, so a no names the limit that
     // stopped the search.
     const affordable = () => {
-      const out = spent >= FALLBACK_REBUILDS ? 'fallbackRebuilds' : spend.rebuilds <= 0 ? 'fallbackTotal'
+      const out = spent >= FALLBACK_REBUILDS * S ? 'fallbackRebuilds' : spend.rebuilds <= 0 ? 'fallbackTotal'
         : Date.now() >= deadline ? 'deadline' : null;
       if (out) limits.add(out);
       return !out;
@@ -678,6 +688,7 @@ export async function inferSpreads({
         const b = counted(await reconstruct({
           formatid, packedTeams: packOf(chosen), playerNames, observed: through, channel, exact: ex, forced: built.forced,
           seed, pins: given, sampleSeed, maxProbes: budgets[widest].maxProbes, maxBacktracks: budgets[widest].maxBacktracks, threads, deadline,
+          ...searchLimits,
         }), true, ex);
         read = b.report.complete || further(reach(b), [t, diff.index]);
       }
@@ -743,6 +754,7 @@ export async function inferSpreads({
       maxBacktracks: budgets[level].maxBacktracks,
       threads,
       deadline,
+      ...searchLimits,
     }), false, exact);
     const diff = built.report.diffs[0];
     const at = built.report.complete ? [Infinity, Infinity] : [diff?.turn ?? -1, diff?.index ?? -1];
@@ -775,7 +787,7 @@ export async function inferSpreads({
     }
     const next = picks.map(team => team.map(e => ({ ...e })));
     const emptied = kn => !kn.keys.includes(1) || FLAT.some(x => !kn.dom[x].includes(1));
-    let tries = 32;
+    let tries = 32 * S;
     const choose = async (n, cond) => {
       if (n === order.length) {
         tries--;
