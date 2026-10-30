@@ -36,10 +36,12 @@ planned).
 3. **One hook per mechanism, never one per move.** A fix that names a move is the wrong fix.
 4. **`recordings/local/` cannot be regenerated.** Never delete or rewrite a file there, or a saved
    replay (its owner can take it down).
-5. **Showdown is pinned** in `package.json` to upstream commit `a5df827`. Before
-   upgrading, diff the internal call sites listed in the archive's `engineering.md` §6.5. After
-   upgrading, run **Done means**, plus `npm run reconstruct -- --all` at `--rung s2`, `--rung s3`
-   and `--rung s3 --infer p2`.
+5. **Showdown is pinned** in `package.json` to an upstream commit, and kept close to upstream's
+   latest: public replays are played on it. Before upgrading, diff the internal call sites listed
+   in the archive's `engineering.md` §6.5, and `data/abilities.ts`, `items.ts` and `conditions.ts`.
+   After upgrading, run **Done means** with the full score tier, plus `npm run reconstruct --
+   --all` at `--rung s2` and `--rung s3`. A battle that plays differently under the new pin goes
+   into the new baseline with the upstream change that explains it.
 6. **Not built, on purpose:** move advice, an evaluation function, an opponent bot, a battle UI of
    our own (the native client is the UI). Ask before anything close to these.
 

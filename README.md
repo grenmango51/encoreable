@@ -66,7 +66,7 @@ Showdown's is the only source of truth.
 ## Upstream
 
 - **Pokémon Showdown server**, https://github.com/smogon/pokemon-showdown, MIT. Pinned in
-  `package.json` to upstream commit `a5df827`.
+  `package.json` to an upstream commit.
 - **Pokémon Showdown client**, https://github.com/smogon/pokemon-showdown-client, AGPLv3. Clone
   it into `vendor/pokemon-showdown-client` at commit `218cc779512d67961e8aea0ae666d319e8ccf398`
   and run `node build` there.

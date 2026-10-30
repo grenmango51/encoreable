@@ -26,10 +26,12 @@ const RNG_MESSAGE = /^\|-message\|#rng /;
 
 /**
  * How the room announces a player who stopped playing (`server/room-battle.ts`,
- * `forfeitPlayer`). The simulator only sees the `>forcelose` that follows, and
- * prints the `|win|`.
+ * `forfeitPlayer`, and `/forfeit` in `server/chat-commands/core.ts`): since
+ * upstream's late-2026 wording, `forfeited the series` in a best-of and `was made
+ * to forfeit` for a forfeit the player did not type. The simulator only sees the
+ * `>forcelose` that follows, and prints the `|win|`.
  */
-const FORFEIT_MESSAGE = /^\|-message\|.+ (forfeited|lost due to inactivity|forfeited by changing their name|lost by having an inappropriate name)\.$/;
+const FORFEIT_MESSAGE = /^\|-message\|.+ (forfeited|forfeited the series|was made to forfeit|lost due to inactivity|forfeited by changing their name|lost by having an inappropriate name)\.$/;
 
 /**
  * Wording that differs between simulator versions for the same event. Upstream
