@@ -41,7 +41,12 @@ planned).
    in the archive's `engineering.md` §6.5, and `data/abilities.ts`, `items.ts` and `conditions.ts`.
    After upgrading, run **Done means** with the full score tier, plus `npm run reconstruct --
    --all` at `--rung s2` and `--rung s3`. A battle that plays differently under the new pin goes
-   into the new baseline with the upstream change that explains it.
+   into the new baseline with the upstream change that explains it. A weekly job on the home
+   server (`~/projects/encoreable-auto/upgrade.sh`, `encoreable-upgrade.timer`, Mondays 03:00)
+   moves the pin on an `upgrade/showdown-<sha>` branch, grades it on the workstations, and merges
+   it only when nothing got worse. An unmerged `upgrade/showdown-*` branch is one that did not
+   pass: its report is `~/projects/encoreable-auto/reports/` on the home server, and finishing it
+   comes before other work.
 6. **Not built, on purpose:** move advice, an evaluation function, an opponent bot, a battle UI of
    our own (the native client is the UI). Ask before anything close to these.
 
