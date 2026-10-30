@@ -108,9 +108,11 @@ function poolPrint() {
 }
 
 /**
- * A battle as an input log, with a check that the log replays it: a recording's
- * against the log it was saved with, a fuzz battle's against the battle as it
- * was played.
+ * A battle as an input log, and the battle it plays here. A fuzz battle's input
+ * log must play the battle as it was played (`same`). A recording is graded on
+ * the battle its input log plays under the pinned simulator, which a few no
+ * longer play the way they were saved (`asSaved`): either way it is a battle
+ * the real teams played, which is all a grade needs.
  */
 async function battleOf(id) {
   if (id.startsWith('fuzz:')) {
@@ -118,14 +120,16 @@ async function battleOf(id) {
     const played = await playFuzz(fuzzRecipe(Number(id.slice(5)), fuzzPool, FUZZ_TURNS));
     const replayed = await replayInputLog(played.inputLog);
     const same = battleLines(replayed.channels[1]).join('\n') === battleLines(played.ch1).join('\n');
-    return { inputLog: played.inputLog, replayed, same };
+    return { inputLog: played.inputLog, replayed, same, asSaved: null };
   }
   const data = JSON.parse(fs.readFileSync(path.join(ROOT, id), 'utf8'));
   const inputLog = Array.isArray(data.inputLog) ? data.inputLog : String(data.inputLog || '').split('\n');
   const replayed = await replayInputLog(inputLog);
   const saved = Array.isArray(data.log) ? data.log : String(data.log || '').split('\n');
-  const same = !data.log || battleLines(replayed.omniscient).join('\n') === battleLines(saved).join('\n');
-  return { inputLog, replayed, same };
+  // A branched recording's log repeats `|player|` where the branch began.
+  const lines = l => battleLines(l).filter(x => !x.startsWith('|player|')).join('\n');
+  const asSaved = !data.log || lines(replayed.omniscient) === lines(saved);
+  return { inputLog, replayed, same: true, asSaved };
 }
 
 /** One battle from one view, graded. */
@@ -134,7 +138,7 @@ async function runCase(id, view) {
   const base = { id, view };
   try {
     const { infer, channel } = VIEWS[view];
-    const { inputLog, replayed, same } = await battleOf(id);
+    const { inputLog, replayed, same, asSaved } = await battleOf(id);
     if (!same) return { ...base, result: 'CRASH', error: 'the input log does not replay the battle', seconds: 0 };
     const start = inputLog.find(l => l.startsWith('>start '));
     const formatid = JSON.parse(start.slice(start.indexOf('{'))).formatid;
@@ -171,7 +175,7 @@ async function runCase(id, view) {
     const limitHit = limits.some(l => SEARCH_LIMITS.has(l));
     const result = !sound ? 'REMOVED' : inf.complete ? 'PASS' : limitHit ? 'GAVE UP' : 'NO MATCH';
     return {
-      ...base, result, sound, complete: inf.complete, limitHit, stop: inf.stop, limits, pokemon,
+      ...base, result, sound, complete: inf.complete, limitHit, asSaved, stop: inf.stop, limits, pokemon,
       work: { rounds: inf.work.rounds, rebuilds: inf.work.rebuilds, probes: inf.work.probes },
       seconds: Number(((Date.now() - started) / 1000).toFixed(1)),
     };
