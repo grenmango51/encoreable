@@ -42,6 +42,9 @@ const FORFEIT_MESSAGE = /^\|-message\|.+ (forfeited|forfeited the series|was mad
  */
 const UNBOOST_BY_NAME = /^(\|-fail\|[^|]*\|unboost\|)(Attack|Defense)(\||$)/;
 const STAT_ID = { Attack: 'atk', Defense: 'def' };
+// A format's rules, which upstream spelled "Pokémon" until October 2026 and
+// "Pokemon" since: both sides are brought to the plain spelling.
+const RULE_ACCENT = /^\|rule\|/;
 
 /** The battle-mechanics lines of a log, with room-level noise removed. */
 export function battleLines(log) {
@@ -52,6 +55,7 @@ export function battleLines(log) {
   }).map((line) => {
     // the server appends a rating field to |player| that the sim does not
     if (line.startsWith('|player|')) return line.split('|').slice(0, 5).join('|');
+    if (RULE_ACCENT.test(line)) return line.replace(/é/g, 'e');
     return line.replace(UNBOOST_BY_NAME, (all, head, name, tail) => `${head}${STAT_ID[name]}${tail}`);
   });
 }
