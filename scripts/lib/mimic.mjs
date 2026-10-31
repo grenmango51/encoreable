@@ -46,9 +46,9 @@ const baseOf = name => dex.species.get(String(name).split(',')[0]).baseSpecies;
  * What each real player chose, read off a game's log: the four each brought, in
  * the order they came out, and per turn, per Pokemon, its move with its target
  * and whether it Mega Evolved, or the Pokemon it switched to; each side's
- * replacements in the order they came in; and the moves each Pokemon used. A move another effect called
- * (`[from]`) is no choice, and a Pokemon is named by its species, so a nickname
- * or a broken Illusion reads the same.
+ * replacements in the order they came in; and the moves each Pokemon used. A
+ * move another effect called (`[from]`) is no choice, and a Pokemon is named
+ * by its species, so a nickname or a broken Illusion reads the same.
  */
 export function readIntents(lines) {
   const log = unmaskIllusion(lines).lines;
@@ -141,8 +141,8 @@ const numberOf = id => Number.parseInt(crypto.createHash('sha256').update(id).di
 /**
  * Everything one mimic battle is: the real game's teams with a gender and a
  * spread for every Pokemon, the real choices, and the seeds - from the replay
- * file alone (or a source already loaded). Null when the replay is no game to mimic: a side without a
- * sheet, or a team the format refuses.
+ * file alone (or a source already loaded). Null when the replay is no game to
+ * mimic: a side without a sheet, or a team the format refuses.
  */
 export function mimicRecipe(id, source = loadSource(path.join(ROOT, MIMIC_DIR, `${id.replace(/^mimic:/, '')}.json`))) {
   const replayId = id.replace(/^mimic:/, '');
@@ -196,7 +196,7 @@ export class MimicPlayer extends FuzzPlayer {
     else return;
     const followed = parts.filter(Boolean).length - this.habitual;
     this.note = { followed, habit: this.habitual, slots: parts.length };
-    if (followed) this.chosen = parts.map((p, i) => p || random[i]).join(', ');
+    if (parts.some(Boolean)) this.chosen = parts.map((p, i) => p || random[i]).join(', ');
   }
 
   /** The four the real player brought, in the order they came out, then the rest. */
