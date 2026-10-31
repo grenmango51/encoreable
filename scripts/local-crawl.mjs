@@ -16,7 +16,7 @@
  * crawl fetches only what is new. Each crawl also asks the live server which
  * Showdown commit it runs (`/version`) and adds it to `<out>/versions.jsonl`
  * when it changed: a replay was played on the version live when it was
- * uploaded.
+ * uploaded. One crawl at a time holds the store (`<out>/.lock`).
  *
  * A picked game is a game 1 of a Bo3 (so no two share a set) with both open
  * team sheets, teams the format accepts and a mimic battle that plays; games
@@ -27,6 +27,7 @@
 
 import crypto from 'crypto';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import zlib from 'zlib';
 import { createRequire } from 'module';
@@ -102,8 +103,34 @@ function readBundle(file) {
 
 // ------------------------------------------------------------------ crawl
 
+/**
+ * Hold the store for one crawl: two crawls appending to one bundle on a shared
+ * disk can interleave. A lock older than two days is a crawl that died.
+ */
+function lock(out) {
+  const at = path.join(out, '.lock');
+  try {
+    fs.mkdirSync(at);
+  } catch (err) {
+    if (err.code !== 'EEXIST') throw err;
+    const age = Date.now() - fs.statSync(at).mtimeMs;
+    if (age < 2 * 86400e3) return null;
+    fs.rmSync(at, { recursive: true, force: true });
+    fs.mkdirSync(at);
+  }
+  fs.writeFileSync(path.join(at, 'owner'), `${os.hostname()} ${process.pid} ${new Date().toISOString()}\n`);
+  const release = () => fs.rmSync(at, { recursive: true, force: true });
+  process.on('exit', release);
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => process.exit(1));
+  return release;
+}
+
 async function crawl({ out, formats, days, delay }) {
   fs.mkdirSync(out, { recursive: true });
+  if (!lock(out)) {
+    console.log(`another crawl holds ${path.join(out, '.lock')}: ${fs.readFileSync(path.join(out, '.lock', 'owner'), 'utf8').trim()}`);
+    return;
+  }
   const live = await liveVersion();
   const versions = path.join(out, 'versions.jsonl');
   const known = fs.existsSync(versions) ? fs.readFileSync(versions, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)) : [];
