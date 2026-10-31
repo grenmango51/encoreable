@@ -138,9 +138,7 @@ async function battleOf(id) {
     if (!recipe) throw new Error(`${id}: no open sheet for a side, or a team the format refuses`);
     const played = await playMimic(recipe);
     const replayed = await replayInputLog(played.inputLog);
-    const same = battleLines(replayed.channels[1]).join('
-') === battleLines(played.ch1).join('
-');
+    const same = battleLines(replayed.channels[1]).join('\n') === battleLines(played.ch1).join('\n');
     return { inputLog: played.inputLog, replayed, same, asSaved: null };
   }
   const data = JSON.parse(fs.readFileSync(path.join(ROOT, id), 'utf8'));
