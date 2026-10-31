@@ -115,7 +115,9 @@ function poolPrint() {
  */
 function usagePrint() {
   const file = path.join(ROOT, USAGE_FILE);
-  return fs.existsSync(file) ? crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex').slice(0, 16) : null;
+  // The content, not the bytes: a Windows checkout ends its lines differently.
+  return fs.existsSync(file)
+    ? crypto.createHash('sha256').update(JSON.stringify(JSON.parse(fs.readFileSync(file, 'utf8')))).digest('hex').slice(0, 16) : null;
 }
 
 /**
