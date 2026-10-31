@@ -56,6 +56,7 @@ import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 import { battleLines } from './lib/protocol.mjs';
 import { inferSpreads } from './lib/inference/infer.mjs';
 import { FUZZ_TURNS, fuzzRecipe, fuzzTeams, playFuzz } from './lib/fuzz.mjs';
+import { USAGE_FILE, mimicRecipe, playMimic } from './lib/mimic.mjs';
 
 const require = createRequire(import.meta.url);
 const { BattleStream, Teams } = require('pokemon-showdown');
@@ -109,11 +110,20 @@ function poolPrint() {
 }
 
 /**
- * A battle as an input log, and the battle it plays here. A fuzz battle's input
- * log must play the battle as it was played (`same`). A recording is graded on
- * the battle its input log plays under the pinned simulator, which a few no
- * longer play the way they were saved (`asSaved`): either way it is a battle
- * the real teams played, which is all a grade needs.
+ * The spreads mimic battles draw from, as a hash: a new month of usage stats
+ * plants other spreads in every mimic battle.
+ */
+function usagePrint() {
+  const file = path.join(ROOT, USAGE_FILE);
+  return fs.existsSync(file) ? crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex').slice(0, 16) : null;
+}
+
+/**
+ * A battle as an input log, and the battle it plays here. A fuzz or mimic
+ * battle's input log must play the battle as it was played (`same`). A
+ * recording is graded on the battle its input log plays under the pinned
+ * simulator, which a few no longer play the way they were saved (`asSaved`):
+ * either way it is a battle the real teams played, which is all a grade needs.
  */
 async function battleOf(id) {
   if (id.startsWith('fuzz:')) {
@@ -121,6 +131,16 @@ async function battleOf(id) {
     const played = await playFuzz(fuzzRecipe(Number(id.slice(5)), fuzzPool, FUZZ_TURNS));
     const replayed = await replayInputLog(played.inputLog);
     const same = battleLines(replayed.channels[1]).join('\n') === battleLines(played.ch1).join('\n');
+    return { inputLog: played.inputLog, replayed, same, asSaved: null };
+  }
+  if (id.startsWith('mimic:')) {
+    const recipe = mimicRecipe(id);
+    if (!recipe) throw new Error(`${id}: no open sheet for a side, or a team the format refuses`);
+    const played = await playMimic(recipe);
+    const replayed = await replayInputLog(played.inputLog);
+    const same = battleLines(replayed.channels[1]).join('
+') === battleLines(played.ch1).join('
+');
     return { inputLog: played.inputLog, replayed, same, asSaved: null };
   }
   const data = JSON.parse(fs.readFileSync(path.join(ROOT, id), 'utf8'));
@@ -334,7 +354,7 @@ async function main() {
     const parts = merge.map(f => JSON.parse(fs.readFileSync(f, 'utf8')));
     const tiers = new Set(parts.map(p => p.tier));
     if (tiers.size !== 1) throw new Error(`--merge: shares of different tiers (${[...tiers].join(', ')})`);
-    for (const k of ['commit', 'pool', 'only', 'views', 'budget']) {
+    for (const k of ['commit', 'pool', 'usage', 'only', 'views', 'budget']) {
       if (new Set(parts.map(p => JSON.stringify(p[k]))).size !== 1) throw new Error(`--merge: shares of different ${k}`);
     }
     const records = parts.flatMap(p => p.records);
@@ -366,7 +386,7 @@ async function main() {
     const budget = Number(opt('--budget', '1'));
     if (!(Number.isInteger(budget) && budget >= 1)) throw new Error('--budget <n>: a whole number, at least 1');
     console.error(`score: ${cases.length} case(s) on ${threads} thread(s)`);
-    run = { commit: commitOf(), pool: poolPrint(), budget, tier, only, views, shard, host: os.hostname(), records: await runCases(cases, threads, budget) };
+    run = { commit: commitOf(), pool: poolPrint(), usage: usagePrint(), budget, tier, only, views, shard, host: os.hostname(), records: await runCases(cases, threads, budget) };
   }
 
   const out = opt('--out') || path.join(OUT_DIR, `${run.tier}-${run.commit || 'local'}${run.budget > 1 ? `-budget${run.budget}` : ''}${run.shard ? `-${run.shard.i}of${run.shard.n}` : ''}.json`);
@@ -388,6 +408,9 @@ budget x${run.budget}: every search limit ${run.budget} times as wide`);
   if (baseline && baseline.pool !== run.pool && !flag('--accept')) {
     throw new Error(`the fuzz team pool changed (${baseline.pool} -> ${run.pool}): fuzz numbers play different battles, so a new baseline must be accepted`);
   }
+  if (baseline?.usage && baseline.usage !== run.usage && !flag('--accept')) {
+    throw new Error(`the usage spreads changed (${baseline.usage} -> ${run.usage}): mimic battles plant other spreads, so a new baseline must be accepted`);
+  }
   if (baseline) {
     const { worse, better } = compare(run.records, baseline);
     console.log('');
@@ -407,7 +430,7 @@ budget x${run.budget}: every search limit ${run.budget} times as wide`);
     if (run.records.some(r => r.result === 'REMOVED')) throw new Error('--accept: a run that removed a possible spread is never a baseline');
     const cases = baselineOf(run.records);
     const sorted = Object.fromEntries(Object.keys(cases).sort().map(k => [k, cases[k]]));
-    fs.writeFileSync(baselineFile, `${JSON.stringify({ commit: run.commit, pool: run.pool, grade: grade(run.records), cases: sorted }, null, 1)}\n`);
+    fs.writeFileSync(baselineFile, `${JSON.stringify({ commit: run.commit, pool: run.pool, usage: run.usage, grade: grade(run.records), cases: sorted }, null, 1)}\n`);
     console.log(`wrote the baseline to ${path.relative(ROOT, baselineFile)}`);
     return;
   }

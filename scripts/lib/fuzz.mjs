@@ -62,9 +62,7 @@ export function fuzzTeams() {
   const seen = new Set();
   const add = (label, sets) => {
     const team = sets.map((set) => {
-      const given = dex.species.get(set.species || set.name);
-      const species = given.battleOnly && given.requiredItem && toID(given.requiredItem) === toID(set.item)
-        ? dex.species.get(Array.isArray(given.battleOnly) ? given.battleOnly[0] : given.battleOnly) : given;
+      const species = broughtAs(set);
       return {
         name: species.baseSpecies, species: species.name, item: set.item || '', ability: set.ability || '',
         moves: [...set.moves], nature: set.nature || 'Serious', gender: '', level: 50, evs: { ...BASE },
@@ -90,6 +88,16 @@ export function fuzzTeams() {
   }
   teams.sort((a, b) => a.label.localeCompare(b.label));
   return { teams, refused };
+}
+
+/**
+ * The species a set is brought as: a Mega forme is brought as the species it
+ * Mega Evolves from, holding its stone.
+ */
+export function broughtAs(set) {
+  const given = dex.species.get(set.species || set.name);
+  return given.battleOnly && given.requiredItem && toID(given.requiredItem) === toID(set.item)
+    ? dex.species.get(Array.isArray(given.battleOnly) ? given.battleOnly[0] : given.battleOnly) : given;
 }
 
 /**
@@ -138,6 +146,7 @@ export class FuzzPlayer extends RandomPlayerAI {
   constructor(seed) {
     super({ write() {} }, { move: 0.85, mega: 0.5, seed });
     this.chosen = null;
+    this.note = null;
   }
 
   choose(choice) {
@@ -172,16 +181,18 @@ export function describeChoice(request, choice) {
 /**
  * One fuzz battle, in-process in the real format, up to the start of turn
  * `cap + 1`: player 1's view of it, its input log, which replays it whole, and
- * the choices and dice it was played with.
+ * the choices and dice it was played with. `players` choose for each side:
+ * Showdown's random player by default, or any that answers a request the same
+ * way and is told, by `tries`, that its last answer for it was refused.
  */
-export async function playFuzz(recipe) {
+export async function playFuzz(recipe, players = recipe.ai.map(seed => new FuzzPlayer(seed))) {
   const stream = new BattleStream({ keepAlive: true });
   const drain = (async () => { for await (const chunk of stream) { /* discard */ } })();
-  const players = recipe.ai.map(seed => new FuzzPlayer(seed));
   const choices = [];
   try {
     await stream.write(`>start ${JSON.stringify({ formatid: FORMAT, seed: recipe.seed })}`);
     const battle = stream.battle;
+    for (const player of players) player.battle = battle;
     // Install before >player: even gender rolls belong to the ordinal stream.
     const dice = traceOn(battle);
     const push = dice.push;
@@ -203,7 +214,7 @@ export async function playFuzz(recipe) {
         for (let tries = 0; ; tries++) {
           ai.chosen = null;
           try {
-            ai.receiveRequest(side.activeRequest);
+            ai.receiveRequest(side.activeRequest, tries);
           } catch (err) {
             throw new Error(`chooser: ${err.message}`);
           }
@@ -219,15 +230,16 @@ export async function playFuzz(recipe) {
           markDraws(battle, turn);
           await stream.write(`>${side.id} ${ai.chosen}`);
           if (!side.choice.error) {
-            choices.push({ turn, side: side.id, raw: ai.chosen, offered, choice: describeChoice(request, ai.chosen) });
+            choices.push({ turn, side: side.id, raw: ai.chosen, offered, choice: describeChoice(request, ai.chosen), ...ai.note });
             break;
           }
           // An unavailable choice (a trap the request could not show) updates
           // the request in place, as for a player, and the random player asks
           // again, free to undo the slots it had already chosen; an invalid
-          // one leaves the request as it was.
+          // one leaves the request as it was, and only a player that falls
+          // back to the random player's choice may ask again.
           const updated = JSON.stringify(side.activeRequest) !== asked;
-          if (!updated || tries > 4) throw new Error(`chooser: ${side.id} "${ai.chosen}": ${side.choice.error}`);
+          if ((!updated && !(ai.fallsBack && tries === 0)) || tries > 4) throw new Error(`chooser: ${side.id} "${ai.chosen}": ${side.choice.error}`);
           side.choice.cantUndo = false;
         }
       }
