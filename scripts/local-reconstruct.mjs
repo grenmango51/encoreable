@@ -570,6 +570,8 @@ async function runOne({
       if (likely.length) {
         const top = likely.slice(0, 3).map(l => `${['hp', 'atk', 'def', 'spa', 'spd', 'spe'].map(x => l.evs[x]).join('/')} ${Math.round(100 * l.share)}%`).join(', ');
         say(`         likeliest by usage: ${top} (${likely.length} of the spreads people run fit, ${Math.round(100 * covered)}% of their use)`);
+      } else if (usual.length) {
+        say(`         none of the ${usual.length} spreads people run with this nature fits: an uncommon spread`);
       }
       if (!p.spreads) {
         say(readOffLog[side]
