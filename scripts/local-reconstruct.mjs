@@ -80,6 +80,8 @@ import { battleLines } from './lib/protocol.mjs';
 import { listLogFiles, newestLogFile, posix as toPosix } from './lib/recordings.mjs';
 import { certifyRanges, combineGames, inferSpreads, inferenceRecord } from './lib/inference/infer.mjs';
 import { containsSpread, unpackKnowledge } from './lib/inference/knowledge.mjs';
+import { likelySpreads, usualSpreads } from './lib/inference/usage.mjs';
+import { usageSpreads } from './lib/mimic.mjs';
 import { reconstruct, splitTurns, tagsOf, unpackTeams } from './lib/reconstruct.mjs';
 import {
   alignSpeciesToSheet, bestOfFromLog, crossCheckLog, crossCheckSheet, loadSource, maxHpFromLog, sameSpecies, setsFromLog, setsFromSheet,
@@ -444,6 +446,7 @@ async function runOne({
         maxProbes,
         allSpent,
         threads,
+        usage: usageSpreads()?.spreads || null,
         onProgress: chatty,
       });
       // Rejecting an assumed ability starts another inference of this source;
@@ -561,6 +564,13 @@ async function runOne({
       say(`       ${p.side} ${p.species.padEnd(14)} ${p.spreads.toLocaleString('en')} of ${p.from.toLocaleString('en')} left  ${ranges}` +
           `${kept === null ? '' : kept ? '  (real spread survives)' : '  REAL SPREAD ELIMINATED'}`);
       for (const [s, c] of wrong) say(`         a spread with ${s} ${c.outside.join(' or ')}, outside the range, rebuilds the log: a possible spread was removed`);
+      // The likeliest of what is left, by what people run: an order, not evidence.
+      const usual = usualSpreads(usageSpreads()?.spreads, Dex.forFormat(source.formatid), inferSets?.[side]?.[Number(p.id.split(':')[1])] || { species: p.species });
+      const { likely, covered } = likelySpreads(usual, p.contains);
+      if (likely.length) {
+        const top = likely.slice(0, 3).map(l => `${['hp', 'atk', 'def', 'spa', 'spd', 'spe'].map(x => l.evs[x]).join('/')} ${Math.round(100 * l.share)}%`).join(', ');
+        say(`         likeliest by usage: ${top} (${likely.length} of the spreads people run fit, ${Math.round(100 * covered)}% of their use)`);
+      }
       if (!p.spreads) {
         say(readOffLog[side]
           ? '         no spread fits the set read off the log, so one of its assumptions is wrong - the events say which observation ruled it out'
