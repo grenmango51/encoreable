@@ -35,6 +35,7 @@ import {
   intersectKnowledge, keyOf, maskKeys, packKnowledge, pinKnowledge, restrictKnowledge, sameSpread, spreadAt, spreadsLeft, summarise,
   tighten, uniteKnowledge, unpackKnowledge, valuesOf,
 } from './knowledge.mjs';
+import { usualSpreads } from './usage.mjs';
 import { evidencePass } from './evidence.mjs';
 
 const require = createRequire(import.meta.url);
@@ -178,6 +179,9 @@ function handOn(built, rolls) {
  * @param known    `[p1Known, p2Known]`
  * @param allSpent assume every unknown set spends all 66 points, as real sets do.
  *                 An assumption, not evidence: off unless asked for.
+ * @param usage    the spreads people run, by species and nature, as in
+ *                 `usage-spreads.json`: each unknown set's first guess is the one
+ *                 run most. Only where the search starts, never evidence.
  * @param maxRounds the rounds that get no further than the furthest one yet;
  *                 a round that gets further costs none, up to four times as
  *                 many rounds in all - a long battle a line a round
@@ -231,6 +235,7 @@ export async function inferSpreads({
   forced = null,
   readings = true,
   budgetScale = 1,
+  usage = null,
   spend = { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() },
 }) {
   const options = { ...arguments[0], spend };
@@ -296,7 +301,11 @@ export async function inferSpreads({
     if (known[s]) return fullEvs(set.evs);
     const max = exactHp.get(`p${s + 1}:${set.name || set.species}`);
     const base = dex.species.get(set.species || set.name).baseStats.hp;
-    return defaultSpread(dex, set, max ? max - base - 75 : undefined);
+    const hp = max ? max - base - 75 : undefined;
+    // The spread people run most with this species and nature is the likeliest
+    // start (`usage`); a guess is only where the search begins.
+    const usual = usualSpreads(usage, dex, set).find(u => hp === undefined || u.evs.hp === hp);
+    return usual ? { ...usual.evs } : defaultSpread(dex, set, hp);
   }));
 
   const settle = async (inputLog, knowledge, cache, record = false) => {

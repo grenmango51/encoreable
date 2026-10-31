@@ -31,9 +31,11 @@
  *   GAVE UP   it does not, and a search limit left something untried
  *   NO MATCH  it does not, and no such limit was hit
  * Then for every Pokemon of an inferred side: how many spreads it kept, and
- * which stats are down to one value. And what the case cost: rounds, rebuilds
- * and probes, which are the same on every machine, and seconds, which are not
- * and are never compared.
+ * which stats are down to one value, and, when its real spread is one people
+ * run (`usage-spreads.json`, which also gives the search its first guess),
+ * where it ranks among those that survive. And what the case cost: rounds,
+ * rebuilds and probes, which are the same on every machine, and seconds, which
+ * are not and are never compared.
  *
  * The baseline, `scripts/fixtures/score-baseline.json`, holds each case's
  * result and spreads as of the last accepted run. A run fails when any case is
@@ -56,10 +58,11 @@ import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 import { battleLines } from './lib/protocol.mjs';
 import { inferSpreads } from './lib/inference/infer.mjs';
 import { FUZZ_TURNS, fuzzRecipe, fuzzTeams, playFuzz } from './lib/fuzz.mjs';
-import { USAGE_FILE, mimicRecipe, playMimic } from './lib/mimic.mjs';
+import { USAGE_FILE, mimicRecipe, playMimic, usageSpreads } from './lib/mimic.mjs';
+import { likelySpreads, usualSpreads } from './lib/inference/usage.mjs';
 
 const require = createRequire(import.meta.url);
-const { BattleStream, Teams } = require('pokemon-showdown');
+const { BattleStream, Dex, Teams } = require('pokemon-showdown');
 const { extractChannelMessages } = require('pokemon-showdown/dist/sim/battle.js');
 const { BATTLES } = require('./fixtures/benchmark.js');
 
@@ -172,21 +175,30 @@ async function runCase(id, view, budget = 1) {
     const known = [0, 1].map(s => !infer.includes(`p${s + 1}`));
     const zero = Object.fromEntries(STATS.map(s => [s, 0]));
     const sets = truth.map((team, s) => team.map(set => (known[s] ? set : { ...set, evs: { ...zero } })));
+    const usage = usageSpreads()?.spreads || null;
+    const dex = Dex.forFormat(formatid);
     const inf = await inferSpreads({
       formatid, sets, known, playerNames: players.map(p => p.name), observed: replayed.channels[channel], channel,
-      sampleSeed: 1, threads: 1, budgetScale: budget,
+      sampleSeed: 1, threads: 1, budgetScale: budget, usage,
     });
     const pokemon = [];
     for (const p of inf.pokemon) {
       if (p.known) continue;
       const [s, i] = [Number(p.side[1]) - 1, Number(p.id.split(':')[1])];
       const real = Object.fromEntries(STATS.map(x => [x, truth[s][i].evs?.[x] || 0]));
+      // Where the real spread ranks among the spreads people run that survive:
+      // only for a Pokemon whose real spread is one people run.
+      const isReal = e => STATS.every(x => e[x] === real[x]);
+      const usual = usualSpreads(usage, dex, truth[s][i]);
+      const { likely } = likelySpreads(usual, p.contains);
+      const rank = usual.some(u => isReal(u.evs)) ? likely.findIndex(l => isReal(l.evs)) + 1 || null : undefined;
       pokemon.push({
         id: p.id, species: p.species, seen: p.seen, kept: p.contains(real), spreads: p.spreads,
         // The spread the rebuild used: when the rebuild reproduces the log, it is
         // a spread the log allows, so it must have survived too.
         witness: p.contains(p.used),
         exact: STATS.filter(x => p.stats[x]?.count === 1),
+        ...(rank === undefined ? {} : { rank, likely: likely.length }),
       });
     }
     // Each check on its own, so one failing does not hide another; `result`
@@ -264,6 +276,7 @@ function grade(records) {
   const inferred = records.flatMap(x => x.pokemon || []);
   const seen = inferred.filter(p => p.seen);
   const seconds = records.map(x => x.seconds).filter(x => x !== undefined);
+  const ranked = seen.filter(p => p.rank !== undefined);
   return {
     cases: records.length,
     removed: inferred.filter(p => !p.kept).length,
@@ -274,6 +287,9 @@ function grade(records) {
     probes: records.reduce((t, x) => t + (x.work?.probes || 0), 0),
     rebuilds: records.reduce((t, x) => t + (x.work?.rebuilds || 0), 0),
     seconds: { median: median(seconds), p95: quantile(seconds, 0.95), max: seconds.length ? Math.max(...seconds) : null },
+    ranked: ranked.length,
+    first: ranked.length ? ranked.filter(p => p.rank === 1).length / ranked.length : null,
+    top3: ranked.length ? ranked.filter(p => p.rank && p.rank <= 3).length / ranked.length : null,
   };
 }
 
@@ -296,6 +312,8 @@ function printGrade(records, tier) {
   console.log('');
   console.log(`accurate: ${grade(records).removed} real spread(s) removed, ${grade(records).witnessesRemoved} rebuilt spread(s) removed (both must be 0)`);
   console.log(`wide: ${wide.length} of ${views.length} view(s) with nothing removed and nothing crashed`);
+  const all = grade(records);
+  if (all.ranked) console.log(`likely: of ${all.ranked} seen Pokemon whose real spread is one people run, ${pct(all.first)} have it ranked first, ${pct(all.top3)} in the top 3`);
   console.log('closed team sheets: not graded yet');
   for (const r of records.filter(x => x.result === 'REMOVED' || x.result === 'CRASH')) {
     const lost = (r.pokemon || []).filter(p => !p.kept).map(p => `${p.id} ${p.species}`);
