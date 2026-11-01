@@ -18,10 +18,11 @@
  *   npm run mutate -- --list                                   how many mutants each file gives, and a sample
  *   npm run mutate -- --sample 300 --shard 3/27 --out <file>   screen one share of a 300-mutant sample
  *   npm run mutate -- --merge <file>...                        the shares together: caught, missed, and how
+ *   npm run mutate -- --only <mutant>                          screen that one mutant
  *   npm run mutate -- --hunt <mutant> --seeds 1001-1030        battles beyond the benchmark that catch it
  *   npm run mutate -- --hunt real --seeds 1001-1030            the real code's grades of them, kept for every hunt
  *
- * Flags: --sample <n> --seed <s> --shard <i>/<n> --out <file> --threads <n>
+ * Flags: --sample <n> --seed <s> --only <id> --shard <i>/<n> --out <file> --threads <n>
  *        --views <v>[,<v>...] --timeout <minutes> --merge <file>... --hunt <id> --seeds <a>-<b>
  *
  * A mutant's id is `<file>:<line>:<column>:<kind>`. Each runs in a copy of
@@ -341,7 +342,7 @@ async function main() {
       : `${res.id}: no battle of fuzz ${res.seeds} (${res.views}) catches it`);
     return;
   }
-  const picked = sample(Number(opt('sample', '100')), opt('seed', '1'));
+  const picked = opt('only') ? allMutants().filter(m => m.id === opt('only')) : sample(Number(opt('sample', '100')), opt('seed', '1'));
   let mine = picked;
   if (opt('shard')) {
     const [i, n] = opt('shard').split('/').map(Number);
