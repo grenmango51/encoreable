@@ -262,7 +262,8 @@ async function pick({ out, n, day, to = path.join(ROOT, MIMIC_DIR) }) {
     picked.push(replay.id);
   }
   console.log(picked.map(id => `  'mimic:${id}',`).join('\n'));
-  console.log(`${picked.length} games in ${path.relative(ROOT, dir) || dir}/`);
+  const shown = path.relative(ROOT, dir);
+  console.log(`${picked.length} games in ${shown && !shown.startsWith('..') && !path.isAbsolute(shown) ? shown : dir}/`);
 }
 
 // ------------------------------------------------------------------ main
