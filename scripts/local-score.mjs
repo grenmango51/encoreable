@@ -24,7 +24,9 @@
  *
  * Each case is one battle from one view, and gets one result, the first that
  * applies:
- *   CRASH     the inference threw, or the battle's input log does not replay it
+ *   CRASH     the inference threw, the battle's input log does not replay it, or
+ *             a Pokemon's count of spreads left disagrees with its membership
+ *             test (`miscount`): the count is what precision is measured with
  *   REMOVED   a real spread is not among what the inference kept, for any
  *             Pokemon of an inferred side, seen or not - never allowed
  *   PASS      the rebuild reproduces the whole log
@@ -156,6 +158,36 @@ async function battleOf(id) {
   return { inputLog, replayed, same: true, asSaved };
 }
 
+// Every spread there is: at most 32 in a stat, at most 66 in all.
+const ALL_SPREADS = 136663185;
+const COUNT_SAMPLES = 2000;
+
+/**
+ * Whether a Pokemon's count of spreads left agrees with its own membership
+ * test, which is separate code: of `COUNT_SAMPLES` spreads drawn evenly from
+ * every spread there is, about count / ALL_SPREADS of them must be possible. The
+ * count is what the grade calls precision, so a count that goes wrong would
+ * pass for a precision gain; this catches one wrong by far more than chance
+ * allows. Null when they agree, else what disagrees. The draws are fixed by
+ * `key`, so a case grades the same every time.
+ */
+function miscount(p, key) {
+  let x = Number.parseInt(crypto.createHash('sha256').update(key).digest('hex').slice(0, 8), 16) >>> 0;
+  const next = () => { x = (x + 0x6D2B79F5) >>> 0; let t = x; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  let hits = 0;
+  for (let n = 0; n < COUNT_SAMPLES;) {
+    const v = STATS.map(() => Math.floor(next() * 33));
+    if (v.reduce((a, b) => a + b, 0) > 66) continue;
+    n++;
+    if (p.contains(Object.fromEntries(STATS.map((s, i) => [s, v[i]])))) hits++;
+  }
+  const share = p.spreads / ALL_SPREADS;
+  const expected = COUNT_SAMPLES * share;
+  const spread = Math.sqrt(expected * (1 - share));
+  if (Math.abs(hits - expected) <= 6 * spread + 3) return null;
+  return `counts ${p.spreads.toLocaleString('en')} spreads left, but ${hits} of ${COUNT_SAMPLES} spreads drawn at random are possible (about ${Math.round(expected)} expected)`;
+}
+
 /** One battle from one view, graded. */
 async function runCase(id, view, budget = 1) {
   const started = Date.now();
@@ -199,6 +231,7 @@ async function runCase(id, view, budget = 1) {
         witness: p.contains(p.used),
         exact: STATS.filter(x => p.stats[x]?.count === 1),
         ...(rank === undefined ? {} : { rank, likely: likely.length }),
+        miscounted: miscount(p, `${id} ${view} ${p.id}`),
       });
     }
     // Each check on its own, so one failing does not hide another; `result`
@@ -206,9 +239,11 @@ async function runCase(id, view, budget = 1) {
     const limits = inf.limits || [];
     const sound = pokemon.every(p => p.kept) && (!inf.complete || pokemon.every(p => p.witness));
     const limitHit = limits.some(l => SEARCH_LIMITS.has(l));
-    const result = !sound ? 'REMOVED' : inf.complete ? 'PASS' : limitHit ? 'GAVE UP' : 'NO MATCH';
+    const wrongCount = pokemon.find(p => p.miscounted);
+    const result = !sound ? 'REMOVED' : wrongCount ? 'CRASH' : inf.complete ? 'PASS' : limitHit ? 'GAVE UP' : 'NO MATCH';
     return {
       ...base, result, sound, complete: inf.complete, limitHit, asSaved, stop: inf.stop, limits, pokemon,
+      ...(wrongCount ? { error: `${wrongCount.id} ${wrongCount.species}: ${wrongCount.miscounted}` } : {}),
       work: { rounds: inf.work.rounds, rebuilds: inf.work.rebuilds, probes: inf.work.probes },
       seconds: Number(((Date.now() - started) / 1000).toFixed(1)),
     };
