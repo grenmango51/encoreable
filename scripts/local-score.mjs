@@ -12,9 +12,10 @@
  *   npm run score -- --tier full --accept    write this run as the new baseline
  *   npm run score -- --tier full --budget 10  every search limit ten times as wide: what the limits cost
  *   npm run score -- --only fuzz:220 --views p2@p1 --trace   every step of the search, on stderr: why a case gave up
+ *   npm run score -- --mimic-dir <dir>      every game in <dir> as a mimic battle, not the benchmark (a corpus sweep)
  *
  * Flags: --tier quick|full --only <id>[,<id>...] --views <v>[,<v>...] --threads <n> --budget <n>
- *        --trace --shard <i>/<n> --out <file> --merge <file>... --baseline <file> --accept
+ *        --trace --mimic-dir <dir> --shard <i>/<n> --out <file> --merge <file>... --baseline <file> --accept
  *
  * A view is who is inferred and from whose screen:
  *   p2@p1           player 2's Stat Points, from player 1's channel (p1 known)
@@ -59,6 +60,7 @@ import { fileURLToPath } from 'url';
 import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 
 import { battleLines } from './lib/protocol.mjs';
+import { loadSource } from './lib/replay-source.mjs';
 import { inferSpreads } from './lib/inference/infer.mjs';
 import { FUZZ_TURNS, fuzzRecipe, fuzzTeams, playFuzz } from './lib/fuzz.mjs';
 import { USAGE_FILE, mimicRecipe, playMimic, usageSpreads } from './lib/mimic.mjs';
@@ -133,7 +135,7 @@ function usagePrint() {
  * simulator, which a few no longer play the way they were saved (`asSaved`):
  * either way it is a battle the real teams played, which is all a grade needs.
  */
-async function battleOf(id) {
+async function battleOf(id, mimicDir = null) {
   if (id.startsWith('fuzz:')) {
     fuzzPool ||= fuzzTeams().teams;
     const played = await playFuzz(fuzzRecipe(Number(id.slice(5)), fuzzPool, FUZZ_TURNS));
@@ -142,7 +144,7 @@ async function battleOf(id) {
     return { inputLog: played.inputLog, replayed, same, asSaved: null };
   }
   if (id.startsWith('mimic:')) {
-    const recipe = mimicRecipe(id);
+    const recipe = mimicDir ? mimicRecipe(id, loadSource(path.join(mimicDir, `${id.slice('mimic:'.length)}.json`))) : mimicRecipe(id);
     if (!recipe) throw new Error(`${id}: no open sheet for a side, or a team the format refuses`);
     const played = await playMimic(recipe);
     const replayed = await replayInputLog(played.inputLog);
@@ -190,12 +192,12 @@ function miscount(p, key) {
 }
 
 /** One battle from one view, graded. */
-async function runCase(id, view, budget = 1, trace = false) {
+async function runCase(id, view, { budget = 1, trace = false, mimicDir = null } = {}) {
   const started = Date.now();
   const base = { id, view };
   try {
     const { infer, channel } = VIEWS[view];
-    const { inputLog, replayed, same, asSaved } = await battleOf(id);
+    const { inputLog, replayed, same, asSaved } = await battleOf(id, mimicDir);
     if (!same) return { ...base, result: 'CRASH', error: 'the input log does not replay the battle', seconds: 0 };
     const start = inputLog.find(l => l.startsWith('>start '));
     const formatid = JSON.parse(start.slice(start.indexOf('{'))).formatid;
@@ -257,7 +259,15 @@ async function runCase(id, view, budget = 1, trace = false) {
 // ------------------------------------------------------------- the run
 
 /** Every case of the tier, in list order, then view order. */
-function casesOf({ tier, only, views }) {
+function casesOf({ tier, only, views, mimicDir = null }) {
+  // Games outside the benchmark - a sample of the crawled corpus - are graded
+  // from their own directory, all of them unless `only` names some. None has a
+  // baseline: a sweep looks for what was removed, crashed or gave up.
+  if (mimicDir) {
+    const ids = only || fs.readdirSync(mimicDir).filter(f => f.endsWith('.json')).sort().map(f => `mimic:${f.slice(0, -'.json'.length)}`);
+    for (const id of ids) if (!id.startsWith('mimic:')) throw new Error(`--mimic-dir grades mimic battles only, not ${id}`);
+    return ids.flatMap(id => views.map(view => ({ id, view })));
+  }
   const battles = BATTLES.filter(b => (only ? only.includes(b.id) : tier === 'full' || b.quick));
   // Any fuzz number plays a battle, so one outside the list can be graded too:
   // it has no baseline to compare with (`npm run mutate -- --hunt`).
@@ -270,7 +280,7 @@ function casesOf({ tier, only, views }) {
 }
 
 /** The cases on a pool of worker threads; results in case order. */
-async function runCases(cases, threads, budget, trace = false) {
+async function runCases(cases, threads, budget, { trace = false, mimicDir = null } = {}) {
   const out = new Array(cases.length);
   let next = 0;
   let done = 0;
@@ -281,7 +291,7 @@ async function runCases(cases, threads, budget, trace = false) {
     const feed = () => {
       if (next >= cases.length) { worker.postMessage(null); return; }
       const at = next++;
-      worker.postMessage({ at, budget, trace, ...cases[at] });
+      worker.postMessage({ at, budget, trace, mimicDir, ...cases[at] });
     };
     worker.on('message', ({ at, record }) => {
       out[at] = record;
@@ -415,11 +425,11 @@ async function main() {
     const parts = merge.map(f => JSON.parse(fs.readFileSync(f, 'utf8')));
     const tiers = new Set(parts.map(p => p.tier));
     if (tiers.size !== 1) throw new Error(`--merge: shares of different tiers (${[...tiers].join(', ')})`);
-    for (const k of ['commit', 'pool', 'usage', 'only', 'views', 'budget']) {
+    for (const k of ['commit', 'pool', 'usage', 'only', 'views', 'budget', 'mimicDir']) {
       if (new Set(parts.map(p => JSON.stringify(p[k]))).size !== 1) throw new Error(`--merge: shares of different ${k}`);
     }
     const records = parts.flatMap(p => p.records);
-    const cases = casesOf({ tier: parts[0].tier, only: parts[0].only, views: parts[0].views });
+    const cases = casesOf({ tier: parts[0].tier, only: parts[0].only, views: parts[0].views, mimicDir: parts[0].mimicDir });
     const wanted = new Set(cases.map(keyOf));
     const have = new Map();
     for (const r of records) {
@@ -435,7 +445,8 @@ async function main() {
     const only = opt('--only') ? opt('--only').split(',') : null;
     const views = opt('--views') ? opt('--views').split(',') : Object.keys(VIEWS);
     for (const v of views) if (!VIEWS[v]) throw new Error(`no view ${v} - have ${Object.keys(VIEWS).join(', ')}`);
-    let cases = casesOf({ tier, only, views });
+    const mimicDir = opt('--mimic-dir') ? path.resolve(opt('--mimic-dir')) : null;
+    let cases = casesOf({ tier, only, views, mimicDir });
     let shard = null;
     if (opt('--shard')) {
       const [i, n] = opt('--shard').split('/').map(Number);
@@ -447,7 +458,7 @@ async function main() {
     const budget = Number(opt('--budget', '1'));
     if (!(Number.isInteger(budget) && budget >= 1)) throw new Error('--budget <n>: a whole number, at least 1');
     console.error(`score: ${cases.length} case(s) on ${threads} thread(s)`);
-    run = { commit: commitOf(), pool: poolPrint(), usage: usagePrint(), budget, tier, only, views, shard, host: os.hostname(), records: await runCases(cases, threads, budget, flag('--trace')) };
+    run = { commit: commitOf(), pool: poolPrint(), usage: usagePrint(), budget, tier, only, views, mimicDir, shard, host: os.hostname(), records: await runCases(cases, threads, budget, { trace: flag('--trace'), mimicDir }) };
   }
 
   const out = opt('--out') || path.join(OUT_DIR, `${run.tier}-${run.commit || 'local'}${run.budget > 1 ? `-budget${run.budget}` : ''}${run.shard ? `-${run.shard.i}of${run.shard.n}` : ''}.json`);
@@ -485,7 +496,7 @@ budget x${run.budget}: every search limit ${run.budget} times as wide`);
   }
   if (flag('--accept')) {
     if (experiment) throw new Error('--accept: a run with a wider budget is never a baseline');
-    if (run.tier !== 'full' || run.only || run.views.length !== Object.keys(VIEWS).length) {
+    if (run.tier !== 'full' || run.only || run.mimicDir || run.views.length !== Object.keys(VIEWS).length) {
       throw new Error('--accept needs a full run of every view');
     }
     if (run.records.some(r => r.result === 'REMOVED')) throw new Error('--accept: a run that removed a possible spread is never a baseline');
@@ -506,6 +517,6 @@ if (isMainThread) {
 } else if (workerData?.role === WORKER_ROLE) {
   parentPort.on('message', async (job) => {
     if (!job) { process.exit(0); return; }
-    parentPort.postMessage({ at: job.at, record: await runCase(job.id, job.view, job.budget, job.trace) });
+    parentPort.postMessage({ at: job.at, record: await runCase(job.id, job.view, job) });
   });
 }

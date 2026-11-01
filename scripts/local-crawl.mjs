@@ -6,9 +6,10 @@
  *   npm run crawl -- --days 30 --out <dir>        reach back 30 days (the search keeps about a month)
  *   npm run crawl -- --usage 2026-09              rewrite scripts/fixtures/usage-spreads.json from that month's stats
  *   npm run crawl -- --pick 100 --day 2026-10-30  copy 100 Bo3 games of that day into recordings/showdown/others-open/
+ *   npm run crawl -- --pick 500 --day 2026-10-12 --to <dir>  copy them into <dir> instead, for a sweep (npm run score -- --mimic-dir)
  *
  * Flags: --out <dir> --formats <id>[,<id>...] --days <n> --delay <ms> --usage <YYYY-MM>
- *        --pick <n> --day <YYYY-MM-DD>
+ *        --pick <n> --day <YYYY-MM-DD> --to <dir>
  *
  * Replays are kept as one gzipped JSON line each, in a bundle per format and
  * per day of upload (`<out>/<format>/<YYYY-MM-DD>.jsonl.gz`), appended to as
@@ -33,6 +34,7 @@ import zlib from 'zlib';
 import { createRequire } from 'module';
 
 import { MIMIC_DIR, USAGE_FILE, mimicRecipe, playMimic } from './lib/mimic.mjs';
+import { loadSource } from './lib/replay-source.mjs';
 
 const require = createRequire(import.meta.url);
 const { Dex } = require('pokemon-showdown');
@@ -224,13 +226,13 @@ async function usage(month) {
 
 // ------------------------------------------------------------------ pick
 
-async function pick({ out, n, day }) {
+async function pick({ out, n, day, to = path.join(ROOT, MIMIC_DIR) }) {
   const replays = readBundle(path.join(out, USAGE_FORMAT, `${day}.jsonl.gz`));
   if (!replays.length) throw new Error(`no ${USAGE_FORMAT} replays of ${day} in ${out}`);
   const hash = id => crypto.createHash('sha256').update(id).digest('hex');
   const seen = new Set();
   const ordered = [...new Map(replays.map(r => [r.id, r])).values()].sort((a, b) => hash(a.id).localeCompare(hash(b.id)));
-  const dir = path.join(ROOT, MIMIC_DIR);
+  const dir = to;
   fs.mkdirSync(dir, { recursive: true });
   const picked = [];
   for (const replay of ordered) {
@@ -247,7 +249,7 @@ async function pick({ out, n, day }) {
     if (!existed) fs.writeFileSync(file, `${JSON.stringify(replay)}\n`);
     let ok = false;
     try {
-      const recipe = mimicRecipe(`mimic:${replay.id}`);
+      const recipe = mimicRecipe(`mimic:${replay.id}`, loadSource(file));
       ok = !!recipe && (await playMimic(recipe)).turns > 1;
     } catch (err) {
       console.log(`${replay.id}: ${String(err.message).split('\n')[0]}`);
@@ -260,14 +262,16 @@ async function pick({ out, n, day }) {
     picked.push(replay.id);
   }
   console.log(picked.map(id => `  'mimic:${id}',`).join('\n'));
-  console.log(`${picked.length} games in ${MIMIC_DIR}/`);
+  console.log(`${picked.length} games in ${path.relative(ROOT, dir) || dir}/`);
 }
 
 // ------------------------------------------------------------------ main
 
 const out = path.resolve(flag('out', path.join(ROOT, '.cache/crawl')));
 if (flag('usage')) await usage(flag('usage'));
-else if (flag('pick')) await pick({ out, n: Number(flag('pick')), day: flag('day') || dayOf(Date.now() / 1000 - 86400) });
+else if (flag('pick')) {
+  await pick({ out, n: Number(flag('pick')), day: flag('day') || dayOf(Date.now() / 1000 - 86400), ...(flag('to') ? { to: path.resolve(flag('to')) } : {}) });
+}
 else {
   await crawl({
     out,
