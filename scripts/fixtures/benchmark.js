@@ -18,6 +18,7 @@ const QUICK = new Set([
   'recordings/local/branched/gen9championsvgc2026regmb-199.log.json',
   'fuzz:101', 'fuzz:102', 'fuzz:103', 'fuzz:104', 'fuzz:105',
   'fuzz:106', 'fuzz:107', 'fuzz:108', 'fuzz:109', 'fuzz:110',
+  'fuzz:1005', 'fuzz:1009', 'fuzz:1016',
   'mimic:gen9championsvgc2026regmcbo3-2706771017',
   'mimic:gen9championsvgc2026regmcbo3-2706680632',
   'mimic:gen9championsvgc2026regmcbo3-2706851242',
@@ -165,6 +166,20 @@ const MIMIC = [
   'mimic:gen9championsvgc2026regmcbo3-2706560352',
 ];
 
-const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC].map(id => ({ id, quick: QUICK.has(id) }));
+// Battles that catch a planted bug no battle above caught (`npm run mutate`,
+// sample 270 of seed 1 at 7f44a5f, hunted on fuzz 1001-1030): each named
+// with the mutants it catches and how.
+const PLANTED = [
+  'fuzz:1002', // speed.mjs:387 ===→!== keeps more spreads
+  'fuzz:1005', // evidence.mjs:1006 ===→!== removes a real spread
+  'fuzz:1008', // knowledge.mjs:759 <→<= keeps more spreads
+  'fuzz:1009', // infer.mjs:553, infer.mjs:563 !==→===, infer.mjs:780, knowledge.mjs:782 deleted: gives up; evidence.mjs:676 deleted: keeps more
+  'fuzz:1012', // speed.mjs:404 deleted: crashes
+  'fuzz:1013', // evidence.mjs:1029 &&→||: crashes
+  'fuzz:1016', // evidence.mjs:751 deleted removes a real spread; evidence.mjs:2396 deleted, evidence.mjs:721 drop !: keeps more
+  'fuzz:1020', // evidence.mjs:3488 ||→&&, evidence.mjs:3499 deleted: gives up
+];
+
+const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED].map(id => ({ id, quick: QUICK.has(id) }));
 
 module.exports = { BATTLES };
