@@ -178,6 +178,9 @@ const PLANTED = [
   'fuzz:1013', // evidence.mjs:1029 &&→||: crashes
   'fuzz:1016', // evidence.mjs:751 deleted removes a real spread; evidence.mjs:2396 deleted, evidence.mjs:721 drop !: keeps more
   'fuzz:1020', // evidence.mjs:3488 ||→&&, evidence.mjs:3499 deleted: gives up
+  // Hunted on fuzz 1031-1090 at d2c6742, among the 172 the first hunt left:
+  'fuzz:1040', // knowledge.mjs:477 deleted: crashes
+  'fuzz:1042', // evidence.mjs:3517 drop !: gives up
 ];
 
 // Games a corpus sweep found the rebuild or the inference failing on
