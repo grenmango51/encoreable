@@ -667,10 +667,11 @@ export async function inferSpreads({
       if (d.sides.get(value) === 'early' && !found && !ahead) await escort(d, value, got);
       return d.sides.get(value);
     };
-    // An order between two inferred Pokemon: their Speeds pushed apart, each
-    // way round, before either moves alone - one alone is blocked by the
-    // other's guess, as a Rillaboom guessed slow is by a Glalie guessed fast.
-    if (order) {
+    // An order between two inferred Pokemon on a turn with an unseen choice:
+    // their Speeds pushed apart, each way round, before either moves alone -
+    // one alone is blocked by the other's guess, as a Rillaboom guessed slow is
+    // by a Glalie guessed fast whose put-in Protect prints the same either way.
+    if (order && disputed.size) {
       const actor = l => [...namedIn(`|x|${who(l) || ''}`)][0];
       const [da, db] = [actor(diff.expected), actor(diff.actual)].map(id => dims.find(d => d.id === id && d.stat === 'spe'));
       if (da && db && da.id !== db.id && da.alive.length && db.alive.length) {
