@@ -180,8 +180,9 @@ function handOn(built, rolls) {
  * @param allSpent assume every unknown set spends all 66 points, as real sets do.
  *                 An assumption, not evidence: off unless asked for.
  * @param usage    the spreads people run, by species and nature, as in
- *                 `usage-spreads.json`: each unknown set's first guess is the one
- *                 run most. Only where the search starts, never evidence.
+ *                 `usage-spreads.json`: a search that gives up starts again from
+ *                 the one run most (`start: 'usage'`), and each Pokemon keeps what
+ *                 both searches left. Only where a search starts, never evidence.
  * @param maxRounds the rounds that get no further than the furthest one yet;
  *                 a round that gets further costs none, up to four times as
  *                 many rounds in all - a long battle a line a round
@@ -236,6 +237,7 @@ export async function inferSpreads({
   readings = true,
   budgetScale = 1,
   usage = null,
+  start = 'default',
   spend = { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() },
 }) {
   const options = { ...arguments[0], spend };
@@ -297,16 +299,18 @@ export async function inferSpreads({
   for (const [s, team] of sets.entries()) {
     for (const [i, set] of team.entries()) blank.set(`p${s + 1}:${i}`, freshKnowledge(set, known[s], allSpent));
   }
-  let picks = sets.map((team, s) => team.map((set) => {
+  // Each unknown set's first guess, from either start: bulk and the stat its
+  // nature boosts, or (`start: 'usage'`) the spread people run most with its
+  // species and nature. A guess is only where the search begins.
+  const firstGuesses = from => sets.map((team, s) => team.map((set) => {
     if (known[s]) return fullEvs(set.evs);
     const max = exactHp.get(`p${s + 1}:${set.name || set.species}`);
     const base = dex.species.get(set.species || set.name).baseStats.hp;
     const hp = max ? max - base - 75 : undefined;
-    // The spread people run most with this species and nature is the likeliest
-    // start (`usage`); a guess is only where the search begins.
-    const usual = usualSpreads(usage, dex, set).find(u => hp === undefined || u.evs.hp === hp);
+    const usual = from === 'usage' ? usualSpreads(usage, dex, set).find(u => hp === undefined || u.evs.hp === hp) : null;
     return usual ? { ...usual.evs } : defaultSpread(dex, set, hp);
   }));
+  let picks = firstGuesses(start);
 
   const settle = async (inputLog, knowledge, cache, record = false) => {
     const counts = () => new Map([...knowledge].map(([id, kn]) => [id, spreadsLeft(kn)]));
@@ -940,7 +944,7 @@ export async function inferSpreads({
     }
   }
 
-  return spareDisguises({
+  const plain = await spareDisguises({
     complete: built.report.complete,
     rounds,
     seconds: Number(((Date.now() - started) / 1000).toFixed(1)),
@@ -960,6 +964,33 @@ export async function inferSpreads({
     warnings,
     stop,
   });
+
+  // Where the search starts decides, more than anything, whether a hard battle
+  // rebuilds: the same battle can give up from one start and rebuild from
+  // another. So a search that gave up starts once more, from the spreads people
+  // run (`usage`), with a budget of its own. Every spread either removed was
+  // removed by evidence, so each Pokemon keeps only what both left, and the
+  // rebuild is the one that reproduced the log, if one did: never worse than
+  // the first search alone.
+  const from = { plain: firstGuesses('default'), usual: usage ? firstGuesses('usage') : null };
+  const differs = from.usual && start === 'default'
+    && sets.some((team, s) => team.some((set, i) => !sameSpread(from.usual[s][i], from.plain[s][i])));
+  if (plain.complete || !differs || Date.now() >= deadline) return plain;
+  onProgress('the search gave up; searching again from the spreads people run');
+  const second = absorb(await inferSpreads({
+    ...options, start: 'usage', spend: { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() },
+  }));
+  const [kept, partner] = second.complete ? [second, plain] : [plain, second];
+  for (const p of kept.pokemon) {
+    if (p.known) continue;
+    const kn = kept.knowledge.get(p.id);
+    const other = partner.knowledge.get(p.id);
+    if (!kn || !other) continue;
+    intersectKnowledge(kn, maskKeys(other.keys), other.dom, other.ties);
+    tighten(kn);
+    Object.assign(p, summarise(kn), { contains: evs => containsSpread(kn, evs) });
+  }
+  return Object.assign(kept, { work, warnings, limits: [...limits].sort() });
 
   /**
    * A switch-in nothing settles could have been the Illusion user in disguise
