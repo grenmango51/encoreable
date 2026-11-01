@@ -590,16 +590,22 @@ export async function inferSpreads({
     // A spread under which the scaffold's own choices and dice print what they
     // printed, as the replay shows it, through the failing turn, does not move
     // its line, and costs no rebuild - unless the turn holds a choice the replay
-    // never showed. A Pokemon that fainted or flinched before acting had a move
-    // put in for it, and another spread can let another move fit where the one
-    // put in still prints the same: a Protect that goes first at any Speed.
-    const plain = (built.report.hidden || []).includes(t) ? null : await replayWith(built.inputLog, packOf(start), t, channel);
+    // never showed and the spread is one of the two Pokemon the line is about,
+    // the one the replay has acting and the one the rebuild printed instead. A
+    // Pokemon that fainted or flinched before acting had a move put in for it,
+    // and another spread of its own or of the one it is ordered against can let
+    // another move fit where the one put in still prints the same: a Protect
+    // that goes first at any Speed.
+    const plain = await replayWith(built.inputLog, packOf(start), t, channel);
+    const actorOf = l => [...namedIn(`|x|${(/^p[1-4][a-d]?: /.test(String(l || '').split('|')[2] || '') ? String(l).split('|')[2] : '')}`)][0];
+    const disputed = (built.report.hidden || []).includes(t) ? new Set([actorOf(diff.expected), actorOf(diff.actual)].filter(Boolean)) : new Set();
     const done = new Set([signature(start)]);
     const probe = async (changes, from = knowledge) => {
       const chosen = build(changes, from);
       if (!chosen || done.has(signature(chosen))) return null;
       done.add(signature(chosen));
-      const same = !!plain && JSON.stringify(await replayWith(built.inputLog, packOf(chosen), t, channel)) === JSON.stringify(plain);
+      const same = !!plain && !changes.some(c => disputed.has(c.id))
+        && JSON.stringify(await replayWith(built.inputLog, packOf(chosen), t, channel)) === JSON.stringify(plain);
       const b = same ? null : await rebuild(chosen, budget);
       const stop = b && b.report.diffs[0];
       onProgress(`  fallback on turn ${t}: ${changes.map(c => `${c.name} ${c.stat} ${c.value}`).join(', ')} - ${same ? 'plays out the same'
