@@ -11,9 +11,10 @@
  *   npm run score -- --merge <file>...       the shares put together, graded and compared
  *   npm run score -- --tier full --accept    write this run as the new baseline
  *   npm run score -- --tier full --budget 10  every search limit ten times as wide: what the limits cost
+ *   npm run score -- --only fuzz:220 --views p2@p1 --trace   every step of the search, on stderr: why a case gave up
  *
  * Flags: --tier quick|full --only <id>[,<id>...] --views <v>[,<v>...] --threads <n> --budget <n>
- *        --shard <i>/<n> --out <file> --merge <file>... --baseline <file> --accept
+ *        --trace --shard <i>/<n> --out <file> --merge <file>... --baseline <file> --accept
  *
  * A view is who is inferred and from whose screen:
  *   p2@p1           player 2's Stat Points, from player 1's channel (p1 known)
@@ -189,7 +190,7 @@ function miscount(p, key) {
 }
 
 /** One battle from one view, graded. */
-async function runCase(id, view, budget = 1) {
+async function runCase(id, view, budget = 1, trace = false) {
   const started = Date.now();
   const base = { id, view };
   try {
@@ -212,6 +213,7 @@ async function runCase(id, view, budget = 1) {
     const inf = await inferSpreads({
       formatid, sets, known, playerNames: players.map(p => p.name), observed: replayed.channels[channel], channel,
       sampleSeed: 1, threads: 1, budgetScale: budget, usage,
+      ...(trace ? { onProgress: m => process.stderr.write(`[${id} ${view}] ${m}\n`) } : {}),
     });
     const pokemon = [];
     for (const p of inf.pokemon) {
@@ -268,7 +270,7 @@ function casesOf({ tier, only, views }) {
 }
 
 /** The cases on a pool of worker threads; results in case order. */
-async function runCases(cases, threads, budget) {
+async function runCases(cases, threads, budget, trace = false) {
   const out = new Array(cases.length);
   let next = 0;
   let done = 0;
@@ -279,7 +281,7 @@ async function runCases(cases, threads, budget) {
     const feed = () => {
       if (next >= cases.length) { worker.postMessage(null); return; }
       const at = next++;
-      worker.postMessage({ at, budget, ...cases[at] });
+      worker.postMessage({ at, budget, trace, ...cases[at] });
     };
     worker.on('message', ({ at, record }) => {
       out[at] = record;
@@ -445,7 +447,7 @@ async function main() {
     const budget = Number(opt('--budget', '1'));
     if (!(Number.isInteger(budget) && budget >= 1)) throw new Error('--budget <n>: a whole number, at least 1');
     console.error(`score: ${cases.length} case(s) on ${threads} thread(s)`);
-    run = { commit: commitOf(), pool: poolPrint(), usage: usagePrint(), budget, tier, only, views, shard, host: os.hostname(), records: await runCases(cases, threads, budget) };
+    run = { commit: commitOf(), pool: poolPrint(), usage: usagePrint(), budget, tier, only, views, shard, host: os.hostname(), records: await runCases(cases, threads, budget, flag('--trace')) };
   }
 
   const out = opt('--out') || path.join(OUT_DIR, `${run.tier}-${run.commit || 'local'}${run.budget > 1 ? `-budget${run.budget}` : ''}${run.shard ? `-${run.shard.i}of${run.shard.n}` : ''}.json`);
@@ -504,6 +506,6 @@ if (isMainThread) {
 } else if (workerData?.role === WORKER_ROLE) {
   parentPort.on('message', async (job) => {
     if (!job) { process.exit(0); return; }
-    parentPort.postMessage({ at: job.at, record: await runCase(job.id, job.view, job.budget) });
+    parentPort.postMessage({ at: job.at, record: await runCase(job.id, job.view, job.budget, job.trace) });
   });
 }
