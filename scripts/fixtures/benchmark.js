@@ -180,6 +180,13 @@ const PLANTED = [
   'fuzz:1020', // evidence.mjs:3488 ||→&&, evidence.mjs:3499 deleted: gives up
 ];
 
-const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED].map(id => ({ id, quick: QUICK.has(id) }));
+// Games a corpus sweep found the rebuild or the inference failing on
+// (`npm run score -- --mimic-dir`), each in recordings/showdown/others-open/
+// and named with what it exposed.
+const SWEPT = [
+  'mimic:gen9championsvgc2026regmcbo3-2701697350', // 2026-10-20: Acupressure on the partner, a target the rebuild never offered
+];
+
+const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));
 
 module.exports = { BATTLES };
