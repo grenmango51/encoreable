@@ -356,7 +356,13 @@ function targetOptions(side, actorSlot, moveTarget, preferred = null) {
   // auto-chosen target leaves behind - and such a log is unreplayable through
   // no fault of ours. Detected and reported, not guessed.
   const doubles = side.active.length >= 2;
-  if (moveTarget === 'adjacentAllyOrSelf') return [` -${actorSlot + 1}`];
+  // The user or its ally: Acupressure on a partner names the partner.
+  if (moveTarget === 'adjacentAllyOrSelf') {
+    const own = [` -${actorSlot + 1}`];
+    const ally = doubles ? side.active[actorSlot === 0 ? 1 : 0] : null;
+    if (ally && !ally.fainted) own.push(` -${actorSlot === 0 ? 2 : 1}`);
+    return [...new Set([preferred, ...own].filter(o => o !== null && own.includes(o)))];
+  }
   if (moveTarget === 'adjacentAlly') return [` -${actorSlot === 0 ? 2 : 1}`];
 
   const live = (side.foe?.active || []).map(p => !!p && !p.fainted);
