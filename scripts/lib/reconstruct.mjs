@@ -201,6 +201,9 @@ function planSegment(segment, dex) {
  * `|move|p1a: Charizard|Solar Beam||[still]` has an empty target field on the
  * charge turn, but a target was chosen. The execution turn names it:
  * `|move|p1a: Charizard|Solar Beam|p2b: Pelipper|[from] lockedmove`.
+ * That is only where it landed: a redirection (Lightning Rod, Follow Me)
+ * moves it, so the charge turn keeps its other targets as variants, and
+ * `carriedInto` names the turn they show on.
  */
 function recoverChargeTargets(plans) {
   for (const [k, plan] of plans.entries()) {
@@ -212,12 +215,22 @@ function recoverChargeTargets(plans) {
           if (match?.moveid === action.moveid && match.target) {
             action.target = match.target;
             action.recovered = true;
+            action.landsOn = plans.indexOf(later);
             break;
           }
         }
       }
     }
   }
+}
+
+/** The turns before `t` whose stored choices `t` carried out, latest first. */
+function carriedInto(plans, t) {
+  const out = [];
+  for (let k = t - 1; k >= 0; k--) {
+    if (Object.values(plans[k]?.actions || {}).some(acts => (acts || []).some(a => a?.landsOn === t))) out.push(k);
+  }
+  return out;
 }
 
 /** The order Pokemon were revealed, per side: leads first, then first sightings. */
@@ -2194,6 +2207,8 @@ async function reconstructOnce({
 
   // Why the search ended, when the rebuild did not reproduce the whole log.
   let stop = null;
+  // Each earlier choice taken for a turn it carried into, taken once.
+  const takenCarry = new Set();
   while (run.badTurn !== null) {
     if (Date.now() >= deadline) { stop = 'deadline'; common.limits.add('deadline'); break; }
     const t = run.badTurn;
@@ -2268,6 +2283,36 @@ async function reconstructOnce({
       }
       run = await playThrough({ ...common, subs });
       remember();
+    }
+
+    // A choice an earlier turn made and this one carried out - a charging
+    // move's target, chosen as it began and seen only where it landed, which a
+    // redirection moves - was left at its first guess by that turn's search,
+    // since nothing on that turn could tell. So each turn whose stored choice
+    // lands here walks its hidden choices again, every die kept, and one that
+    // gets this turn further is taken before any die is redrawn.
+    if (!solved && run.diffs[0]?.index !== -1) {
+      const from = scoreOf(run, t);
+      let carried = false;
+      for (const k of carriedInto(plans, t)) {
+        const keep = variants[k] || 0;
+        const width = Math.min(run.widths?.[k] || 1, maxVariants);
+        for (let v = 0; v < width && !carried; v++) {
+          if (v === keep || takenCarry.has(`${t}|${k}|${v}`)) continue;
+          variants[k] = v;
+          const probe = await runTo(common, subs, t);
+          carried = probe.badTurn === null || probe.badTurn > t || (probe.badTurn === t && outranks(scoreOf(probe, t), from));
+        }
+          if (carried) { takenCarry.add(`${t}|${k}|${variants[k]}`); break; }
+        variants[k] = keep;
+        if ((run.widths?.[k] || 1) > maxVariants) common.limits.add('variants');
+      }
+      if (carried) {
+        onProgress(`turn ${t}: a choice made on an earlier turn and carried out here gets it further`);
+        run = await playThrough({ ...common, subs });
+        remember();
+        continue;
+      }
     }
 
     if (solved) {
