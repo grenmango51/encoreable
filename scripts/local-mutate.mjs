@@ -5,8 +5,11 @@
  * deleted - chosen by a fixed rule, never by hand. The quick slice of
  * `npm run score` is run against it. A mutant the score notices (a real spread
  * removed, a result or a Pokemon's spreads worse than the baseline, a crash, a
- * hang) is caught; one it does not notice is a blind spot of the benchmark, or
- * a change that makes no difference. A missed mutant is then hunted: fuzz
+ * hang) is caught. One that only makes the slice look better - fewer spreads
+ * left, a case that now rebuilds - is the most dangerous: it removes more, and
+ * the gate would take it for an improvement. One that changes nothing on the
+ * slice is a blind spot of the benchmark, or a change that makes no
+ * difference. Every mutant not caught is then hunted: fuzz
  * battles beyond the benchmark are graded with and without it, and a battle on
  * which it does worse than the real code is one the benchmark lacks. That
  * battle, added to `scripts/fixtures/benchmark.js` with the mutant it caught,
@@ -214,13 +217,21 @@ async function screen(m, { threads, views, minutes }) {
     const lines = res.stdout.split('\n');
     const removed = lines.find(l => l.startsWith('accurate:'))?.match(/^accurate: (\d+) real/)?.[1];
     const worse = lines.filter(l => l.trim().startsWith('WORSE')).map(l => l.trim().slice(6).trim());
+    const better = Number(lines.find(l => l.startsWith('against the baseline'))?.match(/, (\d+) better/)?.[1] || 0);
+    const betterLines = lines.filter(l => l.trim().startsWith('better ')).map(l => l.trim().slice(7).trim());
     const crashed = fs.existsSync(out) ? JSON.parse(fs.readFileSync(out, 'utf8')).records.filter(r => r.result === 'CRASH').map(r => `${r.id} ${r.view}`) : [];
     let caught = null;
     if (Number(removed) > 0) caught = 'removed';
     else if (crashed.length) caught = 'crash';
     else if (worse.length) caught = 'worse';
     else if (res.code !== 0) caught = 'error';
-    return { ...m, caught, seconds, evidence: [...worse.slice(0, 5), ...crashed.slice(0, 3)] };
+    // A change only for the better is still a change: the code removes more,
+    // and a real spread it removes in a battle the slice lacks would pass as an
+    // improvement. It is noticed, not caught, and hunted like a missed one.
+    return {
+      ...m, caught, noticed: !caught && better > 0, seconds,
+      evidence: caught ? [...worse.slice(0, 5), ...crashed.slice(0, 3)] : betterLines.slice(0, 5),
+    };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -270,19 +281,21 @@ async function hunt(id, { seeds, threads, views, minutes }) {
 
 function report(results) {
   const caught = results.filter(r => r.caught);
-  const missed = results.filter(r => !r.caught);
+  const noticed = results.filter(r => !r.caught && r.noticed);
+  const missed = results.filter(r => !r.caught && !r.noticed);
   const by = k => caught.filter(r => r.caught === k).length;
   console.log(`planted bugs: ${results.length}; caught ${caught.length} (${(100 * caught.length / Math.max(1, results.length)).toFixed(1)}%) -` +
-    ` removed a real spread ${by('removed')}, worse than the baseline ${by('worse')}, crash ${by('crash')}, hang ${by('hang')}, error ${by('error')}`);
+    ` removed a real spread ${by('removed')}, worse than the baseline ${by('worse')}, crash ${by('crash')}, hang ${by('hang')}, error ${by('error')};` +
+    ` only better than the baseline ${noticed.length}; no change ${missed.length}`);
   for (const file of TARGETS.map(f => path.basename(f))) {
     const here = results.filter(r => path.basename(r.file) === file);
     if (here.length) console.log(`  ${file.padEnd(16)} ${here.filter(r => r.caught).length} of ${here.length} caught`);
   }
-  console.log(`\nmissed (${missed.length}): hunt each with npm run mutate -- --hunt "<id>" --seeds 1001-1030`);
-  for (const r of missed) {
-    const src = fs.readFileSync(path.join(ROOT, r.file), 'utf8').split('\n')[r.line - 1].trim();
-    console.log(`  ${r.id}\n      ${src.slice(0, 140)}`);
-  }
+  const line = r => fs.readFileSync(path.join(ROOT, r.file), 'utf8').split('\n')[r.line - 1].trim().slice(0, 140);
+  console.log(`\nonly better (${noticed.length}), the most dangerous: hunt each with npm run mutate -- --hunt "<id>" --seeds 1001-1030`);
+  for (const r of noticed) console.log(`  ${r.id}\n      ${line(r)}\n      ${r.evidence?.[0] || ''}`);
+  console.log(`\nno change on the slice (${missed.length}): hunted the same way`);
+  for (const r of missed) console.log(`  ${r.id}\n      ${line(r)}`);
 }
 
 // ------------------------------------------------------------------ main
@@ -325,7 +338,7 @@ async function main() {
   for (const [k, m] of mine.entries()) {
     const r = await screen(m, { threads, views, minutes });
     results.push(r);
-    console.error(`[${k + 1}/${mine.length}] ${m.id}: ${r.caught || 'MISSED'} ${r.seconds}s`);
+    console.error(`[${k + 1}/${mine.length}] ${m.id}: ${r.caught || (r.noticed ? 'ONLY BETTER' : 'NO CHANGE')} ${r.seconds}s`);
     if (opt('out')) fs.writeFileSync(opt('out'), JSON.stringify({ sample: picked.length, seed: opt('seed', '1'), results }));
   }
   report(results);
