@@ -542,7 +542,8 @@ export async function inferSpreads({
     }
     if (base.report.complete) return stays(handed, budget === budgets[0] ? 0 : 1);
     const dice = await rebuild(start, budgets[1]);
-    onProgress(`  fallback on turn ${t}: ${diff.expected} - the guess alone ${dice.report.complete ? 'reproduces it under a bigger search' : 'does not'}, ${clock()}`);
+    const guessed = cast.map(u => `${u.name} ${STAT_IDS.map(x => start[u.s][u.i][x]).join('/')}`).join(', ');
+    onProgress(`  fallback on turn ${t}: ${diff.expected} - the guess alone (${guessed}) ${dice.report.complete ? 'reproduces it under a bigger search' : 'does not'}, ${clock()}`);
     if (dice.report.complete) return stays(handed, 1);
     if (reach(base)[0] < t) return none();
 
