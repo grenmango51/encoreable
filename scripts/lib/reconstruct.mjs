@@ -2307,6 +2307,41 @@ async function reconstructOnce({
     }
     if (!solved && allVariants > maxVariants) common.limits.add('variants');
 
+    // The dice the search settled under one hidden choice can be the ones
+    // another needs: the damage roll found under a substituted move is the roll
+    // a Follow Me needs too, and under the dice as first drawn every choice
+    // stopped at that roll alike, so the order put the Follow Me last. So the
+    // choices are walked again under the furthest attempt's dice, and one that
+    // gets further is searched on with what the turn's budget has left.
+    if (!solved && partial && width > 1) {
+      const held = { subs: { ...partial.subs }, subTurn: { ...partial.subTurn } };
+      const hold = () => {
+        for (const k of Object.keys(subs)) delete subs[k];
+        for (const k of Object.keys(subTurn)) delete subTurn[k];
+        Object.assign(subs, held.subs);
+        Object.assign(subTurn, held.subTurn);
+      };
+      let better = null;
+      for (let v = 0; v < width && !solved; v++) {
+        if (v === partial.variant) continue;
+        variants[t] = v;
+        hold();
+        const probe = await runTo(common, subs, t);
+        if (probe.badTurn === null || probe.badTurn > t) { solved = true; break; }
+        const score = scoreOf(probe, t);
+        if (outranks(score, better ? better.score : partial.at.slice(1))) better = { v, score };
+      }
+      if (!solved && better) {
+        variants[t] = better.v;
+        hold();
+        const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
+        spent[t] += got.probes;
+        forcedDraws += got.forced;
+        if (got.solved) solved = true;
+        else consider(got.score, better.v, got.tried);
+      }
+    }
+
     if (!solved) {
       variants[t] = partial ? partial.variant : 0;
       forget(t);
