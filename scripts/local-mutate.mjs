@@ -19,6 +19,7 @@
  *   npm run mutate -- --sample 300 --shard 3/27 --out <file>   screen one share of a 300-mutant sample
  *   npm run mutate -- --merge <file>...                        the shares together: caught, missed, and how
  *   npm run mutate -- --hunt <mutant> --seeds 1001-1030        battles beyond the benchmark that catch it
+ *   npm run mutate -- --hunt real --seeds 1001-1030            the real code's grades of them, kept for every hunt
  *
  * Flags: --sample <n> --seed <s> --shard <i>/<n> --out <file> --threads <n>
  *        --views <v>[,<v>...] --timeout <minutes> --merge <file>... --hunt <id> --seeds <a>-<b>
@@ -251,19 +252,30 @@ function worseThan(mut, real) {
 }
 
 async function hunt(id, { seeds, threads, views, minutes }) {
-  const m = allMutants().find(x => x.id === id);
-  if (!m) throw new Error(`no mutant ${id}`);
+  // `real` grades the battles with the real code only, for the cache.
+  const m = id === 'real' ? null : allMutants().find(x => x.id === id);
+  if (m === undefined) throw new Error(`no mutant ${id}`);
   const [a, b] = seeds.split('-').map(Number);
   const only = Array.from({ length: b - a + 1 }, (_, k) => `fuzz:${a + k}`).join(',');
   const args = out => ['--only', only, '--views', views, '--threads', String(threads), '--out', out];
   const realDir = checkoutWith(null);
-  const mutDir = checkoutWith(m);
+  const mutDir = m ? checkoutWith(m) : null;
   try {
+    // The real code's grades of these battles are the same for every mutant:
+    // played once and kept beside the checkout, shared by every host.
+    const cached = path.join(ROOT, '.cache', 'mutate', `real-${a}-${b}-${views.replace(/[^\w@,-]/g, '')}.json`);
+    if (!fs.existsSync(cached)) {
+      console.error(`grading fuzz ${a}-${b} (${views}) with the real code`);
+      await score(realDir, args(path.join(realDir, 'real.json')), minutes);
+      fs.mkdirSync(path.dirname(cached), { recursive: true });
+      fs.copyFileSync(path.join(realDir, 'real.json'), `${cached}.${process.pid}`);
+      fs.renameSync(`${cached}.${process.pid}`, cached);
+    }
+    if (!m) return null;
     console.error(`hunting ${id} on fuzz ${a}-${b}, views ${views}`);
-    await score(realDir, args(path.join(realDir, 'real.json')), minutes);
     await score(mutDir, args(path.join(mutDir, 'mutant.json')), minutes);
     const read = f => (fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')).records : []);
-    const real = new Map(read(path.join(realDir, 'real.json')).map(r => [`${r.id} ${r.view}`, r]));
+    const real = new Map(read(cached).map(r => [`${r.id} ${r.view}`, r]));
     const caught = [];
     for (const r of read(path.join(mutDir, 'mutant.json'))) {
       const base = real.get(`${r.id} ${r.view}`);
@@ -273,7 +285,7 @@ async function hunt(id, { seeds, threads, views, minutes }) {
     return { ...m, seeds, views, caught };
   } finally {
     fs.rmSync(realDir, { recursive: true, force: true });
-    fs.rmSync(mutDir, { recursive: true, force: true });
+    if (mutDir) fs.rmSync(mutDir, { recursive: true, force: true });
   }
 }
 
@@ -322,6 +334,7 @@ async function main() {
   }
   if (opt('hunt')) {
     const res = await hunt(opt('hunt'), { seeds: opt('seeds', '1001-1030'), threads, views, minutes: Number(opt('timeout', '120')) });
+    if (!res) { console.log('graded with the real code'); return; }
     if (opt('out')) fs.writeFileSync(opt('out'), JSON.stringify(res, null, 1));
     console.log(res.caught.length
       ? `${res.id}: caught by\n${res.caught.map(c => `  ${c.battle} ${c.view}: ${c.why}`).join('\n')}`
