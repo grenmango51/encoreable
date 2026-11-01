@@ -529,6 +529,8 @@ function onChannel(raw, channel) {
 
 // ------------------------------------------------- HP displays and dry runs
 
+/** The failing turn's hidden choices a die that decides it later is judged under. */
+const MAX_OUTCOMES = 4;
 /** Backtracks to a die that brings a failing non-HP line closer, per rebuild. */
 export const DIE_BACKTRACKS = 4;
 /** Combinations of a turn's invisible choices walked, per turn. */
@@ -1985,7 +1987,7 @@ function exactHp(rawLog, who) {
  * later turn inherits, and it is the same uniform draw over the same consistent
  * set that the forward pass makes.
  */
-async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict = false, failing = null, tried = null) {
+async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict = false, failing = null, tried = null, alternatives = []) {
   const run = await runTo(common, subs, t, t);
   if (scoreOf(run, t)[0] !== Infinity) return false;
   const was = who ? exactHp(run.rawLog, who) : null;
@@ -2021,6 +2023,25 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
       const after = scoreOf(await runTo(common, { ...subs, ...tried, [option.i]: option.value }, failing), failing);
       if (after[0] > before[0] || (after[0] === before[0] && after[1] > before[1])) moving.push(option);
     }
+    // Such a die can need another of the failing turn's unseen choices with it:
+    // a sleep one turn longer only shows when the sleeper's own unseen move is
+    // the Protect that puts it first. So under the failing turn's other hidden
+    // choices, one of each outcome its search saw, the dice are judged again,
+    // on the same budget as the candidates.
+    const keep = common.variants[failing];
+    for (const alt of alternatives) {
+      if (moving.length || probes >= budget) break;
+      if (alt === keep) continue;
+      common.variants[failing] = alt;
+      const was = scoreOf(await runTo(common, subs, failing), failing);
+      for (const option of options) {
+        if (probes >= budget) { common.limits.add('redrawProbes'); break; }
+        probes++;
+        const after = scoreOf(await runTo(common, { ...subs, [option.i]: option.value }, failing), failing);
+        if (after[0] > was[0] || (after[0] === was[0] && after[1] > was[1])) moving.push(option);
+      }
+    }
+    common.variants[failing] = keep;
   }
   const pool = moving.length ? moving : strict ? [] : options;
   if (!pool.length) return false;
@@ -2351,6 +2372,8 @@ async function reconstructOnce({
     const stuck = identName(String(line || '').split('|')[2]);
     const hpFigure = /^\|-(damage|heal|sethp)\|/.test(String(line || ''));
     let back = hpFigure ? blameTurn(segments, t, line) : t - 1;
+    // The failing turn's hidden choices, one for each score its search saw.
+    const outcomes = [...new Map((variantsAt.get(t) || []).map(w => [JSON.stringify(w.score), w.variant])).values()].slice(0, MAX_OUTCOMES);
     let moved = false;
     while (back >= 0 && !moved) {
       // The later turns keep the dice they settled while a die is judged, so
@@ -2358,7 +2381,7 @@ async function reconstructOnce({
       if (hpFigure) forget(back + 1);
       moved = hpFigure
         ? await redrawTurn(back, common, subs, subTurn, sample, maxProbes, stuck, onAttacker, t)
-        : await redrawTurn(back, common, subs, subTurn, sample, maxProbes, null, true, t, partial?.tried);
+        : await redrawTurn(back, common, subs, subTurn, sample, maxProbes, null, true, t, partial?.tried, outcomes);
       if (!moved) back--;
     }
     if (!moved) { stop = 'stuck'; break; }
