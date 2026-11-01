@@ -661,6 +661,22 @@ export async function inferSpreads({
       if (d.sides.get(value) === 'early' && !found && !ahead) await escort(d, value, got);
       return d.sides.get(value);
     };
+    // An order between two inferred Pokemon: their Speeds pushed apart, each
+    // way round, before either moves alone - one alone is blocked by the
+    // other's guess, as a Rillaboom guessed slow is by a Glalie guessed fast.
+    if (order) {
+      const actor = l => [...namedIn(`|x|${who(l) || ''}`)][0];
+      const [da, db] = [actor(diff.expected), actor(diff.actual)].map(id => dims.find(d => d.id === id && d.stat === 'spe'));
+      if (da && db && da.id !== db.id && da.alive.length && db.alive.length) {
+        const top = d => d.alive[d.alive.length - 1];
+        for (const [va, vb] of [[top(da), db.alive[0]], [da.alive[0], top(db)]]) {
+          if (found || ahead || !affordable()) break;
+          const changes = [{ ...da, value: va }, { ...db, value: vb }];
+          const got = await probe(changes);
+          if (got?.b) judge(changes, got);
+        }
+      }
+    }
     // Which stats move the line: each stat at its ends. One whose ends stop
     // the rebuild before the line at one and leave it as it was at the other
     // has the line's values between them, as an order between two speeds
