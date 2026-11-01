@@ -588,8 +588,11 @@ export async function inferSpreads({
     };
     // A spread under which the scaffold's own choices and dice print what they
     // printed, as the replay shows it, through the failing turn, does not move
-    // its line, and costs no rebuild.
-    const plain = await replayWith(built.inputLog, packOf(start), t, channel);
+    // its line, and costs no rebuild - unless the turn holds a choice the replay
+    // never showed. A Pokemon that fainted or flinched before acting had a move
+    // put in for it, and another spread can let another move fit where the one
+    // put in still prints the same: a Protect that goes first at any Speed.
+    const plain = (built.report.hidden || []).includes(t) ? null : await replayWith(built.inputLog, packOf(start), t, channel);
     const done = new Set([signature(start)]);
     const probe = async (changes, from = knowledge) => {
       const chosen = build(changes, from);

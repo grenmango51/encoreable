@@ -463,6 +463,7 @@ function choiceFor(side, plan, state, notes) {
       // moved and no state changed - but the target still perturbs the RNG
       // stream, so which substitution we make is a search variable.
       notes.push(`${sideId} slot ${i + 1} made an invisible choice - substituted a legal move`);
+      state.invisible = true;
       const usable = slot.moves
         .map((m, j) => ({ ...m, j }))
         .filter(m => !m.disabled)
@@ -1073,7 +1074,7 @@ const pinsBefore = (subs, draws) => Object.keys(subs || {})
  * refuses, and it is installed again on restore. A battle the serializer cannot
  * take gets no snapshot, and its probes replay from the start as before.
  */
-function takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes }) {
+function takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes, hidden }) {
   const st = battle.__rng;
   let json;
   delete battle.__rng;
@@ -1098,6 +1099,7 @@ function takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes 
     starts: starts.slice(0, k),
     widths: widths.slice(0, k),
     notes: notes.slice(),
+    hidden: hidden.slice(),
   };
 }
 
@@ -1204,6 +1206,8 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
   if (!from) await stream.write(header.slice(1).join('\n'));
 
   const notes = from ? from.notes.slice() : [];
+  // The turns where a choice the replay never showed was substituted.
+  const hidden = from ? from.hidden.slice() : [];
   // Each choice written, with how long the log was when it was: like a die, a
   // choice cannot change a line written before it.
   const choices = [];
@@ -1215,7 +1219,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
 
   for (let k = from ? from.turn : 0; k < segments.length; k++) {
     if (snaps && !from && k === stopAt && k >= 1) {
-      const snap = takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes });
+      const snap = takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes, hidden });
       if (snap) snaps.set(k, snap);
     }
     markDraws(battle, k);
@@ -1288,6 +1292,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
     }
 
     widths[k] = state.variantWidth;
+    if (state.invisible && !hidden.includes(k)) hidden.push(k);
     const slice = battle.log.slice(logAt);
     logAt = battle.log.length;
 
@@ -1320,6 +1325,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
     widths,
     starts,
     notes,
+    hidden,
     trace,
     choices,
     steer: steered,
@@ -1531,7 +1537,7 @@ function prober(common, t) {
         try {
           const run = await job.promise;
           if (common.tally) common.tally.plays++;
-          return { ...run, rawLog: job.snap.log.slice(0, job.snap.logAt).concat(run.tail), steer: null, inputLog: null, notes: [] };
+          return { ...run, rawLog: job.snap.log.slice(0, job.snap.logAt).concat(run.tail), steer: null, inputLog: null, notes: [], hidden: [] };
         } catch { /* run it here */ }
       }
       return runTo(common, subs, t);
@@ -2407,6 +2413,7 @@ async function reconstructOnce({
       diffs: run.diffs,
       widths: run.widths,
       notes: [...new Set(run.notes)],
+      hidden: (run.hidden || []).filter(k => k <= (run.badTurn ?? Infinity)),
       ended: run.ended,
       winner: run.winner,
     },
