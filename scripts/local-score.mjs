@@ -222,7 +222,13 @@ async function runCase(id, view, budget = 1) {
 /** Every case of the tier, in list order, then view order. */
 function casesOf({ tier, only, views }) {
   const battles = BATTLES.filter(b => (only ? only.includes(b.id) : tier === 'full' || b.quick));
-  if (only) for (const id of only) if (!battles.some(b => b.id === id)) throw new Error(`${id} is not in the benchmark list`);
+  // Any fuzz number plays a battle, so one outside the list can be graded too:
+  // it has no baseline to compare with (`npm run mutate -- --hunt`).
+  for (const id of only || []) {
+    if (battles.some(b => b.id === id)) continue;
+    if (/^fuzz:\d+$/.test(id)) battles.push({ id });
+    else throw new Error(`${id} is not in the benchmark list`);
+  }
   return battles.flatMap(b => views.map(view => ({ id: b.id, view })));
 }
 

@@ -19,6 +19,7 @@
     "catalog": "node scripts/local-catalog.mjs",
     "score": "node scripts/local-score.mjs",
     "crawl": "node scripts/local-crawl.mjs",
+    "mutate": "node scripts/local-mutate.mjs",
     "extension": "node scripts/local-extension.mjs",
     "postinstall": "node node_modules/pokemon-showdown/build"
   },
