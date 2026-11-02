@@ -201,6 +201,9 @@ function planSegment(segment, dex) {
  * `|move|p1a: Charizard|Solar Beam||[still]` has an empty target field on the
  * charge turn, but a target was chosen. The execution turn names it:
  * `|move|p1a: Charizard|Solar Beam|p2b: Pelipper|[from] lockedmove`.
+ * That is only where it landed: a redirection (Lightning Rod, Follow Me)
+ * moves it, so the charge turn keeps its other targets as variants, and
+ * `carriedInto` names the turn they show on.
  */
 function recoverChargeTargets(plans) {
   for (const [k, plan] of plans.entries()) {
@@ -212,12 +215,22 @@ function recoverChargeTargets(plans) {
           if (match?.moveid === action.moveid && match.target) {
             action.target = match.target;
             action.recovered = true;
+            action.landsOn = plans.indexOf(later);
             break;
           }
         }
       }
     }
   }
+}
+
+/** The turns before `t` whose stored choices `t` carried out, latest first. */
+function carriedInto(plans, t) {
+  const out = [];
+  for (let k = t - 1; k >= 0; k--) {
+    if (Object.values(plans[k]?.actions || {}).some(acts => (acts || []).some(a => a?.landsOn === t))) out.push(k);
+  }
+  return out;
 }
 
 /** The order Pokemon were revealed, per side: leads first, then first sightings. */
@@ -343,7 +356,13 @@ function targetOptions(side, actorSlot, moveTarget, preferred = null) {
   // auto-chosen target leaves behind - and such a log is unreplayable through
   // no fault of ours. Detected and reported, not guessed.
   const doubles = side.active.length >= 2;
-  if (moveTarget === 'adjacentAllyOrSelf') return [` -${actorSlot + 1}`];
+  // The user or its ally: Acupressure on a partner names the partner.
+  if (moveTarget === 'adjacentAllyOrSelf') {
+    const own = [` -${actorSlot + 1}`];
+    const ally = doubles ? side.active[actorSlot === 0 ? 1 : 0] : null;
+    if (ally && !ally.fainted) own.push(` -${actorSlot === 0 ? 2 : 1}`);
+    return [...new Set([preferred, ...own].filter(o => o !== null && own.includes(o)))];
+  }
   if (moveTarget === 'adjacentAlly') return [` -${actorSlot === 0 ? 2 : 1}`];
 
   const live = (side.foe?.active || []).map(p => !!p && !p.fainted);
@@ -450,6 +469,7 @@ function choiceFor(side, plan, state, notes) {
       // moved and no state changed - but the target still perturbs the RNG
       // stream, so which substitution we make is a search variable.
       notes.push(`${sideId} slot ${i + 1} made an invisible choice - substituted a legal move`);
+      state.invisible = true;
       const usable = slot.moves
         .map((m, j) => ({ ...m, j }))
         .filter(m => !m.disabled)
@@ -515,6 +535,8 @@ function onChannel(raw, channel) {
 
 // ------------------------------------------------- HP displays and dry runs
 
+/** The failing turn's hidden choices a die that decides it later is judged under. */
+const MAX_OUTCOMES = 4;
 /** Backtracks to a die that brings a failing non-HP line closer, per rebuild. */
 export const DIE_BACKTRACKS = 4;
 /** Combinations of a turn's invisible choices walked, per turn. */
@@ -867,8 +889,10 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
         if (typeof x === 'number') {
           if (x !== 0) x = Math.max(1, x);
           if (x >= h) {
+            const raw = x;
             x = dry(() => { restoreItems(post); return battle.runEvent('Damage', target, source, move, x, true); }, r);
             if (typeof x === 'number' && x !== 0) x = Math.max(1, x);
+            if (x !== raw) caught.add(r);
           }
           if (typeof x === 'number') {
             left = Math.max(0, h - Math.trunc(x));
@@ -886,6 +910,11 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
       return token;
     };
     const hpAfter = new Map();
+    // Rolls a Damage handler changed - a Focus Sash, a Sturdy, an Endure
+    // holding the target at 1 HP - leave it where a roll that dealt exactly
+    // that much leaves it too, but only they spend what held it.
+    const caught = new Set();
+    const after = r => `${hpAfter.get(r)}${caught.has(r) ? '!' : ''}`;
     const rankAt = (r) => {
       const token = printed(r);
       const rank = token === null ? undefined : hpRank(token.split(' ')[0], secret)?.rank;
@@ -906,14 +935,14 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
       while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (rankAt(mid) > wantRank) hi = mid - 1; else lo = mid; }
       const fits = [];
       for (let r = first; r <= lo; r++) if (printed(r) === want) fits.push(r);
-      // Two rolls that leave the target on the same exact HP dealt the same
-      // damage, so everything after plays out the same: one of them is probed
-      // for all, and none for the one the run already threw.
+      // Two rolls that leave the target on the same exact HP, the same way,
+      // dealt the same damage, so everything after plays out the same: one of
+      // them is probed for all, and none for the one the run already threw.
       printed(current);
       const groups = new Map();
       for (const r of fits) {
-        if (hpAfter.get(r) === hpAfter.get(current)) continue;
-        const rep = [...groups.keys()].find(k => hpAfter.get(k) === hpAfter.get(r));
+        if (after(r) === after(current)) continue;
+        const rep = [...groups.keys()].find(k => after(k) === after(r));
         if (rep === undefined) groups.set(r, [r]); else groups.get(rep).push(r);
       }
       return { reps: [...groups.keys()], groups, wrong: !fits.includes(current) };
@@ -1060,7 +1089,7 @@ const pinsBefore = (subs, draws) => Object.keys(subs || {})
  * refuses, and it is installed again on restore. A battle the serializer cannot
  * take gets no snapshot, and its probes replay from the start as before.
  */
-function takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes }) {
+function takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes, hidden }) {
   const st = battle.__rng;
   let json;
   delete battle.__rng;
@@ -1085,6 +1114,7 @@ function takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes 
     starts: starts.slice(0, k),
     widths: widths.slice(0, k),
     notes: notes.slice(),
+    hidden: hidden.slice(),
   };
 }
 
@@ -1191,6 +1221,8 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
   if (!from) await stream.write(header.slice(1).join('\n'));
 
   const notes = from ? from.notes.slice() : [];
+  // The turns where a choice the replay never showed was substituted.
+  const hidden = from ? from.hidden.slice() : [];
   // Each choice written, with how long the log was when it was: like a die, a
   // choice cannot change a line written before it.
   const choices = [];
@@ -1202,7 +1234,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
 
   for (let k = from ? from.turn : 0; k < segments.length; k++) {
     if (snaps && !from && k === stopAt && k >= 1) {
-      const snap = takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes });
+      const snap = takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes, hidden });
       if (snap) snaps.set(k, snap);
     }
     markDraws(battle, k);
@@ -1275,6 +1307,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
     }
 
     widths[k] = state.variantWidth;
+    if (state.invisible && !hidden.includes(k)) hidden.push(k);
     const slice = battle.log.slice(logAt);
     logAt = battle.log.length;
 
@@ -1307,6 +1340,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
     widths,
     starts,
     notes,
+    hidden,
     trace,
     choices,
     steer: steered,
@@ -1518,7 +1552,7 @@ function prober(common, t) {
         try {
           const run = await job.promise;
           if (common.tally) common.tally.plays++;
-          return { ...run, rawLog: job.snap.log.slice(0, job.snap.logAt).concat(run.tail), steer: null, inputLog: null, notes: [] };
+          return { ...run, rawLog: job.snap.log.slice(0, job.snap.logAt).concat(run.tail), steer: null, inputLog: null, notes: [], hidden: [] };
         } catch { /* run it here */ }
       }
       return runTo(common, subs, t);
@@ -1966,7 +2000,7 @@ function exactHp(rawLog, who) {
  * later turn inherits, and it is the same uniform draw over the same consistent
  * set that the forward pass makes.
  */
-async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict = false, failing = null, tried = null) {
+async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict = false, failing = null, tried = null, alternatives = []) {
   const run = await runTo(common, subs, t, t);
   if (scoreOf(run, t)[0] !== Infinity) return false;
   const was = who ? exactHp(run.rawLog, who) : null;
@@ -2002,6 +2036,25 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
       const after = scoreOf(await runTo(common, { ...subs, ...tried, [option.i]: option.value }, failing), failing);
       if (after[0] > before[0] || (after[0] === before[0] && after[1] > before[1])) moving.push(option);
     }
+    // Such a die can need another of the failing turn's unseen choices with it:
+    // a sleep one turn longer only shows when the sleeper's own unseen move is
+    // the Protect that puts it first. So under the failing turn's other hidden
+    // choices, one of each outcome its search saw, the dice are judged again,
+    // on the same budget as the candidates.
+    const keep = common.variants[failing];
+    for (const alt of alternatives) {
+      if (moving.length || probes >= budget) break;
+      if (alt === keep) continue;
+      common.variants[failing] = alt;
+      const was = scoreOf(await runTo(common, subs, failing), failing);
+      for (const option of options) {
+        if (probes >= budget) { common.limits.add('redrawProbes'); break; }
+        probes++;
+        const after = scoreOf(await runTo(common, { ...subs, [option.i]: option.value }, failing), failing);
+        if (after[0] > was[0] || (after[0] === was[0] && after[1] > was[1])) moving.push(option);
+      }
+    }
+    common.variants[failing] = keep;
   }
   const pool = moving.length ? moving : strict ? [] : options;
   if (!pool.length) return false;
@@ -2194,6 +2247,8 @@ async function reconstructOnce({
 
   // Why the search ended, when the rebuild did not reproduce the whole log.
   let stop = null;
+  // Each earlier choice taken for a turn it carried into, taken once.
+  const takenCarry = new Set();
   while (run.badTurn !== null) {
     if (Date.now() >= deadline) { stop = 'deadline'; common.limits.add('deadline'); break; }
     const t = run.badTurn;
@@ -2246,8 +2301,57 @@ async function reconstructOnce({
       ranked.push({ v, score });
     }
     ranked.sort((a, b) => (outranks(b.score, a.score) ? 1 : outranks(a.score, b.score) ? -1 : a.v - b.v));
+
+    // The dice the search settled under one hidden choice can be the ones
+    // another needs: the damage roll found under a substituted move is the roll
+    // a Follow Me needs too, and under the dice as first drawn every choice
+    // stopped at that roll alike, so the order put the Follow Me last. So the
+    // choices are walked again under the furthest attempt's dice, and one that
+    // gets further is searched on with what the turn's budget has left - first
+    // as soon as the choice the turn came with has been searched, before the
+    // budget goes on choices that only tied under the dice as drawn, and again
+    // at the end if a later search got further.
+    const searchedVariants = new Set([0]);
+    let rewalkedFrom = null;
+    const rewalk = async () => {
+      if (solved || !partial || width <= 1 || partial === rewalkedFrom) return;
+      rewalkedFrom = partial;
+      const held = { subs: { ...partial.subs }, subTurn: { ...partial.subTurn } };
+      const hold = () => {
+        for (const k of Object.keys(subs)) delete subs[k];
+        for (const k of Object.keys(subTurn)) delete subTurn[k];
+        Object.assign(subs, held.subs);
+        Object.assign(subTurn, held.subTurn);
+      };
+      let better = null;
+      for (let v = 0; v < width && !solved; v++) {
+        if (v === partial.variant) continue;
+        variants[t] = v;
+        hold();
+        const probe = await runTo(common, subs, t);
+        if (probe.badTurn === null || probe.badTurn > t) { solved = true; break; }
+        const score = scoreOf(probe, t);
+        if (outranks(score, better ? better.score : partial.at.slice(1))) better = { v, score };
+      }
+      if (!solved && better) {
+        variants[t] = better.v;
+        hold();
+        searchedVariants.add(better.v);
+        const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
+        spent[t] += got.probes;
+        forcedDraws += got.forced;
+        const w = walked.findLast(x => x.variant === better.v);
+        if (w) w.searched = got.score;
+        if (got.solved) solved = true;
+        else consider(got.score, better.v, got.tried);
+      }
+    };
+    await rewalk();
+
     for (const { v } of ranked) {
       if (solved) break;
+      if (searchedVariants.has(v)) continue;
+      searchedVariants.add(v);
       variants[t] = v;
       forget(t);
       const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
@@ -2259,6 +2363,8 @@ async function reconstructOnce({
     }
     if (!solved && allVariants > maxVariants) common.limits.add('variants');
 
+    await rewalk();
+
     if (!solved) {
       variants[t] = partial ? partial.variant : 0;
       forget(t);
@@ -2268,6 +2374,36 @@ async function reconstructOnce({
       }
       run = await playThrough({ ...common, subs });
       remember();
+    }
+
+    // A choice an earlier turn made and this one carried out - a charging
+    // move's target, chosen as it began and seen only where it landed, which a
+    // redirection moves - was left at its first guess by that turn's search,
+    // since nothing on that turn could tell. So each turn whose stored choice
+    // lands here walks its hidden choices again, every die kept, and one that
+    // gets this turn further is taken before any die is redrawn.
+    if (!solved && run.diffs[0]?.index !== -1) {
+      const from = scoreOf(run, t);
+      let carried = false;
+      for (const k of carriedInto(plans, t)) {
+        const keep = variants[k] || 0;
+        const width = Math.min(run.widths?.[k] || 1, maxVariants);
+        for (let v = 0; v < width && !carried; v++) {
+          if (v === keep || takenCarry.has(`${t}|${k}|${v}`)) continue;
+          variants[k] = v;
+          const probe = await runTo(common, subs, t);
+          carried = probe.badTurn === null || probe.badTurn > t || (probe.badTurn === t && outranks(scoreOf(probe, t), from));
+        }
+          if (carried) { takenCarry.add(`${t}|${k}|${variants[k]}`); break; }
+        variants[k] = keep;
+        if ((run.widths?.[k] || 1) > maxVariants) common.limits.add('variants');
+      }
+      if (carried) {
+        onProgress(`turn ${t}: a choice made on an earlier turn and carried out here gets it further`);
+        run = await playThrough({ ...common, subs });
+        remember();
+        continue;
+      }
     }
 
     if (solved) {
@@ -2300,6 +2436,8 @@ async function reconstructOnce({
     const stuck = identName(String(line || '').split('|')[2]);
     const hpFigure = /^\|-(damage|heal|sethp)\|/.test(String(line || ''));
     let back = hpFigure ? blameTurn(segments, t, line) : t - 1;
+    // The failing turn's hidden choices, one for each score its search saw.
+    const outcomes = [...new Map((variantsAt.get(t) || []).map(w => [JSON.stringify(w.score), w.variant])).values()].slice(0, MAX_OUTCOMES);
     let moved = false;
     while (back >= 0 && !moved) {
       // The later turns keep the dice they settled while a die is judged, so
@@ -2307,7 +2445,7 @@ async function reconstructOnce({
       if (hpFigure) forget(back + 1);
       moved = hpFigure
         ? await redrawTurn(back, common, subs, subTurn, sample, maxProbes, stuck, onAttacker, t)
-        : await redrawTurn(back, common, subs, subTurn, sample, maxProbes, null, true, t, partial?.tried);
+        : await redrawTurn(back, common, subs, subTurn, sample, maxProbes, null, true, t, partial?.tried, outcomes);
       if (!moved) back--;
     }
     if (!moved) { stop = 'stuck'; break; }
@@ -2362,6 +2500,7 @@ async function reconstructOnce({
       diffs: run.diffs,
       widths: run.widths,
       notes: [...new Set(run.notes)],
+      hidden: (run.hidden || []).filter(k => k <= (run.badTurn ?? Infinity)),
       ended: run.ended,
       winner: run.winner,
     },
