@@ -509,7 +509,30 @@ export async function inferSpreads({
     }
     const leaving = [diff.expected, diff.actual].filter(l => ['switch', 'drag'].includes(String(l || '').split('|')[1]))
       .map(l => stood.get(String(l).split('|')[2].slice(0, 3)));
-    const tiers = [names([diff.expected, diff.actual, ...leaving]), names(place.action), names([...segment, ...stood.values()])];
+    // A condition the action ends was started by someone the turn need not
+    // name: the Substitute a Giga Drain breaks is a quarter of the HP of the
+    // Orthworm whose Shed Tail made it a turn before. So the Pokemon named where
+    // it started, and the one whose move started it, come next.
+    const started = [];
+    {
+      const before = [...turns.slice(0, t).flat(), ...segment.slice(0, Math.max(0, segment.indexOf(place.action?.[0])))];
+      const effect = x => String(x || '').replace(/^move: /, '');
+      const pair = { '-end': '-start', '-sideend': '-sidestart', '-fieldend': '-fieldstart' };
+      for (const l of place.action || []) {
+        const [, k, where, what] = String(l).split('|');
+        if (!pair[k]) continue;
+        const field = k === '-fieldend';
+        for (let i = before.length - 1; i >= 0; i--) {
+          const [, k2, where2, what2] = String(before[i]).split('|');
+          if (k2 !== pair[k]) continue;
+          if (field ? effect(where2) !== effect(where) : (String(where2).slice(0, 3) !== String(where).slice(0, 3) || effect(what2) !== effect(what))) continue;
+          started.push(before[i]);
+          for (let j = i - 1; j >= 0; j--) if (String(before[j]).startsWith('|move|')) { started.push(before[j]); break; }
+          break;
+        }
+      }
+    }
+    const tiers = [names([diff.expected, diff.actual, ...leaving]), names(place.action), names(started), names([...segment, ...stood.values()])];
     const rank = u => tiers.findIndex(tier => tier.has(u.id));
     const cast = unknown.filter(u => rank(u) >= 0 && (seen.has(u.id) || rank(u) === 0)).sort((a, b) => rank(a) - rank(b));
 
