@@ -596,7 +596,16 @@ export async function inferSpreads({
     // and another spread of its own or of the one it is ordered against can let
     // another move fit where the one put in still prints the same: a Protect
     // that goes first at any Speed.
-    const plain = await replayWith(built.inputLog, packOf(start), t, channel);
+    // Only up to the failing line: what a spread prints after it - the turn's
+    // later hits - cannot move it.
+    const head = (log) => {
+      if (!log || !diff.actual) return log;
+      const from = log.indexOf(`|turn|${t}`);
+      const at = from < 0 ? -1 : log.indexOf(diff.actual, from);
+      return at < 0 ? log : log.slice(0, at + 1);
+    };
+    const whole = await replayWith(built.inputLog, packOf(start), t, channel);
+    const plain = head(whole);
     const actorOf = l => [...namedIn(`|x|${(/^p[1-4][a-d]?: /.test(String(l || '').split('|')[2] || '') ? String(l).split('|')[2] : '')}`)][0];
     const disputed = (built.report.hidden || []).includes(t) ? new Set([actorOf(diff.expected), actorOf(diff.actual)].filter(Boolean)) : new Set();
     const done = new Set([signature(start)]);
@@ -605,7 +614,7 @@ export async function inferSpreads({
       if (!chosen || done.has(signature(chosen))) return null;
       done.add(signature(chosen));
       const same = !!plain && !changes.some(c => disputed.has(c.id))
-        && JSON.stringify(await replayWith(built.inputLog, packOf(chosen), t, channel)) === JSON.stringify(plain);
+        && JSON.stringify(head(await replayWith(built.inputLog, packOf(chosen), t, channel))) === JSON.stringify(plain);
       const b = same ? null : await rebuild(chosen, budget);
       const stop = b && b.report.diffs[0];
       onProgress(`  fallback on turn ${t}: ${changes.map(c => `${c.name} ${c.stat} ${c.value}`).join(', ')} - ${same ? 'plays out the same'
@@ -679,8 +688,8 @@ export async function inferSpreads({
     if (order && disputed.size) {
       const actor = l => [...namedIn(`|x|${who(l) || ''}`)][0];
       const turnLines = (() => {
-        const from = (plain || []).indexOf(`|turn|${t}`);
-        return from < 0 ? [] : plain.slice(from + 1);
+        const from = (whole || []).indexOf(`|turn|${t}`);
+        return from < 0 ? [] : whole.slice(from + 1);
       })();
       const at = turnLines.indexOf(diff.actual);
       const next = at < 0 ? null : turnLines.slice(at + 1).find(l => ['move', 'cant', 'switch', 'drag'].includes(kind(l))
