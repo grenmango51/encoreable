@@ -657,7 +657,7 @@ export async function inferSpreads({
         }
       }
     };
-    const tryValue = async (d, value) => {
+    const tryValue = async (d, value, { escorted = true } = {}) => {
       if (value === d.now) return 'same';
       if (d.sides.has(value)) return d.sides.get(value);
       const changes = [{ ...d, value }];
@@ -665,7 +665,7 @@ export async function inferSpreads({
       if (!got) return null;
       if (got.b) judge(changes, got, d);
       d.sides.set(value, sideOf(got));
-      if (d.sides.get(value) === 'early' && !found && !ahead) await escort(d, value, got);
+      if (escorted && d.sides.get(value) === 'early' && !found && !ahead) await escort(d, value, got);
       return d.sides.get(value);
     };
     // An order between two inferred Pokemon on a turn with an unseen choice:
@@ -698,7 +698,7 @@ export async function inferSpreads({
       if (!ends.includes('early') || !ends.includes('same')) continue;
       while (j - i > 1 && !found && !ahead && affordable()) {
         const m = (i + j) >> 1;
-        const side = await tryValue(d, d.alive[m]);
+        const side = await tryValue(d, d.alive[m], { escorted: false });
         if (side === ends[0]) i = m;
         else if (side === ends[1]) j = m;
         else break;
