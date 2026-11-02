@@ -889,8 +889,10 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
         if (typeof x === 'number') {
           if (x !== 0) x = Math.max(1, x);
           if (x >= h) {
+            const raw = x;
             x = dry(() => { restoreItems(post); return battle.runEvent('Damage', target, source, move, x, true); }, r);
             if (typeof x === 'number' && x !== 0) x = Math.max(1, x);
+            if (x !== raw) caught.add(r);
           }
           if (typeof x === 'number') {
             left = Math.max(0, h - Math.trunc(x));
@@ -908,6 +910,11 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
       return token;
     };
     const hpAfter = new Map();
+    // Rolls a Damage handler changed - a Focus Sash, a Sturdy, an Endure
+    // holding the target at 1 HP - leave it where a roll that dealt exactly
+    // that much leaves it too, but only they spend what held it.
+    const caught = new Set();
+    const after = r => `${hpAfter.get(r)}${caught.has(r) ? '!' : ''}`;
     const rankAt = (r) => {
       const token = printed(r);
       const rank = token === null ? undefined : hpRank(token.split(' ')[0], secret)?.rank;
@@ -928,14 +935,14 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
       while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (rankAt(mid) > wantRank) hi = mid - 1; else lo = mid; }
       const fits = [];
       for (let r = first; r <= lo; r++) if (printed(r) === want) fits.push(r);
-      // Two rolls that leave the target on the same exact HP dealt the same
-      // damage, so everything after plays out the same: one of them is probed
-      // for all, and none for the one the run already threw.
+      // Two rolls that leave the target on the same exact HP, the same way,
+      // dealt the same damage, so everything after plays out the same: one of
+      // them is probed for all, and none for the one the run already threw.
       printed(current);
       const groups = new Map();
       for (const r of fits) {
-        if (hpAfter.get(r) === hpAfter.get(current)) continue;
-        const rep = [...groups.keys()].find(k => hpAfter.get(k) === hpAfter.get(r));
+        if (after(r) === after(current)) continue;
+        const rep = [...groups.keys()].find(k => after(k) === after(r));
         if (rep === undefined) groups.set(r, [r]); else groups.get(rep).push(r);
       }
       return { reps: [...groups.keys()], groups, wrong: !fits.includes(current) };
