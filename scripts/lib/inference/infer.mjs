@@ -631,11 +631,11 @@ export async function inferSpreads({
     // Where a value leaves the rebuild: stopping before the line, printing
     // what it printed, or something else.
     const sideOf = got => (got.same ? 'same' : further(baseReach, reach(got.b)) ? 'early' : outcome(got.b) === baseOutcome ? 'same' : 'other');
-    // On a turn with an unseen choice, a Speed that stops the rebuild on an
-    // earlier turn, on an order between this Pokemon and another inferred one,
-    // can be right with that one's Speed moved too: two hidden Speeds that one
-    // turn puts in one order and this turn needs further apart. The other's far
-    // end first, then its near one.
+    // A Speed that stops the rebuild on an earlier turn, on an order between
+    // this Pokemon and another inferred one, can be right with that one's Speed
+    // moved too: two hidden Speeds that one turn puts in one order and this turn
+    // needs further apart. Only the two the order is between, not a target the
+    // line names; the other's far end first, then its near one.
     const dimOf = (u, stat) => dims.find(x => x.id === u.id && x.stat === stat) || (() => {
       const kn = knowledge.get(u.id);
       const values = valuesOf(maskKeys(kn.keys), kn.dom, kn.spent, kn.ties).values;
@@ -643,8 +643,8 @@ export async function inferSpreads({
     })();
     const escort = async (d, value, got) => {
       const stop = got.b?.report.diffs[0];
-      if (!disputed.size || d.stat !== 'spe' || !stop || !(stop.turn < t) || !who(stop.actual) || !who(stop.expected) || who(stop.actual) === who(stop.expected)) return;
-      for (const id of namedIn(`${stop.expected}|${stop.actual}`)) {
+      if (d.stat !== 'spe' || !stop || !(stop.turn < t) || !who(stop.actual) || !who(stop.expected) || who(stop.actual) === who(stop.expected)) return;
+      for (const id of namedIn(`|${who(stop.expected)}|${who(stop.actual)}`)) {
         if (id === d.id) continue;
         const o = dimOf(unknown.find(u => u.id === id), 'spe');
         const ends = [...new Set([o.alive[0], o.alive[o.alive.length - 1]])].filter(v => v !== undefined && v !== o.now)
