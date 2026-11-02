@@ -2301,26 +2301,21 @@ async function reconstructOnce({
       ranked.push({ v, score });
     }
     ranked.sort((a, b) => (outranks(b.score, a.score) ? 1 : outranks(a.score, b.score) ? -1 : a.v - b.v));
-    for (const { v } of ranked) {
-      if (solved) break;
-      variants[t] = v;
-      forget(t);
-      const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
-      spent[t] += got.probes;
-      forcedDraws += got.forced;
-      walked.findLast(w => w.variant === v).searched = got.score;
-      if (got.solved) solved = true;
-      else consider(got.score, v, got.tried);
-    }
-    if (!solved && allVariants > maxVariants) common.limits.add('variants');
 
     // The dice the search settled under one hidden choice can be the ones
     // another needs: the damage roll found under a substituted move is the roll
     // a Follow Me needs too, and under the dice as first drawn every choice
     // stopped at that roll alike, so the order put the Follow Me last. So the
     // choices are walked again under the furthest attempt's dice, and one that
-    // gets further is searched on with what the turn's budget has left.
-    if (!solved && partial && width > 1) {
+    // gets further is searched on with what the turn's budget has left - first
+    // as soon as the choice the turn came with has been searched, before the
+    // budget goes on choices that only tied under the dice as drawn, and again
+    // at the end if a later search got further.
+    const searchedVariants = new Set([0]);
+    let rewalkedFrom = null;
+    const rewalk = async () => {
+      if (solved || !partial || width <= 1 || partial === rewalkedFrom) return;
+      rewalkedFrom = partial;
       const held = { subs: { ...partial.subs }, subTurn: { ...partial.subTurn } };
       const hold = () => {
         for (const k of Object.keys(subs)) delete subs[k];
@@ -2341,13 +2336,34 @@ async function reconstructOnce({
       if (!solved && better) {
         variants[t] = better.v;
         hold();
+        searchedVariants.add(better.v);
         const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
         spent[t] += got.probes;
         forcedDraws += got.forced;
+        const w = walked.findLast(x => x.variant === better.v);
+        if (w) w.searched = got.score;
         if (got.solved) solved = true;
         else consider(got.score, better.v, got.tried);
       }
+    };
+    await rewalk();
+
+    for (const { v } of ranked) {
+      if (solved) break;
+      if (searchedVariants.has(v)) continue;
+      searchedVariants.add(v);
+      variants[t] = v;
+      forget(t);
+      const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
+      spent[t] += got.probes;
+      forcedDraws += got.forced;
+      walked.findLast(w => w.variant === v).searched = got.score;
+      if (got.solved) solved = true;
+      else consider(got.score, v, got.tried);
     }
+    if (!solved && allVariants > maxVariants) common.limits.add('variants');
+
+    await rewalk();
 
     if (!solved) {
       variants[t] = partial ? partial.variant : 0;
