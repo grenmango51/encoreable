@@ -1906,6 +1906,36 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
         }
       }
     }
+    // Then a chance with the die it throws when it comes up: a secondary that
+    // hits picks its status with a die of its own - Dire Claw's poison,
+    // paralysis or sleep - which the chance as drawn never threw, so no pair
+    // above holds it, and the pick it is first given can print a status no
+    // closer than the one an ability put on instead.
+    if (!committed) {
+      const before = new Map(all.map(d => [d.i, `${d.lo}-${d.hi}`]));
+      const chances = all.filter(d => (d.chance || d.hi - d.lo + 1 > 16) && subs[d.i] === undefined);
+      brought: for (const a of chances) {
+        if (!reach(a)) continue;
+        for (const va of candidates(a, run.steer)) {
+          if (probes >= budget) { cut = 'probes'; break brought; }
+          const flipped = await ask.get({ ...subs, [a.i]: va });
+          probes++;
+          const b = drawsOf(flipped.trace, t).find(d => d.i > a.i);
+          if (!b || b.chance || b.hi - b.lo + 1 > 16 || before.get(b.i) === `${b.lo}-${b.hi}`) continue;
+          for (const vb of candidates(b)) {
+            if (probes >= budget) { cut = 'probes'; break brought; }
+            const probe = await ask.get({ ...subs, [a.i]: va, [b.i]: vb });
+            probes++;
+            if (scoreOf(probe, t)[0] > score[0]) {
+              commit(a.i, va);
+              commit(b.i, vb);
+              committed = true;
+              break brought;
+            }
+          }
+        }
+      }
+    }
 
     ask.cancel();
     if (!committed) break;
