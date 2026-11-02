@@ -672,10 +672,23 @@ export async function inferSpreads({
     // their Speeds pushed apart, each way round, before either moves alone -
     // one alone is blocked by the other's guess, as a Rillaboom guessed slow is
     // by a Glalie guessed fast whose put-in Protect prints the same either way.
+    // The line the rebuild printed can be the put-in choice itself - a Protect
+    // that goes first at any Speed - and then the order the turn disputes is
+    // with whoever acts next in the rebuild: under Trick Room, a Hippowdon
+    // guessed slower than the Kingambit the replay has first.
     if (order && disputed.size) {
       const actor = l => [...namedIn(`|x|${who(l) || ''}`)][0];
-      const [da, db] = [actor(diff.expected), actor(diff.actual)].map(id => dims.find(d => d.id === id && d.stat === 'spe'));
-      if (da && db && da.id !== db.id && da.alive.length && db.alive.length) {
+      const turnLines = (() => {
+        const from = (plain || []).indexOf(`|turn|${t}`);
+        return from < 0 ? [] : plain.slice(from + 1);
+      })();
+      const at = turnLines.indexOf(diff.actual);
+      const next = at < 0 ? null : turnLines.slice(at + 1).find(l => ['move', 'cant', 'switch', 'drag'].includes(kind(l))
+        && who(l) && who(l) !== who(diff.actual) && who(l) !== who(diff.expected));
+      const spe = id => dims.find(d => d.id === id && d.stat === 'spe');
+      const da = spe(actor(diff.expected));
+      for (const db of [spe(actor(diff.actual)), next ? spe(actor(next)) : null]) {
+        if (!da || !db || da.id === db.id || !da.alive.length || !db.alive.length) continue;
         const top = d => d.alive[d.alive.length - 1];
         for (const [va, vb] of [[top(da), db.alive[0]], [da.alive[0], top(db)]]) {
           if (found || ahead || !affordable()) break;
