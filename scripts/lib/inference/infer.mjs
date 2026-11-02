@@ -451,7 +451,7 @@ export async function inferSpreads({
       return at < 0 ? observed : observed.slice(0, at + 1);
     };
     const through = cutAt(t);
-    let handed = handOn(built, null);
+    const handed = handOn(built, null);
     const began = Date.now();
     let spent = 0;
     const rebuild = async (chosen, budget, { upTo = through, given = handed } = {}) => {
@@ -568,24 +568,6 @@ export async function inferSpreads({
     const guessed = cast.map(u => `${u.name} ${STAT_IDS.map(x => start[u.s][u.i][x]).join('/')}`).join(', ');
     onProgress(`  fallback on turn ${t}: ${diff.expected} - the guess alone (${guessed}) ${dice.report.complete ? 'reproduces it under a bigger search' : 'does not'}, ${clock()}`);
     if (dice.report.complete) return stays(handed, 1);
-    // A guess that needs the backtracks to reach the turn at all is searched
-    // with them.
-    if (reach(base)[0] < t && reach(dice)[0] >= t) {
-      base = dice;
-      budget = budgets[1];
-    }
-    // And one the dice handed on keep from the turn - settled under the guess
-    // before, which can throw a different sequence there - with those searched
-    // again: they prove nothing about this guess.
-    if (reach(base)[0] < t && Object.keys(handed?.subs || {}).length && affordable()) {
-      const fresh = await rebuild(start, budgets[1], { given: null });
-      if (fresh.report.complete) return stays(null, 1);
-      if (reach(fresh)[0] >= t) {
-        base = fresh;
-        budget = budgets[1];
-        handed = null;
-      }
-    }
     if (reach(base)[0] < t) {
       const at = base.report.diffs[0];
       onProgress(`  fallback on turn ${t}: the guess stops before the turn, at ${reach(base).join('.')}: wanted ${at?.expected}, got ${at?.actual}, ${clock()}`);
@@ -803,7 +785,7 @@ export async function inferSpreads({
     // A spread found under the dice of the turns before can owe the line to
     // dice that land differently under it; the guess itself, with those dice
     // searched again, says whether it does.
-    if ((found || ahead) && Object.keys(handed?.subs || {}).length) {
+    if ((found || ahead) && Object.keys(handed.subs).length) {
       const fresh = await rebuild(start, budgets[1], { given: null });
       if (further(reach(fresh), baseReach)) {
         onProgress(`  fallback on turn ${t}: the guess alone gets past the line with the dice before it searched again, ${clock()}`);
