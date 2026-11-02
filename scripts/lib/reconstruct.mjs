@@ -1906,6 +1906,36 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
         }
       }
     }
+    // Then a chance with the die it throws when it comes up: a secondary that
+    // hits picks its status with a die of its own - Dire Claw's poison,
+    // paralysis or sleep - which the chance as drawn never threw, so no pair
+    // above holds it, and the pick it is first given can print a status no
+    // closer than the one an ability put on instead.
+    if (!committed) {
+      const before = new Map(all.map(d => [d.i, `${d.lo}-${d.hi}`]));
+      const chances = all.filter(d => (d.chance || d.hi - d.lo + 1 > 16) && subs[d.i] === undefined);
+      brought: for (const a of chances) {
+        if (!reach(a)) continue;
+        for (const va of candidates(a, run.steer)) {
+          if (probes >= budget) { cut = 'probes'; break brought; }
+          const flipped = await ask.get({ ...subs, [a.i]: va });
+          probes++;
+          const b = drawsOf(flipped.trace, t).find(d => d.i > a.i);
+          if (!b || b.chance || b.hi - b.lo + 1 > 16 || before.get(b.i) === `${b.lo}-${b.hi}`) continue;
+          for (const vb of candidates(b)) {
+            if (probes >= budget) { cut = 'probes'; break brought; }
+            const probe = await ask.get({ ...subs, [a.i]: va, [b.i]: vb });
+            probes++;
+            if (scoreOf(probe, t)[0] > score[0]) {
+              commit(a.i, va);
+              commit(b.i, vb);
+              committed = true;
+              break brought;
+            }
+          }
+        }
+      }
+    }
 
     ask.cancel();
     if (!committed) break;
@@ -1929,27 +1959,34 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
 }
 
 /**
- * The turn that last moved the HP of the Pokemon a failing line names.
+ * The turns that moved the HP of the Pokemon a failing line names, latest
+ * first, or the turn before the failure when none did.
  *
  * A percentage that will not come out right is rarely the fault of the turn it
  * appears in: the HP behind it was decided the last time the Pokemon actually
  * took damage, which can be many turns earlier - a Pokemon can sit at `35/100`
  * through a Protect, a switch and two turns off the field. Redrawing the turn
- * just before the failure would leave that number exactly where it was.
+ * just before the failure would leave that number exactly where it was. And
+ * the HP that turn could leave depends on the HP the hit before it left: a
+ * Kingambit on 19% can be on 40 or 41, and which of them a Flamethrower
+ * reaches depends on which of 176 and 177 the Ice Punch before it left. So a
+ * line that stays out of reach blames each of these turns in its turn.
  *
  * `switch` is deliberately not counted. It shows the HP again; it never sets it.
  */
-function blameTurn(segments, t, line) {
+function blameTurns(segments, t, line) {
   const who = identName(String(line || '').split('|')[2]);
-  if (!who) return t - 1;
-  for (let k = t - 1; k >= 1; k--) {
-    for (const observed of segments[k]) {
-      const parts = observed.split('|');
-      if (parts[1] !== '-damage' && parts[1] !== '-heal' && parts[1] !== '-sethp') continue;
-      if (identName(parts[2]) === who) return k;
+  const out = [];
+  if (who) {
+    for (let k = t - 1; k >= 1; k--) {
+      const moved = segments[k].some((observed) => {
+        const parts = observed.split('|');
+        return ['-damage', '-heal', '-sethp'].includes(parts[1]) && identName(parts[2]) === who;
+      });
+      if (moved) out.push(k);
     }
   }
-  return t - 1;
+  return out.length ? out : [t - 1];
 }
 
 /**
@@ -2249,6 +2286,9 @@ async function reconstructOnce({
   let stop = null;
   // Each earlier choice taken for a turn it carried into, taken once.
   const takenCarry = new Set();
+  // How often each failing HP line has been backtracked from, to blame each
+  // turn that moved its Pokemon's HP in its turn.
+  const blamed = new Map();
   while (run.badTurn !== null) {
     if (Date.now() >= deadline) { stop = 'deadline'; common.limits.add('deadline'); break; }
     const t = run.badTurn;
@@ -2435,7 +2475,14 @@ async function reconstructOnce({
     const line = onAttacker ? `|-damage|${attacker}|` : run.diffs[0]?.expected;
     const stuck = identName(String(line || '').split('|')[2]);
     const hpFigure = /^\|-(damage|heal|sethp)\|/.test(String(line || ''));
-    let back = hpFigure ? blameTurn(segments, t, line) : t - 1;
+    let back = t - 1;
+    if (hpFigure) {
+      const turns = blameTurns(segments, t, line);
+      const key = `${t}|${line}`;
+      const n = blamed.get(key) || 0;
+      blamed.set(key, n + 1);
+      back = turns[n % turns.length];
+    }
     // The failing turn's hidden choices, one for each score its search saw.
     const outcomes = [...new Map((variantsAt.get(t) || []).map(w => [JSON.stringify(w.score), w.variant])).values()].slice(0, MAX_OUTCOMES);
     let moved = false;

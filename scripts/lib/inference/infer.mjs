@@ -509,7 +509,30 @@ export async function inferSpreads({
     }
     const leaving = [diff.expected, diff.actual].filter(l => ['switch', 'drag'].includes(String(l || '').split('|')[1]))
       .map(l => stood.get(String(l).split('|')[2].slice(0, 3)));
-    const tiers = [names([diff.expected, diff.actual, ...leaving]), names(place.action), names([...segment, ...stood.values()])];
+    // A condition the action ends was started by someone the turn need not
+    // name: the Substitute a Giga Drain breaks is a quarter of the HP of the
+    // Orthworm whose Shed Tail made it a turn before. So the Pokemon named where
+    // it started, and the one whose move started it, come next.
+    const started = [];
+    {
+      const before = [...turns.slice(0, t).flat(), ...segment.slice(0, Math.max(0, segment.indexOf(place.action?.[0])))];
+      const effect = x => String(x || '').replace(/^move: /, '');
+      const pair = { '-end': '-start', '-sideend': '-sidestart', '-fieldend': '-fieldstart' };
+      for (const l of place.action || []) {
+        const [, k, where, what] = String(l).split('|');
+        if (!pair[k]) continue;
+        const field = k === '-fieldend';
+        for (let i = before.length - 1; i >= 0; i--) {
+          const [, k2, where2, what2] = String(before[i]).split('|');
+          if (k2 !== pair[k]) continue;
+          if (field ? effect(where2) !== effect(where) : (String(where2).slice(0, 3) !== String(where).slice(0, 3) || effect(what2) !== effect(what))) continue;
+          started.push(before[i]);
+          for (let j = i - 1; j >= 0; j--) if (String(before[j]).startsWith('|move|')) { started.push(before[j]); break; }
+          break;
+        }
+      }
+    }
+    const tiers = [names([diff.expected, diff.actual, ...leaving]), names(place.action), names(started), names([...segment, ...stood.values()])];
     const rank = u => tiers.findIndex(tier => tier.has(u.id));
     const cast = unknown.filter(u => rank(u) >= 0 && (seen.has(u.id) || rank(u) === 0)).sort((a, b) => rank(a) - rank(b));
 
@@ -545,7 +568,11 @@ export async function inferSpreads({
     const guessed = cast.map(u => `${u.name} ${STAT_IDS.map(x => start[u.s][u.i][x]).join('/')}`).join(', ');
     onProgress(`  fallback on turn ${t}: ${diff.expected} - the guess alone (${guessed}) ${dice.report.complete ? 'reproduces it under a bigger search' : 'does not'}, ${clock()}`);
     if (dice.report.complete) return stays(handed, 1);
-    if (reach(base)[0] < t) return none();
+    if (reach(base)[0] < t) {
+      const at = base.report.diffs[0];
+      onProgress(`  fallback on turn ${t}: the guess stops before the turn, at ${reach(base).join('.')}: wanted ${at?.expected}, got ${at?.actual}, ${clock()}`);
+      return none();
+    }
 
     // A line the rebuild printed for another Pokemon, or another action in its
     // place, is an order, and an order is Speed's first.
@@ -672,10 +699,23 @@ export async function inferSpreads({
     // their Speeds pushed apart, each way round, before either moves alone -
     // one alone is blocked by the other's guess, as a Rillaboom guessed slow is
     // by a Glalie guessed fast whose put-in Protect prints the same either way.
+    // The line the rebuild printed can be the put-in choice itself - a Protect
+    // that goes first at any Speed - and then the order the turn disputes is
+    // with whoever acts next in the rebuild: under Trick Room, a Hippowdon
+    // guessed slower than the Kingambit the replay has first.
     if (order && disputed.size) {
       const actor = l => [...namedIn(`|x|${who(l) || ''}`)][0];
-      const [da, db] = [actor(diff.expected), actor(diff.actual)].map(id => dims.find(d => d.id === id && d.stat === 'spe'));
-      if (da && db && da.id !== db.id && da.alive.length && db.alive.length) {
+      const turnLines = (() => {
+        const from = (plain || []).indexOf(`|turn|${t}`);
+        return from < 0 ? [] : plain.slice(from + 1);
+      })();
+      const at = turnLines.indexOf(diff.actual);
+      const next = at < 0 ? null : turnLines.slice(at + 1).find(l => ['move', 'cant', 'switch', 'drag'].includes(kind(l))
+        && who(l) && who(l) !== who(diff.actual) && who(l) !== who(diff.expected));
+      const spe = id => dims.find(d => d.id === id && d.stat === 'spe');
+      const da = spe(actor(diff.expected));
+      for (const db of [spe(actor(diff.actual)), next ? spe(actor(next)) : null]) {
+        if (!da || !db || da.id === db.id || !da.alive.length || !db.alive.length) continue;
         const top = d => d.alive[d.alive.length - 1];
         for (const [va, vb] of [[top(da), db.alive[0]], [da.alive[0], top(db)]]) {
           if (found || ahead || !affordable()) break;
