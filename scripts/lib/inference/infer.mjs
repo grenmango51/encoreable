@@ -568,6 +568,12 @@ export async function inferSpreads({
     const guessed = cast.map(u => `${u.name} ${STAT_IDS.map(x => start[u.s][u.i][x]).join('/')}`).join(', ');
     onProgress(`  fallback on turn ${t}: ${diff.expected} - the guess alone (${guessed}) ${dice.report.complete ? 'reproduces it under a bigger search' : 'does not'}, ${clock()}`);
     if (dice.report.complete) return stays(handed, 1);
+    // A guess that needs the backtracks to reach the turn at all is searched
+    // with them.
+    if (reach(base)[0] < t && reach(dice)[0] >= t) {
+      base = dice;
+      budget = budgets[1];
+    }
     if (reach(base)[0] < t) return none();
 
     // A line the rebuild printed for another Pokemon, or another action in its
