@@ -586,7 +586,11 @@ export async function inferSpreads({
         handed = null;
       }
     }
-    if (reach(base)[0] < t) return none();
+    if (reach(base)[0] < t) {
+      const at = base.report.diffs[0];
+      onProgress(`  fallback on turn ${t}: the guess stops before the turn, at ${reach(base).join('.')}: wanted ${at?.expected}, got ${at?.actual}, ${clock()}`);
+      return none();
+    }
 
     // A line the rebuild printed for another Pokemon, or another action in its
     // place, is an order, and an order is Speed's first.
