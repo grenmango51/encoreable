@@ -1,5 +1,5 @@
 {
- "commit": "63d9279e341c",
+ "commit": "3a97739b8786",
  "pool": "1e0b71cf750545f5",
  "usage": "52468dff24156b2b",
  "grade": {
@@ -7,20 +7,20 @@
   "removed": 0,
   "witnessesRemoved": 0,
   "results": {
-   "PASS": 1023,
+   "PASS": 1024,
    "NO MATCH": 0,
-   "GAVE UP": 9,
+   "GAVE UP": 8,
    "CRASH": 0,
    "REMOVED": 0
   },
   "exactShare": 0.009227765180146133,
-  "medianLog10Spreads": 7.596427841729018,
-  "probes": 5728897,
-  "rebuilds": 12170,
+  "medianLog10Spreads": 7.596345197757428,
+  "probes": 5735249,
+  "rebuilds": 12167,
   "seconds": {
-   "median": 30.5,
-   "p95": 947,
-   "max": 5419.7
+   "median": 30.4,
+   "p95": 540.5,
+   "max": 2796.8
   },
   "ranked": 1448,
   "first": 0.5752762430939227,
@@ -196,7 +196,7 @@
    }
   },
   "fuzz:101 both@spectator": {
-   "result": "GAVE UP",
+   "result": "PASS",
    "battle": "84ece87fe8bd7380",
    "spreads": {
     "p1:0": 136663185,
@@ -204,11 +204,11 @@
     "p1:2": 66690492,
     "p1:3": 11537021,
     "p1:4": 104845281,
-    "p1:5": 6246080,
-    "p2:0": 136662498,
+    "p1:5": 5588177,
+    "p2:0": 31592686,
     "p2:1": 136663185,
     "p2:2": 136663185,
-    "p2:3": 135029063,
+    "p2:3": 77163787,
     "p2:4": 136663185,
     "p2:5": 76448949
    }
