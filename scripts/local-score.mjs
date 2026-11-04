@@ -14,7 +14,7 @@
  *   npm run score -- --only fuzz:220 --views p2@p1 --trace   every step of the search, on stderr: why a case gave up
  *   npm run score -- --mimic-dir <dir>      every game in <dir> as a mimic battle, not the benchmark (a corpus sweep)
  *
- * Flags: --tier quick|full --only <id>[,<id>...] --views <v>[,<v>...] --threads <n> --budget <n>
+ * Flags: --tier quick|fast|full --timings <run.json> --only <id>[,<id>...] --views <v>[,<v>...] --threads <n> --budget <n>
  *        --trace --mimic-dir <dir> --shard <i>/<n> --out <file> --merge <file>... --baseline <file> --accept
  *
  * A view is who is inferred and from whose screen:
@@ -199,6 +199,10 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null } 
     const { infer, channel } = VIEWS[view];
     const { inputLog, replayed, same, asSaved } = await battleOf(id, mimicDir);
     if (!same) return { ...base, result: 'CRASH', error: 'the input log does not replay the battle', seconds: 0 };
+    // The battle the case plays, as a hash: a change to the fuzz generator, the
+    // mimic replay, a recording or the pin can play another battle under the
+    // same name, and its baseline is then not this battle's.
+    base.battle = crypto.createHash('sha256').update(battleLines(replayed.omniscient).join('\n')).digest('hex').slice(0, 16);
     const start = inputLog.find(l => l.startsWith('>start '));
     const formatid = JSON.parse(start.slice(start.indexOf('{'))).formatid;
     const players = [];
@@ -238,6 +242,15 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null } 
         miscounted: miscount(p, `${id} ${view} ${p.id}`),
       });
     }
+    // Every Pokemon of an inferred side is graded, once: one the inference left
+    // out, or called known, would hide what it removed.
+    const expected = truth.flatMap((team, s) => (known[s] ? [] : team.map((_, i) => `p${s + 1}:${i}`)));
+    const graded = pokemon.map(p => p.id);
+    const missing = expected.filter(x => graded.filter(y => y === x).length !== 1);
+    const stray = graded.filter(x => !expected.includes(x));
+    if (missing.length || stray.length) {
+      return { ...base, result: 'CRASH', error: `the inference graded ${graded.join(', ') || 'no Pokemon'}, expected ${expected.join(', ')}`, seconds: Number(((Date.now() - started) / 1000).toFixed(1)) };
+    }
     // Each check on its own, so one failing does not hide another; `result`
     // sums them up.
     const limits = inf.limits || [];
@@ -268,7 +281,7 @@ function casesOf({ tier, only, views, mimicDir = null }) {
     for (const id of ids) if (!id.startsWith('mimic:')) throw new Error(`--mimic-dir grades mimic battles only, not ${id}`);
     return ids.flatMap(id => views.map(view => ({ id, view })));
   }
-  const battles = BATTLES.filter(b => (only ? only.includes(b.id) : tier === 'full' || b.quick));
+  const battles = BATTLES.filter(b => (only ? only.includes(b.id) : tier !== 'quick' || b.quick));
   // Any fuzz number plays a battle, so one outside the list can be graded too:
   // it has no baseline to compare with (`npm run mutate -- --hunt`).
   for (const id of only || []) {
@@ -276,7 +289,37 @@ function casesOf({ tier, only, views, mimicDir = null }) {
     if (/^fuzz:\d+$/.test(id)) battles.push({ id });
     else throw new Error(`${id} is not in the benchmark list`);
   }
-  return battles.flatMap(b => views.map(view => ({ id: b.id, view })));
+  // The fast tier: every battle from both players' views only. The
+  // spectator's cases are nine tenths of the full tier's work and its longest
+  // ones take hours, while a player's view takes minutes and shows most of
+  // what a change breaks; the full tier still grades everything before a
+  // merge.
+  const shown = (b, view) => tier !== 'fast' || only || VIEWS[view].infer.length === 1;
+  return battles.flatMap(b => views.filter(view => shown(b, view)).map(view => ({ id: b.id, view })));
+}
+
+/**
+ * The cases longest first, by the seconds each took in an earlier run (one it
+ * lacks counts as that run's median), and, for a share, the cases dealt to the
+ * shares so each gets about as much work: every share computes the same deal.
+ */
+function dealt(cases, timings, shard) {
+  const seconds = new Map((timings?.records || []).map(r => [keyOf(r), r.seconds || 0]));
+  const known = [...seconds.values()].sort((a, b) => a - b);
+  const typical = known.length ? known[Math.floor(known.length / 2)] : 0;
+  const cost = c => seconds.get(keyOf(c)) ?? typical;
+  const order = cases.map((c, k) => ({ c, k, t: cost(c) })).sort((a, b) => b.t - a.t || a.k - b.k);
+  if (!shard) return order.map(x => x.c);
+  if (!timings) return cases.filter((_, k) => k % shard.n === shard.i - 1);
+  const load = Array(shard.n).fill(0);
+  const mine = [];
+  for (const x of order) {
+    let at = 0;
+    for (let j = 1; j < shard.n; j++) if (load[j] < load[at]) at = j;
+    load[at] += x.t;
+    if (at === shard.i - 1) mine.push(x.c);
+  }
+  return mine;
 }
 
 /** The cases on a pool of worker threads; results in case order. */
@@ -308,6 +351,11 @@ async function runCases(cases, threads, budget, { trace = false, mimicDir = null
 
 const commitOf = () => {
   try { return execFileSync('git', ['rev-parse', '--short=12', 'HEAD'], { encoding: 'utf8' }).trim(); } catch { return null; }
+};
+
+/** Whether the checkout has changes the commit does not name - then two runs at one commit can differ. */
+const dirtyOf = () => {
+  try { return execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }).trim() !== ''; } catch { return null; }
 };
 
 // ------------------------------------------------------------- the grade
@@ -383,17 +431,27 @@ const keyOf = r => `${r.id} ${r.view}`;
 /** What the baseline holds of a case: its result and each Pokemon's spreads. */
 const baselineOf = records => Object.fromEntries(records.map(r => [keyOf(r), {
   result: r.result,
+  ...(r.battle ? { battle: r.battle } : {}),
   spreads: Object.fromEntries((r.pokemon || []).map(p => [p.id, p.spreads])),
 }]));
 
-/** Every case that got worse than the baseline, and every one that got better. */
-function compare(records, baseline) {
+/**
+ * Every case that got worse than the baseline, and every one that got better.
+ * A full run of the benchmark must carry every case the baseline holds: one
+ * dropped from the list is dropped only by accepting a new baseline. A case
+ * that plays another battle than its baseline's is worse until accepted.
+ */
+function compare(records, baseline, { whole = false } = {}) {
   const worse = [];
   const better = [];
   const now = new Map(records.map(r => [keyOf(r), r]));
   for (const [key, was] of Object.entries(baseline.cases)) {
     const r = now.get(key);
-    if (!r) continue;
+    if (!r) {
+      if (whole) worse.push(`${key}: in the baseline but not in this run`);
+      continue;
+    }
+    if (was.battle && r.battle && was.battle !== r.battle) worse.push(`${key}: plays another battle than its baseline (${was.battle} -> ${r.battle})`);
     if (RANK[r.result] > RANK[was.result]) worse.push(`${key}: ${was.result} -> ${r.result}`);
     else if (RANK[r.result] < RANK[was.result]) better.push(`${key}: ${was.result} -> ${r.result}`);
     for (const p of r.pokemon || []) {
@@ -424,6 +482,7 @@ async function main() {
   if (merge) {
     const parts = merge.map(f => JSON.parse(fs.readFileSync(f, 'utf8')));
     const tiers = new Set(parts.map(p => p.tier));
+    if (parts.some(p => p.dirty !== false)) throw new Error('--merge: a share from a checkout with uncommitted changes, or one that does not say, cannot be told apart from another at its commit');
     if (tiers.size !== 1) throw new Error(`--merge: shares of different tiers (${[...tiers].join(', ')})`);
     for (const k of ['commit', 'pool', 'usage', 'only', 'views', 'budget', 'mimicDir']) {
       if (new Set(parts.map(p => JSON.stringify(p[k]))).size !== 1) throw new Error(`--merge: shares of different ${k}`);
@@ -441,9 +500,9 @@ async function main() {
     run = { ...parts[0], shard: null, records: cases.map(c => have.get(keyOf(c)) || { ...c, result: 'CRASH', error: 'no share carried this case' }) };
   } else {
     const tier = opt('--tier', 'quick');
-    if (!['quick', 'full'].includes(tier)) throw new Error('--tier quick|full');
+    if (!['quick', 'fast', 'full'].includes(tier)) throw new Error('--tier quick|fast|full');
     const only = opt('--only') ? opt('--only').split(',') : null;
-    const views = opt('--views') ? opt('--views').split(',') : Object.keys(VIEWS);
+    const views = opt('--views') ? [...new Set(opt('--views').split(','))] : Object.keys(VIEWS);
     for (const v of views) if (!VIEWS[v]) throw new Error(`no view ${v} - have ${Object.keys(VIEWS).join(', ')}`);
     const mimicDir = opt('--mimic-dir') ? path.resolve(opt('--mimic-dir')) : null;
     let cases = casesOf({ tier, only, views, mimicDir });
@@ -452,13 +511,14 @@ async function main() {
       const [i, n] = opt('--shard').split('/').map(Number);
       if (!(n >= 1 && i >= 1 && i <= n)) throw new Error('--shard <i>/<n>, 1 <= i <= n');
       shard = { i, n };
-      cases = cases.filter((_, k) => k % n === i - 1);
     }
+    const timings = opt('--timings') && fs.existsSync(opt('--timings')) ? JSON.parse(fs.readFileSync(opt('--timings'), 'utf8')) : null;
+    cases = dealt(cases, timings, shard);
     const threads = Number(opt('--threads', String(Math.max(1, os.availableParallelism() - 1))));
     const budget = Number(opt('--budget', '1'));
     if (!(Number.isInteger(budget) && budget >= 1)) throw new Error('--budget <n>: a whole number, at least 1');
     console.error(`score: ${cases.length} case(s) on ${threads} thread(s)`);
-    run = { commit: commitOf(), pool: poolPrint(), usage: usagePrint(), budget, tier, only, views, mimicDir, shard, host: os.hostname(), records: await runCases(cases, threads, budget, { trace: flag('--trace'), mimicDir }) };
+    run = { commit: commitOf(), dirty: dirtyOf(), pool: poolPrint(), usage: usagePrint(), budget, tier, only, views, mimicDir, shard, host: os.hostname(), records: await runCases(cases, threads, budget, { trace: flag('--trace'), mimicDir }) };
   }
 
   const out = opt('--out') || path.join(OUT_DIR, `${run.tier}-${run.commit || 'local'}${run.budget > 1 ? `-budget${run.budget}` : ''}${run.shard ? `-${run.shard.i}of${run.shard.n}` : ''}.json`);
@@ -469,9 +529,17 @@ async function main() {
 
   printGrade(run.records, run.tier);
 
+  // A crash proves nothing either way, and a missing share is one: never a pass.
+  let failed = run.records.some(r => r.result === 'REMOVED' || r.result === 'CRASH');
+  // A sweep grades games outside the benchmark: compared with nothing.
+  if (run.mimicDir) {
+    if (flag('--accept')) throw new Error('--accept: a sweep (--mimic-dir) is never a baseline');
+    console.log('\na sweep: compared with no baseline');
+    if (failed) process.exitCode = 1;
+    return;
+  }
   const baselineFile = path.resolve(ROOT, opt('--baseline', BASELINE));
   const baseline = fs.existsSync(baselineFile) ? JSON.parse(fs.readFileSync(baselineFile, 'utf8')) : null;
-  let failed = run.records.some(r => r.result === 'REMOVED');
   // A wider budget is an experiment: it is compared with the baseline but
   // never fails on what it improves or worsens, and is never a baseline.
   const experiment = (run.budget || 1) > 1;
@@ -484,7 +552,8 @@ budget x${run.budget}: every search limit ${run.budget} times as wide`);
     throw new Error(`the usage spreads changed (${baseline.usage} -> ${run.usage}): mimic battles plant other spreads, so a new baseline must be accepted`);
   }
   if (baseline) {
-    const { worse, better } = compare(run.records, baseline);
+    const whole = run.tier === 'full' && !run.only && run.views.length === Object.keys(VIEWS).length;
+    const { worse, better } = compare(run.records, baseline, { whole });
     console.log('');
     console.log(`against the baseline (${baseline.commit}): ${worse.length} worse, ${better.length} better`);
     for (const w of worse) console.log(`  WORSE  ${w}`);
@@ -493,13 +562,18 @@ budget x${run.budget}: every search limit ${run.budget} times as wide`);
     if (worse.length && !experiment) failed = true;
   } else {
     console.log('\nno baseline yet: run with --tier full --accept to write one');
+    if (!flag('--accept') && !experiment) failed = true;
   }
   if (flag('--accept')) {
     if (experiment) throw new Error('--accept: a run with a wider budget is never a baseline');
-    if (run.tier !== 'full' || run.only || run.mimicDir || run.views.length !== Object.keys(VIEWS).length) {
+    if (run.tier !== 'full' || run.only || run.mimicDir || new Set(run.views).size !== Object.keys(VIEWS).length
+      || !Object.keys(VIEWS).every(v => run.views.includes(v))) {
       throw new Error('--accept needs a full run of every view');
     }
+    if (run.dirty !== false) throw new Error('--accept: a run from a checkout with uncommitted changes is never a baseline');
     if (run.records.some(r => r.result === 'REMOVED')) throw new Error('--accept: a run that removed a possible spread is never a baseline');
+    const crashed = run.records.filter(r => r.result === 'CRASH');
+    if (crashed.length) throw new Error(`--accept: ${crashed.length} case(s) crashed or were carried by no share, e.g. ${keyOf(crashed[0])}: ${crashed[0].error || ''}`);
     const cases = baselineOf(run.records);
     const sorted = Object.fromEntries(Object.keys(cases).sort().map(k => [k, cases[k]]));
     fs.writeFileSync(baselineFile, `${JSON.stringify({ commit: run.commit, pool: run.pool, usage: run.usage, grade: grade(run.records), cases: sorted }, null, 1)}\n`);

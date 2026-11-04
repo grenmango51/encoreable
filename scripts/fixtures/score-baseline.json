@@ -1,5 +1,5 @@
 {
- "commit": "483c1478d4c7",
+ "commit": "63d9279e341c",
  "pool": "1e0b71cf750545f5",
  "usage": "52468dff24156b2b",
  "grade": {
@@ -15,12 +15,12 @@
   },
   "exactShare": 0.009227765180146133,
   "medianLog10Spreads": 7.596427841729018,
-  "probes": 5722484,
-  "rebuilds": 12167,
+  "probes": 5728897,
+  "rebuilds": 12170,
   "seconds": {
-   "median": 52,
-   "p95": 1189.1,
-   "max": 9051.1
+   "median": 30.5,
+   "p95": 947,
+   "max": 5419.7
   },
   "ranked": 1448,
   "first": 0.5752762430939227,
@@ -29,6 +29,7 @@
  "cases": {
   "fuzz:1002 both@spectator": {
    "result": "PASS",
+   "battle": "9b955ef2138f3163",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -46,6 +47,7 @@
   },
   "fuzz:1002 p1@p2": {
    "result": "PASS",
+   "battle": "9b955ef2138f3163",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -57,6 +59,7 @@
   },
   "fuzz:1002 p2@p1": {
    "result": "PASS",
+   "battle": "9b955ef2138f3163",
    "spreads": {
     "p2:0": 117162123,
     "p2:1": 130000772,
@@ -68,6 +71,7 @@
   },
   "fuzz:1005 both@spectator": {
    "result": "PASS",
+   "battle": "f3cd9c24e9c45d85",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 12238114,
@@ -85,6 +89,7 @@
   },
   "fuzz:1005 p1@p2": {
    "result": "PASS",
+   "battle": "f3cd9c24e9c45d85",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 237820,
@@ -96,6 +101,7 @@
   },
   "fuzz:1005 p2@p1": {
    "result": "PASS",
+   "battle": "f3cd9c24e9c45d85",
    "spreads": {
     "p2:0": 37893599,
     "p2:1": 136663185,
@@ -107,6 +113,7 @@
   },
   "fuzz:1008 both@spectator": {
    "result": "PASS",
+   "battle": "71624ab38d31172b",
    "spreads": {
     "p1:0": 62307714,
     "p1:1": 136663185,
@@ -124,6 +131,7 @@
   },
   "fuzz:1008 p1@p2": {
    "result": "PASS",
+   "battle": "71624ab38d31172b",
    "spreads": {
     "p1:0": 19764639,
     "p1:1": 136663185,
@@ -135,6 +143,7 @@
   },
   "fuzz:1008 p2@p1": {
    "result": "PASS",
+   "battle": "71624ab38d31172b",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -146,6 +155,7 @@
   },
   "fuzz:1009 both@spectator": {
    "result": "PASS",
+   "battle": "2f0aaad2327ca158",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 24067418,
@@ -163,6 +173,7 @@
   },
   "fuzz:1009 p1@p2": {
    "result": "PASS",
+   "battle": "2f0aaad2327ca158",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 9280803,
@@ -174,6 +185,7 @@
   },
   "fuzz:1009 p2@p1": {
    "result": "PASS",
+   "battle": "2f0aaad2327ca158",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 3203410,
@@ -185,6 +197,7 @@
   },
   "fuzz:101 both@spectator": {
    "result": "GAVE UP",
+   "battle": "84ece87fe8bd7380",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -202,6 +215,7 @@
   },
   "fuzz:101 p1@p2": {
    "result": "PASS",
+   "battle": "84ece87fe8bd7380",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -213,6 +227,7 @@
   },
   "fuzz:101 p2@p1": {
    "result": "PASS",
+   "battle": "84ece87fe8bd7380",
    "spreads": {
     "p2:0": 13696882,
     "p2:1": 118296961,
@@ -224,6 +239,7 @@
   },
   "fuzz:1012 both@spectator": {
    "result": "GAVE UP",
+   "battle": "40903210ea251216",
    "spreads": {
     "p1:0": 89808558,
     "p1:1": 136663185,
@@ -241,6 +257,7 @@
   },
   "fuzz:1012 p1@p2": {
    "result": "PASS",
+   "battle": "40903210ea251216",
    "spreads": {
     "p1:0": 12685693,
     "p1:1": 46854627,
@@ -252,6 +269,7 @@
   },
   "fuzz:1012 p2@p1": {
    "result": "PASS",
+   "battle": "40903210ea251216",
    "spreads": {
     "p2:0": 115336788,
     "p2:1": 136663185,
@@ -263,6 +281,7 @@
   },
   "fuzz:1013 both@spectator": {
    "result": "PASS",
+   "battle": "389ff375b9df2f0b",
    "spreads": {
     "p1:0": 29387889,
     "p1:1": 136663185,
@@ -280,6 +299,7 @@
   },
   "fuzz:1013 p1@p2": {
    "result": "PASS",
+   "battle": "389ff375b9df2f0b",
    "spreads": {
     "p1:0": 8586972,
     "p1:1": 136663185,
@@ -291,6 +311,7 @@
   },
   "fuzz:1013 p2@p1": {
    "result": "PASS",
+   "battle": "389ff375b9df2f0b",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -302,6 +323,7 @@
   },
   "fuzz:1016 both@spectator": {
    "result": "PASS",
+   "battle": "f3e51c27d289ee0b",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -319,6 +341,7 @@
   },
   "fuzz:1016 p1@p2": {
    "result": "PASS",
+   "battle": "f3e51c27d289ee0b",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -330,6 +353,7 @@
   },
   "fuzz:1016 p2@p1": {
    "result": "PASS",
+   "battle": "f3e51c27d289ee0b",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -341,6 +365,7 @@
   },
   "fuzz:102 both@spectator": {
    "result": "PASS",
+   "battle": "61b3c37bea340f73",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 85514599,
@@ -358,6 +383,7 @@
   },
   "fuzz:102 p1@p2": {
    "result": "PASS",
+   "battle": "61b3c37bea340f73",
    "spreads": {
     "p1:0": 57284948,
     "p1:1": 16440125,
@@ -369,6 +395,7 @@
   },
   "fuzz:102 p2@p1": {
    "result": "PASS",
+   "battle": "61b3c37bea340f73",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 19527742,
@@ -380,6 +407,7 @@
   },
   "fuzz:1020 both@spectator": {
    "result": "PASS",
+   "battle": "235f9bc6e1bf06b1",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 6552811,
@@ -397,6 +425,7 @@
   },
   "fuzz:1020 p1@p2": {
    "result": "PASS",
+   "battle": "235f9bc6e1bf06b1",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 2003584,
@@ -408,6 +437,7 @@
   },
   "fuzz:1020 p2@p1": {
    "result": "PASS",
+   "battle": "235f9bc6e1bf06b1",
    "spreads": {
     "p2:0": 9756784,
     "p2:1": 136663185,
@@ -419,6 +449,7 @@
   },
   "fuzz:103 both@spectator": {
    "result": "PASS",
+   "battle": "d2c03f9e2185955a",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 126827463,
@@ -436,6 +467,7 @@
   },
   "fuzz:103 p1@p2": {
    "result": "PASS",
+   "battle": "d2c03f9e2185955a",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 117076744,
@@ -447,6 +479,7 @@
   },
   "fuzz:103 p2@p1": {
    "result": "PASS",
+   "battle": "d2c03f9e2185955a",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 130567564,
@@ -458,6 +491,7 @@
   },
   "fuzz:104 both@spectator": {
    "result": "PASS",
+   "battle": "0300892fba22a753",
    "spreads": {
     "p1:0": 88011499,
     "p1:1": 45292694,
@@ -475,6 +509,7 @@
   },
   "fuzz:104 p1@p2": {
    "result": "PASS",
+   "battle": "0300892fba22a753",
    "spreads": {
     "p1:0": 33143707,
     "p1:1": 7063781,
@@ -486,6 +521,7 @@
   },
   "fuzz:104 p2@p1": {
    "result": "PASS",
+   "battle": "0300892fba22a753",
    "spreads": {
     "p2:0": 22714290,
     "p2:1": 136663185,
@@ -497,6 +533,7 @@
   },
   "fuzz:1040 both@spectator": {
    "result": "PASS",
+   "battle": "278ebf3f74334adf",
    "spreads": {
     "p1:0": 127193915,
     "p1:1": 136663185,
@@ -514,6 +551,7 @@
   },
   "fuzz:1040 p1@p2": {
    "result": "PASS",
+   "battle": "278ebf3f74334adf",
    "spreads": {
     "p1:0": 120567888,
     "p1:1": 136663185,
@@ -525,6 +563,7 @@
   },
   "fuzz:1040 p2@p1": {
    "result": "PASS",
+   "battle": "278ebf3f74334adf",
    "spreads": {
     "p2:0": 8537892,
     "p2:1": 136663185,
@@ -536,6 +575,7 @@
   },
   "fuzz:1042 both@spectator": {
    "result": "PASS",
+   "battle": "7d6434f8cdb071dd",
    "spreads": {
     "p1:0": 28058054,
     "p1:1": 136663185,
@@ -553,6 +593,7 @@
   },
   "fuzz:1042 p1@p2": {
    "result": "PASS",
+   "battle": "7d6434f8cdb071dd",
    "spreads": {
     "p1:0": 16909730,
     "p1:1": 136663185,
@@ -564,6 +605,7 @@
   },
   "fuzz:1042 p2@p1": {
    "result": "PASS",
+   "battle": "7d6434f8cdb071dd",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 17472828,
@@ -575,6 +617,7 @@
   },
   "fuzz:105 both@spectator": {
    "result": "PASS",
+   "battle": "87a5c203507dbf94",
    "spreads": {
     "p1:0": 20320507,
     "p1:1": 136663185,
@@ -592,6 +635,7 @@
   },
   "fuzz:105 p1@p2": {
    "result": "PASS",
+   "battle": "87a5c203507dbf94",
    "spreads": {
     "p1:0": 3305989,
     "p1:1": 136663185,
@@ -603,6 +647,7 @@
   },
   "fuzz:105 p2@p1": {
    "result": "PASS",
+   "battle": "87a5c203507dbf94",
    "spreads": {
     "p2:0": 20959206,
     "p2:1": 86752749,
@@ -614,6 +659,7 @@
   },
   "fuzz:106 both@spectator": {
    "result": "PASS",
+   "battle": "047520b6ca1f8735",
    "spreads": {
     "p1:0": 68554361,
     "p1:1": 136663185,
@@ -631,6 +677,7 @@
   },
   "fuzz:106 p1@p2": {
    "result": "PASS",
+   "battle": "047520b6ca1f8735",
    "spreads": {
     "p1:0": 10118735,
     "p1:1": 136663185,
@@ -642,6 +689,7 @@
   },
   "fuzz:106 p2@p1": {
    "result": "PASS",
+   "battle": "047520b6ca1f8735",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -653,6 +701,7 @@
   },
   "fuzz:107 both@spectator": {
    "result": "PASS",
+   "battle": "3d9bde198dc133a3",
    "spreads": {
     "p1:0": 74736475,
     "p1:1": 14515750,
@@ -670,6 +719,7 @@
   },
   "fuzz:107 p1@p2": {
    "result": "PASS",
+   "battle": "3d9bde198dc133a3",
    "spreads": {
     "p1:0": 45427890,
     "p1:1": 6881704,
@@ -681,6 +731,7 @@
   },
   "fuzz:107 p2@p1": {
    "result": "PASS",
+   "battle": "3d9bde198dc133a3",
    "spreads": {
     "p2:0": 91654532,
     "p2:1": 53984568,
@@ -692,6 +743,7 @@
   },
   "fuzz:108 both@spectator": {
    "result": "PASS",
+   "battle": "848ebd849d6f375f",
    "spreads": {
     "p1:0": 118746859,
     "p1:1": 16996138,
@@ -709,6 +761,7 @@
   },
   "fuzz:108 p1@p2": {
    "result": "PASS",
+   "battle": "848ebd849d6f375f",
    "spreads": {
     "p1:0": 15535823,
     "p1:1": 25312,
@@ -720,6 +773,7 @@
   },
   "fuzz:108 p2@p1": {
    "result": "PASS",
+   "battle": "848ebd849d6f375f",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -731,6 +785,7 @@
   },
   "fuzz:109 both@spectator": {
    "result": "PASS",
+   "battle": "30225487f86eecac",
    "spreads": {
     "p1:0": 128596009,
     "p1:1": 136663185,
@@ -748,6 +803,7 @@
   },
   "fuzz:109 p1@p2": {
    "result": "PASS",
+   "battle": "30225487f86eecac",
    "spreads": {
     "p1:0": 25560716,
     "p1:1": 136663185,
@@ -759,6 +815,7 @@
   },
   "fuzz:109 p2@p1": {
    "result": "PASS",
+   "battle": "30225487f86eecac",
    "spreads": {
     "p2:0": 7390463,
     "p2:1": 12405881,
@@ -770,6 +827,7 @@
   },
   "fuzz:110 both@spectator": {
    "result": "GAVE UP",
+   "battle": "9438440b2671119d",
    "spreads": {
     "p1:0": 61714028,
     "p1:1": 136663185,
@@ -787,6 +845,7 @@
   },
   "fuzz:110 p1@p2": {
    "result": "PASS",
+   "battle": "9438440b2671119d",
    "spreads": {
     "p1:0": 23484147,
     "p1:1": 136663185,
@@ -798,6 +857,7 @@
   },
   "fuzz:110 p2@p1": {
    "result": "PASS",
+   "battle": "9438440b2671119d",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 106879,
@@ -809,6 +869,7 @@
   },
   "fuzz:111 both@spectator": {
    "result": "PASS",
+   "battle": "2301f363e7776dd6",
    "spreads": {
     "p1:0": 134918627,
     "p1:1": 135499025,
@@ -826,6 +887,7 @@
   },
   "fuzz:111 p1@p2": {
    "result": "PASS",
+   "battle": "2301f363e7776dd6",
    "spreads": {
     "p1:0": 4950502,
     "p1:1": 34990521,
@@ -837,6 +899,7 @@
   },
   "fuzz:111 p2@p1": {
    "result": "PASS",
+   "battle": "2301f363e7776dd6",
    "spreads": {
     "p2:0": 17319775,
     "p2:1": 7787813,
@@ -848,6 +911,7 @@
   },
   "fuzz:112 both@spectator": {
    "result": "PASS",
+   "battle": "d2539439fe4bbe9b",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -865,6 +929,7 @@
   },
   "fuzz:112 p1@p2": {
    "result": "PASS",
+   "battle": "d2539439fe4bbe9b",
    "spreads": {
     "p1:0": 73074441,
     "p1:1": 136663185,
@@ -876,6 +941,7 @@
   },
   "fuzz:112 p2@p1": {
    "result": "PASS",
+   "battle": "d2539439fe4bbe9b",
    "spreads": {
     "p2:0": 2842244,
     "p2:1": 58546120,
@@ -887,6 +953,7 @@
   },
   "fuzz:113 both@spectator": {
    "result": "PASS",
+   "battle": "47c9b4d0ecb1e1a9",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 29846782,
@@ -904,6 +971,7 @@
   },
   "fuzz:113 p1@p2": {
    "result": "PASS",
+   "battle": "47c9b4d0ecb1e1a9",
    "spreads": {
     "p1:0": 49753884,
     "p1:1": 7155130,
@@ -915,6 +983,7 @@
   },
   "fuzz:113 p2@p1": {
    "result": "PASS",
+   "battle": "47c9b4d0ecb1e1a9",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 82495428,
@@ -926,6 +995,7 @@
   },
   "fuzz:114 both@spectator": {
    "result": "PASS",
+   "battle": "13e1b5d912078a34",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 99519693,
@@ -943,6 +1013,7 @@
   },
   "fuzz:114 p1@p2": {
    "result": "PASS",
+   "battle": "13e1b5d912078a34",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 8735998,
@@ -954,6 +1025,7 @@
   },
   "fuzz:114 p2@p1": {
    "result": "PASS",
+   "battle": "13e1b5d912078a34",
    "spreads": {
     "p2:0": 30404520,
     "p2:1": 136663185,
@@ -965,6 +1037,7 @@
   },
   "fuzz:115 both@spectator": {
    "result": "PASS",
+   "battle": "e5f988a02a9528ac",
    "spreads": {
     "p1:0": 63486647,
     "p1:1": 90721116,
@@ -982,6 +1055,7 @@
   },
   "fuzz:115 p1@p2": {
    "result": "PASS",
+   "battle": "e5f988a02a9528ac",
    "spreads": {
     "p1:0": 1958732,
     "p1:1": 2661752,
@@ -993,6 +1067,7 @@
   },
   "fuzz:115 p2@p1": {
    "result": "PASS",
+   "battle": "e5f988a02a9528ac",
    "spreads": {
     "p2:0": 14348223,
     "p2:1": 44277580,
@@ -1004,6 +1079,7 @@
   },
   "fuzz:116 both@spectator": {
    "result": "PASS",
+   "battle": "c0c3902795e6dada",
    "spreads": {
     "p1:0": 136635618,
     "p1:1": 136663185,
@@ -1021,6 +1097,7 @@
   },
   "fuzz:116 p1@p2": {
    "result": "PASS",
+   "battle": "c0c3902795e6dada",
    "spreads": {
     "p1:0": 36003233,
     "p1:1": 136663185,
@@ -1032,6 +1109,7 @@
   },
   "fuzz:116 p2@p1": {
    "result": "PASS",
+   "battle": "c0c3902795e6dada",
    "spreads": {
     "p2:0": 13635432,
     "p2:1": 136663185,
@@ -1043,6 +1121,7 @@
   },
   "fuzz:117 both@spectator": {
    "result": "PASS",
+   "battle": "e1380556ca908930",
    "spreads": {
     "p1:0": 11837108,
     "p1:1": 72161900,
@@ -1060,6 +1139,7 @@
   },
   "fuzz:117 p1@p2": {
    "result": "PASS",
+   "battle": "e1380556ca908930",
    "spreads": {
     "p1:0": 29272,
     "p1:1": 25548212,
@@ -1071,6 +1151,7 @@
   },
   "fuzz:117 p2@p1": {
    "result": "PASS",
+   "battle": "e1380556ca908930",
    "spreads": {
     "p2:0": 8866670,
     "p2:1": 6456459,
@@ -1082,6 +1163,7 @@
   },
   "fuzz:118 both@spectator": {
    "result": "PASS",
+   "battle": "08e1ca994641b7e9",
    "spreads": {
     "p1:0": 135781227,
     "p1:1": 65278982,
@@ -1099,6 +1181,7 @@
   },
   "fuzz:118 p1@p2": {
    "result": "PASS",
+   "battle": "08e1ca994641b7e9",
    "spreads": {
     "p1:0": 94302280,
     "p1:1": 23557365,
@@ -1110,6 +1193,7 @@
   },
   "fuzz:118 p2@p1": {
    "result": "PASS",
+   "battle": "08e1ca994641b7e9",
    "spreads": {
     "p2:0": 5393091,
     "p2:1": 55370195,
@@ -1121,6 +1205,7 @@
   },
   "fuzz:119 both@spectator": {
    "result": "PASS",
+   "battle": "c1dd9a0b97a21276",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 6639945,
@@ -1138,6 +1223,7 @@
   },
   "fuzz:119 p1@p2": {
    "result": "PASS",
+   "battle": "c1dd9a0b97a21276",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 2973608,
@@ -1149,6 +1235,7 @@
   },
   "fuzz:119 p2@p1": {
    "result": "PASS",
+   "battle": "c1dd9a0b97a21276",
    "spreads": {
     "p2:0": 28514928,
     "p2:1": 136663185,
@@ -1160,6 +1247,7 @@
   },
   "fuzz:120 both@spectator": {
    "result": "PASS",
+   "battle": "9bbb9df61d38d602",
    "spreads": {
     "p1:0": 104109695,
     "p1:1": 136663185,
@@ -1177,6 +1265,7 @@
   },
   "fuzz:120 p1@p2": {
    "result": "PASS",
+   "battle": "9bbb9df61d38d602",
    "spreads": {
     "p1:0": 70699426,
     "p1:1": 136663185,
@@ -1188,6 +1277,7 @@
   },
   "fuzz:120 p2@p1": {
    "result": "PASS",
+   "battle": "9bbb9df61d38d602",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 32352654,
@@ -1199,6 +1289,7 @@
   },
   "fuzz:121 both@spectator": {
    "result": "PASS",
+   "battle": "274b0c237b481b7f",
    "spreads": {
     "p1:0": 136603682,
     "p1:1": 136663185,
@@ -1216,6 +1307,7 @@
   },
   "fuzz:121 p1@p2": {
    "result": "PASS",
+   "battle": "274b0c237b481b7f",
    "spreads": {
     "p1:0": 40911863,
     "p1:1": 96019479,
@@ -1227,6 +1319,7 @@
   },
   "fuzz:121 p2@p1": {
    "result": "PASS",
+   "battle": "274b0c237b481b7f",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 20132989,
@@ -1238,6 +1331,7 @@
   },
   "fuzz:122 both@spectator": {
    "result": "PASS",
+   "battle": "c82d3f07ce8f1e52",
    "spreads": {
     "p1:0": 70960373,
     "p1:1": 136663185,
@@ -1255,6 +1349,7 @@
   },
   "fuzz:122 p1@p2": {
    "result": "PASS",
+   "battle": "c82d3f07ce8f1e52",
    "spreads": {
     "p1:0": 2932293,
     "p1:1": 136663185,
@@ -1266,6 +1361,7 @@
   },
   "fuzz:122 p2@p1": {
    "result": "PASS",
+   "battle": "c82d3f07ce8f1e52",
    "spreads": {
     "p2:0": 11111132,
     "p2:1": 340283,
@@ -1277,6 +1373,7 @@
   },
   "fuzz:123 both@spectator": {
    "result": "PASS",
+   "battle": "33bd8832c128c1b6",
    "spreads": {
     "p1:0": 96122264,
     "p1:1": 95383910,
@@ -1294,6 +1391,7 @@
   },
   "fuzz:123 p1@p2": {
    "result": "PASS",
+   "battle": "33bd8832c128c1b6",
    "spreads": {
     "p1:0": 68343068,
     "p1:1": 5873555,
@@ -1305,6 +1403,7 @@
   },
   "fuzz:123 p2@p1": {
    "result": "PASS",
+   "battle": "33bd8832c128c1b6",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -1316,6 +1415,7 @@
   },
   "fuzz:124 both@spectator": {
    "result": "PASS",
+   "battle": "af32514f708b864e",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 128942305,
@@ -1333,6 +1433,7 @@
   },
   "fuzz:124 p1@p2": {
    "result": "PASS",
+   "battle": "af32514f708b864e",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 77104503,
@@ -1344,6 +1445,7 @@
   },
   "fuzz:124 p2@p1": {
    "result": "PASS",
+   "battle": "af32514f708b864e",
    "spreads": {
     "p2:0": 29787291,
     "p2:1": 136663185,
@@ -1355,6 +1457,7 @@
   },
   "fuzz:125 both@spectator": {
    "result": "PASS",
+   "battle": "1355ff06049f08df",
    "spreads": {
     "p1:0": 93505394,
     "p1:1": 98248180,
@@ -1372,6 +1475,7 @@
   },
   "fuzz:125 p1@p2": {
    "result": "PASS",
+   "battle": "1355ff06049f08df",
    "spreads": {
     "p1:0": 7163302,
     "p1:1": 42858561,
@@ -1383,6 +1487,7 @@
   },
   "fuzz:125 p2@p1": {
    "result": "PASS",
+   "battle": "1355ff06049f08df",
    "spreads": {
     "p2:0": 10726040,
     "p2:1": 2823862,
@@ -1394,6 +1499,7 @@
   },
   "fuzz:126 both@spectator": {
    "result": "PASS",
+   "battle": "be8e7032773ca57b",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -1411,6 +1517,7 @@
   },
   "fuzz:126 p1@p2": {
    "result": "PASS",
+   "battle": "be8e7032773ca57b",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -1422,6 +1529,7 @@
   },
   "fuzz:126 p2@p1": {
    "result": "PASS",
+   "battle": "be8e7032773ca57b",
    "spreads": {
     "p2:0": 21919923,
     "p2:1": 1990608,
@@ -1433,6 +1541,7 @@
   },
   "fuzz:127 both@spectator": {
    "result": "PASS",
+   "battle": "ae7254caa1157ca8",
    "spreads": {
     "p1:0": 106620341,
     "p1:1": 70077366,
@@ -1450,6 +1559,7 @@
   },
   "fuzz:127 p1@p2": {
    "result": "PASS",
+   "battle": "ae7254caa1157ca8",
    "spreads": {
     "p1:0": 583354,
     "p1:1": 45788104,
@@ -1461,6 +1571,7 @@
   },
   "fuzz:127 p2@p1": {
    "result": "PASS",
+   "battle": "ae7254caa1157ca8",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 12630482,
@@ -1472,6 +1583,7 @@
   },
   "fuzz:128 both@spectator": {
    "result": "PASS",
+   "battle": "36ca1d7c6cb3e845",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -1489,6 +1601,7 @@
   },
   "fuzz:128 p1@p2": {
    "result": "PASS",
+   "battle": "36ca1d7c6cb3e845",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -1500,6 +1613,7 @@
   },
   "fuzz:128 p2@p1": {
    "result": "PASS",
+   "battle": "36ca1d7c6cb3e845",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 11366040,
@@ -1511,6 +1625,7 @@
   },
   "fuzz:129 both@spectator": {
    "result": "PASS",
+   "battle": "42752a937f85b926",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -1528,6 +1643,7 @@
   },
   "fuzz:129 p1@p2": {
    "result": "PASS",
+   "battle": "42752a937f85b926",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -1539,6 +1655,7 @@
   },
   "fuzz:129 p2@p1": {
    "result": "PASS",
+   "battle": "42752a937f85b926",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 223544,
@@ -1550,6 +1667,7 @@
   },
   "fuzz:130 both@spectator": {
    "result": "PASS",
+   "battle": "736e56ee63af53ee",
    "spreads": {
     "p1:0": 111436464,
     "p1:1": 5429326,
@@ -1567,6 +1685,7 @@
   },
   "fuzz:130 p1@p2": {
    "result": "PASS",
+   "battle": "736e56ee63af53ee",
    "spreads": {
     "p1:0": 30187641,
     "p1:1": 5429248,
@@ -1578,6 +1697,7 @@
   },
   "fuzz:130 p2@p1": {
    "result": "PASS",
+   "battle": "736e56ee63af53ee",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -1589,6 +1709,7 @@
   },
   "fuzz:131 both@spectator": {
    "result": "PASS",
+   "battle": "62d2fbbcadc335e5",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 96338830,
@@ -1606,6 +1727,7 @@
   },
   "fuzz:131 p1@p2": {
    "result": "PASS",
+   "battle": "62d2fbbcadc335e5",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 15136376,
@@ -1617,6 +1739,7 @@
   },
   "fuzz:131 p2@p1": {
    "result": "PASS",
+   "battle": "62d2fbbcadc335e5",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 38588259,
@@ -1628,6 +1751,7 @@
   },
   "fuzz:132 both@spectator": {
    "result": "PASS",
+   "battle": "f5831d13a83aec2b",
    "spreads": {
     "p1:0": 32050258,
     "p1:1": 136663185,
@@ -1645,6 +1769,7 @@
   },
   "fuzz:132 p1@p2": {
    "result": "PASS",
+   "battle": "f5831d13a83aec2b",
    "spreads": {
     "p1:0": 10747478,
     "p1:1": 136663185,
@@ -1656,6 +1781,7 @@
   },
   "fuzz:132 p2@p1": {
    "result": "PASS",
+   "battle": "f5831d13a83aec2b",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 36023799,
@@ -1667,6 +1793,7 @@
   },
   "fuzz:133 both@spectator": {
    "result": "PASS",
+   "battle": "234244affefeb338",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 98074926,
@@ -1684,6 +1811,7 @@
   },
   "fuzz:133 p1@p2": {
    "result": "PASS",
+   "battle": "234244affefeb338",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 98074926,
@@ -1695,6 +1823,7 @@
   },
   "fuzz:133 p2@p1": {
    "result": "PASS",
+   "battle": "234244affefeb338",
    "spreads": {
     "p2:0": 43946535,
     "p2:1": 136663185,
@@ -1706,6 +1835,7 @@
   },
   "fuzz:134 both@spectator": {
    "result": "PASS",
+   "battle": "c31f73ca55f0e0c8",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 61346715,
@@ -1723,6 +1853,7 @@
   },
   "fuzz:134 p1@p2": {
    "result": "PASS",
+   "battle": "c31f73ca55f0e0c8",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 20889022,
@@ -1734,6 +1865,7 @@
   },
   "fuzz:134 p2@p1": {
    "result": "PASS",
+   "battle": "c31f73ca55f0e0c8",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 46854627,
@@ -1745,6 +1877,7 @@
   },
   "fuzz:135 both@spectator": {
    "result": "PASS",
+   "battle": "a4fefacaa7f6cb50",
    "spreads": {
     "p1:0": 53755909,
     "p1:1": 28087810,
@@ -1762,6 +1895,7 @@
   },
   "fuzz:135 p1@p2": {
    "result": "PASS",
+   "battle": "a4fefacaa7f6cb50",
    "spreads": {
     "p1:0": 27064103,
     "p1:1": 17718852,
@@ -1773,6 +1907,7 @@
   },
   "fuzz:135 p2@p1": {
    "result": "PASS",
+   "battle": "a4fefacaa7f6cb50",
    "spreads": {
     "p2:0": 4641078,
     "p2:1": 136663185,
@@ -1784,6 +1919,7 @@
   },
   "fuzz:136 both@spectator": {
    "result": "PASS",
+   "battle": "b9c188920bb51900",
    "spreads": {
     "p1:0": 25939195,
     "p1:1": 136663185,
@@ -1801,6 +1937,7 @@
   },
   "fuzz:136 p1@p2": {
    "result": "PASS",
+   "battle": "b9c188920bb51900",
    "spreads": {
     "p1:0": 3700397,
     "p1:1": 136663185,
@@ -1812,6 +1949,7 @@
   },
   "fuzz:136 p2@p1": {
    "result": "PASS",
+   "battle": "b9c188920bb51900",
    "spreads": {
     "p2:0": 24641895,
     "p2:1": 136663185,
@@ -1823,6 +1961,7 @@
   },
   "fuzz:137 both@spectator": {
    "result": "PASS",
+   "battle": "34a017aa8b353e71",
    "spreads": {
     "p1:0": 81637878,
     "p1:1": 26364618,
@@ -1840,6 +1979,7 @@
   },
   "fuzz:137 p1@p2": {
    "result": "PASS",
+   "battle": "34a017aa8b353e71",
    "spreads": {
     "p1:0": 8254680,
     "p1:1": 18449256,
@@ -1851,6 +1991,7 @@
   },
   "fuzz:137 p2@p1": {
    "result": "PASS",
+   "battle": "34a017aa8b353e71",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 2484170,
@@ -1862,6 +2003,7 @@
   },
   "fuzz:138 both@spectator": {
    "result": "PASS",
+   "battle": "806b46b8e8581121",
    "spreads": {
     "p1:0": 118414960,
     "p1:1": 136663185,
@@ -1879,6 +2021,7 @@
   },
   "fuzz:138 p1@p2": {
    "result": "PASS",
+   "battle": "806b46b8e8581121",
    "spreads": {
     "p1:0": 31141350,
     "p1:1": 136663185,
@@ -1890,6 +2033,7 @@
   },
   "fuzz:138 p2@p1": {
    "result": "PASS",
+   "battle": "806b46b8e8581121",
    "spreads": {
     "p2:0": 2272339,
     "p2:1": 136663185,
@@ -1901,6 +2045,7 @@
   },
   "fuzz:139 both@spectator": {
    "result": "PASS",
+   "battle": "fb058b6d1b616a00",
    "spreads": {
     "p1:0": 86607767,
     "p1:1": 136663185,
@@ -1918,6 +2063,7 @@
   },
   "fuzz:139 p1@p2": {
    "result": "PASS",
+   "battle": "fb058b6d1b616a00",
    "spreads": {
     "p1:0": 10483386,
     "p1:1": 136663185,
@@ -1929,6 +2075,7 @@
   },
   "fuzz:139 p2@p1": {
    "result": "PASS",
+   "battle": "fb058b6d1b616a00",
    "spreads": {
     "p2:0": 80826384,
     "p2:1": 136663185,
@@ -1940,6 +2087,7 @@
   },
   "fuzz:140 both@spectator": {
    "result": "PASS",
+   "battle": "6f465fd95c416a49",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 2361870,
@@ -1957,6 +2105,7 @@
   },
   "fuzz:140 p1@p2": {
    "result": "PASS",
+   "battle": "6f465fd95c416a49",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 1191212,
@@ -1968,6 +2117,7 @@
   },
   "fuzz:140 p2@p1": {
    "result": "PASS",
+   "battle": "6f465fd95c416a49",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 4855029,
@@ -1979,6 +2129,7 @@
   },
   "fuzz:141 both@spectator": {
    "result": "PASS",
+   "battle": "d49182929d0fb7a1",
    "spreads": {
     "p1:0": 11130774,
     "p1:1": 136663185,
@@ -1996,6 +2147,7 @@
   },
   "fuzz:141 p1@p2": {
    "result": "PASS",
+   "battle": "d49182929d0fb7a1",
    "spreads": {
     "p1:0": 1558994,
     "p1:1": 136663185,
@@ -2007,6 +2159,7 @@
   },
   "fuzz:141 p2@p1": {
    "result": "PASS",
+   "battle": "d49182929d0fb7a1",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 24345360,
@@ -2018,6 +2171,7 @@
   },
   "fuzz:142 both@spectator": {
    "result": "PASS",
+   "battle": "44b0ce5a755992be",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 126934806,
@@ -2035,6 +2189,7 @@
   },
   "fuzz:142 p1@p2": {
    "result": "PASS",
+   "battle": "44b0ce5a755992be",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 25763066,
@@ -2046,6 +2201,7 @@
   },
   "fuzz:142 p2@p1": {
    "result": "PASS",
+   "battle": "44b0ce5a755992be",
    "spreads": {
     "p2:0": 6070551,
     "p2:1": 136663185,
@@ -2057,6 +2213,7 @@
   },
   "fuzz:143 both@spectator": {
    "result": "PASS",
+   "battle": "8d0f6365cd0ac03d",
    "spreads": {
     "p1:0": 86107866,
     "p1:1": 136663185,
@@ -2074,6 +2231,7 @@
   },
   "fuzz:143 p1@p2": {
    "result": "PASS",
+   "battle": "8d0f6365cd0ac03d",
    "spreads": {
     "p1:0": 58538325,
     "p1:1": 136663185,
@@ -2085,6 +2243,7 @@
   },
   "fuzz:143 p2@p1": {
    "result": "PASS",
+   "battle": "8d0f6365cd0ac03d",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 58811997,
@@ -2096,6 +2255,7 @@
   },
   "fuzz:144 both@spectator": {
    "result": "PASS",
+   "battle": "128aeb08b306666a",
    "spreads": {
     "p1:0": 55836801,
     "p1:1": 136663185,
@@ -2113,6 +2273,7 @@
   },
   "fuzz:144 p1@p2": {
    "result": "PASS",
+   "battle": "128aeb08b306666a",
    "spreads": {
     "p1:0": 45155643,
     "p1:1": 136663185,
@@ -2124,6 +2285,7 @@
   },
   "fuzz:144 p2@p1": {
    "result": "PASS",
+   "battle": "128aeb08b306666a",
    "spreads": {
     "p2:0": 5535302,
     "p2:1": 136663185,
@@ -2135,6 +2297,7 @@
   },
   "fuzz:145 both@spectator": {
    "result": "PASS",
+   "battle": "223bef2ee253dd02",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -2152,6 +2315,7 @@
   },
   "fuzz:145 p1@p2": {
    "result": "PASS",
+   "battle": "223bef2ee253dd02",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -2163,6 +2327,7 @@
   },
   "fuzz:145 p2@p1": {
    "result": "PASS",
+   "battle": "223bef2ee253dd02",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 35030717,
@@ -2174,6 +2339,7 @@
   },
   "fuzz:146 both@spectator": {
    "result": "PASS",
+   "battle": "010af018f619555c",
    "spreads": {
     "p1:0": 21019295,
     "p1:1": 12838416,
@@ -2191,6 +2357,7 @@
   },
   "fuzz:146 p1@p2": {
    "result": "PASS",
+   "battle": "010af018f619555c",
    "spreads": {
     "p1:0": 6472428,
     "p1:1": 260723,
@@ -2202,6 +2369,7 @@
   },
   "fuzz:146 p2@p1": {
    "result": "PASS",
+   "battle": "010af018f619555c",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 7645862,
@@ -2213,6 +2381,7 @@
   },
   "fuzz:147 both@spectator": {
    "result": "PASS",
+   "battle": "fe9dcf1a3b0e4e69",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -2230,6 +2399,7 @@
   },
   "fuzz:147 p1@p2": {
    "result": "PASS",
+   "battle": "fe9dcf1a3b0e4e69",
    "spreads": {
     "p1:0": 22069152,
     "p1:1": 136663185,
@@ -2241,6 +2411,7 @@
   },
   "fuzz:147 p2@p1": {
    "result": "PASS",
+   "battle": "fe9dcf1a3b0e4e69",
    "spreads": {
     "p2:0": 16595127,
     "p2:1": 136663185,
@@ -2252,6 +2423,7 @@
   },
   "fuzz:148 both@spectator": {
    "result": "PASS",
+   "battle": "02d0ea5f617de715",
    "spreads": {
     "p1:0": 45842574,
     "p1:1": 19360035,
@@ -2269,6 +2441,7 @@
   },
   "fuzz:148 p1@p2": {
    "result": "PASS",
+   "battle": "02d0ea5f617de715",
    "spreads": {
     "p1:0": 6857326,
     "p1:1": 11638321,
@@ -2280,6 +2453,7 @@
   },
   "fuzz:148 p2@p1": {
    "result": "PASS",
+   "battle": "02d0ea5f617de715",
    "spreads": {
     "p2:0": 39188060,
     "p2:1": 136663185,
@@ -2291,6 +2465,7 @@
   },
   "fuzz:149 both@spectator": {
    "result": "PASS",
+   "battle": "8085583181ee1bd8",
    "spreads": {
     "p1:0": 91774625,
     "p1:1": 18858709,
@@ -2308,6 +2483,7 @@
   },
   "fuzz:149 p1@p2": {
    "result": "PASS",
+   "battle": "8085583181ee1bd8",
    "spreads": {
     "p1:0": 17606906,
     "p1:1": 1089191,
@@ -2319,6 +2495,7 @@
   },
   "fuzz:149 p2@p1": {
    "result": "PASS",
+   "battle": "8085583181ee1bd8",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 480412,
@@ -2330,6 +2507,7 @@
   },
   "fuzz:150 both@spectator": {
    "result": "PASS",
+   "battle": "d7596f5883c39d9d",
    "spreads": {
     "p1:0": 69717976,
     "p1:1": 132193984,
@@ -2347,6 +2525,7 @@
   },
   "fuzz:150 p1@p2": {
    "result": "PASS",
+   "battle": "d7596f5883c39d9d",
    "spreads": {
     "p1:0": 39705442,
     "p1:1": 61723984,
@@ -2358,6 +2537,7 @@
   },
   "fuzz:150 p2@p1": {
    "result": "PASS",
+   "battle": "d7596f5883c39d9d",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 5383489,
@@ -2369,6 +2549,7 @@
   },
   "fuzz:151 both@spectator": {
    "result": "PASS",
+   "battle": "fdc7622c9a422cb6",
    "spreads": {
     "p1:0": 118755798,
     "p1:1": 136663185,
@@ -2386,6 +2567,7 @@
   },
   "fuzz:151 p1@p2": {
    "result": "PASS",
+   "battle": "fdc7622c9a422cb6",
    "spreads": {
     "p1:0": 2174624,
     "p1:1": 136663185,
@@ -2397,6 +2579,7 @@
   },
   "fuzz:151 p2@p1": {
    "result": "PASS",
+   "battle": "fdc7622c9a422cb6",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -2408,6 +2591,7 @@
   },
   "fuzz:152 both@spectator": {
    "result": "PASS",
+   "battle": "738460cf520c9f6f",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 121659929,
@@ -2425,6 +2609,7 @@
   },
   "fuzz:152 p1@p2": {
    "result": "PASS",
+   "battle": "738460cf520c9f6f",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 37213625,
@@ -2436,6 +2621,7 @@
   },
   "fuzz:152 p2@p1": {
    "result": "PASS",
+   "battle": "738460cf520c9f6f",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 30025819,
@@ -2447,6 +2633,7 @@
   },
   "fuzz:153 both@spectator": {
    "result": "PASS",
+   "battle": "7de685c005cbd245",
    "spreads": {
     "p1:0": 21348699,
     "p1:1": 87892021,
@@ -2464,6 +2651,7 @@
   },
   "fuzz:153 p1@p2": {
    "result": "PASS",
+   "battle": "7de685c005cbd245",
    "spreads": {
     "p1:0": 2848506,
     "p1:1": 59110372,
@@ -2475,6 +2663,7 @@
   },
   "fuzz:153 p2@p1": {
    "result": "PASS",
+   "battle": "7de685c005cbd245",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 517009,
@@ -2486,6 +2675,7 @@
   },
   "fuzz:154 both@spectator": {
    "result": "PASS",
+   "battle": "4b30fdb8648f21db",
    "spreads": {
     "p1:0": 135617057,
     "p1:1": 82314103,
@@ -2503,6 +2693,7 @@
   },
   "fuzz:154 p1@p2": {
    "result": "PASS",
+   "battle": "4b30fdb8648f21db",
    "spreads": {
     "p1:0": 71014233,
     "p1:1": 15404030,
@@ -2514,6 +2705,7 @@
   },
   "fuzz:154 p2@p1": {
    "result": "PASS",
+   "battle": "4b30fdb8648f21db",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -2525,6 +2717,7 @@
   },
   "fuzz:155 both@spectator": {
    "result": "PASS",
+   "battle": "4d93cb7dbb81bbba",
    "spreads": {
     "p1:0": 80975085,
     "p1:1": 136663185,
@@ -2542,6 +2735,7 @@
   },
   "fuzz:155 p1@p2": {
    "result": "PASS",
+   "battle": "4d93cb7dbb81bbba",
    "spreads": {
     "p1:0": 39747605,
     "p1:1": 136663185,
@@ -2553,6 +2747,7 @@
   },
   "fuzz:155 p2@p1": {
    "result": "PASS",
+   "battle": "4d93cb7dbb81bbba",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 2844075,
@@ -2564,6 +2759,7 @@
   },
   "fuzz:156 both@spectator": {
    "result": "PASS",
+   "battle": "065ca2a1ea4231ec",
    "spreads": {
     "p1:0": 61714028,
     "p1:1": 88043875,
@@ -2581,6 +2777,7 @@
   },
   "fuzz:156 p1@p2": {
    "result": "PASS",
+   "battle": "065ca2a1ea4231ec",
    "spreads": {
     "p1:0": 55836801,
     "p1:1": 57703148,
@@ -2592,6 +2789,7 @@
   },
   "fuzz:156 p2@p1": {
    "result": "PASS",
+   "battle": "065ca2a1ea4231ec",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -2603,6 +2801,7 @@
   },
   "fuzz:157 both@spectator": {
    "result": "PASS",
+   "battle": "48fafe9e88c64081",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 18197098,
@@ -2620,6 +2819,7 @@
   },
   "fuzz:157 p1@p2": {
    "result": "PASS",
+   "battle": "48fafe9e88c64081",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 5122387,
@@ -2631,6 +2831,7 @@
   },
   "fuzz:157 p2@p1": {
    "result": "PASS",
+   "battle": "48fafe9e88c64081",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -2642,6 +2843,7 @@
   },
   "fuzz:158 both@spectator": {
    "result": "PASS",
+   "battle": "3cba23b060a7f461",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 116560468,
@@ -2659,6 +2861,7 @@
   },
   "fuzz:158 p1@p2": {
    "result": "PASS",
+   "battle": "3cba23b060a7f461",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 7976366,
@@ -2670,6 +2873,7 @@
   },
   "fuzz:158 p2@p1": {
    "result": "PASS",
+   "battle": "3cba23b060a7f461",
    "spreads": {
     "p2:0": 2486079,
     "p2:1": 10320333,
@@ -2681,6 +2885,7 @@
   },
   "fuzz:159 both@spectator": {
    "result": "GAVE UP",
+   "battle": "812f25b49dc4636a",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 81074136,
@@ -2698,6 +2903,7 @@
   },
   "fuzz:159 p1@p2": {
    "result": "PASS",
+   "battle": "812f25b49dc4636a",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 16052807,
@@ -2709,6 +2915,7 @@
   },
   "fuzz:159 p2@p1": {
    "result": "PASS",
+   "battle": "812f25b49dc4636a",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 22054957,
@@ -2720,6 +2927,7 @@
   },
   "fuzz:160 both@spectator": {
    "result": "PASS",
+   "battle": "bb6b7cf7e8652c6f",
    "spreads": {
     "p1:0": 35821232,
     "p1:1": 136663185,
@@ -2737,6 +2945,7 @@
   },
   "fuzz:160 p1@p2": {
    "result": "PASS",
+   "battle": "bb6b7cf7e8652c6f",
    "spreads": {
     "p1:0": 25250334,
     "p1:1": 75213206,
@@ -2748,6 +2957,7 @@
   },
   "fuzz:160 p2@p1": {
    "result": "PASS",
+   "battle": "bb6b7cf7e8652c6f",
    "spreads": {
     "p2:0": 26190880,
     "p2:1": 136663185,
@@ -2759,6 +2969,7 @@
   },
   "fuzz:161 both@spectator": {
    "result": "PASS",
+   "battle": "c0dabe3123fc8fe2",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -2776,6 +2987,7 @@
   },
   "fuzz:161 p1@p2": {
    "result": "PASS",
+   "battle": "c0dabe3123fc8fe2",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -2787,6 +2999,7 @@
   },
   "fuzz:161 p2@p1": {
    "result": "PASS",
+   "battle": "c0dabe3123fc8fe2",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 129966959,
@@ -2798,6 +3011,7 @@
   },
   "fuzz:162 both@spectator": {
    "result": "PASS",
+   "battle": "731eec2d62af8d77",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 123935710,
@@ -2815,6 +3029,7 @@
   },
   "fuzz:162 p1@p2": {
    "result": "PASS",
+   "battle": "731eec2d62af8d77",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 60285321,
@@ -2826,6 +3041,7 @@
   },
   "fuzz:162 p2@p1": {
    "result": "PASS",
+   "battle": "731eec2d62af8d77",
    "spreads": {
     "p2:0": 5620181,
     "p2:1": 136663185,
@@ -2837,6 +3053,7 @@
   },
   "fuzz:163 both@spectator": {
    "result": "PASS",
+   "battle": "7357159ff0101be1",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 113625472,
@@ -2854,6 +3071,7 @@
   },
   "fuzz:163 p1@p2": {
    "result": "PASS",
+   "battle": "7357159ff0101be1",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 39403645,
@@ -2865,6 +3083,7 @@
   },
   "fuzz:163 p2@p1": {
    "result": "PASS",
+   "battle": "7357159ff0101be1",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 2378755,
@@ -2876,6 +3095,7 @@
   },
   "fuzz:164 both@spectator": {
    "result": "PASS",
+   "battle": "a14a25ef13697b9f",
    "spreads": {
     "p1:0": 109162833,
     "p1:1": 1913440,
@@ -2893,6 +3113,7 @@
   },
   "fuzz:164 p1@p2": {
    "result": "PASS",
+   "battle": "a14a25ef13697b9f",
    "spreads": {
     "p1:0": 69134402,
     "p1:1": 736180,
@@ -2904,6 +3125,7 @@
   },
   "fuzz:164 p2@p1": {
    "result": "PASS",
+   "battle": "a14a25ef13697b9f",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -2915,6 +3137,7 @@
   },
   "fuzz:165 both@spectator": {
    "result": "PASS",
+   "battle": "72749ac049f7e984",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 126739200,
@@ -2932,6 +3155,7 @@
   },
   "fuzz:165 p1@p2": {
    "result": "PASS",
+   "battle": "72749ac049f7e984",
    "spreads": {
     "p1:0": 59765083,
     "p1:1": 4841937,
@@ -2943,6 +3167,7 @@
   },
   "fuzz:165 p2@p1": {
    "result": "PASS",
+   "battle": "72749ac049f7e984",
    "spreads": {
     "p2:0": 24380201,
     "p2:1": 136663185,
@@ -2954,6 +3179,7 @@
   },
   "fuzz:166 both@spectator": {
    "result": "PASS",
+   "battle": "cca3873050ed2472",
    "spreads": {
     "p1:0": 29353764,
     "p1:1": 136663185,
@@ -2971,6 +3197,7 @@
   },
   "fuzz:166 p1@p2": {
    "result": "PASS",
+   "battle": "cca3873050ed2472",
    "spreads": {
     "p1:0": 11240124,
     "p1:1": 136663185,
@@ -2982,6 +3209,7 @@
   },
   "fuzz:166 p2@p1": {
    "result": "PASS",
+   "battle": "cca3873050ed2472",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 60954271,
@@ -2993,6 +3221,7 @@
   },
   "fuzz:167 both@spectator": {
    "result": "PASS",
+   "battle": "23ea4b450e759c4f",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 5328728,
@@ -3010,6 +3239,7 @@
   },
   "fuzz:167 p1@p2": {
    "result": "PASS",
+   "battle": "23ea4b450e759c4f",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 1581515,
@@ -3021,6 +3251,7 @@
   },
   "fuzz:167 p2@p1": {
    "result": "PASS",
+   "battle": "23ea4b450e759c4f",
    "spreads": {
     "p2:0": 79412726,
     "p2:1": 44156795,
@@ -3032,6 +3263,7 @@
   },
   "fuzz:168 both@spectator": {
    "result": "PASS",
+   "battle": "fe4b9b8bece91209",
    "spreads": {
     "p1:0": 15864860,
     "p1:1": 102586339,
@@ -3049,6 +3281,7 @@
   },
   "fuzz:168 p1@p2": {
    "result": "PASS",
+   "battle": "fe4b9b8bece91209",
    "spreads": {
     "p1:0": 7326927,
     "p1:1": 41022741,
@@ -3060,6 +3293,7 @@
   },
   "fuzz:168 p2@p1": {
    "result": "PASS",
+   "battle": "fe4b9b8bece91209",
    "spreads": {
     "p2:0": 92361585,
     "p2:1": 65083453,
@@ -3071,6 +3305,7 @@
   },
   "fuzz:169 both@spectator": {
    "result": "PASS",
+   "battle": "87adb4b962eda9b4",
    "spreads": {
     "p1:0": 56124108,
     "p1:1": 17254552,
@@ -3088,6 +3323,7 @@
   },
   "fuzz:169 p1@p2": {
    "result": "PASS",
+   "battle": "87adb4b962eda9b4",
    "spreads": {
     "p1:0": 29650491,
     "p1:1": 7188573,
@@ -3099,6 +3335,7 @@
   },
   "fuzz:169 p2@p1": {
    "result": "PASS",
+   "battle": "87adb4b962eda9b4",
    "spreads": {
     "p2:0": 91341993,
     "p2:1": 136663185,
@@ -3110,6 +3347,7 @@
   },
   "fuzz:170 both@spectator": {
    "result": "PASS",
+   "battle": "929e9005bea82ffc",
    "spreads": {
     "p1:0": 60166794,
     "p1:1": 135741385,
@@ -3127,6 +3365,7 @@
   },
   "fuzz:170 p1@p2": {
    "result": "PASS",
+   "battle": "929e9005bea82ffc",
    "spreads": {
     "p1:0": 6715359,
     "p1:1": 112835950,
@@ -3138,6 +3377,7 @@
   },
   "fuzz:170 p2@p1": {
    "result": "PASS",
+   "battle": "929e9005bea82ffc",
    "spreads": {
     "p2:0": 1167885,
     "p2:1": 136663185,
@@ -3149,6 +3389,7 @@
   },
   "fuzz:171 both@spectator": {
    "result": "PASS",
+   "battle": "85888c91272ad33a",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -3166,6 +3407,7 @@
   },
   "fuzz:171 p1@p2": {
    "result": "PASS",
+   "battle": "85888c91272ad33a",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -3177,6 +3419,7 @@
   },
   "fuzz:171 p2@p1": {
    "result": "PASS",
+   "battle": "85888c91272ad33a",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 1128040,
@@ -3188,6 +3431,7 @@
   },
   "fuzz:172 both@spectator": {
    "result": "PASS",
+   "battle": "dff53dc7d8663cec",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -3205,6 +3449,7 @@
   },
   "fuzz:172 p1@p2": {
    "result": "PASS",
+   "battle": "dff53dc7d8663cec",
    "spreads": {
     "p1:0": 22293227,
     "p1:1": 136663185,
@@ -3216,6 +3461,7 @@
   },
   "fuzz:172 p2@p1": {
    "result": "PASS",
+   "battle": "dff53dc7d8663cec",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -3227,6 +3473,7 @@
   },
   "fuzz:173 both@spectator": {
    "result": "PASS",
+   "battle": "d846f8486948f178",
    "spreads": {
     "p1:0": 58334464,
     "p1:1": 23980176,
@@ -3244,6 +3491,7 @@
   },
   "fuzz:173 p1@p2": {
    "result": "PASS",
+   "battle": "d846f8486948f178",
    "spreads": {
     "p1:0": 3837127,
     "p1:1": 2350566,
@@ -3255,6 +3503,7 @@
   },
   "fuzz:173 p2@p1": {
    "result": "PASS",
+   "battle": "d846f8486948f178",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 41577077,
@@ -3266,6 +3515,7 @@
   },
   "fuzz:174 both@spectator": {
    "result": "PASS",
+   "battle": "7b6485e85492ad71",
    "spreads": {
     "p1:0": 9207350,
     "p1:1": 136663185,
@@ -3283,6 +3533,7 @@
   },
   "fuzz:174 p1@p2": {
    "result": "PASS",
+   "battle": "7b6485e85492ad71",
    "spreads": {
     "p1:0": 2487846,
     "p1:1": 136663185,
@@ -3294,6 +3545,7 @@
   },
   "fuzz:174 p2@p1": {
    "result": "PASS",
+   "battle": "7b6485e85492ad71",
    "spreads": {
     "p2:0": 103327839,
     "p2:1": 8870077,
@@ -3305,6 +3557,7 @@
   },
   "fuzz:175 both@spectator": {
    "result": "PASS",
+   "battle": "b0ba8a18a18778a5",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -3322,6 +3575,7 @@
   },
   "fuzz:175 p1@p2": {
    "result": "PASS",
+   "battle": "b0ba8a18a18778a5",
    "spreads": {
     "p1:0": 16960242,
     "p1:1": 117162123,
@@ -3333,6 +3587,7 @@
   },
   "fuzz:175 p2@p1": {
    "result": "PASS",
+   "battle": "b0ba8a18a18778a5",
    "spreads": {
     "p2:0": 98074926,
     "p2:1": 74672734,
@@ -3344,6 +3599,7 @@
   },
   "fuzz:176 both@spectator": {
    "result": "PASS",
+   "battle": "bf2b03cb144493ad",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -3361,6 +3617,7 @@
   },
   "fuzz:176 p1@p2": {
    "result": "PASS",
+   "battle": "bf2b03cb144493ad",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -3372,6 +3629,7 @@
   },
   "fuzz:176 p2@p1": {
    "result": "PASS",
+   "battle": "bf2b03cb144493ad",
    "spreads": {
     "p2:0": 11811442,
     "p2:1": 37300461,
@@ -3383,6 +3641,7 @@
   },
   "fuzz:177 both@spectator": {
    "result": "PASS",
+   "battle": "48a41bdadbfaa024",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 85234603,
@@ -3400,6 +3659,7 @@
   },
   "fuzz:177 p1@p2": {
    "result": "PASS",
+   "battle": "48a41bdadbfaa024",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 53395101,
@@ -3411,6 +3671,7 @@
   },
   "fuzz:177 p2@p1": {
    "result": "PASS",
+   "battle": "48a41bdadbfaa024",
    "spreads": {
     "p2:0": 61714028,
     "p2:1": 133124961,
@@ -3422,6 +3683,7 @@
   },
   "fuzz:178 both@spectator": {
    "result": "PASS",
+   "battle": "2659e4db453c0a4f",
    "spreads": {
     "p1:0": 75411911,
     "p1:1": 136663185,
@@ -3439,6 +3701,7 @@
   },
   "fuzz:178 p1@p2": {
    "result": "PASS",
+   "battle": "2659e4db453c0a4f",
    "spreads": {
     "p1:0": 14648899,
     "p1:1": 136663185,
@@ -3450,6 +3713,7 @@
   },
   "fuzz:178 p2@p1": {
    "result": "PASS",
+   "battle": "2659e4db453c0a4f",
    "spreads": {
     "p2:0": 3058320,
     "p2:1": 136663185,
@@ -3461,6 +3725,7 @@
   },
   "fuzz:179 both@spectator": {
    "result": "PASS",
+   "battle": "097b1a6d046abb37",
    "spreads": {
     "p1:0": 70336888,
     "p1:1": 136663185,
@@ -3478,6 +3743,7 @@
   },
   "fuzz:179 p1@p2": {
    "result": "PASS",
+   "battle": "097b1a6d046abb37",
    "spreads": {
     "p1:0": 9177533,
     "p1:1": 136663185,
@@ -3489,6 +3755,7 @@
   },
   "fuzz:179 p2@p1": {
    "result": "PASS",
+   "battle": "097b1a6d046abb37",
    "spreads": {
     "p2:0": 66855280,
     "p2:1": 150844,
@@ -3500,6 +3767,7 @@
   },
   "fuzz:180 both@spectator": {
    "result": "PASS",
+   "battle": "ed8a03483a7a5e94",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 1417218,
@@ -3517,6 +3785,7 @@
   },
   "fuzz:180 p1@p2": {
    "result": "PASS",
+   "battle": "ed8a03483a7a5e94",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 1388403,
@@ -3528,6 +3797,7 @@
   },
   "fuzz:180 p2@p1": {
    "result": "PASS",
+   "battle": "ed8a03483a7a5e94",
    "spreads": {
     "p2:0": 61550988,
     "p2:1": 39477096,
@@ -3539,6 +3809,7 @@
   },
   "fuzz:181 both@spectator": {
    "result": "PASS",
+   "battle": "3b65bfb4fb79232a",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 131195988,
@@ -3556,6 +3827,7 @@
   },
   "fuzz:181 p1@p2": {
    "result": "PASS",
+   "battle": "3b65bfb4fb79232a",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 111279308,
@@ -3567,6 +3839,7 @@
   },
   "fuzz:181 p2@p1": {
    "result": "PASS",
+   "battle": "3b65bfb4fb79232a",
    "spreads": {
     "p2:0": 5094307,
     "p2:1": 7938151,
@@ -3578,6 +3851,7 @@
   },
   "fuzz:182 both@spectator": {
    "result": "PASS",
+   "battle": "bc40dabc84576622",
    "spreads": {
     "p1:0": 104644926,
     "p1:1": 58756553,
@@ -3595,6 +3869,7 @@
   },
   "fuzz:182 p1@p2": {
    "result": "PASS",
+   "battle": "bc40dabc84576622",
    "spreads": {
     "p1:0": 11292543,
     "p1:1": 10940877,
@@ -3606,6 +3881,7 @@
   },
   "fuzz:182 p2@p1": {
    "result": "PASS",
+   "battle": "bc40dabc84576622",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -3617,6 +3893,7 @@
   },
   "fuzz:183 both@spectator": {
    "result": "PASS",
+   "battle": "ddd4cfaf9d85a15a",
    "spreads": {
     "p1:0": 89396502,
     "p1:1": 131931746,
@@ -3634,6 +3911,7 @@
   },
   "fuzz:183 p1@p2": {
    "result": "PASS",
+   "battle": "ddd4cfaf9d85a15a",
    "spreads": {
     "p1:0": 80232464,
     "p1:1": 62327827,
@@ -3645,6 +3923,7 @@
   },
   "fuzz:183 p2@p1": {
    "result": "PASS",
+   "battle": "ddd4cfaf9d85a15a",
    "spreads": {
     "p2:0": 88926567,
     "p2:1": 136663185,
@@ -3656,6 +3935,7 @@
   },
   "fuzz:184 both@spectator": {
    "result": "PASS",
+   "battle": "6ee140922b414fde",
    "spreads": {
     "p1:0": 134219229,
     "p1:1": 123185424,
@@ -3673,6 +3953,7 @@
   },
   "fuzz:184 p1@p2": {
    "result": "PASS",
+   "battle": "6ee140922b414fde",
    "spreads": {
     "p1:0": 96880071,
     "p1:1": 92870756,
@@ -3684,6 +3965,7 @@
   },
   "fuzz:184 p2@p1": {
    "result": "PASS",
+   "battle": "6ee140922b414fde",
    "spreads": {
     "p2:0": 21750838,
     "p2:1": 136662638,
@@ -3695,6 +3977,7 @@
   },
   "fuzz:185 both@spectator": {
    "result": "PASS",
+   "battle": "894ac717047d7e36",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 95143489,
@@ -3712,6 +3995,7 @@
   },
   "fuzz:185 p1@p2": {
    "result": "PASS",
+   "battle": "894ac717047d7e36",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 46612634,
@@ -3723,6 +4007,7 @@
   },
   "fuzz:185 p2@p1": {
    "result": "PASS",
+   "battle": "894ac717047d7e36",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 125982027,
@@ -3734,6 +4019,7 @@
   },
   "fuzz:186 both@spectator": {
    "result": "PASS",
+   "battle": "8a6107013be17a69",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 52588686,
@@ -3751,6 +4037,7 @@
   },
   "fuzz:186 p1@p2": {
    "result": "PASS",
+   "battle": "8a6107013be17a69",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 2472852,
@@ -3762,6 +4049,7 @@
   },
   "fuzz:186 p2@p1": {
    "result": "PASS",
+   "battle": "8a6107013be17a69",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 2784852,
@@ -3773,6 +4061,7 @@
   },
   "fuzz:187 both@spectator": {
    "result": "PASS",
+   "battle": "1c98b65c92614d76",
    "spreads": {
     "p1:0": 94803596,
     "p1:1": 136663185,
@@ -3790,6 +4079,7 @@
   },
   "fuzz:187 p1@p2": {
    "result": "PASS",
+   "battle": "1c98b65c92614d76",
    "spreads": {
     "p1:0": 27660226,
     "p1:1": 136663185,
@@ -3801,6 +4091,7 @@
   },
   "fuzz:187 p2@p1": {
    "result": "PASS",
+   "battle": "1c98b65c92614d76",
    "spreads": {
     "p2:0": 38137709,
     "p2:1": 136663185,
@@ -3812,6 +4103,7 @@
   },
   "fuzz:188 both@spectator": {
    "result": "PASS",
+   "battle": "66646f4df1118c37",
    "spreads": {
     "p1:0": 2980264,
     "p1:1": 55482239,
@@ -3829,6 +4121,7 @@
   },
   "fuzz:188 p1@p2": {
    "result": "PASS",
+   "battle": "66646f4df1118c37",
    "spreads": {
     "p1:0": 860265,
     "p1:1": 50464276,
@@ -3840,6 +4133,7 @@
   },
   "fuzz:188 p2@p1": {
    "result": "PASS",
+   "battle": "66646f4df1118c37",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 6918297,
@@ -3851,6 +4145,7 @@
   },
   "fuzz:189 both@spectator": {
    "result": "PASS",
+   "battle": "9b7ec9e1d7894ab2",
    "spreads": {
     "p1:0": 113110551,
     "p1:1": 136663185,
@@ -3868,6 +4163,7 @@
   },
   "fuzz:189 p1@p2": {
    "result": "PASS",
+   "battle": "9b7ec9e1d7894ab2",
    "spreads": {
     "p1:0": 14981535,
     "p1:1": 136663185,
@@ -3879,6 +4175,7 @@
   },
   "fuzz:189 p2@p1": {
    "result": "PASS",
+   "battle": "9b7ec9e1d7894ab2",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 14215706,
@@ -3890,6 +4187,7 @@
   },
   "fuzz:190 both@spectator": {
    "result": "PASS",
+   "battle": "b3302ed82aaf263d",
    "spreads": {
     "p1:0": 40893975,
     "p1:1": 2640458,
@@ -3907,6 +4205,7 @@
   },
   "fuzz:190 p1@p2": {
    "result": "PASS",
+   "battle": "b3302ed82aaf263d",
    "spreads": {
     "p1:0": 6034667,
     "p1:1": 484287,
@@ -3918,6 +4217,7 @@
   },
   "fuzz:190 p2@p1": {
    "result": "PASS",
+   "battle": "b3302ed82aaf263d",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -3929,6 +4229,7 @@
   },
   "fuzz:191 both@spectator": {
    "result": "PASS",
+   "battle": "ea2cc0c7b1d2e6b0",
    "spreads": {
     "p1:0": 44844362,
     "p1:1": 136663185,
@@ -3946,6 +4247,7 @@
   },
   "fuzz:191 p1@p2": {
    "result": "PASS",
+   "battle": "ea2cc0c7b1d2e6b0",
    "spreads": {
     "p1:0": 28660618,
     "p1:1": 122009163,
@@ -3957,6 +4259,7 @@
   },
   "fuzz:191 p2@p1": {
    "result": "PASS",
+   "battle": "ea2cc0c7b1d2e6b0",
    "spreads": {
     "p2:0": 60798898,
     "p2:1": 1391807,
@@ -3968,6 +4271,7 @@
   },
   "fuzz:192 both@spectator": {
    "result": "PASS",
+   "battle": "1bb72c064aaab5a2",
    "spreads": {
     "p1:0": 135943949,
     "p1:1": 136663185,
@@ -3985,6 +4289,7 @@
   },
   "fuzz:192 p1@p2": {
    "result": "PASS",
+   "battle": "1bb72c064aaab5a2",
    "spreads": {
     "p1:0": 133838837,
     "p1:1": 136663185,
@@ -3996,6 +4301,7 @@
   },
   "fuzz:192 p2@p1": {
    "result": "PASS",
+   "battle": "1bb72c064aaab5a2",
    "spreads": {
     "p2:0": 15511298,
     "p2:1": 136663185,
@@ -4007,6 +4313,7 @@
   },
   "fuzz:193 both@spectator": {
    "result": "PASS",
+   "battle": "32daa09d93c07881",
    "spreads": {
     "p1:0": 64137540,
     "p1:1": 136663185,
@@ -4024,6 +4331,7 @@
   },
   "fuzz:193 p1@p2": {
    "result": "PASS",
+   "battle": "32daa09d93c07881",
    "spreads": {
     "p1:0": 31847448,
     "p1:1": 136663185,
@@ -4035,6 +4343,7 @@
   },
   "fuzz:193 p2@p1": {
    "result": "PASS",
+   "battle": "32daa09d93c07881",
    "spreads": {
     "p2:0": 20739163,
     "p2:1": 6296965,
@@ -4046,6 +4355,7 @@
   },
   "fuzz:194 both@spectator": {
    "result": "PASS",
+   "battle": "8f4f8e7d4b8e5470",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -4063,6 +4373,7 @@
   },
   "fuzz:194 p1@p2": {
    "result": "PASS",
+   "battle": "8f4f8e7d4b8e5470",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -4074,6 +4385,7 @@
   },
   "fuzz:194 p2@p1": {
    "result": "PASS",
+   "battle": "8f4f8e7d4b8e5470",
    "spreads": {
     "p2:0": 18149348,
     "p2:1": 136663185,
@@ -4085,6 +4397,7 @@
   },
   "fuzz:195 both@spectator": {
    "result": "PASS",
+   "battle": "0804516ad024bddd",
    "spreads": {
     "p1:0": 136465364,
     "p1:1": 96453647,
@@ -4102,6 +4415,7 @@
   },
   "fuzz:195 p1@p2": {
    "result": "PASS",
+   "battle": "0804516ad024bddd",
    "spreads": {
     "p1:0": 99678945,
     "p1:1": 4039173,
@@ -4113,6 +4427,7 @@
   },
   "fuzz:195 p2@p1": {
    "result": "PASS",
+   "battle": "0804516ad024bddd",
    "spreads": {
     "p2:0": 39258205,
     "p2:1": 74568909,
@@ -4124,6 +4439,7 @@
   },
   "fuzz:196 both@spectator": {
    "result": "PASS",
+   "battle": "c8bc3c5501ecd0d3",
    "spreads": {
     "p1:0": 80354583,
     "p1:1": 107724218,
@@ -4141,6 +4457,7 @@
   },
   "fuzz:196 p1@p2": {
    "result": "PASS",
+   "battle": "c8bc3c5501ecd0d3",
    "spreads": {
     "p1:0": 72522572,
     "p1:1": 73315977,
@@ -4152,6 +4469,7 @@
   },
   "fuzz:196 p2@p1": {
    "result": "PASS",
+   "battle": "c8bc3c5501ecd0d3",
    "spreads": {
     "p2:0": 45992256,
     "p2:1": 136663185,
@@ -4163,6 +4481,7 @@
   },
   "fuzz:197 both@spectator": {
    "result": "PASS",
+   "battle": "7359f4fa2954895d",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 127535804,
@@ -4180,6 +4499,7 @@
   },
   "fuzz:197 p1@p2": {
    "result": "PASS",
+   "battle": "7359f4fa2954895d",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 65458963,
@@ -4191,6 +4511,7 @@
   },
   "fuzz:197 p2@p1": {
    "result": "PASS",
+   "battle": "7359f4fa2954895d",
    "spreads": {
     "p2:0": 301354,
     "p2:1": 8938472,
@@ -4202,6 +4523,7 @@
   },
   "fuzz:198 both@spectator": {
    "result": "PASS",
+   "battle": "b27983b20150dcd0",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -4219,6 +4541,7 @@
   },
   "fuzz:198 p1@p2": {
    "result": "PASS",
+   "battle": "b27983b20150dcd0",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -4230,6 +4553,7 @@
   },
   "fuzz:198 p2@p1": {
    "result": "PASS",
+   "battle": "b27983b20150dcd0",
    "spreads": {
     "p2:0": 15886365,
     "p2:1": 29999944,
@@ -4241,6 +4565,7 @@
   },
   "fuzz:199 both@spectator": {
    "result": "PASS",
+   "battle": "5b6eb40b71782e76",
    "spreads": {
     "p1:0": 74803679,
     "p1:1": 136663185,
@@ -4258,6 +4583,7 @@
   },
   "fuzz:199 p1@p2": {
    "result": "PASS",
+   "battle": "5b6eb40b71782e76",
    "spreads": {
     "p1:0": 3221304,
     "p1:1": 136663185,
@@ -4269,6 +4595,7 @@
   },
   "fuzz:199 p2@p1": {
    "result": "PASS",
+   "battle": "5b6eb40b71782e76",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -4280,6 +4607,7 @@
   },
   "fuzz:200 both@spectator": {
    "result": "PASS",
+   "battle": "2e2b2ffe0ac511f9",
    "spreads": {
     "p1:0": 97453679,
     "p1:1": 102566615,
@@ -4297,6 +4625,7 @@
   },
   "fuzz:200 p1@p2": {
    "result": "PASS",
+   "battle": "2e2b2ffe0ac511f9",
    "spreads": {
     "p1:0": 17560251,
     "p1:1": 69539549,
@@ -4308,6 +4637,7 @@
   },
   "fuzz:200 p2@p1": {
    "result": "PASS",
+   "battle": "2e2b2ffe0ac511f9",
    "spreads": {
     "p2:0": 14131616,
     "p2:1": 136663185,
@@ -4319,6 +4649,7 @@
   },
   "fuzz:201 both@spectator": {
    "result": "PASS",
+   "battle": "1afa11455807378a",
    "spreads": {
     "p1:0": 18815847,
     "p1:1": 136663185,
@@ -4336,6 +4667,7 @@
   },
   "fuzz:201 p1@p2": {
    "result": "PASS",
+   "battle": "1afa11455807378a",
    "spreads": {
     "p1:0": 10079185,
     "p1:1": 136663185,
@@ -4347,6 +4679,7 @@
   },
   "fuzz:201 p2@p1": {
    "result": "PASS",
+   "battle": "1afa11455807378a",
    "spreads": {
     "p2:0": 7312682,
     "p2:1": 65889424,
@@ -4358,6 +4691,7 @@
   },
   "fuzz:202 both@spectator": {
    "result": "PASS",
+   "battle": "649f28f877bbade9",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 5258954,
@@ -4375,6 +4709,7 @@
   },
   "fuzz:202 p1@p2": {
    "result": "PASS",
+   "battle": "649f28f877bbade9",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 446881,
@@ -4386,6 +4721,7 @@
   },
   "fuzz:202 p2@p1": {
    "result": "PASS",
+   "battle": "649f28f877bbade9",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 6539172,
@@ -4397,6 +4733,7 @@
   },
   "fuzz:203 both@spectator": {
    "result": "PASS",
+   "battle": "4a04cf9cd58d2360",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 104197423,
@@ -4414,6 +4751,7 @@
   },
   "fuzz:203 p1@p2": {
    "result": "PASS",
+   "battle": "4a04cf9cd58d2360",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 1001451,
@@ -4425,6 +4763,7 @@
   },
   "fuzz:203 p2@p1": {
    "result": "PASS",
+   "battle": "4a04cf9cd58d2360",
    "spreads": {
     "p2:0": 108631815,
     "p2:1": 136663185,
@@ -4436,6 +4775,7 @@
   },
   "fuzz:204 both@spectator": {
    "result": "PASS",
+   "battle": "109ca21d570200eb",
    "spreads": {
     "p1:0": 16811197,
     "p1:1": 136663185,
@@ -4453,6 +4793,7 @@
   },
   "fuzz:204 p1@p2": {
    "result": "PASS",
+   "battle": "109ca21d570200eb",
    "spreads": {
     "p1:0": 12478554,
     "p1:1": 136663185,
@@ -4464,6 +4805,7 @@
   },
   "fuzz:204 p2@p1": {
    "result": "PASS",
+   "battle": "109ca21d570200eb",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 68632840,
@@ -4475,6 +4817,7 @@
   },
   "fuzz:205 both@spectator": {
    "result": "PASS",
+   "battle": "abf59724de49b3bb",
    "spreads": {
     "p1:0": 30324836,
     "p1:1": 106250424,
@@ -4492,6 +4835,7 @@
   },
   "fuzz:205 p1@p2": {
    "result": "PASS",
+   "battle": "abf59724de49b3bb",
    "spreads": {
     "p1:0": 2588083,
     "p1:1": 57410304,
@@ -4503,6 +4847,7 @@
   },
   "fuzz:205 p2@p1": {
    "result": "PASS",
+   "battle": "abf59724de49b3bb",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 106875894,
@@ -4514,6 +4859,7 @@
   },
   "fuzz:206 both@spectator": {
    "result": "PASS",
+   "battle": "f73f08c1599e64b9",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -4531,6 +4877,7 @@
   },
   "fuzz:206 p1@p2": {
    "result": "PASS",
+   "battle": "f73f08c1599e64b9",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -4542,6 +4889,7 @@
   },
   "fuzz:206 p2@p1": {
    "result": "PASS",
+   "battle": "f73f08c1599e64b9",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 4630247,
@@ -4553,6 +4901,7 @@
   },
   "fuzz:207 both@spectator": {
    "result": "PASS",
+   "battle": "303b92a0b001db01",
    "spreads": {
     "p1:0": 107105633,
     "p1:1": 136663185,
@@ -4570,6 +4919,7 @@
   },
   "fuzz:207 p1@p2": {
    "result": "PASS",
+   "battle": "303b92a0b001db01",
    "spreads": {
     "p1:0": 76956996,
     "p1:1": 136663185,
@@ -4581,6 +4931,7 @@
   },
   "fuzz:207 p2@p1": {
    "result": "PASS",
+   "battle": "303b92a0b001db01",
    "spreads": {
     "p2:0": 60723692,
     "p2:1": 60909290,
@@ -4592,6 +4943,7 @@
   },
   "fuzz:208 both@spectator": {
    "result": "PASS",
+   "battle": "0e71535da979282c",
    "spreads": {
     "p1:0": 78164126,
     "p1:1": 136663185,
@@ -4609,6 +4961,7 @@
   },
   "fuzz:208 p1@p2": {
    "result": "PASS",
+   "battle": "0e71535da979282c",
    "spreads": {
     "p1:0": 72797373,
     "p1:1": 136663185,
@@ -4620,6 +4973,7 @@
   },
   "fuzz:208 p2@p1": {
    "result": "PASS",
+   "battle": "0e71535da979282c",
    "spreads": {
     "p2:0": 28763691,
     "p2:1": 136663185,
@@ -4631,6 +4985,7 @@
   },
   "fuzz:209 both@spectator": {
    "result": "PASS",
+   "battle": "d3c10261bcbdb2ba",
    "spreads": {
     "p1:0": 126850727,
     "p1:1": 136663185,
@@ -4648,6 +5003,7 @@
   },
   "fuzz:209 p1@p2": {
    "result": "PASS",
+   "battle": "d3c10261bcbdb2ba",
    "spreads": {
     "p1:0": 48581483,
     "p1:1": 136663185,
@@ -4659,6 +5015,7 @@
   },
   "fuzz:209 p2@p1": {
    "result": "PASS",
+   "battle": "d3c10261bcbdb2ba",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 1635568,
@@ -4670,6 +5027,7 @@
   },
   "fuzz:210 both@spectator": {
    "result": "PASS",
+   "battle": "816f400d62ff8e8b",
    "spreads": {
     "p1:0": 128198944,
     "p1:1": 136663185,
@@ -4687,6 +5045,7 @@
   },
   "fuzz:210 p1@p2": {
    "result": "PASS",
+   "battle": "816f400d62ff8e8b",
    "spreads": {
     "p1:0": 30253630,
     "p1:1": 136663185,
@@ -4698,6 +5057,7 @@
   },
   "fuzz:210 p2@p1": {
    "result": "PASS",
+   "battle": "816f400d62ff8e8b",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 21791551,
@@ -4709,6 +5069,7 @@
   },
   "fuzz:211 both@spectator": {
    "result": "PASS",
+   "battle": "69e4437932a102a2",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 5133033,
@@ -4726,6 +5087,7 @@
   },
   "fuzz:211 p1@p2": {
    "result": "PASS",
+   "battle": "69e4437932a102a2",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 2314272,
@@ -4737,6 +5099,7 @@
   },
   "fuzz:211 p2@p1": {
    "result": "PASS",
+   "battle": "69e4437932a102a2",
    "spreads": {
     "p2:0": 38588259,
     "p2:1": 136663185,
@@ -4748,6 +5111,7 @@
   },
   "fuzz:212 both@spectator": {
    "result": "PASS",
+   "battle": "e88eb7e3c9cb1147",
    "spreads": {
     "p1:0": 102241006,
     "p1:1": 136663185,
@@ -4765,6 +5129,7 @@
   },
   "fuzz:212 p1@p2": {
    "result": "PASS",
+   "battle": "e88eb7e3c9cb1147",
    "spreads": {
     "p1:0": 21124641,
     "p1:1": 136663185,
@@ -4776,6 +5141,7 @@
   },
   "fuzz:212 p2@p1": {
    "result": "PASS",
+   "battle": "e88eb7e3c9cb1147",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 98074925,
@@ -4787,6 +5153,7 @@
   },
   "fuzz:213 both@spectator": {
    "result": "GAVE UP",
+   "battle": "5d15a779851bb2ab",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -4804,6 +5171,7 @@
   },
   "fuzz:213 p1@p2": {
    "result": "PASS",
+   "battle": "5d15a779851bb2ab",
    "spreads": {
     "p1:0": 63398671,
     "p1:1": 136663185,
@@ -4815,6 +5183,7 @@
   },
   "fuzz:213 p2@p1": {
    "result": "PASS",
+   "battle": "5d15a779851bb2ab",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 20154756,
@@ -4826,6 +5195,7 @@
   },
   "fuzz:214 both@spectator": {
    "result": "PASS",
+   "battle": "ea4a8e5fa50860ec",
    "spreads": {
     "p1:0": 89299076,
     "p1:1": 101740246,
@@ -4843,6 +5213,7 @@
   },
   "fuzz:214 p1@p2": {
    "result": "PASS",
+   "battle": "ea4a8e5fa50860ec",
    "spreads": {
     "p1:0": 1814868,
     "p1:1": 43814804,
@@ -4854,6 +5225,7 @@
   },
   "fuzz:214 p2@p1": {
    "result": "PASS",
+   "battle": "ea4a8e5fa50860ec",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 44325360,
@@ -4865,6 +5237,7 @@
   },
   "fuzz:215 both@spectator": {
    "result": "PASS",
+   "battle": "274258dd81cf6e67",
    "spreads": {
     "p1:0": 43293845,
     "p1:1": 106439560,
@@ -4882,6 +5255,7 @@
   },
   "fuzz:215 p1@p2": {
    "result": "PASS",
+   "battle": "274258dd81cf6e67",
    "spreads": {
     "p1:0": 22978514,
     "p1:1": 547471,
@@ -4893,6 +5267,7 @@
   },
   "fuzz:215 p2@p1": {
    "result": "PASS",
+   "battle": "274258dd81cf6e67",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 28746084,
@@ -4904,6 +5279,7 @@
   },
   "fuzz:216 both@spectator": {
    "result": "PASS",
+   "battle": "9b027ca323570979",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -4921,6 +5297,7 @@
   },
   "fuzz:216 p1@p2": {
    "result": "PASS",
+   "battle": "9b027ca323570979",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 130567564,
@@ -4932,6 +5309,7 @@
   },
   "fuzz:216 p2@p1": {
    "result": "PASS",
+   "battle": "9b027ca323570979",
    "spreads": {
     "p2:0": 42695400,
     "p2:1": 30621683,
@@ -4943,6 +5321,7 @@
   },
   "fuzz:217 both@spectator": {
    "result": "PASS",
+   "battle": "954f654edce72b97",
    "spreads": {
     "p1:0": 95182988,
     "p1:1": 136663185,
@@ -4960,6 +5339,7 @@
   },
   "fuzz:217 p1@p2": {
    "result": "PASS",
+   "battle": "954f654edce72b97",
    "spreads": {
     "p1:0": 20306769,
     "p1:1": 136663185,
@@ -4971,6 +5351,7 @@
   },
   "fuzz:217 p2@p1": {
    "result": "PASS",
+   "battle": "954f654edce72b97",
    "spreads": {
     "p2:0": 41123088,
     "p2:1": 68874480,
@@ -4982,6 +5363,7 @@
   },
   "fuzz:218 both@spectator": {
    "result": "PASS",
+   "battle": "c8d5afac60f3bef4",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 40052637,
@@ -4999,6 +5381,7 @@
   },
   "fuzz:218 p1@p2": {
    "result": "PASS",
+   "battle": "c8d5afac60f3bef4",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 9657266,
@@ -5010,6 +5393,7 @@
   },
   "fuzz:218 p2@p1": {
    "result": "PASS",
+   "battle": "c8d5afac60f3bef4",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 54604875,
@@ -5021,6 +5405,7 @@
   },
   "fuzz:219 both@spectator": {
    "result": "PASS",
+   "battle": "241b42d5802b3500",
    "spreads": {
     "p1:0": 65221347,
     "p1:1": 55273035,
@@ -5038,6 +5423,7 @@
   },
   "fuzz:219 p1@p2": {
    "result": "PASS",
+   "battle": "241b42d5802b3500",
    "spreads": {
     "p1:0": 232625,
     "p1:1": 31085415,
@@ -5049,6 +5435,7 @@
   },
   "fuzz:219 p2@p1": {
    "result": "PASS",
+   "battle": "241b42d5802b3500",
    "spreads": {
     "p2:0": 1700635,
     "p2:1": 13432614,
@@ -5060,6 +5447,7 @@
   },
   "fuzz:220 both@spectator": {
    "result": "PASS",
+   "battle": "feee89cbf7325f6a",
    "spreads": {
     "p1:0": 115747990,
     "p1:1": 7519404,
@@ -5077,6 +5465,7 @@
   },
   "fuzz:220 p1@p2": {
    "result": "PASS",
+   "battle": "feee89cbf7325f6a",
    "spreads": {
     "p1:0": 22809055,
     "p1:1": 3651154,
@@ -5088,6 +5477,7 @@
   },
   "fuzz:220 p2@p1": {
    "result": "PASS",
+   "battle": "feee89cbf7325f6a",
    "spreads": {
     "p2:0": 53434839,
     "p2:1": 55834404,
@@ -5099,6 +5489,7 @@
   },
   "fuzz:221 both@spectator": {
    "result": "PASS",
+   "battle": "2694d505a40f3f89",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663170,
@@ -5116,6 +5507,7 @@
   },
   "fuzz:221 p1@p2": {
    "result": "PASS",
+   "battle": "2694d505a40f3f89",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 124224605,
@@ -5127,6 +5519,7 @@
   },
   "fuzz:221 p2@p1": {
    "result": "PASS",
+   "battle": "2694d505a40f3f89",
    "spreads": {
     "p2:0": 48969840,
     "p2:1": 136663185,
@@ -5138,6 +5531,7 @@
   },
   "fuzz:222 both@spectator": {
    "result": "PASS",
+   "battle": "640bccbde1bbcfed",
    "spreads": {
     "p1:0": 105232656,
     "p1:1": 136663185,
@@ -5155,6 +5549,7 @@
   },
   "fuzz:222 p1@p2": {
    "result": "PASS",
+   "battle": "640bccbde1bbcfed",
    "spreads": {
     "p1:0": 10345228,
     "p1:1": 54604875,
@@ -5166,6 +5561,7 @@
   },
   "fuzz:222 p2@p1": {
    "result": "PASS",
+   "battle": "640bccbde1bbcfed",
    "spreads": {
     "p2:0": 21230437,
     "p2:1": 136663185,
@@ -5177,6 +5573,7 @@
   },
   "fuzz:223 both@spectator": {
    "result": "PASS",
+   "battle": "b32d2244b27fb439",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -5194,6 +5591,7 @@
   },
   "fuzz:223 p1@p2": {
    "result": "PASS",
+   "battle": "b32d2244b27fb439",
    "spreads": {
     "p1:0": 133830399,
     "p1:1": 91341993,
@@ -5205,6 +5603,7 @@
   },
   "fuzz:223 p2@p1": {
    "result": "PASS",
+   "battle": "b32d2244b27fb439",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 41191261,
@@ -5216,6 +5615,7 @@
   },
   "fuzz:224 both@spectator": {
    "result": "PASS",
+   "battle": "0ef7bb49618ce1b0",
    "spreads": {
     "p1:0": 105369173,
     "p1:1": 136663185,
@@ -5233,6 +5633,7 @@
   },
   "fuzz:224 p1@p2": {
    "result": "PASS",
+   "battle": "0ef7bb49618ce1b0",
    "spreads": {
     "p1:0": 5911864,
     "p1:1": 136663185,
@@ -5244,6 +5645,7 @@
   },
   "fuzz:224 p2@p1": {
    "result": "PASS",
+   "battle": "0ef7bb49618ce1b0",
    "spreads": {
     "p2:0": 10527583,
     "p2:1": 9619707,
@@ -5255,6 +5657,7 @@
   },
   "fuzz:225 both@spectator": {
    "result": "PASS",
+   "battle": "10342cb77b712b96",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 24616255,
@@ -5272,6 +5675,7 @@
   },
   "fuzz:225 p1@p2": {
    "result": "PASS",
+   "battle": "10342cb77b712b96",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 3808935,
@@ -5283,6 +5687,7 @@
   },
   "fuzz:225 p2@p1": {
    "result": "PASS",
+   "battle": "10342cb77b712b96",
    "spreads": {
     "p2:0": 34761978,
     "p2:1": 955636,
@@ -5294,6 +5699,7 @@
   },
   "fuzz:226 both@spectator": {
    "result": "PASS",
+   "battle": "c6d0dc1a60c98448",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 13482469,
@@ -5311,6 +5717,7 @@
   },
   "fuzz:226 p1@p2": {
    "result": "PASS",
+   "battle": "c6d0dc1a60c98448",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 2012100,
@@ -5322,6 +5729,7 @@
   },
   "fuzz:226 p2@p1": {
    "result": "PASS",
+   "battle": "c6d0dc1a60c98448",
    "spreads": {
     "p2:0": 12498146,
     "p2:1": 136663185,
@@ -5333,6 +5741,7 @@
   },
   "fuzz:227 both@spectator": {
    "result": "PASS",
+   "battle": "813ce878cec55793",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 17289649,
@@ -5350,6 +5759,7 @@
   },
   "fuzz:227 p1@p2": {
    "result": "PASS",
+   "battle": "813ce878cec55793",
    "spreads": {
     "p1:0": 135457029,
     "p1:1": 3418728,
@@ -5361,6 +5771,7 @@
   },
   "fuzz:227 p2@p1": {
    "result": "PASS",
+   "battle": "813ce878cec55793",
    "spreads": {
     "p2:0": 21001979,
     "p2:1": 10698104,
@@ -5372,6 +5783,7 @@
   },
   "fuzz:228 both@spectator": {
    "result": "PASS",
+   "battle": "46f0c5f8dcbce813",
    "spreads": {
     "p1:0": 14671084,
     "p1:1": 105935025,
@@ -5389,6 +5801,7 @@
   },
   "fuzz:228 p1@p2": {
    "result": "PASS",
+   "battle": "46f0c5f8dcbce813",
    "spreads": {
     "p1:0": 182348,
     "p1:1": 38452598,
@@ -5400,6 +5813,7 @@
   },
   "fuzz:228 p2@p1": {
    "result": "PASS",
+   "battle": "46f0c5f8dcbce813",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 4629016,
@@ -5411,6 +5825,7 @@
   },
   "fuzz:229 both@spectator": {
    "result": "PASS",
+   "battle": "7407b8af853e8dd8",
    "spreads": {
     "p1:0": 4770659,
     "p1:1": 136663185,
@@ -5428,6 +5843,7 @@
   },
   "fuzz:229 p1@p2": {
    "result": "PASS",
+   "battle": "7407b8af853e8dd8",
    "spreads": {
     "p1:0": 1571620,
     "p1:1": 136663185,
@@ -5439,6 +5855,7 @@
   },
   "fuzz:229 p2@p1": {
    "result": "PASS",
+   "battle": "7407b8af853e8dd8",
    "spreads": {
     "p2:0": 73474773,
     "p2:1": 136663185,
@@ -5450,6 +5867,7 @@
   },
   "fuzz:230 both@spectator": {
    "result": "PASS",
+   "battle": "befc7aa30f865ea2",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136499097,
@@ -5467,6 +5885,7 @@
   },
   "fuzz:230 p1@p2": {
    "result": "PASS",
+   "battle": "befc7aa30f865ea2",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 40357012,
@@ -5478,6 +5897,7 @@
   },
   "fuzz:230 p2@p1": {
    "result": "PASS",
+   "battle": "befc7aa30f865ea2",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 18392207,
@@ -5489,6 +5909,7 @@
   },
   "fuzz:231 both@spectator": {
    "result": "PASS",
+   "battle": "0b1ea8e3ef91c6cf",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 76386582,
@@ -5506,6 +5927,7 @@
   },
   "fuzz:231 p1@p2": {
    "result": "PASS",
+   "battle": "0b1ea8e3ef91c6cf",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 36923499,
@@ -5517,6 +5939,7 @@
   },
   "fuzz:231 p2@p1": {
    "result": "PASS",
+   "battle": "0b1ea8e3ef91c6cf",
    "spreads": {
     "p2:0": 6046377,
     "p2:1": 622809,
@@ -5528,6 +5951,7 @@
   },
   "fuzz:232 both@spectator": {
    "result": "PASS",
+   "battle": "60f1f52a88cdce18",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 76206478,
@@ -5545,6 +5969,7 @@
   },
   "fuzz:232 p1@p2": {
    "result": "PASS",
+   "battle": "60f1f52a88cdce18",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 8906422,
@@ -5556,6 +5981,7 @@
   },
   "fuzz:232 p2@p1": {
    "result": "PASS",
+   "battle": "60f1f52a88cdce18",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 42484489,
@@ -5567,6 +5993,7 @@
   },
   "fuzz:233 both@spectator": {
    "result": "PASS",
+   "battle": "c5568750247378ca",
    "spreads": {
     "p1:0": 113153676,
     "p1:1": 88381047,
@@ -5584,6 +6011,7 @@
   },
   "fuzz:233 p1@p2": {
    "result": "PASS",
+   "battle": "c5568750247378ca",
    "spreads": {
     "p1:0": 51490054,
     "p1:1": 14813448,
@@ -5595,6 +6023,7 @@
   },
   "fuzz:233 p2@p1": {
    "result": "PASS",
+   "battle": "c5568750247378ca",
    "spreads": {
     "p2:0": 5187534,
     "p2:1": 136663185,
@@ -5606,6 +6035,7 @@
   },
   "fuzz:234 both@spectator": {
    "result": "PASS",
+   "battle": "4ed129dbd3450a74",
    "spreads": {
     "p1:0": 40380245,
     "p1:1": 135069684,
@@ -5623,6 +6053,7 @@
   },
   "fuzz:234 p1@p2": {
    "result": "PASS",
+   "battle": "4ed129dbd3450a74",
    "spreads": {
     "p1:0": 28044228,
     "p1:1": 48348701,
@@ -5634,6 +6065,7 @@
   },
   "fuzz:234 p2@p1": {
    "result": "PASS",
+   "battle": "4ed129dbd3450a74",
    "spreads": {
     "p2:0": 35909202,
     "p2:1": 52963961,
@@ -5645,6 +6077,7 @@
   },
   "fuzz:235 both@spectator": {
    "result": "PASS",
+   "battle": "273aec466e8f7c88",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -5662,6 +6095,7 @@
   },
   "fuzz:235 p1@p2": {
    "result": "PASS",
+   "battle": "273aec466e8f7c88",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -5673,6 +6107,7 @@
   },
   "fuzz:235 p2@p1": {
    "result": "PASS",
+   "battle": "273aec466e8f7c88",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 21170480,
@@ -5684,6 +6119,7 @@
   },
   "fuzz:236 both@spectator": {
    "result": "PASS",
+   "battle": "232d1b5a73259996",
    "spreads": {
     "p1:0": 135198192,
     "p1:1": 13781401,
@@ -5701,6 +6137,7 @@
   },
   "fuzz:236 p1@p2": {
    "result": "PASS",
+   "battle": "232d1b5a73259996",
    "spreads": {
     "p1:0": 44268404,
     "p1:1": 1153426,
@@ -5712,6 +6149,7 @@
   },
   "fuzz:236 p2@p1": {
    "result": "PASS",
+   "battle": "232d1b5a73259996",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 15609861,
@@ -5723,6 +6161,7 @@
   },
   "fuzz:237 both@spectator": {
    "result": "PASS",
+   "battle": "abbf885f8f0a5a9a",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 53601508,
@@ -5740,6 +6179,7 @@
   },
   "fuzz:237 p1@p2": {
    "result": "PASS",
+   "battle": "abbf885f8f0a5a9a",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 25545273,
@@ -5751,6 +6191,7 @@
   },
   "fuzz:237 p2@p1": {
    "result": "PASS",
+   "battle": "abbf885f8f0a5a9a",
    "spreads": {
     "p2:0": 9885373,
     "p2:1": 66793087,
@@ -5762,6 +6203,7 @@
   },
   "fuzz:238 both@spectator": {
    "result": "PASS",
+   "battle": "1f689dac9c253ad7",
    "spreads": {
     "p1:0": 3642716,
     "p1:1": 36034190,
@@ -5779,6 +6221,7 @@
   },
   "fuzz:238 p1@p2": {
    "result": "PASS",
+   "battle": "1f689dac9c253ad7",
    "spreads": {
     "p1:0": 1597024,
     "p1:1": 20598461,
@@ -5790,6 +6233,7 @@
   },
   "fuzz:238 p2@p1": {
    "result": "PASS",
+   "battle": "1f689dac9c253ad7",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 42221622,
@@ -5801,6 +6245,7 @@
   },
   "fuzz:239 both@spectator": {
    "result": "PASS",
+   "battle": "c16e7b24e2e2efdd",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 6088276,
@@ -5818,6 +6263,7 @@
   },
   "fuzz:239 p1@p2": {
    "result": "PASS",
+   "battle": "c16e7b24e2e2efdd",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 5630923,
@@ -5829,6 +6275,7 @@
   },
   "fuzz:239 p2@p1": {
    "result": "PASS",
+   "battle": "c16e7b24e2e2efdd",
    "spreads": {
     "p2:0": 82477089,
     "p2:1": 173512,
@@ -5840,6 +6287,7 @@
   },
   "fuzz:240 both@spectator": {
    "result": "PASS",
+   "battle": "cb233119780a941d",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 5973875,
@@ -5857,6 +6305,7 @@
   },
   "fuzz:240 p1@p2": {
    "result": "PASS",
+   "battle": "cb233119780a941d",
    "spreads": {
     "p1:0": 114369958,
     "p1:1": 252588,
@@ -5868,6 +6317,7 @@
   },
   "fuzz:240 p2@p1": {
    "result": "PASS",
+   "battle": "cb233119780a941d",
    "spreads": {
     "p2:0": 20282247,
     "p2:1": 3791736,
@@ -5879,6 +6329,7 @@
   },
   "fuzz:241 both@spectator": {
    "result": "PASS",
+   "battle": "434f169903cde376",
    "spreads": {
     "p1:0": 38963204,
     "p1:1": 136663185,
@@ -5896,6 +6347,7 @@
   },
   "fuzz:241 p1@p2": {
    "result": "PASS",
+   "battle": "434f169903cde376",
    "spreads": {
     "p1:0": 1865226,
     "p1:1": 136663185,
@@ -5907,6 +6359,7 @@
   },
   "fuzz:241 p2@p1": {
    "result": "PASS",
+   "battle": "434f169903cde376",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 72713481,
@@ -5918,6 +6371,7 @@
   },
   "fuzz:242 both@spectator": {
    "result": "PASS",
+   "battle": "1f3bab296113c29e",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 111662301,
@@ -5935,6 +6389,7 @@
   },
   "fuzz:242 p1@p2": {
    "result": "PASS",
+   "battle": "1f3bab296113c29e",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 4141138,
@@ -5946,6 +6401,7 @@
   },
   "fuzz:242 p2@p1": {
    "result": "PASS",
+   "battle": "1f3bab296113c29e",
    "spreads": {
     "p2:0": 120551626,
     "p2:1": 15004519,
@@ -5957,6 +6413,7 @@
   },
   "fuzz:243 both@spectator": {
    "result": "PASS",
+   "battle": "4eb0ac165722c91d",
    "spreads": {
     "p1:0": 64920815,
     "p1:1": 60001799,
@@ -5974,6 +6431,7 @@
   },
   "fuzz:243 p1@p2": {
    "result": "PASS",
+   "battle": "4eb0ac165722c91d",
    "spreads": {
     "p1:0": 39783272,
     "p1:1": 31102209,
@@ -5985,6 +6443,7 @@
   },
   "fuzz:243 p2@p1": {
    "result": "PASS",
+   "battle": "4eb0ac165722c91d",
    "spreads": {
     "p2:0": 34548333,
     "p2:1": 33650997,
@@ -5996,6 +6455,7 @@
   },
   "fuzz:244 both@spectator": {
    "result": "PASS",
+   "battle": "8908454d152c0f29",
    "spreads": {
     "p1:0": 90001963,
     "p1:1": 136663185,
@@ -6013,6 +6473,7 @@
   },
   "fuzz:244 p1@p2": {
    "result": "PASS",
+   "battle": "8908454d152c0f29",
    "spreads": {
     "p1:0": 53358022,
     "p1:1": 136663185,
@@ -6024,6 +6485,7 @@
   },
   "fuzz:244 p2@p1": {
    "result": "PASS",
+   "battle": "8908454d152c0f29",
    "spreads": {
     "p2:0": 11784092,
     "p2:1": 17324048,
@@ -6035,6 +6497,7 @@
   },
   "fuzz:245 both@spectator": {
    "result": "PASS",
+   "battle": "d6089c5662f49670",
    "spreads": {
     "p1:0": 6529907,
     "p1:1": 65609886,
@@ -6052,6 +6515,7 @@
   },
   "fuzz:245 p1@p2": {
    "result": "PASS",
+   "battle": "d6089c5662f49670",
    "spreads": {
     "p1:0": 1505249,
     "p1:1": 3619658,
@@ -6063,6 +6527,7 @@
   },
   "fuzz:245 p2@p1": {
    "result": "PASS",
+   "battle": "d6089c5662f49670",
    "spreads": {
     "p2:0": 9749975,
     "p2:1": 55867787,
@@ -6074,6 +6539,7 @@
   },
   "fuzz:246 both@spectator": {
    "result": "PASS",
+   "battle": "6b5af2c3d15c10b2",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -6091,6 +6557,7 @@
   },
   "fuzz:246 p1@p2": {
    "result": "PASS",
+   "battle": "6b5af2c3d15c10b2",
    "spreads": {
     "p1:0": 64438948,
     "p1:1": 136663185,
@@ -6102,6 +6569,7 @@
   },
   "fuzz:246 p2@p1": {
    "result": "PASS",
+   "battle": "6b5af2c3d15c10b2",
    "spreads": {
     "p2:0": 111080797,
     "p2:1": 136663185,
@@ -6113,6 +6581,7 @@
   },
   "fuzz:247 both@spectator": {
    "result": "PASS",
+   "battle": "45f7d718ae96de03",
    "spreads": {
     "p1:0": 115040848,
     "p1:1": 136663185,
@@ -6130,6 +6599,7 @@
   },
   "fuzz:247 p1@p2": {
    "result": "PASS",
+   "battle": "45f7d718ae96de03",
    "spreads": {
     "p1:0": 11580767,
     "p1:1": 136663185,
@@ -6141,6 +6611,7 @@
   },
   "fuzz:247 p2@p1": {
    "result": "PASS",
+   "battle": "45f7d718ae96de03",
    "spreads": {
     "p2:0": 38408756,
     "p2:1": 136663185,
@@ -6152,6 +6623,7 @@
   },
   "fuzz:248 both@spectator": {
    "result": "PASS",
+   "battle": "3770e719253abfa7",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 118202821,
@@ -6169,6 +6641,7 @@
   },
   "fuzz:248 p1@p2": {
    "result": "PASS",
+   "battle": "3770e719253abfa7",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 2370442,
@@ -6180,6 +6653,7 @@
   },
   "fuzz:248 p2@p1": {
    "result": "PASS",
+   "battle": "3770e719253abfa7",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 10704889,
@@ -6191,6 +6665,7 @@
   },
   "fuzz:249 both@spectator": {
    "result": "PASS",
+   "battle": "e6bf3d895c0323d9",
    "spreads": {
     "p1:0": 78215111,
     "p1:1": 120495015,
@@ -6208,6 +6683,7 @@
   },
   "fuzz:249 p1@p2": {
    "result": "PASS",
+   "battle": "e6bf3d895c0323d9",
    "spreads": {
     "p1:0": 52253653,
     "p1:1": 25657797,
@@ -6219,6 +6695,7 @@
   },
   "fuzz:249 p2@p1": {
    "result": "PASS",
+   "battle": "e6bf3d895c0323d9",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -6230,6 +6707,7 @@
   },
   "fuzz:250 both@spectator": {
    "result": "PASS",
+   "battle": "bba5c6b0439ae0ac",
    "spreads": {
     "p1:0": 12393591,
     "p1:1": 6303129,
@@ -6247,6 +6725,7 @@
   },
   "fuzz:250 p1@p2": {
    "result": "PASS",
+   "battle": "bba5c6b0439ae0ac",
    "spreads": {
     "p1:0": 4928861,
     "p1:1": 2439288,
@@ -6258,6 +6737,7 @@
   },
   "fuzz:250 p2@p1": {
    "result": "PASS",
+   "battle": "bba5c6b0439ae0ac",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 1122836,
@@ -6269,6 +6749,7 @@
   },
   "fuzz:251 both@spectator": {
    "result": "PASS",
+   "battle": "1d8afbd8caa7d6f7",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -6286,6 +6767,7 @@
   },
   "fuzz:251 p1@p2": {
    "result": "PASS",
+   "battle": "1d8afbd8caa7d6f7",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -6297,6 +6779,7 @@
   },
   "fuzz:251 p2@p1": {
    "result": "PASS",
+   "battle": "1d8afbd8caa7d6f7",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 129203245,
@@ -6308,6 +6791,7 @@
   },
   "fuzz:252 both@spectator": {
    "result": "PASS",
+   "battle": "0e7de4950718ee63",
    "spreads": {
     "p1:0": 62232449,
     "p1:1": 136663185,
@@ -6325,6 +6809,7 @@
   },
   "fuzz:252 p1@p2": {
    "result": "PASS",
+   "battle": "0e7de4950718ee63",
    "spreads": {
     "p1:0": 31682224,
     "p1:1": 136663185,
@@ -6336,6 +6821,7 @@
   },
   "fuzz:252 p2@p1": {
    "result": "PASS",
+   "battle": "0e7de4950718ee63",
    "spreads": {
     "p2:0": 23352478,
     "p2:1": 4164979,
@@ -6347,6 +6833,7 @@
   },
   "fuzz:253 both@spectator": {
    "result": "PASS",
+   "battle": "2c4908f06891a732",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -6364,6 +6851,7 @@
   },
   "fuzz:253 p1@p2": {
    "result": "PASS",
+   "battle": "2c4908f06891a732",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -6375,6 +6863,7 @@
   },
   "fuzz:253 p2@p1": {
    "result": "PASS",
+   "battle": "2c4908f06891a732",
    "spreads": {
     "p2:0": 89808558,
     "p2:1": 73042871,
@@ -6386,6 +6875,7 @@
   },
   "fuzz:254 both@spectator": {
    "result": "PASS",
+   "battle": "4f0519db8b5d2324",
    "spreads": {
     "p1:0": 34626030,
     "p1:1": 28319159,
@@ -6403,6 +6893,7 @@
   },
   "fuzz:254 p1@p2": {
    "result": "PASS",
+   "battle": "4f0519db8b5d2324",
    "spreads": {
     "p1:0": 20925439,
     "p1:1": 12009543,
@@ -6414,6 +6905,7 @@
   },
   "fuzz:254 p2@p1": {
    "result": "PASS",
+   "battle": "4f0519db8b5d2324",
    "spreads": {
     "p2:0": 65991281,
     "p2:1": 6491103,
@@ -6425,6 +6917,7 @@
   },
   "fuzz:255 both@spectator": {
    "result": "PASS",
+   "battle": "fa0bbd4da838c14a",
    "spreads": {
     "p1:0": 134680437,
     "p1:1": 104280639,
@@ -6442,6 +6935,7 @@
   },
   "fuzz:255 p1@p2": {
    "result": "PASS",
+   "battle": "fa0bbd4da838c14a",
    "spreads": {
     "p1:0": 58268831,
     "p1:1": 52701046,
@@ -6453,6 +6947,7 @@
   },
   "fuzz:255 p2@p1": {
    "result": "PASS",
+   "battle": "fa0bbd4da838c14a",
    "spreads": {
     "p2:0": 29983879,
     "p2:1": 37975286,
@@ -6464,6 +6959,7 @@
   },
   "fuzz:256 both@spectator": {
    "result": "PASS",
+   "battle": "e0e330c880b70100",
    "spreads": {
     "p1:0": 76940822,
     "p1:1": 80762804,
@@ -6481,6 +6977,7 @@
   },
   "fuzz:256 p1@p2": {
    "result": "PASS",
+   "battle": "e0e330c880b70100",
    "spreads": {
     "p1:0": 50397367,
     "p1:1": 7681146,
@@ -6492,6 +6989,7 @@
   },
   "fuzz:256 p2@p1": {
    "result": "PASS",
+   "battle": "e0e330c880b70100",
    "spreads": {
     "p2:0": 3465354,
     "p2:1": 106875894,
@@ -6503,6 +7001,7 @@
   },
   "fuzz:257 both@spectator": {
    "result": "PASS",
+   "battle": "fb48f2f93fab2e44",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 128063421,
@@ -6520,6 +7019,7 @@
   },
   "fuzz:257 p1@p2": {
    "result": "PASS",
+   "battle": "fb48f2f93fab2e44",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 41793344,
@@ -6531,6 +7031,7 @@
   },
   "fuzz:257 p2@p1": {
    "result": "PASS",
+   "battle": "fb48f2f93fab2e44",
    "spreads": {
     "p2:0": 67628568,
     "p2:1": 136663185,
@@ -6542,6 +7043,7 @@
   },
   "fuzz:258 both@spectator": {
    "result": "PASS",
+   "battle": "b06766d51c88b33e",
    "spreads": {
     "p1:0": 82125245,
     "p1:1": 6923478,
@@ -6559,6 +7061,7 @@
   },
   "fuzz:258 p1@p2": {
    "result": "PASS",
+   "battle": "b06766d51c88b33e",
    "spreads": {
     "p1:0": 72329174,
     "p1:1": 2552949,
@@ -6570,6 +7073,7 @@
   },
   "fuzz:258 p2@p1": {
    "result": "PASS",
+   "battle": "b06766d51c88b33e",
    "spreads": {
     "p2:0": 26890342,
     "p2:1": 10767660,
@@ -6581,6 +7085,7 @@
   },
   "fuzz:259 both@spectator": {
    "result": "GAVE UP",
+   "battle": "8f75109cb8018cab",
    "spreads": {
     "p1:0": 109373548,
     "p1:1": 136663185,
@@ -6598,6 +7103,7 @@
   },
   "fuzz:259 p1@p2": {
    "result": "PASS",
+   "battle": "8f75109cb8018cab",
    "spreads": {
     "p1:0": 43715970,
     "p1:1": 136663185,
@@ -6609,6 +7115,7 @@
   },
   "fuzz:259 p2@p1": {
    "result": "PASS",
+   "battle": "8f75109cb8018cab",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 3217710,
@@ -6620,6 +7127,7 @@
   },
   "fuzz:260 both@spectator": {
    "result": "PASS",
+   "battle": "09a0adeb8934a853",
    "spreads": {
     "p1:0": 125895283,
     "p1:1": 136663185,
@@ -6637,6 +7145,7 @@
   },
   "fuzz:260 p1@p2": {
    "result": "PASS",
+   "battle": "09a0adeb8934a853",
    "spreads": {
     "p1:0": 18295037,
     "p1:1": 136663185,
@@ -6648,6 +7157,7 @@
   },
   "fuzz:260 p2@p1": {
    "result": "PASS",
+   "battle": "09a0adeb8934a853",
    "spreads": {
     "p2:0": 8361515,
     "p2:1": 136663185,
@@ -6659,6 +7169,7 @@
   },
   "fuzz:261 both@spectator": {
    "result": "PASS",
+   "battle": "accddc257bb8a036",
    "spreads": {
     "p1:0": 23536636,
     "p1:1": 10952515,
@@ -6676,6 +7187,7 @@
   },
   "fuzz:261 p1@p2": {
    "result": "PASS",
+   "battle": "accddc257bb8a036",
    "spreads": {
     "p1:0": 6018801,
     "p1:1": 1987126,
@@ -6687,6 +7199,7 @@
   },
   "fuzz:261 p2@p1": {
    "result": "PASS",
+   "battle": "accddc257bb8a036",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 2067479,
@@ -6698,6 +7211,7 @@
   },
   "fuzz:262 both@spectator": {
    "result": "PASS",
+   "battle": "8fa7af316176a3a0",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 8595302,
@@ -6715,6 +7229,7 @@
   },
   "fuzz:262 p1@p2": {
    "result": "PASS",
+   "battle": "8fa7af316176a3a0",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 3909168,
@@ -6726,6 +7241,7 @@
   },
   "fuzz:262 p2@p1": {
    "result": "PASS",
+   "battle": "8fa7af316176a3a0",
    "spreads": {
     "p2:0": 32791366,
     "p2:1": 25721530,
@@ -6737,6 +7253,7 @@
   },
   "fuzz:263 both@spectator": {
    "result": "PASS",
+   "battle": "02e56ea78ff1cefe",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 42966682,
@@ -6754,6 +7271,7 @@
   },
   "fuzz:263 p1@p2": {
    "result": "PASS",
+   "battle": "02e56ea78ff1cefe",
    "spreads": {
     "p1:0": 74949157,
     "p1:1": 307690,
@@ -6765,6 +7283,7 @@
   },
   "fuzz:263 p2@p1": {
    "result": "PASS",
+   "battle": "02e56ea78ff1cefe",
    "spreads": {
     "p2:0": 85885385,
     "p2:1": 131785363,
@@ -6776,6 +7295,7 @@
   },
   "fuzz:264 both@spectator": {
    "result": "PASS",
+   "battle": "c74e5a9d71553242",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 23685764,
@@ -6793,6 +7313,7 @@
   },
   "fuzz:264 p1@p2": {
    "result": "PASS",
+   "battle": "c74e5a9d71553242",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 19043555,
@@ -6804,6 +7325,7 @@
   },
   "fuzz:264 p2@p1": {
    "result": "PASS",
+   "battle": "c74e5a9d71553242",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 6705109,
@@ -6815,6 +7337,7 @@
   },
   "fuzz:265 both@spectator": {
    "result": "PASS",
+   "battle": "4db5e47f07c190b6",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -6832,6 +7355,7 @@
   },
   "fuzz:265 p1@p2": {
    "result": "PASS",
+   "battle": "4db5e47f07c190b6",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -6843,6 +7367,7 @@
   },
   "fuzz:265 p2@p1": {
    "result": "PASS",
+   "battle": "4db5e47f07c190b6",
    "spreads": {
     "p2:0": 5206093,
     "p2:1": 136663185,
@@ -6854,6 +7379,7 @@
   },
   "fuzz:266 both@spectator": {
    "result": "PASS",
+   "battle": "863409278e3bc5e2",
    "spreads": {
     "p1:0": 126747218,
     "p1:1": 136663185,
@@ -6871,6 +7397,7 @@
   },
   "fuzz:266 p1@p2": {
    "result": "PASS",
+   "battle": "863409278e3bc5e2",
    "spreads": {
     "p1:0": 8926618,
     "p1:1": 136663185,
@@ -6882,6 +7409,7 @@
   },
   "fuzz:266 p2@p1": {
    "result": "PASS",
+   "battle": "863409278e3bc5e2",
    "spreads": {
     "p2:0": 25769249,
     "p2:1": 23506843,
@@ -6893,6 +7421,7 @@
   },
   "fuzz:267 both@spectator": {
    "result": "PASS",
+   "battle": "b6703d737102f109",
    "spreads": {
     "p1:0": 37268748,
     "p1:1": 136502771,
@@ -6910,6 +7439,7 @@
   },
   "fuzz:267 p1@p2": {
    "result": "PASS",
+   "battle": "b6703d737102f109",
    "spreads": {
     "p1:0": 3132434,
     "p1:1": 36638314,
@@ -6921,6 +7451,7 @@
   },
   "fuzz:267 p2@p1": {
    "result": "PASS",
+   "battle": "b6703d737102f109",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 40793752,
@@ -6932,6 +7463,7 @@
   },
   "fuzz:268 both@spectator": {
    "result": "PASS",
+   "battle": "ddf6cb15c39dce97",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 35613215,
@@ -6949,6 +7481,7 @@
   },
   "fuzz:268 p1@p2": {
    "result": "PASS",
+   "battle": "ddf6cb15c39dce97",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 4090552,
@@ -6960,6 +7493,7 @@
   },
   "fuzz:268 p2@p1": {
    "result": "PASS",
+   "battle": "ddf6cb15c39dce97",
    "spreads": {
     "p2:0": 18928194,
     "p2:1": 136663185,
@@ -6971,6 +7505,7 @@
   },
   "fuzz:269 both@spectator": {
    "result": "PASS",
+   "battle": "89f4e7ebb97df84f",
    "spreads": {
     "p1:0": 52142660,
     "p1:1": 54237059,
@@ -6988,6 +7523,7 @@
   },
   "fuzz:269 p1@p2": {
    "result": "PASS",
+   "battle": "89f4e7ebb97df84f",
    "spreads": {
     "p1:0": 1204891,
     "p1:1": 10716491,
@@ -6999,6 +7535,7 @@
   },
   "fuzz:269 p2@p1": {
    "result": "PASS",
+   "battle": "89f4e7ebb97df84f",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 26387956,
@@ -7010,6 +7547,7 @@
   },
   "fuzz:270 both@spectator": {
    "result": "PASS",
+   "battle": "fdc52ad88924ebc4",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 49770941,
@@ -7027,6 +7565,7 @@
   },
   "fuzz:270 p1@p2": {
    "result": "PASS",
+   "battle": "fdc52ad88924ebc4",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 45026575,
@@ -7038,6 +7577,7 @@
   },
   "fuzz:270 p2@p1": {
    "result": "PASS",
+   "battle": "fdc52ad88924ebc4",
    "spreads": {
     "p2:0": 42859727,
     "p2:1": 136663185,
@@ -7049,6 +7589,7 @@
   },
   "fuzz:271 both@spectator": {
    "result": "PASS",
+   "battle": "593e2796ee2e6395",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 35889138,
@@ -7066,6 +7607,7 @@
   },
   "fuzz:271 p1@p2": {
    "result": "PASS",
+   "battle": "593e2796ee2e6395",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 5597739,
@@ -7077,6 +7619,7 @@
   },
   "fuzz:271 p2@p1": {
    "result": "PASS",
+   "battle": "593e2796ee2e6395",
    "spreads": {
     "p2:0": 133125226,
     "p2:1": 16745112,
@@ -7088,6 +7631,7 @@
   },
   "fuzz:272 both@spectator": {
    "result": "PASS",
+   "battle": "1ba4f8dc7fa9042d",
    "spreads": {
     "p1:0": 5119731,
     "p1:1": 136663185,
@@ -7105,6 +7649,7 @@
   },
   "fuzz:272 p1@p2": {
    "result": "PASS",
+   "battle": "1ba4f8dc7fa9042d",
    "spreads": {
     "p1:0": 3585793,
     "p1:1": 136663185,
@@ -7116,6 +7661,7 @@
   },
   "fuzz:272 p2@p1": {
    "result": "PASS",
+   "battle": "1ba4f8dc7fa9042d",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 3885105,
@@ -7127,6 +7673,7 @@
   },
   "fuzz:273 both@spectator": {
    "result": "PASS",
+   "battle": "ad06b85618733648",
    "spreads": {
     "p1:0": 136659776,
     "p1:1": 136663185,
@@ -7144,6 +7691,7 @@
   },
   "fuzz:273 p1@p2": {
    "result": "PASS",
+   "battle": "ad06b85618733648",
    "spreads": {
     "p1:0": 134693398,
     "p1:1": 136663185,
@@ -7155,6 +7703,7 @@
   },
   "fuzz:273 p2@p1": {
    "result": "PASS",
+   "battle": "ad06b85618733648",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 18605831,
@@ -7166,6 +7715,7 @@
   },
   "fuzz:274 both@spectator": {
    "result": "PASS",
+   "battle": "b3ff5720d2499f30",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 130402066,
@@ -7183,6 +7733,7 @@
   },
   "fuzz:274 p1@p2": {
    "result": "PASS",
+   "battle": "b3ff5720d2499f30",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 26770831,
@@ -7194,6 +7745,7 @@
   },
   "fuzz:274 p2@p1": {
    "result": "PASS",
+   "battle": "b3ff5720d2499f30",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -7205,6 +7757,7 @@
   },
   "fuzz:275 both@spectator": {
    "result": "PASS",
+   "battle": "5f23d302007880f0",
    "spreads": {
     "p1:0": 111748876,
     "p1:1": 136663185,
@@ -7222,6 +7775,7 @@
   },
   "fuzz:275 p1@p2": {
    "result": "PASS",
+   "battle": "5f23d302007880f0",
    "spreads": {
     "p1:0": 52204093,
     "p1:1": 136663185,
@@ -7233,6 +7787,7 @@
   },
   "fuzz:275 p2@p1": {
    "result": "PASS",
+   "battle": "5f23d302007880f0",
    "spreads": {
     "p2:0": 49609289,
     "p2:1": 136663185,
@@ -7244,6 +7799,7 @@
   },
   "fuzz:276 both@spectator": {
    "result": "PASS",
+   "battle": "267d52ef51803868",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 122001331,
@@ -7261,6 +7817,7 @@
   },
   "fuzz:276 p1@p2": {
    "result": "PASS",
+   "battle": "267d52ef51803868",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 27924360,
@@ -7272,6 +7829,7 @@
   },
   "fuzz:276 p2@p1": {
    "result": "PASS",
+   "battle": "267d52ef51803868",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 82155927,
@@ -7283,6 +7841,7 @@
   },
   "fuzz:277 both@spectator": {
    "result": "PASS",
+   "battle": "3536613edb86a530",
    "spreads": {
     "p1:0": 109963995,
     "p1:1": 126050234,
@@ -7300,6 +7859,7 @@
   },
   "fuzz:277 p1@p2": {
    "result": "PASS",
+   "battle": "3536613edb86a530",
    "spreads": {
     "p1:0": 69700081,
     "p1:1": 83623704,
@@ -7311,6 +7871,7 @@
   },
   "fuzz:277 p2@p1": {
    "result": "PASS",
+   "battle": "3536613edb86a530",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 11247894,
@@ -7322,6 +7883,7 @@
   },
   "fuzz:278 both@spectator": {
    "result": "PASS",
+   "battle": "f52d05a111ca2667",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -7339,6 +7901,7 @@
   },
   "fuzz:278 p1@p2": {
    "result": "PASS",
+   "battle": "f52d05a111ca2667",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -7350,6 +7913,7 @@
   },
   "fuzz:278 p2@p1": {
    "result": "PASS",
+   "battle": "f52d05a111ca2667",
    "spreads": {
     "p2:0": 481201,
     "p2:1": 52978553,
@@ -7361,6 +7925,7 @@
   },
   "fuzz:279 both@spectator": {
    "result": "PASS",
+   "battle": "0f43f3a5fc975b85",
    "spreads": {
     "p1:0": 47520931,
     "p1:1": 136663185,
@@ -7378,6 +7943,7 @@
   },
   "fuzz:279 p1@p2": {
    "result": "PASS",
+   "battle": "0f43f3a5fc975b85",
    "spreads": {
     "p1:0": 3685815,
     "p1:1": 136663185,
@@ -7389,6 +7955,7 @@
   },
   "fuzz:279 p2@p1": {
    "result": "PASS",
+   "battle": "0f43f3a5fc975b85",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -7400,6 +7967,7 @@
   },
   "fuzz:280 both@spectator": {
    "result": "PASS",
+   "battle": "94c9bf6a89c74153",
    "spreads": {
     "p1:0": 14216107,
     "p1:1": 19254454,
@@ -7417,6 +7985,7 @@
   },
   "fuzz:280 p1@p2": {
    "result": "PASS",
+   "battle": "94c9bf6a89c74153",
    "spreads": {
     "p1:0": 11866313,
     "p1:1": 4549774,
@@ -7428,6 +7997,7 @@
   },
   "fuzz:280 p2@p1": {
    "result": "PASS",
+   "battle": "94c9bf6a89c74153",
    "spreads": {
     "p2:0": 4461785,
     "p2:1": 7201832,
@@ -7439,6 +8009,7 @@
   },
   "fuzz:281 both@spectator": {
    "result": "PASS",
+   "battle": "cfced90977ef852f",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 61982942,
@@ -7456,6 +8027,7 @@
   },
   "fuzz:281 p1@p2": {
    "result": "PASS",
+   "battle": "cfced90977ef852f",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 34117388,
@@ -7467,6 +8039,7 @@
   },
   "fuzz:281 p2@p1": {
    "result": "PASS",
+   "battle": "cfced90977ef852f",
    "spreads": {
     "p2:0": 33616572,
     "p2:1": 62015032,
@@ -7478,6 +8051,7 @@
   },
   "fuzz:282 both@spectator": {
    "result": "PASS",
+   "battle": "67d1bccbd21231a4",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 134106344,
@@ -7495,6 +8069,7 @@
   },
   "fuzz:282 p1@p2": {
    "result": "PASS",
+   "battle": "67d1bccbd21231a4",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 26502402,
@@ -7506,6 +8081,7 @@
   },
   "fuzz:282 p2@p1": {
    "result": "PASS",
+   "battle": "67d1bccbd21231a4",
    "spreads": {
     "p2:0": 80201084,
     "p2:1": 136663185,
@@ -7517,6 +8093,7 @@
   },
   "fuzz:283 both@spectator": {
    "result": "PASS",
+   "battle": "01550aafe380e3d4",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 94962692,
@@ -7534,6 +8111,7 @@
   },
   "fuzz:283 p1@p2": {
    "result": "PASS",
+   "battle": "01550aafe380e3d4",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 15866811,
@@ -7545,6 +8123,7 @@
   },
   "fuzz:283 p2@p1": {
    "result": "PASS",
+   "battle": "01550aafe380e3d4",
    "spreads": {
     "p2:0": 60194030,
     "p2:1": 207671,
@@ -7556,6 +8135,7 @@
   },
   "fuzz:284 both@spectator": {
    "result": "PASS",
+   "battle": "6cd5a21351dd3a96",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 86972743,
@@ -7573,6 +8153,7 @@
   },
   "fuzz:284 p1@p2": {
    "result": "PASS",
+   "battle": "6cd5a21351dd3a96",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 1808767,
@@ -7584,6 +8165,7 @@
   },
   "fuzz:284 p2@p1": {
    "result": "PASS",
+   "battle": "6cd5a21351dd3a96",
    "spreads": {
     "p2:0": 69698783,
     "p2:1": 136663185,
@@ -7595,6 +8177,7 @@
   },
   "fuzz:285 both@spectator": {
    "result": "PASS",
+   "battle": "0482f3f0d5dc8af2",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -7612,6 +8195,7 @@
   },
   "fuzz:285 p1@p2": {
    "result": "PASS",
+   "battle": "0482f3f0d5dc8af2",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -7623,6 +8207,7 @@
   },
   "fuzz:285 p2@p1": {
    "result": "PASS",
+   "battle": "0482f3f0d5dc8af2",
    "spreads": {
     "p2:0": 62432878,
     "p2:1": 50800373,
@@ -7634,6 +8219,7 @@
   },
   "fuzz:286 both@spectator": {
    "result": "PASS",
+   "battle": "974c6c7e9d35e44f",
    "spreads": {
     "p1:0": 92495495,
     "p1:1": 136663185,
@@ -7651,6 +8237,7 @@
   },
   "fuzz:286 p1@p2": {
    "result": "PASS",
+   "battle": "974c6c7e9d35e44f",
    "spreads": {
     "p1:0": 21944854,
     "p1:1": 136663185,
@@ -7662,6 +8249,7 @@
   },
   "fuzz:286 p2@p1": {
    "result": "PASS",
+   "battle": "974c6c7e9d35e44f",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 22767885,
@@ -7673,6 +8261,7 @@
   },
   "fuzz:287 both@spectator": {
    "result": "PASS",
+   "battle": "48609ce4652b2872",
    "spreads": {
     "p1:0": 100700603,
     "p1:1": 58976589,
@@ -7690,6 +8279,7 @@
   },
   "fuzz:287 p1@p2": {
    "result": "PASS",
+   "battle": "48609ce4652b2872",
    "spreads": {
     "p1:0": 24862390,
     "p1:1": 48654567,
@@ -7701,6 +8291,7 @@
   },
   "fuzz:287 p2@p1": {
    "result": "PASS",
+   "battle": "48609ce4652b2872",
    "spreads": {
     "p2:0": 33977773,
     "p2:1": 30402743,
@@ -7712,6 +8303,7 @@
   },
   "fuzz:288 both@spectator": {
    "result": "PASS",
+   "battle": "b357443759cdc6d8",
    "spreads": {
     "p1:0": 117252118,
     "p1:1": 105994983,
@@ -7729,6 +8321,7 @@
   },
   "fuzz:288 p1@p2": {
    "result": "PASS",
+   "battle": "b357443759cdc6d8",
    "spreads": {
     "p1:0": 82085650,
     "p1:1": 29087926,
@@ -7740,6 +8333,7 @@
   },
   "fuzz:288 p2@p1": {
    "result": "PASS",
+   "battle": "b357443759cdc6d8",
    "spreads": {
     "p2:0": 14996621,
     "p2:1": 136663185,
@@ -7751,6 +8345,7 @@
   },
   "fuzz:289 both@spectator": {
    "result": "PASS",
+   "battle": "4d58a49afd77dab7",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 11439372,
@@ -7768,6 +8363,7 @@
   },
   "fuzz:289 p1@p2": {
    "result": "PASS",
+   "battle": "4d58a49afd77dab7",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 1634646,
@@ -7779,6 +8375,7 @@
   },
   "fuzz:289 p2@p1": {
    "result": "PASS",
+   "battle": "4d58a49afd77dab7",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 783473,
@@ -7790,6 +8387,7 @@
   },
   "fuzz:290 both@spectator": {
    "result": "PASS",
+   "battle": "d2012146a2a657cf",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 129300229,
@@ -7807,6 +8405,7 @@
   },
   "fuzz:290 p1@p2": {
    "result": "PASS",
+   "battle": "d2012146a2a657cf",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 27580055,
@@ -7818,6 +8417,7 @@
   },
   "fuzz:290 p2@p1": {
    "result": "PASS",
+   "battle": "d2012146a2a657cf",
    "spreads": {
     "p2:0": 7261085,
     "p2:1": 27980785,
@@ -7829,6 +8429,7 @@
   },
   "fuzz:291 both@spectator": {
    "result": "PASS",
+   "battle": "0b91f4afa41a4160",
    "spreads": {
     "p1:0": 45676866,
     "p1:1": 136663185,
@@ -7846,6 +8447,7 @@
   },
   "fuzz:291 p1@p2": {
    "result": "PASS",
+   "battle": "0b91f4afa41a4160",
    "spreads": {
     "p1:0": 2298898,
     "p1:1": 136663185,
@@ -7857,6 +8459,7 @@
   },
   "fuzz:291 p2@p1": {
    "result": "PASS",
+   "battle": "0b91f4afa41a4160",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -7868,6 +8471,7 @@
   },
   "fuzz:292 both@spectator": {
    "result": "PASS",
+   "battle": "b8705419ce508a4d",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -7885,6 +8489,7 @@
   },
   "fuzz:292 p1@p2": {
    "result": "PASS",
+   "battle": "b8705419ce508a4d",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -7896,6 +8501,7 @@
   },
   "fuzz:292 p2@p1": {
    "result": "PASS",
+   "battle": "b8705419ce508a4d",
    "spreads": {
     "p2:0": 32229218,
     "p2:1": 90942745,
@@ -7907,6 +8513,7 @@
   },
   "fuzz:293 both@spectator": {
    "result": "PASS",
+   "battle": "f40356f54fdff6f4",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 50028823,
@@ -7924,6 +8531,7 @@
   },
   "fuzz:293 p1@p2": {
    "result": "PASS",
+   "battle": "f40356f54fdff6f4",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 36573654,
@@ -7935,6 +8543,7 @@
   },
   "fuzz:293 p2@p1": {
    "result": "PASS",
+   "battle": "f40356f54fdff6f4",
    "spreads": {
     "p2:0": 40514263,
     "p2:1": 136663185,
@@ -7946,6 +8555,7 @@
   },
   "fuzz:294 both@spectator": {
    "result": "PASS",
+   "battle": "b98ccde2be43c6b7",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -7963,6 +8573,7 @@
   },
   "fuzz:294 p1@p2": {
    "result": "PASS",
+   "battle": "b98ccde2be43c6b7",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -7974,6 +8585,7 @@
   },
   "fuzz:294 p2@p1": {
    "result": "PASS",
+   "battle": "b98ccde2be43c6b7",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 5265469,
@@ -7985,6 +8597,7 @@
   },
   "fuzz:295 both@spectator": {
    "result": "PASS",
+   "battle": "f731715f24e737a6",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 3703968,
@@ -8002,6 +8615,7 @@
   },
   "fuzz:295 p1@p2": {
    "result": "PASS",
+   "battle": "f731715f24e737a6",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 706469,
@@ -8013,6 +8627,7 @@
   },
   "fuzz:295 p2@p1": {
    "result": "PASS",
+   "battle": "f731715f24e737a6",
    "spreads": {
     "p2:0": 85091064,
     "p2:1": 2741669,
@@ -8024,6 +8639,7 @@
   },
   "fuzz:296 both@spectator": {
    "result": "PASS",
+   "battle": "f1099ccb39dae948",
    "spreads": {
     "p1:0": 47366140,
     "p1:1": 24666423,
@@ -8041,6 +8657,7 @@
   },
   "fuzz:296 p1@p2": {
    "result": "PASS",
+   "battle": "f1099ccb39dae948",
    "spreads": {
     "p1:0": 14055850,
     "p1:1": 3540528,
@@ -8052,6 +8669,7 @@
   },
   "fuzz:296 p2@p1": {
    "result": "PASS",
+   "battle": "f1099ccb39dae948",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 39486215,
@@ -8063,6 +8681,7 @@
   },
   "fuzz:297 both@spectator": {
    "result": "PASS",
+   "battle": "77d517fd3f06a2e5",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -8080,6 +8699,7 @@
   },
   "fuzz:297 p1@p2": {
    "result": "PASS",
+   "battle": "77d517fd3f06a2e5",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -8091,6 +8711,7 @@
   },
   "fuzz:297 p2@p1": {
    "result": "PASS",
+   "battle": "77d517fd3f06a2e5",
    "spreads": {
     "p2:0": 62239100,
     "p2:1": 8263066,
@@ -8102,6 +8723,7 @@
   },
   "fuzz:298 both@spectator": {
    "result": "PASS",
+   "battle": "25f3320f2760ad50",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -8119,6 +8741,7 @@
   },
   "fuzz:298 p1@p2": {
    "result": "PASS",
+   "battle": "25f3320f2760ad50",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -8130,6 +8753,7 @@
   },
   "fuzz:298 p2@p1": {
    "result": "PASS",
+   "battle": "25f3320f2760ad50",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 47251104,
@@ -8141,6 +8765,7 @@
   },
   "fuzz:299 both@spectator": {
    "result": "PASS",
+   "battle": "feddc26eddf43ed6",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 77076719,
@@ -8158,6 +8783,7 @@
   },
   "fuzz:299 p1@p2": {
    "result": "PASS",
+   "battle": "feddc26eddf43ed6",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 20453205,
@@ -8169,6 +8795,7 @@
   },
   "fuzz:299 p2@p1": {
    "result": "PASS",
+   "battle": "feddc26eddf43ed6",
    "spreads": {
     "p2:0": 1157218,
     "p2:1": 136663185,
@@ -8180,6 +8807,7 @@
   },
   "fuzz:300 both@spectator": {
    "result": "PASS",
+   "battle": "82d27058356a7dff",
    "spreads": {
     "p1:0": 136087458,
     "p1:1": 17930831,
@@ -8197,6 +8825,7 @@
   },
   "fuzz:300 p1@p2": {
    "result": "PASS",
+   "battle": "82d27058356a7dff",
    "spreads": {
     "p1:0": 1407176,
     "p1:1": 4945591,
@@ -8208,6 +8837,7 @@
   },
   "fuzz:300 p2@p1": {
    "result": "PASS",
+   "battle": "82d27058356a7dff",
    "spreads": {
     "p2:0": 57975563,
     "p2:1": 1496882,
@@ -8219,6 +8849,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2698960530 both@spectator": {
    "result": "PASS",
+   "battle": "5c7e8b00034ea61c",
    "spreads": {
     "p1:0": 18973702,
     "p1:1": 20661064,
@@ -8236,6 +8867,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2698960530 p1@p2": {
    "result": "PASS",
+   "battle": "5c7e8b00034ea61c",
    "spreads": {
     "p1:0": 2906934,
     "p1:1": 9178586,
@@ -8247,6 +8879,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2698960530 p2@p1": {
    "result": "PASS",
+   "battle": "5c7e8b00034ea61c",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 12226458,
@@ -8258,6 +8891,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2699035058 both@spectator": {
    "result": "GAVE UP",
+   "battle": "c7c00b0b1f1f03a4",
    "spreads": {
     "p1:0": 71167705,
     "p1:1": 98074926,
@@ -8275,6 +8909,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2699035058 p1@p2": {
    "result": "PASS",
+   "battle": "c7c00b0b1f1f03a4",
    "spreads": {
     "p1:0": 3839888,
     "p1:1": 37668777,
@@ -8286,6 +8921,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2699035058 p2@p1": {
    "result": "PASS",
+   "battle": "c7c00b0b1f1f03a4",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 66787523,
@@ -8297,6 +8933,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2701411559 both@spectator": {
    "result": "PASS",
+   "battle": "a3a091f1f757927c",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 15549515,
@@ -8314,6 +8951,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2701411559 p1@p2": {
    "result": "PASS",
+   "battle": "a3a091f1f757927c",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 8644548,
@@ -8325,6 +8963,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2701411559 p2@p1": {
    "result": "PASS",
+   "battle": "a3a091f1f757927c",
    "spreads": {
     "p2:0": 2169537,
     "p2:1": 136663185,
@@ -8336,6 +8975,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2701439305 both@spectator": {
    "result": "PASS",
+   "battle": "8c6e385c659215c2",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 25983973,
@@ -8353,6 +8993,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2701439305 p1@p2": {
    "result": "PASS",
+   "battle": "8c6e385c659215c2",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 1543681,
@@ -8364,6 +9005,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2701439305 p2@p1": {
    "result": "PASS",
+   "battle": "8c6e385c659215c2",
    "spreads": {
     "p2:0": 5091022,
     "p2:1": 136663185,
@@ -8375,6 +9017,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2701697350 both@spectator": {
    "result": "PASS",
+   "battle": "6d91068cf8b541c8",
    "spreads": {
     "p1:0": 100417598,
     "p1:1": 17651927,
@@ -8392,6 +9035,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2701697350 p1@p2": {
    "result": "PASS",
+   "battle": "6d91068cf8b541c8",
    "spreads": {
     "p1:0": 100417598,
     "p1:1": 1559331,
@@ -8403,6 +9047,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2701697350 p2@p1": {
    "result": "PASS",
+   "battle": "6d91068cf8b541c8",
    "spreads": {
     "p2:0": 36745418,
     "p2:1": 550969,
@@ -8414,6 +9059,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706503558 both@spectator": {
    "result": "PASS",
+   "battle": "48f6c164dc191d24",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -8431,6 +9077,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706503558 p1@p2": {
    "result": "PASS",
+   "battle": "48f6c164dc191d24",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -8442,6 +9089,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706503558 p2@p1": {
    "result": "PASS",
+   "battle": "48f6c164dc191d24",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 65054873,
@@ -8453,6 +9101,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706509511 both@spectator": {
    "result": "PASS",
+   "battle": "65f5ca12d759e5c2",
    "spreads": {
     "p1:0": 1996,
     "p1:1": 136654461,
@@ -8470,6 +9119,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706509511 p1@p2": {
    "result": "PASS",
+   "battle": "65f5ca12d759e5c2",
    "spreads": {
     "p1:0": 1281,
     "p1:1": 136540580,
@@ -8481,6 +9131,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706509511 p2@p1": {
    "result": "PASS",
+   "battle": "65f5ca12d759e5c2",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 1641010,
@@ -8492,6 +9143,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706509811 both@spectator": {
    "result": "PASS",
+   "battle": "10017af75d057280",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -8509,6 +9161,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706509811 p1@p2": {
    "result": "PASS",
+   "battle": "10017af75d057280",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -8520,6 +9173,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706509811 p2@p1": {
    "result": "PASS",
+   "battle": "10017af75d057280",
    "spreads": {
     "p2:0": 78348706,
     "p2:1": 136663185,
@@ -8531,6 +9185,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706511879 both@spectator": {
    "result": "PASS",
+   "battle": "b34b96481c7eb52b",
    "spreads": {
     "p1:0": 126152976,
     "p1:1": 136663185,
@@ -8548,6 +9203,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706511879 p1@p2": {
    "result": "PASS",
+   "battle": "b34b96481c7eb52b",
    "spreads": {
     "p1:0": 126152976,
     "p1:1": 14654022,
@@ -8559,6 +9215,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706511879 p2@p1": {
    "result": "PASS",
+   "battle": "b34b96481c7eb52b",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 1209805,
@@ -8570,6 +9227,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706513250 both@spectator": {
    "result": "PASS",
+   "battle": "a4f85efcc6d8d5fa",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 23741326,
@@ -8587,6 +9245,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706513250 p1@p2": {
    "result": "PASS",
+   "battle": "a4f85efcc6d8d5fa",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 1178528,
@@ -8598,6 +9257,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706513250 p2@p1": {
    "result": "PASS",
+   "battle": "a4f85efcc6d8d5fa",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 189959,
@@ -8609,6 +9269,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706523001 both@spectator": {
    "result": "PASS",
+   "battle": "c17f5dbc9a4232c9",
    "spreads": {
     "p1:0": 11485534,
     "p1:1": 44668881,
@@ -8626,6 +9287,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706523001 p1@p2": {
    "result": "PASS",
+   "battle": "c17f5dbc9a4232c9",
    "spreads": {
     "p1:0": 1149372,
     "p1:1": 84885,
@@ -8637,6 +9299,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706523001 p2@p1": {
    "result": "PASS",
+   "battle": "c17f5dbc9a4232c9",
    "spreads": {
     "p2:0": 1902379,
     "p2:1": 103258,
@@ -8648,6 +9311,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706533381 both@spectator": {
    "result": "PASS",
+   "battle": "fd5b9276eaf24f3b",
    "spreads": {
     "p1:0": 4296192,
     "p1:1": 49703432,
@@ -8665,6 +9329,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706533381 p1@p2": {
    "result": "PASS",
+   "battle": "fd5b9276eaf24f3b",
    "spreads": {
     "p1:0": 1717016,
     "p1:1": 34595,
@@ -8676,6 +9341,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706533381 p2@p1": {
    "result": "PASS",
+   "battle": "fd5b9276eaf24f3b",
    "spreads": {
     "p2:0": 325,
     "p2:1": 10454715,
@@ -8687,6 +9353,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706539114 both@spectator": {
    "result": "PASS",
+   "battle": "9a0f9c23ca9aa744",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 11937596,
@@ -8704,6 +9371,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706539114 p1@p2": {
    "result": "PASS",
+   "battle": "9a0f9c23ca9aa744",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 3348635,
@@ -8715,6 +9383,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706539114 p2@p1": {
    "result": "PASS",
+   "battle": "9a0f9c23ca9aa744",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 6003436,
@@ -8726,6 +9395,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706540698 both@spectator": {
    "result": "PASS",
+   "battle": "7c48547886afbb8e",
    "spreads": {
     "p1:0": 22664546,
     "p1:1": 88348,
@@ -8743,6 +9413,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706540698 p1@p2": {
    "result": "PASS",
+   "battle": "7c48547886afbb8e",
    "spreads": {
     "p1:0": 3074151,
     "p1:1": 1209,
@@ -8754,6 +9425,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706540698 p2@p1": {
    "result": "PASS",
+   "battle": "7c48547886afbb8e",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -8765,6 +9437,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706540958 both@spectator": {
    "result": "PASS",
+   "battle": "c20b1f0c02ac57a4",
    "spreads": {
     "p1:0": 122371257,
     "p1:1": 19177209,
@@ -8782,6 +9455,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706540958 p1@p2": {
    "result": "PASS",
+   "battle": "c20b1f0c02ac57a4",
    "spreads": {
     "p1:0": 102440491,
     "p1:1": 1447992,
@@ -8793,6 +9467,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706540958 p2@p1": {
    "result": "PASS",
+   "battle": "c20b1f0c02ac57a4",
    "spreads": {
     "p2:0": 7459940,
     "p2:1": 136663185,
@@ -8804,6 +9479,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706542953 both@spectator": {
    "result": "PASS",
+   "battle": "1e0c4b8d6a3e973a",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 1420892,
@@ -8821,6 +9497,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706542953 p1@p2": {
    "result": "PASS",
+   "battle": "1e0c4b8d6a3e973a",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 724273,
@@ -8832,6 +9509,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706542953 p2@p1": {
    "result": "PASS",
+   "battle": "1e0c4b8d6a3e973a",
    "spreads": {
     "p2:0": 20318532,
     "p2:1": 54627967,
@@ -8843,6 +9521,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706544797 both@spectator": {
    "result": "PASS",
+   "battle": "9541eb24c9224ecf",
    "spreads": {
     "p1:0": 46699824,
     "p1:1": 45611817,
@@ -8860,6 +9539,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706544797 p1@p2": {
    "result": "PASS",
+   "battle": "9541eb24c9224ecf",
    "spreads": {
     "p1:0": 970470,
     "p1:1": 1641288,
@@ -8871,6 +9551,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706544797 p2@p1": {
    "result": "PASS",
+   "battle": "9541eb24c9224ecf",
    "spreads": {
     "p2:0": 4809574,
     "p2:1": 42750393,
@@ -8882,6 +9563,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706558323 both@spectator": {
    "result": "PASS",
+   "battle": "c602ad408e9ebc63",
    "spreads": {
     "p1:0": 56259102,
     "p1:1": 737679,
@@ -8899,6 +9581,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706558323 p1@p2": {
    "result": "PASS",
+   "battle": "c602ad408e9ebc63",
    "spreads": {
     "p1:0": 11824804,
     "p1:1": 1423,
@@ -8910,6 +9593,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706558323 p2@p1": {
    "result": "PASS",
+   "battle": "c602ad408e9ebc63",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 10962765,
@@ -8921,6 +9605,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706560352 both@spectator": {
    "result": "PASS",
+   "battle": "3953fa9e5b57fc67",
    "spreads": {
     "p1:0": 62923750,
     "p1:1": 82151699,
@@ -8938,6 +9623,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706560352 p1@p2": {
    "result": "PASS",
+   "battle": "3953fa9e5b57fc67",
    "spreads": {
     "p1:0": 55268070,
     "p1:1": 56403415,
@@ -8949,6 +9635,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706560352 p2@p1": {
    "result": "PASS",
+   "battle": "3953fa9e5b57fc67",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 6714984,
@@ -8960,6 +9647,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706577848 both@spectator": {
    "result": "PASS",
+   "battle": "15d2a45554dbcc59",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -8977,6 +9665,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706577848 p1@p2": {
    "result": "PASS",
+   "battle": "15d2a45554dbcc59",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -8988,6 +9677,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706577848 p2@p1": {
    "result": "PASS",
+   "battle": "15d2a45554dbcc59",
    "spreads": {
     "p2:0": 1804193,
     "p2:1": 136663185,
@@ -8999,6 +9689,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706578290 both@spectator": {
    "result": "PASS",
+   "battle": "16c44cae3706bd11",
    "spreads": {
     "p1:0": 115132808,
     "p1:1": 136663185,
@@ -9016,6 +9707,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706578290 p1@p2": {
    "result": "PASS",
+   "battle": "16c44cae3706bd11",
    "spreads": {
     "p1:0": 54442652,
     "p1:1": 136663185,
@@ -9027,6 +9719,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706578290 p2@p1": {
    "result": "PASS",
+   "battle": "16c44cae3706bd11",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 6428448,
@@ -9038,6 +9731,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706584453 both@spectator": {
    "result": "PASS",
+   "battle": "c839354d49f8b539",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -9055,6 +9749,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706584453 p1@p2": {
    "result": "PASS",
+   "battle": "c839354d49f8b539",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -9066,6 +9761,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706584453 p2@p1": {
    "result": "PASS",
+   "battle": "c839354d49f8b539",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 5990723,
@@ -9077,6 +9773,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706608717 both@spectator": {
    "result": "PASS",
+   "battle": "35f1389664124b01",
    "spreads": {
     "p1:0": 131341291,
     "p1:1": 136663185,
@@ -9094,6 +9791,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706608717 p1@p2": {
    "result": "PASS",
+   "battle": "35f1389664124b01",
    "spreads": {
     "p1:0": 131341291,
     "p1:1": 136663185,
@@ -9105,6 +9803,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706608717 p2@p1": {
    "result": "PASS",
+   "battle": "35f1389664124b01",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 117162123,
@@ -9116,6 +9815,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706637790 both@spectator": {
    "result": "PASS",
+   "battle": "70f01ca9ed7f83fc",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 100507940,
@@ -9133,6 +9833,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706637790 p1@p2": {
    "result": "PASS",
+   "battle": "70f01ca9ed7f83fc",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 23647324,
@@ -9144,6 +9845,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706637790 p2@p1": {
    "result": "PASS",
+   "battle": "70f01ca9ed7f83fc",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -9155,6 +9857,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706647431 both@spectator": {
    "result": "PASS",
+   "battle": "0ab0969dcb7c4844",
    "spreads": {
     "p1:0": 8824676,
     "p1:1": 136663185,
@@ -9172,6 +9875,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706647431 p1@p2": {
    "result": "PASS",
+   "battle": "0ab0969dcb7c4844",
    "spreads": {
     "p1:0": 1186655,
     "p1:1": 136663185,
@@ -9183,6 +9887,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706647431 p2@p1": {
    "result": "PASS",
+   "battle": "0ab0969dcb7c4844",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 22122,
@@ -9194,6 +9899,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706653207 both@spectator": {
    "result": "PASS",
+   "battle": "7c6f3f6befa9e9a4",
    "spreads": {
     "p1:0": 17816407,
     "p1:1": 1002253,
@@ -9211,6 +9917,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706653207 p1@p2": {
    "result": "PASS",
+   "battle": "7c6f3f6befa9e9a4",
    "spreads": {
     "p1:0": 5665883,
     "p1:1": 16330,
@@ -9222,6 +9929,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706653207 p2@p1": {
    "result": "PASS",
+   "battle": "7c6f3f6befa9e9a4",
    "spreads": {
     "p2:0": 45364433,
     "p2:1": 136663185,
@@ -9233,6 +9941,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706662656 both@spectator": {
    "result": "PASS",
+   "battle": "1689c05e4737c9ba",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 7790562,
@@ -9250,6 +9959,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706662656 p1@p2": {
    "result": "PASS",
+   "battle": "1689c05e4737c9ba",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 6968597,
@@ -9261,6 +9971,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706662656 p2@p1": {
    "result": "PASS",
+   "battle": "1689c05e4737c9ba",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -9272,6 +9983,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706670240 both@spectator": {
    "result": "PASS",
+   "battle": "b1c5d7952b77b815",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -9289,6 +10001,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706670240 p1@p2": {
    "result": "PASS",
+   "battle": "b1c5d7952b77b815",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -9300,6 +10013,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706670240 p2@p1": {
    "result": "PASS",
+   "battle": "b1c5d7952b77b815",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -9311,6 +10025,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706680632 both@spectator": {
    "result": "PASS",
+   "battle": "1418b6016ba4eeb1",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -9328,6 +10043,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706680632 p1@p2": {
    "result": "PASS",
+   "battle": "1418b6016ba4eeb1",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -9339,6 +10055,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706680632 p2@p1": {
    "result": "PASS",
+   "battle": "1418b6016ba4eeb1",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -9350,6 +10067,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706680707 both@spectator": {
    "result": "PASS",
+   "battle": "f863dc67765f8281",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 59205076,
@@ -9367,6 +10085,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706680707 p1@p2": {
    "result": "PASS",
+   "battle": "f863dc67765f8281",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 51825428,
@@ -9378,6 +10097,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706680707 p2@p1": {
    "result": "PASS",
+   "battle": "f863dc67765f8281",
    "spreads": {
     "p2:0": 14654022,
     "p2:1": 67367637,
@@ -9389,6 +10109,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706684409 both@spectator": {
    "result": "PASS",
+   "battle": "fb7b40f0079a4c71",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -9406,6 +10127,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706684409 p1@p2": {
    "result": "PASS",
+   "battle": "fb7b40f0079a4c71",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -9417,6 +10139,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706684409 p2@p1": {
    "result": "PASS",
+   "battle": "fb7b40f0079a4c71",
    "spreads": {
     "p2:0": 1840826,
     "p2:1": 50379054,
@@ -9428,6 +10151,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706688609 both@spectator": {
    "result": "PASS",
+   "battle": "ce2d4a7ed65498c4",
    "spreads": {
     "p1:0": 74018982,
     "p1:1": 45321192,
@@ -9445,6 +10169,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706688609 p1@p2": {
    "result": "PASS",
+   "battle": "ce2d4a7ed65498c4",
    "spreads": {
     "p1:0": 47954702,
     "p1:1": 5813578,
@@ -9456,6 +10181,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706688609 p2@p1": {
    "result": "PASS",
+   "battle": "ce2d4a7ed65498c4",
    "spreads": {
     "p2:0": 119702943,
     "p2:1": 68649528,
@@ -9467,6 +10193,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706689647 both@spectator": {
    "result": "PASS",
+   "battle": "f2a88da034971c44",
    "spreads": {
     "p1:0": 33846050,
     "p1:1": 509953,
@@ -9484,6 +10211,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706689647 p1@p2": {
    "result": "PASS",
+   "battle": "f2a88da034971c44",
    "spreads": {
     "p1:0": 152324,
     "p1:1": 509953,
@@ -9495,6 +10223,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706689647 p2@p1": {
    "result": "PASS",
+   "battle": "f2a88da034971c44",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 444441,
@@ -9506,6 +10235,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706698546 both@spectator": {
    "result": "PASS",
+   "battle": "e22a8425ef5b2337",
    "spreads": {
     "p1:0": 58089596,
     "p1:1": 23393134,
@@ -9523,6 +10253,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706698546 p1@p2": {
    "result": "PASS",
+   "battle": "e22a8425ef5b2337",
    "spreads": {
     "p1:0": 2260803,
     "p1:1": 4820603,
@@ -9534,6 +10265,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706698546 p2@p1": {
    "result": "PASS",
+   "battle": "e22a8425ef5b2337",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 11918940,
@@ -9545,6 +10277,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706707161 both@spectator": {
    "result": "PASS",
+   "battle": "dccdeee6cb12e950",
    "spreads": {
     "p1:0": 76548231,
     "p1:1": 94110772,
@@ -9562,6 +10295,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706707161 p1@p2": {
    "result": "PASS",
+   "battle": "dccdeee6cb12e950",
    "spreads": {
     "p1:0": 13077526,
     "p1:1": 39864452,
@@ -9573,6 +10307,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706707161 p2@p1": {
    "result": "PASS",
+   "battle": "dccdeee6cb12e950",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 39035254,
@@ -9584,6 +10319,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706716798 both@spectator": {
    "result": "PASS",
+   "battle": "3720df08628fa33b",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 79086947,
@@ -9601,6 +10337,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706716798 p1@p2": {
    "result": "PASS",
+   "battle": "3720df08628fa33b",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 5553291,
@@ -9612,6 +10349,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706716798 p2@p1": {
    "result": "PASS",
+   "battle": "3720df08628fa33b",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -9623,6 +10361,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706717448 both@spectator": {
    "result": "PASS",
+   "battle": "d8c5e2acdbda4350",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -9640,6 +10379,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706717448 p1@p2": {
    "result": "PASS",
+   "battle": "d8c5e2acdbda4350",
    "spreads": {
     "p1:0": 68632840,
     "p1:1": 136663185,
@@ -9651,6 +10391,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706717448 p2@p1": {
    "result": "PASS",
+   "battle": "d8c5e2acdbda4350",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 13322334,
@@ -9662,6 +10403,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706723174 both@spectator": {
    "result": "PASS",
+   "battle": "2d1b05e756746517",
    "spreads": {
     "p1:0": 15401611,
     "p1:1": 136663185,
@@ -9679,6 +10421,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706723174 p1@p2": {
    "result": "PASS",
+   "battle": "2d1b05e756746517",
    "spreads": {
     "p1:0": 10537186,
     "p1:1": 136663185,
@@ -9690,6 +10433,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706723174 p2@p1": {
    "result": "PASS",
+   "battle": "2d1b05e756746517",
    "spreads": {
     "p2:0": 10658000,
     "p2:1": 8715672,
@@ -9701,6 +10445,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706727043 both@spectator": {
    "result": "PASS",
+   "battle": "2b86d91f493fc849",
    "spreads": {
     "p1:0": 14520030,
     "p1:1": 136663185,
@@ -9718,6 +10463,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706727043 p1@p2": {
    "result": "PASS",
+   "battle": "2b86d91f493fc849",
    "spreads": {
     "p1:0": 9898212,
     "p1:1": 136663185,
@@ -9729,6 +10475,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706727043 p2@p1": {
    "result": "PASS",
+   "battle": "2b86d91f493fc849",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136649268,
@@ -9740,6 +10487,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706743441 both@spectator": {
    "result": "PASS",
+   "battle": "839e448944ad16d5",
    "spreads": {
     "p1:0": 136492775,
     "p1:1": 136663185,
@@ -9757,6 +10505,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706743441 p1@p2": {
    "result": "PASS",
+   "battle": "839e448944ad16d5",
    "spreads": {
     "p1:0": 74784846,
     "p1:1": 136663185,
@@ -9768,6 +10517,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706743441 p2@p1": {
    "result": "PASS",
+   "battle": "839e448944ad16d5",
    "spreads": {
     "p2:0": 48811004,
     "p2:1": 1370253,
@@ -9779,6 +10529,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706745137 both@spectator": {
    "result": "PASS",
+   "battle": "939f2042d4a76f61",
    "spreads": {
     "p1:0": 28701083,
     "p1:1": 136663185,
@@ -9796,6 +10547,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706745137 p1@p2": {
    "result": "PASS",
+   "battle": "939f2042d4a76f61",
    "spreads": {
     "p1:0": 4983381,
     "p1:1": 136663185,
@@ -9807,6 +10559,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706745137 p2@p1": {
    "result": "PASS",
+   "battle": "939f2042d4a76f61",
    "spreads": {
     "p2:0": 16016616,
     "p2:1": 7443121,
@@ -9818,6 +10571,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706750121 both@spectator": {
    "result": "PASS",
+   "battle": "58633c67752c8445",
    "spreads": {
     "p1:0": 124470753,
     "p1:1": 69716001,
@@ -9835,6 +10589,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706750121 p1@p2": {
    "result": "PASS",
+   "battle": "58633c67752c8445",
    "spreads": {
     "p1:0": 83624751,
     "p1:1": 1366612,
@@ -9846,6 +10601,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706750121 p2@p1": {
    "result": "PASS",
+   "battle": "58633c67752c8445",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 16778588,
@@ -9857,6 +10613,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706756200 both@spectator": {
    "result": "PASS",
+   "battle": "c07024a9ecec8a2c",
    "spreads": {
     "p1:0": 19753055,
     "p1:1": 74949157,
@@ -9874,6 +10631,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706756200 p1@p2": {
    "result": "PASS",
+   "battle": "c07024a9ecec8a2c",
    "spreads": {
     "p1:0": 5719,
     "p1:1": 40925022,
@@ -9885,6 +10643,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706756200 p2@p1": {
    "result": "PASS",
+   "battle": "c07024a9ecec8a2c",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -9896,6 +10655,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706758304 both@spectator": {
    "result": "PASS",
+   "battle": "e41a27cdd49d050d",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -9913,6 +10673,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706758304 p1@p2": {
    "result": "PASS",
+   "battle": "e41a27cdd49d050d",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -9924,6 +10685,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706758304 p2@p1": {
    "result": "PASS",
+   "battle": "e41a27cdd49d050d",
    "spreads": {
     "p2:0": 25629,
     "p2:1": 45028,
@@ -9935,6 +10697,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706767665 both@spectator": {
    "result": "PASS",
+   "battle": "e7d43fb5bca1a6af",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 38588259,
@@ -9952,6 +10715,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706767665 p1@p2": {
    "result": "PASS",
+   "battle": "e7d43fb5bca1a6af",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 28078050,
@@ -9963,6 +10727,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706767665 p2@p1": {
    "result": "PASS",
+   "battle": "e7d43fb5bca1a6af",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 473172,
@@ -9974,6 +10739,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706771017 both@spectator": {
    "result": "PASS",
+   "battle": "a367101971f8ce75",
    "spreads": {
     "p1:0": 124956641,
     "p1:1": 6225998,
@@ -9991,6 +10757,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706771017 p1@p2": {
    "result": "PASS",
+   "battle": "a367101971f8ce75",
    "spreads": {
     "p1:0": 93990738,
     "p1:1": 586248,
@@ -10002,6 +10769,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706771017 p2@p1": {
    "result": "PASS",
+   "battle": "a367101971f8ce75",
    "spreads": {
     "p2:0": 53394657,
     "p2:1": 2788,
@@ -10013,6 +10781,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706771294 both@spectator": {
    "result": "PASS",
+   "battle": "ef44aa095c51a698",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 27055185,
@@ -10030,6 +10799,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706771294 p1@p2": {
    "result": "PASS",
+   "battle": "ef44aa095c51a698",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 16037556,
@@ -10041,6 +10811,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706771294 p2@p1": {
    "result": "PASS",
+   "battle": "ef44aa095c51a698",
    "spreads": {
     "p2:0": 1015122,
     "p2:1": 136663185,
@@ -10052,6 +10823,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706771605 both@spectator": {
    "result": "PASS",
+   "battle": "06aa63a0a862b244",
    "spreads": {
     "p1:0": 64323793,
     "p1:1": 136663185,
@@ -10069,6 +10841,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706771605 p1@p2": {
    "result": "PASS",
+   "battle": "06aa63a0a862b244",
    "spreads": {
     "p1:0": 48807927,
     "p1:1": 136663185,
@@ -10080,6 +10853,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706771605 p2@p1": {
    "result": "PASS",
+   "battle": "06aa63a0a862b244",
    "spreads": {
     "p2:0": 24336546,
     "p2:1": 136663185,
@@ -10091,6 +10865,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706776573 both@spectator": {
    "result": "PASS",
+   "battle": "b890ce4be3bfd0f9",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -10108,6 +10883,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706776573 p1@p2": {
    "result": "PASS",
+   "battle": "b890ce4be3bfd0f9",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -10119,6 +10895,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706776573 p2@p1": {
    "result": "PASS",
+   "battle": "b890ce4be3bfd0f9",
    "spreads": {
     "p2:0": 9805392,
     "p2:1": 136663185,
@@ -10130,6 +10907,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706780495 both@spectator": {
    "result": "PASS",
+   "battle": "75ebac1d0577d2c5",
    "spreads": {
     "p1:0": 88011701,
     "p1:1": 136663185,
@@ -10147,6 +10925,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706780495 p1@p2": {
    "result": "PASS",
+   "battle": "75ebac1d0577d2c5",
    "spreads": {
     "p1:0": 45110040,
     "p1:1": 136663185,
@@ -10158,6 +10937,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706780495 p2@p1": {
    "result": "PASS",
+   "battle": "75ebac1d0577d2c5",
    "spreads": {
     "p2:0": 9753142,
     "p2:1": 26713443,
@@ -10169,6 +10949,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706780588 both@spectator": {
    "result": "PASS",
+   "battle": "b0fb113bbbae4486",
    "spreads": {
     "p1:0": 4710754,
     "p1:1": 67912784,
@@ -10186,6 +10967,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706780588 p1@p2": {
    "result": "PASS",
+   "battle": "b0fb113bbbae4486",
    "spreads": {
     "p1:0": 3104424,
     "p1:1": 26231705,
@@ -10197,6 +10979,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706780588 p2@p1": {
    "result": "PASS",
+   "battle": "b0fb113bbbae4486",
    "spreads": {
     "p2:0": 790253,
     "p2:1": 136663185,
@@ -10208,6 +10991,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706792032 both@spectator": {
    "result": "PASS",
+   "battle": "e0ff90d7111a26de",
    "spreads": {
     "p1:0": 87768362,
     "p1:1": 104310531,
@@ -10225,6 +11009,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706792032 p1@p2": {
    "result": "PASS",
+   "battle": "e0ff90d7111a26de",
    "spreads": {
     "p1:0": 62021,
     "p1:1": 54515419,
@@ -10236,6 +11021,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706792032 p2@p1": {
    "result": "PASS",
+   "battle": "e0ff90d7111a26de",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -10247,6 +11033,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706794900 both@spectator": {
    "result": "PASS",
+   "battle": "1fb2310e9acdad72",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 16960242,
@@ -10264,6 +11051,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706794900 p1@p2": {
    "result": "PASS",
+   "battle": "1fb2310e9acdad72",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 4978,
@@ -10275,6 +11063,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706794900 p2@p1": {
    "result": "PASS",
+   "battle": "1fb2310e9acdad72",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 131785363,
@@ -10286,6 +11075,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706795578 both@spectator": {
    "result": "PASS",
+   "battle": "24abbf66bac9faa3",
    "spreads": {
     "p1:0": 613818,
     "p1:1": 53770811,
@@ -10303,6 +11093,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706795578 p1@p2": {
    "result": "PASS",
+   "battle": "24abbf66bac9faa3",
    "spreads": {
     "p1:0": 8491,
     "p1:1": 17059349,
@@ -10314,6 +11105,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706795578 p2@p1": {
    "result": "PASS",
+   "battle": "24abbf66bac9faa3",
    "spreads": {
     "p2:0": 3885730,
     "p2:1": 136663185,
@@ -10325,6 +11117,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706796211 both@spectator": {
    "result": "PASS",
+   "battle": "535b6ad142198c5a",
    "spreads": {
     "p1:0": 16550,
     "p1:1": 136663185,
@@ -10342,6 +11135,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706796211 p1@p2": {
    "result": "PASS",
+   "battle": "535b6ad142198c5a",
    "spreads": {
     "p1:0": 1646,
     "p1:1": 136663185,
@@ -10353,6 +11147,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706796211 p2@p1": {
    "result": "PASS",
+   "battle": "535b6ad142198c5a",
    "spreads": {
     "p2:0": 22761608,
     "p2:1": 136663185,
@@ -10364,6 +11159,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706798245 both@spectator": {
    "result": "PASS",
+   "battle": "ee2105d1aeb0808e",
    "spreads": {
     "p1:0": 105673393,
     "p1:1": 15645006,
@@ -10381,6 +11177,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706798245 p1@p2": {
    "result": "PASS",
+   "battle": "ee2105d1aeb0808e",
    "spreads": {
     "p1:0": 84695605,
     "p1:1": 7444765,
@@ -10392,6 +11189,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706798245 p2@p1": {
    "result": "PASS",
+   "battle": "ee2105d1aeb0808e",
    "spreads": {
     "p2:0": 23931098,
     "p2:1": 10033164,
@@ -10403,6 +11201,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706811914 both@spectator": {
    "result": "PASS",
+   "battle": "6ac884a1813b6e86",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136087458,
@@ -10420,6 +11219,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706811914 p1@p2": {
    "result": "PASS",
+   "battle": "6ac884a1813b6e86",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 122849830,
@@ -10431,6 +11231,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706811914 p2@p1": {
    "result": "PASS",
+   "battle": "6ac884a1813b6e86",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 8158242,
@@ -10442,6 +11243,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706817003 both@spectator": {
    "result": "PASS",
+   "battle": "8698ace591236bf7",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -10459,6 +11261,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706817003 p1@p2": {
    "result": "PASS",
+   "battle": "8698ace591236bf7",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -10470,6 +11273,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706817003 p2@p1": {
    "result": "PASS",
+   "battle": "8698ace591236bf7",
    "spreads": {
     "p2:0": 1272061,
     "p2:1": 136663185,
@@ -10481,6 +11285,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706819244 both@spectator": {
    "result": "PASS",
+   "battle": "194229a6a4e44221",
    "spreads": {
     "p1:0": 73912874,
     "p1:1": 575607,
@@ -10498,6 +11303,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706819244 p1@p2": {
    "result": "PASS",
+   "battle": "194229a6a4e44221",
    "spreads": {
     "p1:0": 22299935,
     "p1:1": 50320,
@@ -10509,6 +11315,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706819244 p2@p1": {
    "result": "PASS",
+   "battle": "194229a6a4e44221",
    "spreads": {
     "p2:0": 5650398,
     "p2:1": 136663185,
@@ -10520,6 +11327,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706827249 both@spectator": {
    "result": "PASS",
+   "battle": "1b6b2a58fc5f4750",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 84803334,
@@ -10537,6 +11345,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706827249 p1@p2": {
    "result": "PASS",
+   "battle": "1b6b2a58fc5f4750",
    "spreads": {
     "p1:0": 12566202,
     "p1:1": 7163306,
@@ -10548,6 +11357,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706827249 p2@p1": {
    "result": "PASS",
+   "battle": "1b6b2a58fc5f4750",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 8752204,
@@ -10559,6 +11369,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706843884 both@spectator": {
    "result": "PASS",
+   "battle": "01d1f32dc3573be5",
    "spreads": {
     "p1:0": 16960242,
     "p1:1": 136663185,
@@ -10576,6 +11387,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706843884 p1@p2": {
    "result": "PASS",
+   "battle": "01d1f32dc3573be5",
    "spreads": {
     "p1:0": 4877822,
     "p1:1": 136663185,
@@ -10587,6 +11399,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706843884 p2@p1": {
    "result": "PASS",
+   "battle": "01d1f32dc3573be5",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -10598,6 +11411,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706850041 both@spectator": {
    "result": "PASS",
+   "battle": "f7cb53a86cd1c686",
    "spreads": {
     "p1:0": 5485307,
     "p1:1": 136663185,
@@ -10615,6 +11429,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706850041 p1@p2": {
    "result": "PASS",
+   "battle": "f7cb53a86cd1c686",
    "spreads": {
     "p1:0": 797227,
     "p1:1": 136663185,
@@ -10626,6 +11441,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706850041 p2@p1": {
    "result": "PASS",
+   "battle": "f7cb53a86cd1c686",
    "spreads": {
     "p2:0": 2793188,
     "p2:1": 16604591,
@@ -10637,6 +11453,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706851242 both@spectator": {
    "result": "PASS",
+   "battle": "d255537177a50a75",
    "spreads": {
     "p1:0": 42324790,
     "p1:1": 136663185,
@@ -10654,6 +11471,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706851242 p1@p2": {
    "result": "PASS",
+   "battle": "d255537177a50a75",
    "spreads": {
     "p1:0": 2492974,
     "p1:1": 136663185,
@@ -10665,6 +11483,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706851242 p2@p1": {
    "result": "PASS",
+   "battle": "d255537177a50a75",
    "spreads": {
     "p2:0": 114367164,
     "p2:1": 136663185,
@@ -10676,6 +11495,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706895711 both@spectator": {
    "result": "PASS",
+   "battle": "5dc419817d851f05",
    "spreads": {
     "p1:0": 119135827,
     "p1:1": 10262973,
@@ -10693,6 +11513,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706895711 p1@p2": {
    "result": "PASS",
+   "battle": "5dc419817d851f05",
    "spreads": {
     "p1:0": 29352843,
     "p1:1": 220987,
@@ -10704,6 +11525,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706895711 p2@p1": {
    "result": "PASS",
+   "battle": "5dc419817d851f05",
    "spreads": {
     "p2:0": 1087147,
     "p2:1": 18754812,
@@ -10715,6 +11537,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706906590 both@spectator": {
    "result": "PASS",
+   "battle": "87821e772f9b871c",
    "spreads": {
     "p1:0": 19959470,
     "p1:1": 106175619,
@@ -10732,6 +11555,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706906590 p1@p2": {
    "result": "PASS",
+   "battle": "87821e772f9b871c",
    "spreads": {
     "p1:0": 1566803,
     "p1:1": 39212064,
@@ -10743,6 +11567,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706906590 p2@p1": {
    "result": "PASS",
+   "battle": "87821e772f9b871c",
    "spreads": {
     "p2:0": 100034,
     "p2:1": 9780599,
@@ -10754,6 +11579,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706907659 both@spectator": {
    "result": "PASS",
+   "battle": "ca48150e06dd2927",
    "spreads": {
     "p1:0": 7459940,
     "p1:1": 9867407,
@@ -10771,6 +11597,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706907659 p1@p2": {
    "result": "PASS",
+   "battle": "ca48150e06dd2927",
    "spreads": {
     "p1:0": 7258956,
     "p1:1": 9867407,
@@ -10782,6 +11609,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706907659 p2@p1": {
    "result": "PASS",
+   "battle": "ca48150e06dd2927",
    "spreads": {
     "p2:0": 91638833,
     "p2:1": 22691364,
@@ -10793,6 +11621,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706909653 both@spectator": {
    "result": "PASS",
+   "battle": "ce700b9b1f18b435",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -10810,6 +11639,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706909653 p1@p2": {
    "result": "PASS",
+   "battle": "ce700b9b1f18b435",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -10821,6 +11651,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706909653 p2@p1": {
    "result": "PASS",
+   "battle": "ce700b9b1f18b435",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 4531943,
@@ -10832,6 +11663,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706916493 both@spectator": {
    "result": "PASS",
+   "battle": "99a450986bc9c7ed",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136250247,
@@ -10849,6 +11681,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706916493 p1@p2": {
    "result": "PASS",
+   "battle": "99a450986bc9c7ed",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 99325307,
@@ -10860,6 +11693,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706916493 p2@p1": {
    "result": "PASS",
+   "battle": "99a450986bc9c7ed",
    "spreads": {
     "p2:0": 1054492,
     "p2:1": 46854627,
@@ -10871,6 +11705,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706916905 both@spectator": {
    "result": "PASS",
+   "battle": "090d6de515ccca63",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -10888,6 +11723,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706916905 p1@p2": {
    "result": "PASS",
+   "battle": "090d6de515ccca63",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -10899,6 +11735,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706916905 p2@p1": {
    "result": "PASS",
+   "battle": "090d6de515ccca63",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -10910,6 +11747,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706927459 both@spectator": {
    "result": "PASS",
+   "battle": "2e9580be15b22648",
    "spreads": {
     "p1:0": 106875894,
     "p1:1": 67092991,
@@ -10927,6 +11765,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706927459 p1@p2": {
    "result": "PASS",
+   "battle": "2e9580be15b22648",
    "spreads": {
     "p1:0": 14034013,
     "p1:1": 54001705,
@@ -10938,6 +11777,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706927459 p2@p1": {
    "result": "PASS",
+   "battle": "2e9580be15b22648",
    "spreads": {
     "p2:0": 13769126,
     "p2:1": 7706095,
@@ -10949,6 +11789,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706930319 both@spectator": {
    "result": "PASS",
+   "battle": "435392ca1aaa0d9a",
    "spreads": {
     "p1:0": 53074,
     "p1:1": 6385701,
@@ -10966,6 +11807,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706930319 p1@p2": {
    "result": "PASS",
+   "battle": "435392ca1aaa0d9a",
    "spreads": {
     "p1:0": 42448,
     "p1:1": 4792479,
@@ -10977,6 +11819,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706930319 p2@p1": {
    "result": "PASS",
+   "battle": "435392ca1aaa0d9a",
    "spreads": {
     "p2:0": 5545663,
     "p2:1": 136663185,
@@ -10988,6 +11831,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706936639 both@spectator": {
    "result": "PASS",
+   "battle": "714a53cbc0bc6cf2",
    "spreads": {
     "p1:0": 7829353,
     "p1:1": 136663185,
@@ -11005,6 +11849,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706936639 p1@p2": {
    "result": "PASS",
+   "battle": "714a53cbc0bc6cf2",
    "spreads": {
     "p1:0": 1809,
     "p1:1": 100335945,
@@ -11016,6 +11861,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706936639 p2@p1": {
    "result": "PASS",
+   "battle": "714a53cbc0bc6cf2",
    "spreads": {
     "p2:0": 24148863,
     "p2:1": 106875894,
@@ -11027,6 +11873,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706938927 both@spectator": {
    "result": "PASS",
+   "battle": "d613b623530111bf",
    "spreads": {
     "p1:0": 62923750,
     "p1:1": 37146165,
@@ -11044,6 +11891,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706938927 p1@p2": {
    "result": "PASS",
+   "battle": "d613b623530111bf",
    "spreads": {
     "p1:0": 62611844,
     "p1:1": 1646778,
@@ -11055,6 +11903,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706938927 p2@p1": {
    "result": "PASS",
+   "battle": "d613b623530111bf",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 45499490,
@@ -11066,6 +11915,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706943807 both@spectator": {
    "result": "PASS",
+   "battle": "de1f10e73d2398d3",
    "spreads": {
     "p1:0": 33332205,
     "p1:1": 102943907,
@@ -11083,6 +11933,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706943807 p1@p2": {
    "result": "PASS",
+   "battle": "de1f10e73d2398d3",
    "spreads": {
     "p1:0": 33332205,
     "p1:1": 36213803,
@@ -11094,6 +11945,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706943807 p2@p1": {
    "result": "PASS",
+   "battle": "de1f10e73d2398d3",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 388777,
@@ -11105,6 +11957,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706949682 both@spectator": {
    "result": "PASS",
+   "battle": "14ae0228f4c0a17a",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663170,
@@ -11122,6 +11975,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706949682 p1@p2": {
    "result": "PASS",
+   "battle": "14ae0228f4c0a17a",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136306374,
@@ -11133,6 +11987,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706949682 p2@p1": {
    "result": "PASS",
+   "battle": "14ae0228f4c0a17a",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 22462639,
@@ -11144,6 +11999,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706953767 both@spectator": {
    "result": "PASS",
+   "battle": "83ee2af6c9632e27",
    "spreads": {
     "p1:0": 74475079,
     "p1:1": 136663185,
@@ -11161,6 +12017,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706953767 p1@p2": {
    "result": "PASS",
+   "battle": "83ee2af6c9632e27",
    "spreads": {
     "p1:0": 65876505,
     "p1:1": 136663185,
@@ -11172,6 +12029,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706953767 p2@p1": {
    "result": "PASS",
+   "battle": "83ee2af6c9632e27",
    "spreads": {
     "p2:0": 39903174,
     "p2:1": 136663185,
@@ -11183,6 +12041,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706955285 both@spectator": {
    "result": "PASS",
+   "battle": "3b7940d5ca1a4caa",
    "spreads": {
     "p1:0": 8941110,
     "p1:1": 32089913,
@@ -11200,6 +12059,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706955285 p1@p2": {
    "result": "PASS",
+   "battle": "3b7940d5ca1a4caa",
    "spreads": {
     "p1:0": 2673842,
     "p1:1": 3533260,
@@ -11211,6 +12071,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706955285 p2@p1": {
    "result": "PASS",
+   "battle": "3b7940d5ca1a4caa",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -11222,6 +12083,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706956206 both@spectator": {
    "result": "PASS",
+   "battle": "eba81d3b0ee96226",
    "spreads": {
     "p1:0": 111245,
     "p1:1": 449245,
@@ -11239,6 +12101,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706956206 p1@p2": {
    "result": "PASS",
+   "battle": "eba81d3b0ee96226",
    "spreads": {
     "p1:0": 23256,
     "p1:1": 26212,
@@ -11250,6 +12113,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706956206 p2@p1": {
    "result": "PASS",
+   "battle": "eba81d3b0ee96226",
    "spreads": {
     "p2:0": 12587668,
     "p2:1": 136663185,
@@ -11261,6 +12125,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706957621 both@spectator": {
    "result": "PASS",
+   "battle": "eea72638271753ba",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -11278,6 +12143,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706957621 p1@p2": {
    "result": "PASS",
+   "battle": "eea72638271753ba",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -11289,6 +12155,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706957621 p2@p1": {
    "result": "PASS",
+   "battle": "eea72638271753ba",
    "spreads": {
     "p2:0": 25879072,
     "p2:1": 136663185,
@@ -11300,6 +12167,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706958429 both@spectator": {
    "result": "PASS",
+   "battle": "caaf30cb6b0bec83",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -11317,6 +12185,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706958429 p1@p2": {
    "result": "PASS",
+   "battle": "caaf30cb6b0bec83",
    "spreads": {
     "p1:0": 102740166,
     "p1:1": 15140528,
@@ -11328,6 +12197,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706958429 p2@p1": {
    "result": "PASS",
+   "battle": "caaf30cb6b0bec83",
    "spreads": {
     "p2:0": 52663108,
     "p2:1": 136663185,
@@ -11339,6 +12209,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706960648 both@spectator": {
    "result": "PASS",
+   "battle": "74c4619c33259af7",
    "spreads": {
     "p1:0": 63240232,
     "p1:1": 96618523,
@@ -11356,6 +12227,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706960648 p1@p2": {
    "result": "PASS",
+   "battle": "74c4619c33259af7",
    "spreads": {
     "p1:0": 33033595,
     "p1:1": 63388608,
@@ -11367,6 +12239,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706960648 p2@p1": {
    "result": "PASS",
+   "battle": "74c4619c33259af7",
    "spreads": {
     "p2:0": 575727,
     "p2:1": 136663185,
@@ -11378,6 +12251,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706961122 both@spectator": {
    "result": "PASS",
+   "battle": "6e45677589f9cc07",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -11395,6 +12269,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706961122 p1@p2": {
    "result": "PASS",
+   "battle": "6e45677589f9cc07",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -11406,6 +12281,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706961122 p2@p1": {
    "result": "PASS",
+   "battle": "6e45677589f9cc07",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -11417,6 +12293,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706962613 both@spectator": {
    "result": "PASS",
+   "battle": "069cc73fc67dfe7a",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 24221661,
@@ -11434,6 +12311,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706962613 p1@p2": {
    "result": "PASS",
+   "battle": "069cc73fc67dfe7a",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 3189350,
@@ -11445,6 +12323,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706962613 p2@p1": {
    "result": "PASS",
+   "battle": "069cc73fc67dfe7a",
    "spreads": {
     "p2:0": 55836801,
     "p2:1": 136663185,
@@ -11456,6 +12335,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706966975 both@spectator": {
    "result": "PASS",
+   "battle": "c9b7b8f16c452e24",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 1278120,
@@ -11473,6 +12353,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706966975 p1@p2": {
    "result": "PASS",
+   "battle": "c9b7b8f16c452e24",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 116943,
@@ -11484,6 +12365,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706966975 p2@p1": {
    "result": "PASS",
+   "battle": "c9b7b8f16c452e24",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 22265329,
@@ -11495,6 +12377,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706968287 both@spectator": {
    "result": "PASS",
+   "battle": "347f07f66e4479f5",
    "spreads": {
     "p1:0": 68845119,
     "p1:1": 49887129,
@@ -11512,6 +12395,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706968287 p1@p2": {
    "result": "PASS",
+   "battle": "347f07f66e4479f5",
    "spreads": {
     "p1:0": 3752891,
     "p1:1": 713106,
@@ -11523,6 +12407,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706968287 p2@p1": {
    "result": "PASS",
+   "battle": "347f07f66e4479f5",
    "spreads": {
     "p2:0": 31674186,
     "p2:1": 31029493,
@@ -11534,6 +12419,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706983985 both@spectator": {
    "result": "PASS",
+   "battle": "7e54ef2869b28da6",
    "spreads": {
     "p1:0": 107727446,
     "p1:1": 67961593,
@@ -11551,6 +12437,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706983985 p1@p2": {
    "result": "PASS",
+   "battle": "7e54ef2869b28da6",
    "spreads": {
     "p1:0": 25891917,
     "p1:1": 15691537,
@@ -11562,6 +12449,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706983985 p2@p1": {
    "result": "PASS",
+   "battle": "7e54ef2869b28da6",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -11573,6 +12461,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706985744 both@spectator": {
    "result": "PASS",
+   "battle": "3fe412cb080d765e",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 740096,
@@ -11590,6 +12479,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706985744 p1@p2": {
    "result": "PASS",
+   "battle": "3fe412cb080d765e",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 11424,
@@ -11601,6 +12491,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706985744 p2@p1": {
    "result": "PASS",
+   "battle": "3fe412cb080d765e",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -11612,6 +12503,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706989992 both@spectator": {
    "result": "PASS",
+   "battle": "dc3c1470d0c83c9f",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -11629,6 +12521,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706989992 p1@p2": {
    "result": "PASS",
+   "battle": "dc3c1470d0c83c9f",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -11640,6 +12533,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706989992 p2@p1": {
    "result": "PASS",
+   "battle": "dc3c1470d0c83c9f",
    "spreads": {
     "p2:0": 28325243,
     "p2:1": 9286332,
@@ -11651,6 +12545,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706991186 both@spectator": {
    "result": "PASS",
+   "battle": "2c3c43ed1a3eb6b8",
    "spreads": {
     "p1:0": 55639922,
     "p1:1": 133830399,
@@ -11668,6 +12563,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706991186 p1@p2": {
    "result": "PASS",
+   "battle": "2c3c43ed1a3eb6b8",
    "spreads": {
     "p1:0": 33726949,
     "p1:1": 100335945,
@@ -11679,6 +12575,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706991186 p2@p1": {
    "result": "PASS",
+   "battle": "2c3c43ed1a3eb6b8",
    "spreads": {
     "p2:0": 8286943,
     "p2:1": 136663185,
@@ -11690,6 +12587,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706995939 both@spectator": {
    "result": "PASS",
+   "battle": "f17c5591434e17bc",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -11707,6 +12605,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706995939 p1@p2": {
    "result": "PASS",
+   "battle": "f17c5591434e17bc",
    "spreads": {
     "p1:0": 1353094,
     "p1:1": 136663185,
@@ -11718,6 +12617,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706995939 p2@p1": {
    "result": "PASS",
+   "battle": "f17c5591434e17bc",
    "spreads": {
     "p2:0": 1776795,
     "p2:1": 2798519,
@@ -11729,6 +12629,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706998556 both@spectator": {
    "result": "PASS",
+   "battle": "8756cb73abf61918",
    "spreads": {
     "p1:0": 58147429,
     "p1:1": 121895414,
@@ -11746,6 +12647,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706998556 p1@p2": {
    "result": "PASS",
+   "battle": "8756cb73abf61918",
    "spreads": {
     "p1:0": 6310724,
     "p1:1": 93013037,
@@ -11757,6 +12659,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706998556 p2@p1": {
    "result": "PASS",
+   "battle": "8756cb73abf61918",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 47925590,
@@ -11768,6 +12671,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706999080 both@spectator": {
    "result": "PASS",
+   "battle": "a548ceb2f4e8e100",
    "spreads": {
     "p1:0": 85329493,
     "p1:1": 29642584,
@@ -11785,6 +12689,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706999080 p1@p2": {
    "result": "PASS",
+   "battle": "a548ceb2f4e8e100",
    "spreads": {
     "p1:0": 85329493,
     "p1:1": 538923,
@@ -11796,6 +12701,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2706999080 p2@p1": {
    "result": "PASS",
+   "battle": "a548ceb2f4e8e100",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 257530,
@@ -11807,6 +12713,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707002371 both@spectator": {
    "result": "PASS",
+   "battle": "eefdf603bbfc3d75",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 69380524,
@@ -11824,6 +12731,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707002371 p1@p2": {
    "result": "PASS",
+   "battle": "eefdf603bbfc3d75",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 58504130,
@@ -11835,6 +12743,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707002371 p2@p1": {
    "result": "PASS",
+   "battle": "eefdf603bbfc3d75",
    "spreads": {
     "p2:0": 12868278,
     "p2:1": 136663185,
@@ -11846,6 +12755,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707003882 both@spectator": {
    "result": "PASS",
+   "battle": "4f35dca0f695a750",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 38568603,
@@ -11863,6 +12773,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707003882 p1@p2": {
    "result": "PASS",
+   "battle": "4f35dca0f695a750",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 9732920,
@@ -11874,6 +12785,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707003882 p2@p1": {
    "result": "PASS",
+   "battle": "4f35dca0f695a750",
    "spreads": {
     "p2:0": 13483438,
     "p2:1": 17773670,
@@ -11885,6 +12797,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707004844 both@spectator": {
    "result": "PASS",
+   "battle": "1ca5b7b674512da8",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 96159460,
@@ -11902,6 +12815,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707004844 p1@p2": {
    "result": "PASS",
+   "battle": "1ca5b7b674512da8",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 5397943,
@@ -11913,6 +12827,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707004844 p2@p1": {
    "result": "PASS",
+   "battle": "1ca5b7b674512da8",
    "spreads": {
     "p2:0": 921536,
     "p2:1": 15716414,
@@ -11924,6 +12839,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707006493 both@spectator": {
    "result": "PASS",
+   "battle": "07ff5ab7cbe6b931",
    "spreads": {
     "p1:0": 1855083,
     "p1:1": 5208376,
@@ -11941,6 +12857,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707006493 p1@p2": {
    "result": "PASS",
+   "battle": "07ff5ab7cbe6b931",
    "spreads": {
     "p1:0": 351,
     "p1:1": 94843,
@@ -11952,6 +12869,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707006493 p2@p1": {
    "result": "PASS",
+   "battle": "07ff5ab7cbe6b931",
    "spreads": {
     "p2:0": 3701349,
     "p2:1": 136663185,
@@ -11963,6 +12881,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707007934 both@spectator": {
    "result": "PASS",
+   "battle": "c210a2714798266c",
    "spreads": {
     "p1:0": 96623929,
     "p1:1": 111714259,
@@ -11980,6 +12899,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707007934 p1@p2": {
    "result": "PASS",
+   "battle": "c210a2714798266c",
    "spreads": {
     "p1:0": 9757746,
     "p1:1": 4871739,
@@ -11991,6 +12911,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707007934 p2@p1": {
    "result": "PASS",
+   "battle": "c210a2714798266c",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 74805302,
@@ -12002,6 +12923,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707009294 both@spectator": {
    "result": "PASS",
+   "battle": "94913d33bb080e29",
    "spreads": {
     "p1:0": 36772776,
     "p1:1": 29018307,
@@ -12019,6 +12941,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707009294 p1@p2": {
    "result": "PASS",
+   "battle": "94913d33bb080e29",
    "spreads": {
     "p1:0": 35492436,
     "p1:1": 6917168,
@@ -12030,6 +12953,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707009294 p2@p1": {
    "result": "PASS",
+   "battle": "94913d33bb080e29",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 7724420,
@@ -12041,6 +12965,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707012784 both@spectator": {
    "result": "PASS",
+   "battle": "8cbc76d7eb90dde1",
    "spreads": {
     "p1:0": 81183334,
     "p1:1": 5618990,
@@ -12058,6 +12983,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707012784 p1@p2": {
    "result": "PASS",
+   "battle": "8cbc76d7eb90dde1",
    "spreads": {
     "p1:0": 51675462,
     "p1:1": 2092860,
@@ -12069,6 +12995,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707012784 p2@p1": {
    "result": "PASS",
+   "battle": "8cbc76d7eb90dde1",
    "spreads": {
     "p2:0": 112995021,
     "p2:1": 136663185,
@@ -12080,6 +13007,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707014534 both@spectator": {
    "result": "PASS",
+   "battle": "3b1dcbc288c0c838",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -12097,6 +13025,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707014534 p1@p2": {
    "result": "PASS",
+   "battle": "3b1dcbc288c0c838",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -12108,6 +13037,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707014534 p2@p1": {
    "result": "PASS",
+   "battle": "3b1dcbc288c0c838",
    "spreads": {
     "p2:0": 100564058,
     "p2:1": 136663185,
@@ -12119,6 +13049,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707017405 both@spectator": {
    "result": "PASS",
+   "battle": "0dc3f9d637c346c1",
    "spreads": {
     "p1:0": 41981010,
     "p1:1": 8586806,
@@ -12136,6 +13067,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707017405 p1@p2": {
    "result": "PASS",
+   "battle": "0dc3f9d637c346c1",
    "spreads": {
     "p1:0": 22141334,
     "p1:1": 4054001,
@@ -12147,6 +13079,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707017405 p2@p1": {
    "result": "PASS",
+   "battle": "0dc3f9d637c346c1",
    "spreads": {
     "p2:0": 2198670,
     "p2:1": 136663185,
@@ -12158,6 +13091,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707018556 both@spectator": {
    "result": "PASS",
+   "battle": "83bebfeb21c8513f",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 74949157,
@@ -12175,6 +13109,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707018556 p1@p2": {
    "result": "PASS",
+   "battle": "83bebfeb21c8513f",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 10607467,
@@ -12186,6 +13121,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707018556 p2@p1": {
    "result": "PASS",
+   "battle": "83bebfeb21c8513f",
    "spreads": {
     "p2:0": 1677665,
     "p2:1": 136663185,
@@ -12197,6 +13133,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707018986 both@spectator": {
    "result": "PASS",
+   "battle": "9b09e74120fd2668",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 124592913,
@@ -12214,6 +13151,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707018986 p1@p2": {
    "result": "PASS",
+   "battle": "9b09e74120fd2668",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 179879,
@@ -12225,6 +13163,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707018986 p2@p1": {
    "result": "PASS",
+   "battle": "9b09e74120fd2668",
    "spreads": {
     "p2:0": 17320321,
     "p2:1": 136663185,
@@ -12236,6 +13175,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707020388 both@spectator": {
    "result": "PASS",
+   "battle": "59fbaff8ce9df594",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -12253,6 +13193,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707020388 p1@p2": {
    "result": "PASS",
+   "battle": "59fbaff8ce9df594",
    "spreads": {
     "p1:0": 91341993,
     "p1:1": 136663185,
@@ -12264,6 +13205,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707020388 p2@p1": {
    "result": "PASS",
+   "battle": "59fbaff8ce9df594",
    "spreads": {
     "p2:0": 85109073,
     "p2:1": 1253,
@@ -12275,6 +13217,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707023527 both@spectator": {
    "result": "PASS",
+   "battle": "5e7976424f0ef5c2",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 114401232,
@@ -12292,6 +13235,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707023527 p1@p2": {
    "result": "PASS",
+   "battle": "5e7976424f0ef5c2",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 2193396,
@@ -12303,6 +13247,7 @@
   },
   "mimic:gen9championsvgc2026regmcbo3-2707023527 p2@p1": {
    "result": "PASS",
+   "battle": "5e7976424f0ef5c2",
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 425742,
@@ -12314,6 +13259,7 @@
   },
   "recordings/local/branched/gen9championsvgc2026regmb-144.log.json both@spectator": {
    "result": "PASS",
+   "battle": "8df64b4bda3bad7d",
    "spreads": {
     "p1:0": 9806336,
     "p1:1": 32489880,
@@ -12331,6 +13277,7 @@
   },
   "recordings/local/branched/gen9championsvgc2026regmb-144.log.json p1@p2": {
    "result": "PASS",
+   "battle": "8df64b4bda3bad7d",
    "spreads": {
     "p1:0": 262390,
     "p1:1": 616695,
@@ -12342,6 +13289,7 @@
   },
   "recordings/local/branched/gen9championsvgc2026regmb-144.log.json p2@p1": {
    "result": "PASS",
+   "battle": "8df64b4bda3bad7d",
    "spreads": {
     "p2:0": 146664,
     "p2:1": 2220591,
@@ -12353,6 +13301,7 @@
   },
   "recordings/local/branched/gen9championsvgc2026regmb-145.log.json both@spectator": {
    "result": "PASS",
+   "battle": "eff6d4413c855782",
    "spreads": {
     "p1:0": 9806336,
     "p1:1": 32489880,
@@ -12370,6 +13319,7 @@
   },
   "recordings/local/branched/gen9championsvgc2026regmb-145.log.json p1@p2": {
    "result": "PASS",
+   "battle": "eff6d4413c855782",
    "spreads": {
     "p1:0": 262390,
     "p1:1": 616695,
@@ -12381,6 +13331,7 @@
   },
   "recordings/local/branched/gen9championsvgc2026regmb-145.log.json p2@p1": {
    "result": "PASS",
+   "battle": "eff6d4413c855782",
    "spreads": {
     "p2:0": 146664,
     "p2:1": 1896880,
@@ -12392,6 +13343,7 @@
   },
   "recordings/local/branched/gen9championsvgc2026regmb-199.log.json both@spectator": {
    "result": "PASS",
+   "battle": "10d96d4a54cd1b72",
    "spreads": {
     "p1:0": 67478269,
     "p1:1": 16137715,
@@ -12409,6 +13361,7 @@
   },
   "recordings/local/branched/gen9championsvgc2026regmb-199.log.json p1@p2": {
    "result": "PASS",
+   "battle": "10d96d4a54cd1b72",
    "spreads": {
     "p1:0": 46764755,
     "p1:1": 8755317,
@@ -12420,6 +13373,7 @@
   },
   "recordings/local/branched/gen9championsvgc2026regmb-199.log.json p2@p1": {
    "result": "PASS",
+   "battle": "10d96d4a54cd1b72",
    "spreads": {
     "p2:0": 86196,
     "p2:1": 136663185,
@@ -12431,6 +13385,7 @@
   },
   "recordings/local/branched/gen9championsvgc2026regmb-200.log.json both@spectator": {
    "result": "PASS",
+   "battle": "edde945ab6dc77dd",
    "spreads": {
     "p1:0": 72759166,
     "p1:1": 16451735,
@@ -12448,6 +13403,7 @@
   },
   "recordings/local/branched/gen9championsvgc2026regmb-200.log.json p1@p2": {
    "result": "PASS",
+   "battle": "edde945ab6dc77dd",
    "spreads": {
     "p1:0": 61529317,
     "p1:1": 9069337,
@@ -12459,6 +13415,7 @@
   },
   "recordings/local/branched/gen9championsvgc2026regmb-200.log.json p2@p1": {
    "result": "PASS",
+   "battle": "edde945ab6dc77dd",
    "spreads": {
     "p2:0": 105231,
     "p2:1": 136663185,
@@ -12470,6 +13427,7 @@
   },
   "recordings/local/branched/gen9championsvgc2026regmb-46.log.json both@spectator": {
    "result": "PASS",
+   "battle": "e0e39b17ae4d32d8",
    "spreads": {
     "p1:0": 9806336,
     "p1:1": 32489880,
@@ -12487,6 +13445,7 @@
   },
   "recordings/local/branched/gen9championsvgc2026regmb-46.log.json p1@p2": {
    "result": "PASS",
+   "battle": "e0e39b17ae4d32d8",
    "spreads": {
     "p1:0": 262390,
     "p1:1": 616695,
@@ -12498,6 +13457,7 @@
   },
   "recordings/local/branched/gen9championsvgc2026regmb-46.log.json p2@p1": {
    "result": "PASS",
+   "battle": "e0e39b17ae4d32d8",
    "spreads": {
     "p2:0": 146664,
     "p2:1": 2220591,
@@ -12509,6 +13469,7 @@
   },
   "recordings/local/branched/gen9championsvgc2026regmb-69.log.json both@spectator": {
    "result": "PASS",
+   "battle": "c30762197094bf9c",
    "spreads": {
     "p1:0": 9806336,
     "p1:1": 22575038,
@@ -12526,6 +13487,7 @@
   },
   "recordings/local/branched/gen9championsvgc2026regmb-69.log.json p1@p2": {
    "result": "PASS",
+   "battle": "c30762197094bf9c",
    "spreads": {
     "p1:0": 262390,
     "p1:1": 9883719,
@@ -12537,6 +13499,7 @@
   },
   "recordings/local/branched/gen9championsvgc2026regmb-69.log.json p2@p1": {
    "result": "PASS",
+   "battle": "c30762197094bf9c",
    "spreads": {
     "p2:0": 146664,
     "p2:1": 10085093,
@@ -12548,6 +13511,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-1.log.json both@spectator": {
    "result": "PASS",
+   "battle": "a02032ae361c9953",
    "spreads": {
     "p1:0": 78683862,
     "p1:1": 136663185,
@@ -12565,6 +13529,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-1.log.json p1@p2": {
    "result": "PASS",
+   "battle": "a02032ae361c9953",
    "spreads": {
     "p1:0": 12745734,
     "p1:1": 136663185,
@@ -12576,6 +13541,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-1.log.json p2@p1": {
    "result": "PASS",
+   "battle": "a02032ae361c9953",
    "spreads": {
     "p2:0": 111708,
     "p2:1": 233870,
@@ -12587,6 +13553,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-12.log.json both@spectator": {
    "result": "PASS",
+   "battle": "2d4a2c7bb2468357",
    "spreads": {
     "p1:0": 14157408,
     "p1:1": 108215352,
@@ -12604,6 +13571,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-12.log.json p1@p2": {
    "result": "PASS",
+   "battle": "2d4a2c7bb2468357",
    "spreads": {
     "p1:0": 250366,
     "p1:1": 84554997,
@@ -12615,6 +13583,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-12.log.json p2@p1": {
    "result": "PASS",
+   "battle": "2d4a2c7bb2468357",
    "spreads": {
     "p2:0": 81820980,
     "p2:1": 18448684,
@@ -12626,6 +13595,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-23.log.json both@spectator": {
    "result": "GAVE UP",
+   "battle": "e9b8c015b95f94f7",
    "spreads": {
     "p1:0": 29489680,
     "p1:1": 97888475,
@@ -12643,6 +13613,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-23.log.json p1@p2": {
    "result": "PASS",
+   "battle": "e9b8c015b95f94f7",
    "spreads": {
     "p1:0": 179970,
     "p1:1": 825280,
@@ -12654,6 +13625,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-23.log.json p2@p1": {
    "result": "PASS",
+   "battle": "e9b8c015b95f94f7",
    "spreads": {
     "p2:0": 139056,
     "p2:1": 4316466,
@@ -12665,6 +13637,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-281.log.json both@spectator": {
    "result": "PASS",
+   "battle": "5f1dde4b22ea9042",
    "spreads": {
     "p1:0": 49575225,
     "p1:1": 79206855,
@@ -12682,6 +13655,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-281.log.json p1@p2": {
    "result": "PASS",
+   "battle": "5f1dde4b22ea9042",
    "spreads": {
     "p1:0": 321093,
     "p1:1": 4114901,
@@ -12693,6 +13667,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-281.log.json p2@p1": {
    "result": "PASS",
+   "battle": "5f1dde4b22ea9042",
    "spreads": {
     "p2:0": 41385253,
     "p2:1": 514297,
@@ -12704,6 +13679,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-295.log.json both@spectator": {
    "result": "PASS",
+   "battle": "d2ed0ff356fdedff",
    "spreads": {
     "p1:0": 40057960,
     "p1:1": 82322912,
@@ -12721,6 +13697,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-295.log.json p1@p2": {
    "result": "PASS",
+   "battle": "d2ed0ff356fdedff",
    "spreads": {
     "p1:0": 5454,
     "p1:1": 362649,
@@ -12732,6 +13709,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-295.log.json p2@p1": {
    "result": "PASS",
+   "battle": "d2ed0ff356fdedff",
    "spreads": {
     "p2:0": 40485665,
     "p2:1": 432293,
@@ -12743,6 +13721,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-296.log.json both@spectator": {
    "result": "GAVE UP",
+   "battle": "051258bb7822434a",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 107962102,
@@ -12760,6 +13739,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-296.log.json p1@p2": {
    "result": "PASS",
+   "battle": "051258bb7822434a",
    "spreads": {
     "p1:0": 59995493,
     "p1:1": 14027965,
@@ -12771,6 +13751,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-296.log.json p2@p1": {
    "result": "PASS",
+   "battle": "051258bb7822434a",
    "spreads": {
     "p2:0": 2759538,
     "p2:1": 12278912,
@@ -12782,6 +13763,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-302.log.json both@spectator": {
    "result": "PASS",
+   "battle": "adae2d4586e980ee",
    "spreads": {
     "p1:0": 113660451,
     "p1:1": 117452549,
@@ -12799,6 +13781,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-302.log.json p1@p2": {
    "result": "PASS",
+   "battle": "adae2d4586e980ee",
    "spreads": {
     "p1:0": 46638303,
     "p1:1": 72670497,
@@ -12810,6 +13793,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-302.log.json p2@p1": {
    "result": "PASS",
+   "battle": "adae2d4586e980ee",
    "spreads": {
     "p2:0": 2812352,
     "p2:1": 709535,
@@ -12821,6 +13805,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-303.log.json both@spectator": {
    "result": "PASS",
+   "battle": "4e5a54fc46bcd3c6",
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 1435669,
@@ -12838,6 +13823,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-303.log.json p1@p2": {
    "result": "PASS",
+   "battle": "4e5a54fc46bcd3c6",
    "spreads": {
     "p1:0": 68030345,
     "p1:1": 1382126,
@@ -12849,6 +13835,7 @@
   },
   "recordings/local/probes/gen9championsvgc2026regmc-303.log.json p2@p1": {
    "result": "PASS",
+   "battle": "4e5a54fc46bcd3c6",
    "spreads": {
     "p2:0": 8957482,
     "p2:1": 11521687,
@@ -12860,6 +13847,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-100.log.json both@spectator": {
    "result": "PASS",
+   "battle": "e4c6a2d62f47a9f9",
    "spreads": {
     "p1:0": 2787768,
     "p1:1": 8606753,
@@ -12877,6 +13865,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-100.log.json p1@p2": {
    "result": "PASS",
+   "battle": "e4c6a2d62f47a9f9",
    "spreads": {
     "p1:0": 172,
     "p1:1": 5550,
@@ -12888,6 +13877,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-100.log.json p2@p1": {
    "result": "PASS",
+   "battle": "e4c6a2d62f47a9f9",
    "spreads": {
     "p2:0": 1656026,
     "p2:1": 75,
@@ -12899,6 +13889,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-111.log.json both@spectator": {
    "result": "PASS",
+   "battle": "4379ad41af7a011c",
    "spreads": {
     "p1:0": 3129962,
     "p1:1": 7963269,
@@ -12916,6 +13907,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-111.log.json p1@p2": {
    "result": "PASS",
+   "battle": "4379ad41af7a011c",
    "spreads": {
     "p1:0": 172,
     "p1:1": 684,
@@ -12927,6 +13919,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-111.log.json p2@p1": {
    "result": "PASS",
+   "battle": "4379ad41af7a011c",
    "spreads": {
     "p2:0": 1656026,
     "p2:1": 7697470,
@@ -12938,6 +13931,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-122.log.json both@spectator": {
    "result": "PASS",
+   "battle": "e9b2f0cf64d63fd9",
    "spreads": {
     "p1:0": 2787768,
     "p1:1": 8606753,
@@ -12955,6 +13949,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-122.log.json p1@p2": {
    "result": "PASS",
+   "battle": "e9b2f0cf64d63fd9",
    "spreads": {
     "p1:0": 172,
     "p1:1": 5550,
@@ -12966,6 +13961,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-122.log.json p2@p1": {
    "result": "PASS",
+   "battle": "e9b2f0cf64d63fd9",
    "spreads": {
     "p2:0": 1656026,
     "p2:1": 75,
@@ -12977,6 +13973,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-23.log.json both@spectator": {
    "result": "PASS",
+   "battle": "b196e6436bfaf208",
    "spreads": {
     "p1:0": 46854627,
     "p1:1": 136663185,
@@ -12994,6 +13991,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-23.log.json p1@p2": {
    "result": "PASS",
+   "battle": "b196e6436bfaf208",
    "spreads": {
     "p1:0": 46854627,
     "p1:1": 96019479,
@@ -13005,6 +14003,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-23.log.json p2@p1": {
    "result": "PASS",
+   "battle": "b196e6436bfaf208",
    "spreads": {
     "p2:0": 8983869,
     "p2:1": 80826384,
@@ -13016,6 +14015,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-24.log.json both@spectator": {
    "result": "PASS",
+   "battle": "4809242fee2f6ff6",
    "spreads": {
     "p1:0": 107962102,
     "p1:1": 136663185,
@@ -13033,6 +14033,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-24.log.json p1@p2": {
    "result": "PASS",
+   "battle": "4809242fee2f6ff6",
    "spreads": {
     "p1:0": 107962102,
     "p1:1": 136663185,
@@ -13044,6 +14045,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-24.log.json p2@p1": {
    "result": "PASS",
+   "battle": "4809242fee2f6ff6",
    "spreads": {
     "p2:0": 8983869,
     "p2:1": 80826384,
@@ -13055,6 +14057,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-25.log.json both@spectator": {
    "result": "PASS",
+   "battle": "7b0b2e1f9677cfde",
    "spreads": {
     "p1:0": 40636196,
     "p1:1": 74398,
@@ -13072,6 +14075,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-25.log.json p1@p2": {
    "result": "PASS",
+   "battle": "7b0b2e1f9677cfde",
    "spreads": {
     "p1:0": 817819,
     "p1:1": 31857,
@@ -13083,6 +14087,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-25.log.json p2@p1": {
    "result": "PASS",
+   "battle": "7b0b2e1f9677cfde",
    "spreads": {
     "p2:0": 935467,
     "p2:1": 6388735,
@@ -13094,6 +14099,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-26.log.json both@spectator": {
    "result": "PASS",
+   "battle": "03c78a64bba6709e",
    "spreads": {
     "p1:0": 107962102,
     "p1:1": 136663185,
@@ -13111,6 +14117,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-26.log.json p1@p2": {
    "result": "PASS",
+   "battle": "03c78a64bba6709e",
    "spreads": {
     "p1:0": 107962102,
     "p1:1": 136663185,
@@ -13122,6 +14129,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-26.log.json p2@p1": {
    "result": "PASS",
+   "battle": "03c78a64bba6709e",
    "spreads": {
     "p2:0": 8983869,
     "p2:1": 80826384,
@@ -13133,6 +14141,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-34.log.json both@spectator": {
    "result": "PASS",
+   "battle": "3d5a925f3caf6dca",
    "spreads": {
     "p1:0": 9806336,
     "p1:1": 13796987,
@@ -13150,6 +14159,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-34.log.json p1@p2": {
    "result": "PASS",
+   "battle": "3d5a925f3caf6dca",
    "spreads": {
     "p1:0": 262390,
     "p1:1": 114717,
@@ -13161,6 +14171,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-34.log.json p2@p1": {
    "result": "PASS",
+   "battle": "3d5a925f3caf6dca",
    "spreads": {
     "p2:0": 146664,
     "p2:1": 289578,
@@ -13172,6 +14183,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-48.log.json both@spectator": {
    "result": "PASS",
+   "battle": "72e45154eb558dca",
    "spreads": {
     "p1:0": 107962102,
     "p1:1": 136663185,
@@ -13189,6 +14201,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-48.log.json p1@p2": {
    "result": "PASS",
+   "battle": "72e45154eb558dca",
    "spreads": {
     "p1:0": 107962102,
     "p1:1": 136663185,
@@ -13200,6 +14213,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-48.log.json p2@p1": {
    "result": "PASS",
+   "battle": "72e45154eb558dca",
    "spreads": {
     "p2:0": 8983869,
     "p2:1": 80826384,
@@ -13211,6 +14225,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-70.log.json both@spectator": {
    "result": "PASS",
+   "battle": "76b224d37c7836b9",
    "spreads": {
     "p1:0": 107962102,
     "p1:1": 136663185,
@@ -13228,6 +14243,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-70.log.json p1@p2": {
    "result": "PASS",
+   "battle": "76b224d37c7836b9",
    "spreads": {
     "p1:0": 107962102,
     "p1:1": 136663185,
@@ -13239,6 +14255,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-70.log.json p2@p1": {
    "result": "PASS",
+   "battle": "76b224d37c7836b9",
    "spreads": {
     "p2:0": 8983869,
     "p2:1": 80826384,
@@ -13250,6 +14267,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-71.log.json both@spectator": {
    "result": "PASS",
+   "battle": "a6a05512881ecb1d",
    "spreads": {
     "p1:0": 107962102,
     "p1:1": 136663185,
@@ -13267,6 +14285,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-71.log.json p1@p2": {
    "result": "PASS",
+   "battle": "a6a05512881ecb1d",
    "spreads": {
     "p1:0": 107962102,
     "p1:1": 136663185,
@@ -13278,6 +14297,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-71.log.json p2@p1": {
    "result": "PASS",
+   "battle": "a6a05512881ecb1d",
    "spreads": {
     "p2:0": 8983869,
     "p2:1": 80826384,
@@ -13289,6 +14309,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-75.log.json both@spectator": {
    "result": "PASS",
+   "battle": "613bc9b94f0d757c",
    "spreads": {
     "p1:0": 107962102,
     "p1:1": 136663185,
@@ -13306,6 +14327,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-75.log.json p1@p2": {
    "result": "PASS",
+   "battle": "613bc9b94f0d757c",
    "spreads": {
     "p1:0": 107962102,
     "p1:1": 136663185,
@@ -13317,6 +14339,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-75.log.json p2@p1": {
    "result": "PASS",
+   "battle": "613bc9b94f0d757c",
    "spreads": {
     "p2:0": 8983869,
     "p2:1": 80826384,
@@ -13328,6 +14351,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-76.log.json both@spectator": {
    "result": "PASS",
+   "battle": "e19a88546c2f704d",
    "spreads": {
     "p1:0": 32056834,
     "p1:1": 515418,
@@ -13345,6 +14369,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-76.log.json p1@p2": {
    "result": "PASS",
+   "battle": "e19a88546c2f704d",
    "spreads": {
     "p1:0": 8600727,
     "p1:1": 40481,
@@ -13356,6 +14381,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-76.log.json p2@p1": {
    "result": "PASS",
+   "battle": "e19a88546c2f704d",
    "spreads": {
     "p2:0": 8983869,
     "p2:1": 80826384,
@@ -13367,6 +14393,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-78.log.json both@spectator": {
    "result": "PASS",
+   "battle": "11710e232b86566a",
    "spreads": {
     "p1:0": 107962102,
     "p1:1": 136663185,
@@ -13384,6 +14411,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-78.log.json p1@p2": {
    "result": "PASS",
+   "battle": "11710e232b86566a",
    "spreads": {
     "p1:0": 107962102,
     "p1:1": 136663185,
@@ -13395,6 +14423,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-78.log.json p2@p1": {
    "result": "PASS",
+   "battle": "11710e232b86566a",
    "spreads": {
     "p2:0": 8983869,
     "p2:1": 80826384,
@@ -13406,6 +14435,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-79.log.json both@spectator": {
    "result": "PASS",
+   "battle": "43c752bdf2952b3a",
    "spreads": {
     "p1:0": 107962102,
     "p1:1": 136663185,
@@ -13423,6 +14453,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-79.log.json p1@p2": {
    "result": "PASS",
+   "battle": "43c752bdf2952b3a",
    "spreads": {
     "p1:0": 107962102,
     "p1:1": 136663185,
@@ -13434,6 +14465,7 @@
   },
   "recordings/local/scripted/gen9championsvgc2026regmb-79.log.json p2@p1": {
    "result": "PASS",
+   "battle": "43c752bdf2952b3a",
    "spreads": {
     "p2:0": 8983869,
     "p2:1": 80826384,
