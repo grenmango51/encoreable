@@ -216,7 +216,7 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
     ctx.finish();
     if (exact) {
       const found = ctx.paths(pre);
-      ctx.exact = found && exactTurns(pre, found.tokens, prefix);
+      ctx.exact = found && exactTurns(pre, found.tokens, prefix, ctx.state.coupled);
       ctx.rolls = found?.rolls || null;
     }
     const clock = l => (String(l).startsWith('|t:|') ? '|t:|' : l);
@@ -226,14 +226,16 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
     stream.destroy?.();
     await Promise.race([drain, Promise.resolve()]);
   }
-  return { ...ctx.result(), exact: ctx.exact || null, rolls: ctx.rolls || null };
+  return { ...ctx.result(), exact: ctx.exact || null, rolls: ctx.rolls || null, coupled: ctx.state.coupled };
 }
 
 /**
  * The verified turns of a scaffold as the omniscient channel shows them, with
- * every hidden HP replaced by the exact value an evidence path chose.
+ * every hidden HP replaced by the exact value an evidence path chose - those
+ * before turn `coupled`, where the paths chosen one Pokemon at a time can be
+ * no path of the two together.
  */
-function exactTurns(raw, tokens, prefix) {
+function exactTurns(raw, tokens, prefix, coupled = Infinity) {
   const view = channelView(raw, -1);
   const turns = new Map();
   let k = 0;
@@ -260,6 +262,7 @@ function exactTurns(raw, tokens, prefix) {
       if (cut && tokens.has(entry.at)) lines.push(withHp(entry.line, tokens.get(entry.at)));
       break;
     }
+    if (k >= coupled) break;
     lines.push(withHp(entry.line, tokens.get(entry.at)));
     if (/^\|turn\|\d+/.test(entry.line)) {
       turns.set(k, { lines, partial: false });
@@ -267,7 +270,7 @@ function exactTurns(raw, tokens, prefix) {
       lines = [];
     }
   }
-  if (prefix.turn !== null && lines.length) turns.set(prefix.turn, { lines, partial: true });
+  if (prefix.turn !== null && prefix.turn < coupled && lines.length) turns.set(prefix.turn, { lines, partial: true });
   return turns;
 }
 
@@ -360,7 +363,9 @@ function snapshot(battle, extra = []) {
 function attachInference(battle, { view, prefix, channel, knowledge, cache, record }) {
   const st = install(battle);
   const actions = battle.actions;
-  const state = { ended: false, dry: 0, hold: 0 };
+  // `coupled`: the first turn with a Pain Split between two Pokemon both shown
+  // as percentages (`jointPainSplit`).
+  const state = { ended: false, dry: 0, hold: 0, coupled: Infinity };
   const events = [];
   const pendingHits = new Map();
   // Hits on a fresh Substitute, until the line says whether it broke.
@@ -2732,6 +2737,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       for (const c of R.pending.splice(0)) apply(R, c, null);
     }
     const ord = painOrdinal++;
+    // Each keeps the HPs some pair leaves it on, not which pair: one path
+    // through each is no path through both, so no exact turn is handed on from
+    // here (`exactTurns`).
+    state.coupled = Math.min(state.coupled, battle.turn);
     const ga = [...groupsOf(A, null)];
     const gb = [...groupsOf(B, null)];
     const what = `Pain Split between ${named(A)} and ${named(B)}`;
