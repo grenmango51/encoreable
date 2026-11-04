@@ -72,8 +72,9 @@ export function battleLines(log) {
  * `name`, `moves` as ids, `maxhp` and whether it has `illusion`, and whether
  * the log shows that side's HP `exact`), a disguise no hit broke is seen
  * through too, from its switch-in to its next one: when the Pokemon shown uses
- * a move its sheet does not have and the Illusion user's does, or shows the
- * Illusion user's exact max HP and not its own. `forced` names switch-ins, by
+ * a move its sheet does not have and the Illusion user's does, or shows an
+ * exact max HP the Illusion user can have and no spread of its own gives
+ * (`hpSpan`, every max HP its Stat Points allow, when the sheet has it). `forced` names switch-ins, by
  * line index, to read as the Illusion user without that proof - a guess the
  * rebuild tests by whether the battle then plays out as the log shows.
  */
@@ -133,7 +134,7 @@ export function illusionStays(lines, sheets) {
  * `{ at, turn, side, name }`. A stay is the Pokemon shown when it took a hit
  * from another Pokemon's move and stood, with no `|replace|` after it - a hit
  * always breaks Illusion - used a move only its own sheet has, showed its own
- * exact max HP and not the Illusion user's, or came in while the Illusion user
+ * exact max HP and one no spread of the Illusion user gives, or came in while the Illusion user
  * was seen elsewhere or had fainted. None is the Illusion user once as many
  * other Pokemon have been shown on its side as the side brought: it copies only
  * a Pokemon brought with it, so it was not brought. One read as the Illusion
@@ -165,7 +166,10 @@ export function unsettledStays(lines, sheets) {
       const who = /^(p[1-4])[a-d]: (.+)$/.exec(line.split('|')[2] || '');
       return !!who && who[1] === side && who[2] === zoroark.name;
     };
-    let settled = !!(sheets[side].exact && hp && Number(hp[1]) === shown.maxhp && shown.maxhp !== zoroark.maxhp)
+    // A max HP settles it only when no spread of the Illusion user gives it:
+    // the sheets carry guesses, and the guess is not the Pokemon.
+    const zoroarkCould = n => (zoroark.hpSpan ? n >= zoroark.hpSpan[0] && n <= zoroark.hpSpan[1] : n === zoroark.maxhp);
+    let settled = !!(sheets[side].exact && hp && Number(hp[1]) === shown.maxhp && !zoroarkCould(Number(hp[1])))
       || seen.slice(0, stay.at).some(line => line.startsWith('|faint|') && zoroarkIs(line));
     let mover = null;
     for (let j = stay.at + 1; j < seen.length && !settled; j++) {
@@ -224,9 +228,12 @@ function unmaskBySheet(out, side, sheet, disguises, forced) {
       if (kind === 'replace' || name === zoroark.name || !shown) continue;
       const hp = /^\d+\/(\d+)/.exec(parts[4] || '');
       const max = hp ? Number(hp[1]) : null;
+      // A max HP proves the disguise only when no spread of the Pokemon shown
+      // gives it: the sheets carry guesses, and the guess is not the Pokemon.
+      const could = (who, n) => (who.hpSpan ? n >= who.hpSpan[0] && n <= who.hpSpan[1] : n === who.maxhp);
       stays.set(slot, {
         at: i, name, spoiled: false,
-        proved: !!forced?.has(i) || !!(sheet.exact && max && max !== shown.maxhp && max === zoroark.maxhp),
+        proved: !!forced?.has(i) || !!(sheet.exact && max && !could(shown, max) && could(zoroark, max)),
       });
       continue;
     }
