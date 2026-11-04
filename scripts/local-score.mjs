@@ -289,11 +289,12 @@ function casesOf({ tier, only, views, mimicDir = null }) {
     if (/^fuzz:\d+$/.test(id)) battles.push({ id });
     else throw new Error(`${id} is not in the benchmark list`);
   }
-  // The fast tier: every battle from both players' views, and the quick
-  // slice's from the spectator's too - the spectator's cases are nine tenths
-  // of the full tier's work, and most of what a change breaks shows from a
-  // player's view.
-  const shown = (b, view) => tier !== 'fast' || only || b.quick || VIEWS[view].infer.length === 1;
+  // The fast tier: every battle from both players' views only. The
+  // spectator's cases are nine tenths of the full tier's work and its longest
+  // ones take hours, while a player's view takes minutes and shows most of
+  // what a change breaks; the full tier still grades everything before a
+  // merge.
+  const shown = (b, view) => tier !== 'fast' || only || VIEWS[view].infer.length === 1;
   return battles.flatMap(b => views.filter(view => shown(b, view)).map(view => ({ id: b.id, view })));
 }
 
