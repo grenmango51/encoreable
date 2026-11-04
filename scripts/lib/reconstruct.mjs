@@ -1165,7 +1165,7 @@ function restoreSnapshot(snap, subs) {
  *
  * `tally.plays` counts the run, on the thread the search runs on.
  */
-async function playThrough({ header, segments, plans, reseeds, variants, radices = null, subs, channel, exact, state0, dex, stopAt, tolerant, steer = null, snaps = null, from = null, tally = null }) {
+async function playThrough({ header, segments, plans, reseeds, variants, radices = null, maxVariants = Infinity, subs, channel, exact, state0, dex, stopAt, tolerant, steer = null, snaps = null, from = null, tally = null }) {
   if (tally) tally.plays++;
   const stream = new BattleStream({ keepAlive: true });
   const sink = [];
@@ -1245,12 +1245,13 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
 
     // `variant` is a mixed-radix counter over every undetermined target in the
     // turn: each unknown consumes one digit, so incrementing it walks the whole
-    // space of substitutions without enumerating it. The choices the replay
-    // never showed - a fainted, flinched or fully paralysed Pokemon's move -
-    // take the low digits, so they are walked first: a target the replay
-    // shows where a move landed is a good guess, and an unseen move is none.
-    // Their radix is the one the turn's first play found (`radices`), the
-    // same in every probe of the rebuild.
+    // space of substitutions without enumerating it. On a turn with more
+    // variants than the search walks, the choices the replay never showed - a
+    // fainted, flinched or fully paralysed Pokemon's move - take the low
+    // digits, so they are walked first: a target the replay shows where a move
+    // landed is a good guess, and an unseen move is none. Their radix is the
+    // one the turn's first play found (`radices`), the same in every probe of
+    // the rebuild.
     const variant = variants?.[k] || 0;
     const unseen = radices?.[k] || 0;
     let low = unseen ? variant % unseen : 0;
@@ -1322,7 +1323,9 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
     }
 
     widths[k] = state.variantWidth;
-    if (radices && !radices[k] && state.unseenWidth > 1) radices[k] = state.unseenWidth;
+    // Only a turn with more variants than the search walks needs the unseen
+    // choices first; every variant of any other turn is walked anyway.
+    if (radices && !radices[k] && state.unseenWidth > 1 && state.variantWidth > maxVariants) radices[k] = state.unseenWidth;
     if (state.invisible && !hidden.includes(k)) hidden.push(k);
     const slice = battle.log.slice(logAt);
     logAt = battle.log.length;
@@ -2247,7 +2250,7 @@ async function reconstructOnce({
   }
   const common = {
     header, segments, plans, reseeds, variants, channel, exact, state0, dex, formatid, deadline,
-    id: ++contextCount, snaps: new Map(), pool: probePool(threads, formatid), tally: { plays: 0 }, radices: {},
+    id: ++contextCount, snaps: new Map(), pool: probePool(threads, formatid), tally: { plays: 0 }, radices: {}, maxVariants,
     // Every limit that cut a search short somewhere in this rebuild, even one
     // that later got past the turn some other way (`report.limits`).
     limits: new Set(),
