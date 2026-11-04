@@ -725,6 +725,8 @@ export async function inferSpreads({
         && who(l) && who(l) !== who(diff.actual) && who(l) !== who(diff.expected));
       const spe = id => dims.find(d => d.id === id && d.stat === 'spe');
       const da = spe(actor(diff.expected));
+      // The surviving value nearest a fraction of the way from the guess.
+      const toward = (d, v, f) => d.alive.reduce((x, y) => (Math.abs(y - (d.now + f * (v - d.now))) < Math.abs(x - (d.now + f * (v - d.now))) ? y : x));
       for (const db of [spe(actor(diff.actual)), next ? spe(actor(next)) : null]) {
         if (!da || !db || da.id === db.id || !da.alive.length || !db.alive.length) continue;
         const top = d => d.alive[d.alive.length - 1];
@@ -733,6 +735,22 @@ export async function inferSpreads({
           const changes = [{ ...da, value: va }, { ...db, value: vb }];
           const got = await probe(changes);
           if (got?.b) judge(changes, got);
+          // Pushed apart that far, they break an earlier turn's order, which
+          // the guesses kept: the two Speeds the line needs lie between, and
+          // are halved for, as one stat's are below.
+          if (!got?.b || found || ahead || sideOf(got) !== 'early') continue;
+          let [lo, hi] = [0, 1];
+          for (let k = 0; k < 3 && !found && !ahead && affordable(); k++) {
+            const f = (lo + hi) / 2;
+            const halves = [{ ...da, value: toward(da, va, f) }, { ...db, value: toward(db, vb, f) }];
+            const half = await probe(halves);
+            if (!half?.b) break;
+            judge(halves, half);
+            const side = sideOf(half);
+            if (side === 'early') hi = f;
+            else if (side === 'same') lo = f;
+            else break;
+          }
         }
       }
     }
