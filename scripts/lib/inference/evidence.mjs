@@ -51,9 +51,41 @@ const HP_BITS = 4096;
 const WORD = 2 ** 32;
 const ALL_VALUES = 2 * WORD - 1;
 const maskBit = v => (v < 32 ? (1 << v) >>> 0 : WORD);
-const maskHas = (m, v) => (v < 32 ? ((m % WORD) >>> v) & 1 : m >= WORD ? 1 : 0) === 1;
-const maskOr = (a, b) => (((a % WORD) | (b % WORD)) >>> 0) + (a >= WORD || b >= WORD ? WORD : 0);
-const maskAnd = (a, b) => (((a % WORD) & (b % WORD)) >>> 0) + (a >= WORD && b >= WORD ? WORD : 0);
+// The low 32 bits by subtraction: a mask is below 2^33, and `%` on a number
+// past 2^31 is a slow floating-point remainder in the hottest loop there is.
+const low = m => (m >= WORD ? m - WORD : m);
+const maskHas = (m, v) => (v < 32 ? (low(m) >>> v) & 1 : m >= WORD ? 1 : 0) === 1;
+const maskOr = (a, b) => ((low(a) | low(b)) >>> 0) + (a >= WORD || b >= WORD ? WORD : 0);
+const maskAnd = (a, b) => ((low(a) & low(b)) >>> 0) + (a >= WORD && b >= WORD ? WORD : 0);
+
+/**
+ * The OR of the masks of every HP state in `later` a band change reaches from
+ * HP `h`, as a function of `h`: from 0 to `h` going down, from `h` to `M` going
+ * up, anywhere otherwise, each within what the display allows. One bound is
+ * fixed, so running ORs from it over the sorted states answer every `h`.
+ */
+function bandSpan(later, dir, M, allow) {
+  const xs = [...later.keys()].sort((a, b) => a - b);
+  const loFixed = allow ? Math.max(0, allow[0]) : 0;
+  const hiFixed = allow ? Math.min(M, allow[1]) : M;
+  // The first index whose state is at least `v`, and the last at most `v`.
+  const from = v => { let a = 0, b = xs.length; while (a < b) { const c = (a + b) >> 1; if (xs[c] < v) a = c + 1; else b = c; } return a; };
+  const upTo = v => from(v + 1) - 1;
+  const run = new Array(xs.length).fill(0);
+  if (dir === 'down') {
+    const a = from(loFixed);
+    for (let j = a, m = 0; j < xs.length; j++) run[j] = m = maskOr(m, later.get(xs[j]));
+    return h => { const b = upTo(allow ? Math.min(h, allow[1]) : h); return b >= a ? run[b] : 0; };
+  }
+  if (dir === 'up') {
+    const b = upTo(hiFixed);
+    for (let j = b, m = 0; j >= 0; j--) run[j] = m = maskOr(m, later.get(xs[j]));
+    return h => { const a = from(allow ? Math.max(h, allow[0]) : h); return a <= b ? run[a] : 0; };
+  }
+  let all = 0;
+  for (let j = from(loFixed); j <= upTo(hiFixed); j++) all = maskOr(all, later.get(xs[j]));
+  return () => all;
+}
 const maskOf = flags => { let m = 0; for (let v = 0; v < flags.length; v++) if (flags[v]) m = maskOr(m, maskBit(v)); return m; };
 const tieMask = (tie, k) => tie[2 * k] + (tie[2 * k + 1] & 1) * WORD;
 const maskValues = m => { const out = []; for (let v = 0; v < SPAN; v++) if (maskHas(m, v)) out.push(v); return out; };
@@ -3385,19 +3417,22 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           const fatalOf = survived ? change.lethal : null;
           const keep = new Map();
           const vs = byKey ? new Set() : null;
+          // A band reaches every later state between two bounds, one of them
+          // the HP it starts from: the states sorted, with running ORs from
+          // the fixed bound, answer each start in a binary search.
+          const span = change.band ? bandSpan(later, change.band, M, allow) : null;
           for (const h of hs) {
             let m = 0;
             if (change.same) {
               if (later.has(h) && dimAllowed(change, k) && (!change.allowSet || change.allowSet.has(M * HP_BITS + h)) && (!change.allow || change.allow(M, h))) m = later.get(h);
-            } else if (change.band) {
-              let lo = change.band === 'up' ? h : 0;
-              let hi = change.band === 'down' ? h : M;
-              if (allow) { lo = Math.max(lo, allow[0]); hi = Math.min(hi, allow[1]); }
-              for (const [x, mx] of later) if (x >= lo && x <= hi) m = maskOr(m, mx);
+            } else if (span) {
+              m = span(h);
             } else {
               const g = (hp * SPAN + d) * HP_BITS + h;
               const fatal = fatalOf?.get(g);
-              for (const [j, packed] of (change.table.get(g) || []).entries()) {
+              const packs = change.table.get(g) || [];
+              for (let j = 0; j < packs.length; j++) {
+                const packed = packs[j];
                 if (fatal && !fatal[j]) continue;
                 const h2 = fatal ? 1 : packed % HP_BITS;
                 const mx = later.get(h2);
