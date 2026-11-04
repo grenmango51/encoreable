@@ -1268,8 +1268,8 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
       nextVariantDigit(radix, hidden = false) {
         if (radix <= 1) return 0;
         this.variantWidth *= radix;
-        if (hidden) {
-          this.unseenWidth *= radix;
+        if (hidden) this.unseenWidth *= radix;
+        if (hidden && unseen) {
           const digit = low % radix;
           low = Math.floor(low / radix);
           return digit;
