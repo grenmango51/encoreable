@@ -56,8 +56,8 @@ planned).
 - A change to inference, reconstruction or the order reader: `npm run score` (the quick slice) and
   `npm run catalog -- --regress` (15 entries, about 3 minutes on 8 threads) pass while you work.
   Before merging, the full tier passes on the Aalto workstations (`score.sh`, in the compute
-  guide); `score.sh <ref> fast` is the check between, and several changes share one full run. A score run fails on any removed possibility, any crash, any case whose result got
-  worse, any Pokémon left with more spreads than the baseline
+  guide); `score.sh <ref> fast` is the check between, and several changes share one full run.
+  A score run fails on any removed possibility, any crash, any case whose result got worse, any Pokémon left with more spreads than the baseline
   (`scripts/fixtures/score-baseline.json`), and in a full run any baseline case missing or
   playing another battle. `--accept` refuses crashes, missing shares and uncommitted checkouts.
   When a full run improves on it, or is worse on purpose (a soundness fix keeps more spreads),
