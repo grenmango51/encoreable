@@ -2312,7 +2312,10 @@ async function reconstructOnce({
     onProgress(`turn ${t}: settling draws - observed ${run.diffs[0]?.expected ?? '(nothing)'}`);
 
     let solved = false;
-    const walked = [{ variant: variants[t], choices: choicesOn(run, t), score: scoreOf(run, t), searched: null }];
+    // The hidden choices the turn came with: not always the first - a turn
+    // searched again after a carried choice moved keeps the one it held.
+    const entering = variants[t] || 0;
+    const walked = [{ variant: entering, choices: choicesOn(run, t), score: scoreOf(run, t), searched: null }];
     variantsAt.set(t, walked);
 
     // A turn that cannot be finished is still worth what it got through, and
@@ -2335,7 +2338,7 @@ async function reconstructOnce({
       forcedDraws += got.forced;
       solved = got.solved;
       walked[0].searched = got.score;
-      if (!solved) consider(got.score, 0, got.tried);
+      if (!solved) consider(got.score, entering, got.tried);
     }
 
     // Then the choices this turn left invisible. A mon that fainted before
@@ -2347,7 +2350,8 @@ async function reconstructOnce({
     const allVariants = run.widths?.[t] || 1;
     const width = Math.min(allVariants, maxVariants);
     const ranked = [];
-    for (let v = 1; v < width && !solved; v++) {
+    for (let v = 0; v < width && !solved; v++) {
+      if (v === entering) continue;
       variants[t] = v;
       forget(t);
       const probe = await runTo(common, subs, t);
@@ -2367,7 +2371,7 @@ async function reconstructOnce({
     // as soon as the choice the turn came with has been searched, before the
     // budget goes on choices that only tied under the dice as drawn, and again
     // at the end if a later search got further.
-    const searchedVariants = new Set([0]);
+    const searchedVariants = new Set([entering]);
     let rewalkedFrom = null;
     const rewalk = async () => {
       if (solved || !partial || width <= 1 || partial === rewalkedFrom) return;
