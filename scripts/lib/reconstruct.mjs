@@ -481,7 +481,7 @@ function choiceFor(side, plan, state, notes) {
         }
       }
       if (!options.length) return 'pass';
-      return options[state.nextVariantDigit(options.length)];
+      return options[state.nextVariantDigit(options.length, true)];
     }
 
     const at = slot.moves.findIndex(m => m.id === action.moveid);
@@ -1165,7 +1165,7 @@ function restoreSnapshot(snap, subs) {
  *
  * `tally.plays` counts the run, on the thread the search runs on.
  */
-async function playThrough({ header, segments, plans, reseeds, variants, subs, channel, exact, state0, dex, stopAt, tolerant, steer = null, snaps = null, from = null, tally = null }) {
+async function playThrough({ header, segments, plans, reseeds, variants, radices = null, maxVariants = Infinity, subs, channel, exact, state0, dex, stopAt, tolerant, steer = null, snaps = null, from = null, tally = null }) {
   if (tally) tally.plays++;
   const stream = new BattleStream({ keepAlive: true });
   const sink = [];
@@ -1245,8 +1245,17 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
 
     // `variant` is a mixed-radix counter over every undetermined target in the
     // turn: each unknown consumes one digit, so incrementing it walks the whole
-    // space of substitutions without enumerating it.
-    let variant = variants?.[k] || 0;
+    // space of substitutions without enumerating it. On a turn with more
+    // variants than the search walks, the choices the replay never showed - a
+    // fainted, flinched or fully paralysed Pokemon's move - take the low
+    // digits, so they are walked first: a target the replay shows where a move
+    // landed is a good guess, and an unseen move is none. Their radix is the
+    // one the turn's first play found (`radices`), the same in every probe of
+    // the rebuild.
+    const variant = variants?.[k] || 0;
+    const unseen = radices?.[k] || 0;
+    let low = unseen ? variant % unseen : 0;
+    let high = unseen ? Math.floor(variant / unseen) : variant;
     const state = {
       reveal: state0.reveal,
       sizes: state0.sizes,
@@ -1255,11 +1264,18 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
       unsatisfied: null,
       selfSwitchLast: selfSwitchLast(dex),
       variantWidth: 1,
-      nextVariantDigit(radix) {
+      unseenWidth: 1,
+      nextVariantDigit(radix, hidden = false) {
         if (radix <= 1) return 0;
-        const digit = variant % radix;
-        variant = Math.floor(variant / radix);
         this.variantWidth *= radix;
+        if (hidden) {
+          this.unseenWidth *= radix;
+          const digit = low % radix;
+          low = Math.floor(low / radix);
+          return digit;
+        }
+        const digit = high % radix;
+        high = Math.floor(high / radix);
         return digit;
       },
     };
@@ -1307,6 +1323,9 @@ async function playThrough({ header, segments, plans, reseeds, variants, subs, c
     }
 
     widths[k] = state.variantWidth;
+    // Only a turn with more variants than the search walks needs the unseen
+    // choices first; every variant of any other turn is walked anyway.
+    if (radices && !radices[k] && state.unseenWidth > 1 && state.variantWidth > maxVariants) radices[k] = state.unseenWidth;
     if (state.invisible && !hidden.includes(k)) hidden.push(k);
     const slice = battle.log.slice(logAt);
     logAt = battle.log.length;
@@ -1419,7 +1438,7 @@ function createPool(size, formatid) {
     for (const slot of slots) {
       if (!slot.ready || slot.busy || slot.dead || !waiting.length) continue;
       const job = waiting.shift();
-      const msg = { job: ++jobs, ctx: { id: job.common.id }, snap: { id: job.snap.id }, subs: job.subs, variants: job.variants, t: job.t };
+      const msg = { job: ++jobs, ctx: { id: job.common.id }, snap: { id: job.snap.id }, subs: job.subs, variants: job.variants, radices: job.radices, t: job.t };
       const inUse = [`c${job.common.id}`, `s${job.snap.id}`];
       if (!slot.held.includes(inUse[0])) {
         msg.ctx.payload = contextPayload(job.common);
@@ -1464,7 +1483,7 @@ function createPool(size, formatid) {
   return {
     size,
     submit(common, snap, subs, t) {
-      const job = { common, snap, subs, variants: common.variants.slice(), t, state: 'queued' };
+      const job = { common, snap, subs, variants: common.variants.slice(), radices: { ...common.radices }, t, state: 'queued' };
       job.promise = new Promise((resolve, reject) => { job.resolve = resolve; job.reject = reject; });
       job.promise.catch(() => {});
       waiting.push(job);
@@ -1494,7 +1513,7 @@ function serveProbes() {
   const order = [];
   const dexes = new Map();
   new Battle({ formatid: workerData.formatid });
-  parentPort.on('message', async ({ job, ctx, snap, subs, variants, t }) => {
+  parentPort.on('message', async ({ job, ctx, snap, subs, variants, radices, t }) => {
     try {
       const inUse = [`c${ctx.id}`, `s${snap.id}`];
       for (const [key, payload] of [[inUse[0], ctx.payload], [inUse[1], snap.payload]]) {
@@ -1505,7 +1524,7 @@ function serveProbes() {
       const common = held.get(`c${ctx.id}`);
       const from = held.get(`s${snap.id}`);
       if (!dexes.has(common.formatid)) dexes.set(common.formatid, Dex.forFormat(common.formatid));
-      const run = await playThrough({ ...common, dex: dexes.get(common.formatid), variants, subs, stopAt: t, from });
+      const run = await playThrough({ ...common, dex: dexes.get(common.formatid), variants, radices, subs, stopAt: t, from });
       parentPort.postMessage({
         job,
         run: {
@@ -2231,7 +2250,7 @@ async function reconstructOnce({
   }
   const common = {
     header, segments, plans, reseeds, variants, channel, exact, state0, dex, formatid, deadline,
-    id: ++contextCount, snaps: new Map(), pool: probePool(threads, formatid), tally: { plays: 0 },
+    id: ++contextCount, snaps: new Map(), pool: probePool(threads, formatid), tally: { plays: 0 }, radices: {}, maxVariants,
     // Every limit that cut a search short somewhere in this rebuild, even one
     // that later got past the turn some other way (`report.limits`).
     limits: new Set(),
@@ -2296,7 +2315,10 @@ async function reconstructOnce({
     onProgress(`turn ${t}: settling draws - observed ${run.diffs[0]?.expected ?? '(nothing)'}`);
 
     let solved = false;
-    const walked = [{ variant: variants[t], choices: choicesOn(run, t), score: scoreOf(run, t), searched: null }];
+    // The hidden choices the turn came with: not always the first - a turn
+    // searched again after a carried choice moved keeps the one it held.
+    const entering = variants[t] || 0;
+    const walked = [{ variant: entering, choices: choicesOn(run, t), score: scoreOf(run, t), searched: null }];
     variantsAt.set(t, walked);
 
     // A turn that cannot be finished is still worth what it got through, and
@@ -2319,7 +2341,7 @@ async function reconstructOnce({
       forcedDraws += got.forced;
       solved = got.solved;
       walked[0].searched = got.score;
-      if (!solved) consider(got.score, 0, got.tried);
+      if (!solved) consider(got.score, entering, got.tried);
     }
 
     // Then the choices this turn left invisible. A mon that fainted before
@@ -2331,7 +2353,8 @@ async function reconstructOnce({
     const allVariants = run.widths?.[t] || 1;
     const width = Math.min(allVariants, maxVariants);
     const ranked = [];
-    for (let v = 1; v < width && !solved; v++) {
+    for (let v = 0; v < width && !solved; v++) {
+      if (v === entering) continue;
       variants[t] = v;
       forget(t);
       const probe = await runTo(common, subs, t);
@@ -2351,7 +2374,7 @@ async function reconstructOnce({
     // as soon as the choice the turn came with has been searched, before the
     // budget goes on choices that only tied under the dice as drawn, and again
     // at the end if a later search got further.
-    const searchedVariants = new Set([0]);
+    const searchedVariants = new Set([entering]);
     let rewalkedFrom = null;
     const rewalk = async () => {
       if (solved || !partial || width <= 1 || partial === rewalkedFrom) return;
