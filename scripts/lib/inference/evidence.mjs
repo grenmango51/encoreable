@@ -3423,6 +3423,25 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         const byKey = tied && !follows && token !== null ? new Map() : null;
         const prev = new Map();
         const allowAt = new Map();
+        // Every key on one max HP and one value of the dimension the change
+        // reads looks up one row of its table: each row decoded once - the HP
+        // after, and the value it was read at.
+        const rows = new Map();
+        const rowOf = (g) => {
+          let row = rows.get(g);
+          if (!row) {
+            const packs = change.table.get(g) || [];
+            const after = new Int32Array(packs.length);
+            const at = new Int32Array(packs.length);
+            for (let j = 0; j < packs.length; j++) {
+              after[j] = packs[j] % HP_BITS;
+              at[j] = Math.floor(packs[j] / HP_BITS) % SPAN;
+            }
+            row = { after, at };
+            rows.set(g, row);
+          }
+          return row;
+        };
         for (const [k, hs] of pre) {
           const later = alive.get(k);
           if (!later) continue;
@@ -3442,6 +3461,12 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           // the HP it starts from: the states sorted, with running ORs from
           // the fixed bound, answer each start in a binary search.
           const span = change.band ? bandSpan(later, change.band, M, allow) : null;
+          // The later states by HP, for the table's lookups.
+          let byHp = null;
+          if (!change.same && !span) {
+            byHp = new Float64Array(M + 2);
+            for (const [x, mx] of later) if (x <= M + 1) byHp[x] = mx;
+          }
           for (const h of hs) {
             let m = 0;
             if (change.same) {
@@ -3451,14 +3476,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             } else {
               const g = (hp * SPAN + d) * HP_BITS + h;
               const fatal = fatalOf?.get(g);
-              const packs = change.table.get(g) || [];
-              for (let j = 0; j < packs.length; j++) {
-                const packed = packs[j];
+              const { after, at } = rowOf(g);
+              for (let j = 0; j < after.length; j++) {
                 if (fatal && !fatal[j]) continue;
-                const h2 = fatal ? 1 : packed % HP_BITS;
-                const mx = later.get(h2);
+                const h2 = fatal ? 1 : after[j];
+                const mx = h2 <= M + 1 ? byHp[h2] : later.get(h2);
                 if (!mx) continue;
-                const v = Math.floor(packed / HP_BITS) % SPAN;
+                const v = at[j];
                 if (held && !tieHas(held, k, v)) continue;
                 if (change.dealtOk && !change.dealtOk.has(v * HP_BITS + h - h2)) continue;
                 if (follows && !maskHas(mx, v)) continue;
