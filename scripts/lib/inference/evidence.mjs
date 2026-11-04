@@ -51,9 +51,41 @@ const HP_BITS = 4096;
 const WORD = 2 ** 32;
 const ALL_VALUES = 2 * WORD - 1;
 const maskBit = v => (v < 32 ? (1 << v) >>> 0 : WORD);
-const maskHas = (m, v) => (v < 32 ? ((m % WORD) >>> v) & 1 : m >= WORD ? 1 : 0) === 1;
-const maskOr = (a, b) => (((a % WORD) | (b % WORD)) >>> 0) + (a >= WORD || b >= WORD ? WORD : 0);
-const maskAnd = (a, b) => (((a % WORD) & (b % WORD)) >>> 0) + (a >= WORD && b >= WORD ? WORD : 0);
+// The low 32 bits by subtraction: a mask is below 2^33, and `%` on a number
+// past 2^31 is a slow floating-point remainder in the hottest loop there is.
+const low = m => (m >= WORD ? m - WORD : m);
+const maskHas = (m, v) => (v < 32 ? (low(m) >>> v) & 1 : m >= WORD ? 1 : 0) === 1;
+const maskOr = (a, b) => ((low(a) | low(b)) >>> 0) + (a >= WORD || b >= WORD ? WORD : 0);
+const maskAnd = (a, b) => ((low(a) & low(b)) >>> 0) + (a >= WORD && b >= WORD ? WORD : 0);
+
+/**
+ * The OR of the masks of every HP state in `later` a band change reaches from
+ * HP `h`, as a function of `h`: from 0 to `h` going down, from `h` to `M` going
+ * up, anywhere otherwise, each within what the display allows. One bound is
+ * fixed, so running ORs from it over the sorted states answer every `h`.
+ */
+function bandSpan(later, dir, M, allow) {
+  const xs = [...later.keys()].sort((a, b) => a - b);
+  const loFixed = allow ? Math.max(0, allow[0]) : 0;
+  const hiFixed = allow ? Math.min(M, allow[1]) : M;
+  // The first index whose state is at least `v`, and the last at most `v`.
+  const from = v => { let a = 0, b = xs.length; while (a < b) { const c = (a + b) >> 1; if (xs[c] < v) a = c + 1; else b = c; } return a; };
+  const upTo = v => from(v + 1) - 1;
+  const run = new Array(xs.length).fill(0);
+  if (dir === 'down') {
+    const a = from(loFixed);
+    for (let j = a, m = 0; j < xs.length; j++) run[j] = m = maskOr(m, later.get(xs[j]));
+    return h => { const b = upTo(allow ? Math.min(h, allow[1]) : h); return b >= a ? run[b] : 0; };
+  }
+  if (dir === 'up') {
+    const b = upTo(hiFixed);
+    for (let j = b, m = 0; j >= 0; j--) run[j] = m = maskOr(m, later.get(xs[j]));
+    return h => { const a = from(allow ? Math.max(h, allow[0]) : h); return a <= b ? run[a] : 0; };
+  }
+  let all = 0;
+  for (let j = from(loFixed); j <= upTo(hiFixed); j++) all = maskOr(all, later.get(xs[j]));
+  return () => all;
+}
 const maskOf = flags => { let m = 0; for (let v = 0; v < flags.length; v++) if (flags[v]) m = maskOr(m, maskBit(v)); return m; };
 const tieMask = (tie, k) => tie[2 * k] + (tie[2 * k + 1] & 1) * WORD;
 const maskValues = m => { const out = []; for (let v = 0; v < SPAN; v++) if (maskHas(m, v)) out.push(v); return out; };
@@ -216,7 +248,8 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
     ctx.finish();
     if (exact) {
       const found = ctx.paths(pre);
-      ctx.exact = found && exactTurns(pre, found.tokens, prefix);
+      ctx.coupled = Math.min(ctx.state.coupled, found?.coupled ?? Infinity);
+      ctx.exact = found && exactTurns(pre, found.tokens, prefix, ctx.coupled);
       ctx.rolls = found?.rolls || null;
     }
     const clock = l => (String(l).startsWith('|t:|') ? '|t:|' : l);
@@ -226,14 +259,16 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
     stream.destroy?.();
     await Promise.race([drain, Promise.resolve()]);
   }
-  return { ...ctx.result(), exact: ctx.exact || null, rolls: ctx.rolls || null };
+  return { ...ctx.result(), exact: ctx.exact || null, rolls: ctx.rolls || null, coupled: ctx.coupled ?? ctx.state.coupled };
 }
 
 /**
  * The verified turns of a scaffold as the omniscient channel shows them, with
- * every hidden HP replaced by the exact value an evidence path chose.
+ * every hidden HP replaced by the exact value an evidence path chose - those
+ * before turn `coupled`, where the paths chosen one Pokemon at a time can be
+ * no path of the two together.
  */
-function exactTurns(raw, tokens, prefix) {
+function exactTurns(raw, tokens, prefix, coupled = Infinity) {
   const view = channelView(raw, -1);
   const turns = new Map();
   let k = 0;
@@ -260,6 +295,7 @@ function exactTurns(raw, tokens, prefix) {
       if (cut && tokens.has(entry.at)) lines.push(withHp(entry.line, tokens.get(entry.at)));
       break;
     }
+    if (k >= coupled) break;
     lines.push(withHp(entry.line, tokens.get(entry.at)));
     if (/^\|turn\|\d+/.test(entry.line)) {
       turns.set(k, { lines, partial: false });
@@ -267,7 +303,7 @@ function exactTurns(raw, tokens, prefix) {
       lines = [];
     }
   }
-  if (prefix.turn !== null && lines.length) turns.set(prefix.turn, { lines, partial: true });
+  if (prefix.turn !== null && prefix.turn < coupled && lines.length) turns.set(prefix.turn, { lines, partial: true });
   return turns;
 }
 
@@ -360,7 +396,10 @@ function snapshot(battle, extra = []) {
 function attachInference(battle, { view, prefix, channel, knowledge, cache, record }) {
   const st = install(battle);
   const actions = battle.actions;
-  const state = { ended: false, dry: 0, hold: 0 };
+  // `coupled`: the first turn with a Pain Split between two Pokemon both shown
+  // as percentages that could be on too many HPs together to be linked
+  // (`jointPainSplit`).
+  const state = { ended: false, dry: 0, hold: 0, coupled: Infinity };
   const events = [];
   const pendingHits = new Map();
   // Hits on a fresh Substitute, until the line says whether it broke.
@@ -2735,9 +2774,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const ga = [...groupsOf(A, null)];
     const gb = [...groupsOf(B, null)];
     const what = `Pain Split between ${named(A)} and ${named(B)}`;
-    const changes = new Map([[A, { dim: null, table: new Map(), via: null, final: true, what }], [B, { dim: null, table: new Map(), via: null, final: true, what }]]);
+    const painTurn = battle.turn;
+    const changes = new Map([[A, { dim: null, table: new Map(), via: null, final: true, what, painTurn }], [B, { dim: null, table: new Map(), via: null, final: true, what, painTurn }]]);
     if (ga.length * gb.length > 60000) {
       note(what, 'the two could be on too many HPs together, so it was not used');
+      // Each display is read alone, so one path through each is no path
+      // through both: no exact turn is handed on from here (`exactTurns`).
+      state.coupled = Math.min(state.coupled, painTurn);
       return real();
     }
     for (const [R, change] of changes) R.painSplit = change;
@@ -2764,6 +2807,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         return !!band && h >= band[0] && h <= band[1];
       };
       const sets = new Map([[A, new Map()], [B, new Map()]]);
+      // Which pair of HPs each pair leaves them on: a path through one fixes
+      // the other's (`paths`).
+      const outcomes = new Map();
       for (const [g1, [hp1, , h1]] of ga) {
         const M1 = maxHp(A, hp1);
         for (const [g2, [hp2, , h2]] of gb) {
@@ -2782,8 +2828,15 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           if (!sets.get(B).has(g2)) sets.get(B).set(g2, new Set());
           sets.get(A).get(g1).add(x);
           sets.get(B).get(g2).add(y);
+          if (!outcomes.has(g1)) outcomes.set(g1, new Map());
+          outcomes.get(g1).set(g2, [x, y]);
         }
       }
+      changes.get(A).pair = { partner: B, other: changes.get(B), at: (mine, theirs) => outcomes.get(mine)?.get(theirs) || null };
+      changes.get(B).pair = {
+        partner: A, other: changes.get(A),
+        at: (mine, theirs) => { const r = outcomes.get(theirs)?.get(mine); return r ? [r[1], r[0]] : null; },
+      };
       for (const [R, change] of changes) {
         for (const [g] of (R === A ? ga : gb)) change.table.set(g, Int32Array.from(sets.get(R).get(g) || []));
         if (R.painSplit) {
@@ -3370,6 +3423,25 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         const byKey = tied && !follows && token !== null ? new Map() : null;
         const prev = new Map();
         const allowAt = new Map();
+        // Every key on one max HP and one value of the dimension the change
+        // reads looks up one row of its table: each row decoded once - the HP
+        // after, and the value it was read at.
+        const rows = new Map();
+        const rowOf = (g) => {
+          let row = rows.get(g);
+          if (!row) {
+            const packs = change.table.get(g) || [];
+            const after = new Int32Array(packs.length);
+            const at = new Int32Array(packs.length);
+            for (let j = 0; j < packs.length; j++) {
+              after[j] = packs[j] % HP_BITS;
+              at[j] = Math.floor(packs[j] / HP_BITS) % SPAN;
+            }
+            row = { after, at };
+            rows.set(g, row);
+          }
+          return row;
+        };
         for (const [k, hs] of pre) {
           const later = alive.get(k);
           if (!later) continue;
@@ -3385,24 +3457,32 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           const fatalOf = survived ? change.lethal : null;
           const keep = new Map();
           const vs = byKey ? new Set() : null;
+          // A band reaches every later state between two bounds, one of them
+          // the HP it starts from: the states sorted, with running ORs from
+          // the fixed bound, answer each start in a binary search.
+          const span = change.band ? bandSpan(later, change.band, M, allow) : null;
+          // The later states by HP, for the table's lookups.
+          let byHp = null;
+          if (!change.same && !span) {
+            byHp = new Float64Array(M + 2);
+            for (const [x, mx] of later) if (x <= M + 1) byHp[x] = mx;
+          }
           for (const h of hs) {
             let m = 0;
             if (change.same) {
               if (later.has(h) && dimAllowed(change, k) && (!change.allowSet || change.allowSet.has(M * HP_BITS + h)) && (!change.allow || change.allow(M, h))) m = later.get(h);
-            } else if (change.band) {
-              let lo = change.band === 'up' ? h : 0;
-              let hi = change.band === 'down' ? h : M;
-              if (allow) { lo = Math.max(lo, allow[0]); hi = Math.min(hi, allow[1]); }
-              for (const [x, mx] of later) if (x >= lo && x <= hi) m = maskOr(m, mx);
+            } else if (span) {
+              m = span(h);
             } else {
               const g = (hp * SPAN + d) * HP_BITS + h;
               const fatal = fatalOf?.get(g);
-              for (const [j, packed] of (change.table.get(g) || []).entries()) {
+              const { after, at } = rowOf(g);
+              for (let j = 0; j < after.length; j++) {
                 if (fatal && !fatal[j]) continue;
-                const h2 = fatal ? 1 : packed % HP_BITS;
-                const mx = later.get(h2);
+                const h2 = fatal ? 1 : after[j];
+                const mx = h2 <= M + 1 ? byHp[h2] : later.get(h2);
                 if (!mx) continue;
-                const v = Math.floor(packed / HP_BITS) % SPAN;
+                const v = at[j];
                 if (held && !tieHas(held, k, v)) continue;
                 if (change.dealtOk && !change.dealtOk.has(v * HP_BITS + h - h2)) continue;
                 if (follows && !maskHas(mx, v)) continue;
@@ -3467,6 +3547,16 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const cur = new Map();
     const chosen = new Map(recs.map(rec => [rec, []]));
     const rolls = new Map();
+    // A joint Pain Split: the HP the second of the two must take, once the
+    // first took one; and the first turn where the two could not be kept to
+    // one pair, from which no exact turn is handed on.
+    const pairedTo = new Map();
+    const passed = new Set();
+    let coupled = Infinity;
+    const startOf = (rec) => {
+      const [k, hs] = [...(rec.history[0]?.pre || new Map()).entries()][0] || [];
+      return k === undefined ? null : [k, hs[0]];
+    };
     const secretAt = new Map();
     for (const rec of recs) {
       for (const { at, hist } of rec.shown) {
@@ -3525,6 +3615,24 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         }
       }
       if (!options.length) return null;
+      const pair = e.change.pair;
+      if (pair) {
+        let want = pairedTo.get(e.change);
+        let theirs = null;
+        if (want === undefined && !passed.has(pair.other)) {
+          if (!cur.has(pair.partner) && startOf(pair.partner)) cur.set(pair.partner, startOf(pair.partner));
+          const ps = cur.get(pair.partner);
+          const r = ps ? pair.at((KEY_HP[k] * SPAN) * HP_BITS + h, (KEY_HP[ps[0]] * SPAN) * HP_BITS + ps[1]) : null;
+          if (r) [want, theirs] = r;
+        }
+        if (want !== undefined && options.includes(want)) {
+          options.splice(0, options.length, want);
+          if (theirs !== null) pairedTo.set(pair.other, theirs);
+        } else {
+          coupled = Math.min(coupled, e.change.painTurn);
+        }
+        passed.add(e.change);
+      }
       const own = e.token !== null ? scaffoldHp(rec, i) : null;
       const h2 = options.includes(own) ? own : options[0];
       chosen.get(rec)[i] = h2;
@@ -3544,7 +3652,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         tokens.set(secretAt.get(`${rec.id}|${hist}`), h ? `${h}/${maxHp(rec, KEY_HP[k])}` : '0');
       }
     }
-    return { tokens, rolls };
+    return { tokens, rolls, coupled };
   }
 
   return {
