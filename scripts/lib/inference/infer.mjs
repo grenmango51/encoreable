@@ -49,6 +49,8 @@ const { extractChannelMessages } = require('pokemon-showdown/dist/sim/battle.js'
 // is measured in time: a limit in time makes the answer depend on the machine
 // and its load.
 const FALLBACK_REBUILDS = 8;
+/** Switch-ins that could each be the Illusion user, up to which every reading of them is inferred. */
+const MAX_READINGS = 3;
 const FALLBACK_TOTAL = 32;
 
 /**
@@ -1006,8 +1008,7 @@ export async function inferSpreads({
         tighten(other.knowledge.get(p.id));
         Object.assign(p, summarise(other.knowledge.get(p.id)));
       }
-      // The plain reading is united above already.
-      return spareDisguises(Object.assign(other, { work, warnings, read: [at] }));
+      return spareDisguises(Object.assign(other, { work, warnings }));
     }
   }
 
@@ -1092,88 +1093,80 @@ export async function inferSpreads({
 
   /**
    * A switch-in nothing settles could have been the Illusion user in disguise
-   * (`unsettledStays`), and then what it showed belongs to neither for
-   * certain. The reading `res` was built under gives it to the Pokemon shown,
-   * and none of it to the Illusion user. So each Pokemon shown in one is
-   * inferred again with all of its unsettled switch-ins read as the Illusion
-   * user, which gives it none of them, and every Pokemon of both sides but the
-   * Illusion user keeps whatever either reading leaves it. That reading is kept
-   * whether or not it rebuilds: its search can run out, and a search that ran
-   * out proves nothing (audit A50). Every narrower reading - only some of the
-   * switch-ins as the Illusion user - gives the Pokemon shown more of the log,
-   * so what it leaves is inside what this one leaves.
+   * (`unsettledStays`), and one the search read as the Illusion user because
+   * that reading got further is not proved one either: a search that ran out
+   * proves nothing (audit A50). Each such switch-in can be read either way,
+   * and each way gives the turns after it other attackers and targets on both
+   * sides: a disguised hit narrowed its target's defences under the attacker
+   * shown. So with up to `MAX_READINGS` of them, every assignment of them is
+   * inferred - each one shown or the Illusion user - and every Pokemon of both
+   * sides keeps whatever any reading leaves it. With more, the side facing the
+   * disguises keeps every spread, and the disguised side keeps what the reading
+   * with all of them as the Illusion user leaves too: every narrower reading
+   * gives the Pokemon shown more of the log, so what it leaves is inside that,
+   * and the Illusion user keeps its own. A reading is kept whether or not it
+   * rebuilds, and one the deadline cut short widens every Pokemon to every
+   * spread.
    */
   async function spareDisguises(res) {
     // The readings below add to `limits`, which `res` carries a copy of.
     const done = () => Object.assign(res, { limits: [...limits].sort() });
     if (!readings) return done();
     const packed = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
+    const given = [...(forced || [])];
     const base = res.built.forced || [];
     const late = () => {
       if (Date.now() < deadline) return false;
       limits.add('deadline');
       return true;
     };
-    // Another reading gives other Pokemon the hits, and the HP they moved, on
-    // both sides: what a disguised attacker dealt narrowed its target's
-    // defences under the attacker shown. So every Pokemon either reading
-    // infers keeps what either leaves it - but the Illusion user of the side
-    // read, when the other reading gives it less of the log. A reading the
-    // deadline cut short proves nothing, so then every Pokemon keeps every
-    // spread.
-    const widen = (taken, spare = null) => {
-      if (late() && !taken.some(r => r?.complete)) taken = [{ knowledge: blank }];
-      taken = taken.filter(Boolean);
-      for (const [s, team] of sets.entries()) {
+    const unite = (from, sides, spare = null) => {
+      for (const s of sides) {
         if (known[s]) continue;
-        for (const [i, set] of team.entries()) {
+        for (const [i, set] of sets[s].entries()) {
           const id = `p${s + 1}:${i}`;
           if (spare === s && toID(set.ability) === 'illusion') continue;
-          for (const other of taken) uniteKnowledge(res.knowledge.get(id), other.knowledge.get(id));
+          uniteKnowledge(res.knowledge.get(id), from.get(id));
           tighten(res.knowledge.get(id));
           Object.assign(res.pokemon.find(p => p.id === id), summarise(res.knowledge.get(id)));
         }
       }
     };
-    // A switch-in the search read as the Illusion user on its own, because
-    // that reading got further, is not proved one: the plain reading's search
-    // ran out, which proves nothing (audit A50). So the switch-ins the caller
-    // did not name are read again as the Pokemon shown, and that reading kept.
-    const given = new Set([...(forced || []), ...(res.read || [])]);
-    const chosen = base.filter(at => !given.has(at));
-    if (chosen.length) {
-      onProgress(`reading the switch-ins the search gave the Illusion user (${chosen.join(', ')}) as the Pokemon shown`);
-      const plainReading = late() ? null : absorb(await inferSpreads({ ...options, forced: [...given], readings: false, fixedReadings: true }));
-      widen([plainReading]);
-      const turns = disguisableStays(formatid, packed, channel, observed).filter(x => chosen.includes(x.at)).map(x => x.turn);
-      res.checks.push({
-        turn: turns.length ? Math.min(...turns) : 0,
-        what: `the switch-ins at lines ${chosen.join(', ')}, read as the Illusion user`,
-        reason: 'the search read them so because it got further, which proves nothing, so the reading as the Pokemon shown was kept too',
-      });
+    const stays = disguisableStays(formatid, packed, channel, observed);
+    const turnOf = at => stays.find(x => x.at === at)?.turn ?? 0;
+    const chosen = base.filter(at => !given.includes(at));
+    const unsettled = unsettledDisguises(formatid, packed, channel, observed).filter(x => !base.includes(x.at));
+    const open = [...chosen, ...unsettled.map(x => x.at)];
+    if (!open.length) return done();
+    const text = observed.filter(l => typeof l === 'string');
+    const sideOf = at => Number(/^\|\w+\|p([1-4])/.exec(String(text[at] || ''))?.[1] || 0) - 1;
+    const read = async ats => absorb(await inferSpreads({ ...options, forced: [...given, ...ats], readings: false, fixedReadings: true }));
+    const has = new Set(base);
+    if (open.length <= MAX_READINGS) {
+      onProgress(`reading ${open.length} switch-in(s) each way, as the Pokemon shown and as the Illusion user`);
+      for (let mask = 0; mask < 1 << open.length; mask++) {
+        const ats = open.filter((_, k) => mask & (1 << k));
+        const same = ats.length === chosen.length && ats.every(at => has.has(at));
+        if (same) continue;
+        const other = late() ? null : await read(ats);
+        unite(other ? other.knowledge : blank, [0, 1]);
+      }
+    } else {
+      onProgress(`${open.length} switch-ins could each be the Illusion user: the side facing them keeps every spread`);
+      for (const s of new Set(open.map(sideOf))) {
+        if (s < 0) continue;
+        unite(blank, [1 - s]);
+        const plain = late() ? null : await read([]);
+        unite(plain ? plain.knowledge : blank, [s]);
+        const all = late() ? null : await read(open.filter(at => sideOf(at) === s));
+        unite(all ? all.knowledge : blank, [s], s);
+      }
     }
-    const groups = new Map();
-    for (const stay of unsettledDisguises(formatid, packed, channel, observed)) {
-      if (base.includes(stay.at)) continue;
-      const key = `${stay.side}|${stay.name}`;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(stay);
-    }
-    for (const [key, stays] of groups) {
-      const [side, name] = key.split('|');
-      const s = Number(side[1]) - 1;
-      onProgress(`reading ${name}'s unsettled switch-ins as the Illusion user`);
-      const all = late() ? null : absorb(await inferSpreads({ ...options, forced: [...base, ...stays.map(x => x.at)], readings: false }));
-      widen([all], s);
-      const from = [...new Set(stays.map(x => (x.turn ? `turn ${x.turn}` : 'the start')))].join(', ');
-      const shown = sets[s].findIndex(set => (set.name || set.species) === name);
-      res.checks.push({
-        turn: stays[0].turn,
-        what: `${name}, shown from ${from}`,
-        ...(shown >= 0 ? { who: [{ id: `${side}:${shown}`, at: 0 }] } : {}),
-        reason: 'it could have been the Illusion user, so what it showed was not used on its side',
-      });
-    }
+    res.checks.push({
+      turn: Math.min(...open.map(turnOf)),
+      what: `the switch-ins at lines ${open.join(', ')}`,
+      reason: 'each could have been the Illusion user, so every reading of them was kept',
+    });
     return done();
   }
 }
