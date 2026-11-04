@@ -1152,6 +1152,14 @@ export async function inferSpreads({
         if (same) continue;
         const other = late() ? null : await read(ats);
         unite(other ? other.knowledge : blank, [0, 1]);
+        // A reading that rebuilds the whole log, where the one kept did not, is
+        // the rebuild the result reports: two disguises can be needed together,
+        // and the rebuilds try none on their own. What every reading leaves is
+        // kept all the same, the rebuilt spreads inside it.
+        if (other?.complete && !res.complete) {
+          Object.assign(res, { complete: true, built: other.built, picks: other.picks, stop: other.stop });
+          for (const p of res.pokemon) p.used = other.pokemon.find(q => q.id === p.id)?.used ?? p.used;
+        }
       }
     } else {
       // Too many to read every way: a cut either way can carry from one
