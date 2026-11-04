@@ -679,17 +679,19 @@ export async function inferSpreads({
       const values = valuesOf(maskKeys(kn.keys), kn.dom, kn.spent, kn.ties).values;
       return { ...u, stat, alive: aliveOf(values[stat]), now: start[u.s][u.i][stat] };
     })();
-    const escort = async (d, value, got) => {
+    // `moves`: the Speeds that stopped it there, one or a pair; the other
+    // Pokemon of the earlier order is moved beside them.
+    const escort = async (moves, got) => {
       const stop = got.b?.report.diffs[0];
-      if (d.stat !== 'spe' || !stop || !(stop.turn < t) || !who(stop.actual) || !who(stop.expected) || who(stop.actual) === who(stop.expected)) return;
+      if (moves.some(c => c.stat !== 'spe') || !stop || !(stop.turn < t) || !who(stop.actual) || !who(stop.expected) || who(stop.actual) === who(stop.expected)) return;
       for (const id of namedIn(`|${who(stop.expected)}|${who(stop.actual)}`)) {
-        if (id === d.id) continue;
+        if (moves.some(c => c.id === id)) continue;
         const o = dimOf(unknown.find(u => u.id === id), 'spe');
         const ends = [...new Set([o.alive[0], o.alive[o.alive.length - 1]])].filter(v => v !== undefined && v !== o.now)
           .sort((x, y) => Math.abs(y - o.now) - Math.abs(x - o.now));
         for (const ov of ends) {
           if (found || ahead || !affordable()) return;
-          const changes = [{ ...d, value }, { ...o, value: ov }];
+          const changes = [...moves, { ...o, value: ov }];
           const pair = await probe(changes);
           if (pair?.b) judge(changes, pair);
         }
@@ -703,7 +705,7 @@ export async function inferSpreads({
       if (!got) return null;
       if (got.b) judge(changes, got, d);
       d.sides.set(value, sideOf(got));
-      if (escorted && d.sides.get(value) === 'early' && !found && !ahead) await escort(d, value, got);
+      if (escorted && d.sides.get(value) === 'early' && !found && !ahead) await escort([{ ...d, value }], got);
       return d.sides.get(value);
     };
     // An order between two inferred Pokemon on a turn with an unseen choice:
@@ -725,8 +727,6 @@ export async function inferSpreads({
         && who(l) && who(l) !== who(diff.actual) && who(l) !== who(diff.expected));
       const spe = id => dims.find(d => d.id === id && d.stat === 'spe');
       const da = spe(actor(diff.expected));
-      // The surviving value nearest a fraction of the way from the guess.
-      const toward = (d, v, f) => d.alive.reduce((x, y) => (Math.abs(y - (d.now + f * (v - d.now))) < Math.abs(x - (d.now + f * (v - d.now))) ? y : x));
       for (const db of [spe(actor(diff.actual)), next ? spe(actor(next)) : null]) {
         if (!da || !db || da.id === db.id || !da.alive.length || !db.alive.length) continue;
         const top = d => d.alive[d.alive.length - 1];
@@ -735,22 +735,10 @@ export async function inferSpreads({
           const changes = [{ ...da, value: va }, { ...db, value: vb }];
           const got = await probe(changes);
           if (got?.b) judge(changes, got);
-          // Pushed apart that far, they break an earlier turn's order, which
-          // the guesses kept: the two Speeds the line needs lie between, and
-          // are halved for, as one stat's are below.
-          if (!got?.b || found || ahead || sideOf(got) !== 'early') continue;
-          let [lo, hi] = [0, 1];
-          for (let k = 0; k < 3 && !found && !ahead && affordable(); k++) {
-            const f = (lo + hi) / 2;
-            const halves = [{ ...da, value: toward(da, va, f) }, { ...db, value: toward(db, vb, f) }];
-            const half = await probe(halves);
-            if (!half?.b) break;
-            judge(halves, half);
-            const side = sideOf(half);
-            if (side === 'early') hi = f;
-            else if (side === 'same') lo = f;
-            else break;
-          }
+          // Pushed apart, they break an earlier turn's order with a third
+          // Pokemon, whose guessed Speed held it: that one is moved too, as
+          // for one Speed alone.
+          if (got?.b && !found && !ahead && sideOf(got) === 'early') await escort(changes, got);
         }
       }
     }
