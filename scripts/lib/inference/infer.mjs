@@ -156,7 +156,7 @@ async function replayWith(inputLog, packedTeams, turn, channel) {
  * handed in its place, and every choice it wrote. It moves nothing; a rebuild
  * only checks against it whether the proof breaks (`brokenProof`).
  */
-function handOn(built, rolls) {
+function handOn(built, rolls, coupled = Infinity) {
   const failed = built.report.diffs[0]?.turn ?? Infinity;
   const { subs, turns } = built.pins;
   const out = { subs: {}, turns: {} };
@@ -166,7 +166,8 @@ function handOn(built, rolls) {
     out.turns[i] = turns[i];
   };
   for (const [i, v] of Object.entries(subs)) put(i, v, failed - 1);
-  for (const [i, r] of rolls || []) put(i, r, failed);
+  // A roll an evidence path chose past a joint Pain Split is no proof.
+  for (const [i, r] of rolls || []) put(i, r, Math.min(failed, coupled - 1));
   const dice = {};
   for (const d of built.dice) if (d.mark <= failed) dice[d.i] = { ...d, value: d.i in out.subs ? out.subs[d.i] : d.value };
   out.proof = { dice, choices: built.choices, starts: built.starts, rawLog: built.rawLog };
@@ -946,7 +947,7 @@ export async function inferSpreads({
     };
     const proof = await choose(0, cloneKnowledge(knowledge));
     exact = proof?.exact || null;
-    pins = proof ? handOn(built, proof.rolls) : null;
+    pins = proof ? handOn(built, proof.rolls, proof.coupled) : null;
     if (!exact) {
       for (const [s, i] of order) {
         const id = `p${s + 1}:${i}`;
