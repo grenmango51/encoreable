@@ -2607,7 +2607,7 @@ export async function reconstruct(options) {
   };
   let best = await once({ ...options, forced });
   const { brokenProof: broken } = best;
-  if (best.report.complete) return { ...best, forced: [...forced], cost };
+  if (best.report.complete || options.fixedReadings) return { ...best, forced: [...forced], cost };
   const lines = options.observed.filter(l => typeof l === 'string');
   const stays = illusionStays(lines, sheetsOf(options.formatid, options.packedTeams, options.channel ?? -1));
   const further = (a, b) => {

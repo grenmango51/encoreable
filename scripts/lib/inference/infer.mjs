@@ -235,6 +235,9 @@ export async function inferSpreads({
   onProgress = () => {},
   forced = null,
   readings = true,
+  // Read the switch-ins exactly as `forced` says, the rest as the Pokemon
+  // shown, without the rebuild trying any as the Illusion user on its own.
+  fixedReadings = false,
   budgetScale = 1,
   usage = null,
   start = 'default',
@@ -248,7 +251,7 @@ export async function inferSpreads({
   const S = budgetScale;
   maxProbes *= S;
   maxRounds *= S;
-  const searchLimits = { maxVariants: MAX_VARIANTS * S, maxDieBacktracks: DIE_BACKTRACKS * S };
+  const searchLimits = { maxVariants: MAX_VARIANTS * S, maxDieBacktracks: DIE_BACKTRACKS * S, fixedReadings };
   const dex = Dex.forFormat(formatid);
   const work = { rounds: 0, rebuilds: 0, probes: 0, fallback: 0, backtracks: 0, dieBacktracks: 0 };
   const warnings = [];
@@ -1003,7 +1006,8 @@ export async function inferSpreads({
         tighten(other.knowledge.get(p.id));
         Object.assign(p, summarise(other.knowledge.get(p.id)));
       }
-      return spareDisguises(Object.assign(other, { work, warnings }));
+      // The plain reading is united above already.
+      return spareDisguises(Object.assign(other, { work, warnings, read: [at] }));
     }
   }
 
@@ -1092,7 +1096,7 @@ export async function inferSpreads({
    * certain. The reading `res` was built under gives it to the Pokemon shown,
    * and none of it to the Illusion user. So each Pokemon shown in one is
    * inferred again with all of its unsettled switch-ins read as the Illusion
-   * user, which gives it none of them, and every Pokemon of that side but the
+   * user, which gives it none of them, and every Pokemon of both sides but the
    * Illusion user keeps whatever either reading leaves it. That reading is kept
    * whether or not it rebuilds: its search can run out, and a search that ran
    * out proves nothing (audit A50). Every narrower reading - only some of the
@@ -1105,6 +1109,49 @@ export async function inferSpreads({
     if (!readings) return done();
     const packed = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
     const base = res.built.forced || [];
+    const late = () => {
+      if (Date.now() < deadline) return false;
+      limits.add('deadline');
+      return true;
+    };
+    // Another reading gives other Pokemon the hits, and the HP they moved, on
+    // both sides: what a disguised attacker dealt narrowed its target's
+    // defences under the attacker shown. So every Pokemon either reading
+    // infers keeps what either leaves it - but the Illusion user of the side
+    // read, when the other reading gives it less of the log. A reading the
+    // deadline cut short proves nothing, so then every Pokemon keeps every
+    // spread.
+    const widen = (taken, spare = null) => {
+      if (late() && !taken.some(r => r?.complete)) taken = [{ knowledge: blank }];
+      taken = taken.filter(Boolean);
+      for (const [s, team] of sets.entries()) {
+        if (known[s]) continue;
+        for (const [i, set] of team.entries()) {
+          const id = `p${s + 1}:${i}`;
+          if (spare === s && toID(set.ability) === 'illusion') continue;
+          for (const other of taken) uniteKnowledge(res.knowledge.get(id), other.knowledge.get(id));
+          tighten(res.knowledge.get(id));
+          Object.assign(res.pokemon.find(p => p.id === id), summarise(res.knowledge.get(id)));
+        }
+      }
+    };
+    // A switch-in the search read as the Illusion user on its own, because
+    // that reading got further, is not proved one: the plain reading's search
+    // ran out, which proves nothing (audit A50). So the switch-ins the caller
+    // did not name are read again as the Pokemon shown, and that reading kept.
+    const given = new Set([...(forced || []), ...(res.read || [])]);
+    const chosen = base.filter(at => !given.has(at));
+    if (chosen.length) {
+      onProgress(`reading the switch-ins the search gave the Illusion user (${chosen.join(', ')}) as the Pokemon shown`);
+      const plainReading = late() ? null : absorb(await inferSpreads({ ...options, forced: [...given], readings: false, fixedReadings: true }));
+      widen([plainReading]);
+      const turns = disguisableStays(formatid, packed, channel, observed).filter(x => chosen.includes(x.at)).map(x => x.turn);
+      res.checks.push({
+        turn: turns.length ? Math.min(...turns) : 0,
+        what: `the switch-ins at lines ${chosen.join(', ')}, read as the Illusion user`,
+        reason: 'the search read them so because it got further, which proves nothing, so the reading as the Pokemon shown was kept too',
+      });
+    }
     const groups = new Map();
     for (const stay of unsettledDisguises(formatid, packed, channel, observed)) {
       if (base.includes(stay.at)) continue;
@@ -1116,28 +1163,8 @@ export async function inferSpreads({
       const [side, name] = key.split('|');
       const s = Number(side[1]) - 1;
       onProgress(`reading ${name}'s unsettled switch-ins as the Illusion user`);
-      const read = async ats => absorb(await inferSpreads({ ...options, forced: [...base, ...ats], readings: false }));
-      const late = () => {
-        if (Date.now() < deadline) return false;
-        limits.add('deadline');
-        return true;
-      };
-      const all = late() ? null : await read(stays.map(x => x.at));
-      let taken = all ? [all] : [];
-      // A reading the deadline cut short proves nothing, so every Pokemon of
-      // that side keeps every spread.
-      if (Date.now() >= deadline && !taken.some(r => r.complete)) {
-        limits.add('deadline');
-        taken = [{ knowledge: blank }];
-      }
-      if (!taken.length) continue;
-      for (const [i, set] of sets[s].entries()) {
-        const id = `${side}:${i}`;
-        if (known[s] || toID(set.ability) === 'illusion') continue;
-        for (const other of taken) uniteKnowledge(res.knowledge.get(id), other.knowledge.get(id));
-        tighten(res.knowledge.get(id));
-        Object.assign(res.pokemon.find(p => p.id === id), summarise(res.knowledge.get(id)));
-      }
+      const all = late() ? null : absorb(await inferSpreads({ ...options, forced: [...base, ...stays.map(x => x.at)], readings: false }));
+      widen([all], s);
       const from = [...new Set(stays.map(x => (x.turn ? `turn ${x.turn}` : 'the start')))].join(', ');
       const shown = sets[s].findIndex(set => (set.name || set.species) === name);
       res.checks.push({
