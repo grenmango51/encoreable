@@ -14,7 +14,7 @@
  *   npm run score -- --only fuzz:220 --views p2@p1 --trace   every step of the search, on stderr: why a case gave up
  *   npm run score -- --mimic-dir <dir>      every game in <dir> as a mimic battle, not the benchmark (a corpus sweep)
  *
- * Flags: --tier quick|full --only <id>[,<id>...] --views <v>[,<v>...] --threads <n> --budget <n>
+ * Flags: --tier quick|fast|full --timings <run.json> --only <id>[,<id>...] --views <v>[,<v>...] --threads <n> --budget <n>
  *        --trace --mimic-dir <dir> --shard <i>/<n> --out <file> --merge <file>... --baseline <file> --accept
  *
  * A view is who is inferred and from whose screen:
@@ -281,7 +281,7 @@ function casesOf({ tier, only, views, mimicDir = null }) {
     for (const id of ids) if (!id.startsWith('mimic:')) throw new Error(`--mimic-dir grades mimic battles only, not ${id}`);
     return ids.flatMap(id => views.map(view => ({ id, view })));
   }
-  const battles = BATTLES.filter(b => (only ? only.includes(b.id) : tier === 'full' || b.quick));
+  const battles = BATTLES.filter(b => (only ? only.includes(b.id) : tier !== 'quick' || b.quick));
   // Any fuzz number plays a battle, so one outside the list can be graded too:
   // it has no baseline to compare with (`npm run mutate -- --hunt`).
   for (const id of only || []) {
@@ -289,7 +289,36 @@ function casesOf({ tier, only, views, mimicDir = null }) {
     if (/^fuzz:\d+$/.test(id)) battles.push({ id });
     else throw new Error(`${id} is not in the benchmark list`);
   }
-  return battles.flatMap(b => views.map(view => ({ id: b.id, view })));
+  // The fast tier: every battle from both players' views, and the quick
+  // slice's from the spectator's too - the spectator's cases are nine tenths
+  // of the full tier's work, and most of what a change breaks shows from a
+  // player's view.
+  const shown = (b, view) => tier !== 'fast' || only || b.quick || VIEWS[view].infer.length === 1;
+  return battles.flatMap(b => views.filter(view => shown(b, view)).map(view => ({ id: b.id, view })));
+}
+
+/**
+ * The cases longest first, by the seconds each took in an earlier run (one it
+ * lacks counts as that run's median), and, for a share, the cases dealt to the
+ * shares so each gets about as much work: every share computes the same deal.
+ */
+function dealt(cases, timings, shard) {
+  const seconds = new Map((timings?.records || []).map(r => [keyOf(r), r.seconds || 0]));
+  const known = [...seconds.values()].sort((a, b) => a - b);
+  const typical = known.length ? known[Math.floor(known.length / 2)] : 0;
+  const cost = c => seconds.get(keyOf(c)) ?? typical;
+  const order = cases.map((c, k) => ({ c, k, t: cost(c) })).sort((a, b) => b.t - a.t || a.k - b.k);
+  if (!shard) return order.map(x => x.c);
+  if (!timings) return cases.filter((_, k) => k % shard.n === shard.i - 1);
+  const load = Array(shard.n).fill(0);
+  const mine = [];
+  for (const x of order) {
+    let at = 0;
+    for (let j = 1; j < shard.n; j++) if (load[j] < load[at]) at = j;
+    load[at] += x.t;
+    if (at === shard.i - 1) mine.push(x.c);
+  }
+  return mine;
 }
 
 /** The cases on a pool of worker threads; results in case order. */
@@ -470,7 +499,7 @@ async function main() {
     run = { ...parts[0], shard: null, records: cases.map(c => have.get(keyOf(c)) || { ...c, result: 'CRASH', error: 'no share carried this case' }) };
   } else {
     const tier = opt('--tier', 'quick');
-    if (!['quick', 'full'].includes(tier)) throw new Error('--tier quick|full');
+    if (!['quick', 'fast', 'full'].includes(tier)) throw new Error('--tier quick|fast|full');
     const only = opt('--only') ? opt('--only').split(',') : null;
     const views = opt('--views') ? [...new Set(opt('--views').split(','))] : Object.keys(VIEWS);
     for (const v of views) if (!VIEWS[v]) throw new Error(`no view ${v} - have ${Object.keys(VIEWS).join(', ')}`);
@@ -481,8 +510,9 @@ async function main() {
       const [i, n] = opt('--shard').split('/').map(Number);
       if (!(n >= 1 && i >= 1 && i <= n)) throw new Error('--shard <i>/<n>, 1 <= i <= n');
       shard = { i, n };
-      cases = cases.filter((_, k) => k % n === i - 1);
     }
+    const timings = opt('--timings') && fs.existsSync(opt('--timings')) ? JSON.parse(fs.readFileSync(opt('--timings'), 'utf8')) : null;
+    cases = dealt(cases, timings, shard);
     const threads = Number(opt('--threads', String(Math.max(1, os.availableParallelism() - 1))));
     const budget = Number(opt('--budget', '1'));
     if (!(Number.isInteger(budget) && budget >= 1)) throw new Error('--budget <n>: a whole number, at least 1');
