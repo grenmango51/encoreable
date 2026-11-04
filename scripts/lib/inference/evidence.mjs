@@ -248,7 +248,8 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
     ctx.finish();
     if (exact) {
       const found = ctx.paths(pre);
-      ctx.exact = found && exactTurns(pre, found.tokens, prefix, ctx.state.coupled);
+      ctx.coupled = Math.min(ctx.state.coupled, found?.coupled ?? Infinity);
+      ctx.exact = found && exactTurns(pre, found.tokens, prefix, ctx.coupled);
       ctx.rolls = found?.rolls || null;
     }
     const clock = l => (String(l).startsWith('|t:|') ? '|t:|' : l);
@@ -258,7 +259,7 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
     stream.destroy?.();
     await Promise.race([drain, Promise.resolve()]);
   }
-  return { ...ctx.result(), exact: ctx.exact || null, rolls: ctx.rolls || null, coupled: ctx.state.coupled };
+  return { ...ctx.result(), exact: ctx.exact || null, rolls: ctx.rolls || null, coupled: ctx.coupled ?? ctx.state.coupled };
 }
 
 /**
@@ -396,7 +397,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   const st = install(battle);
   const actions = battle.actions;
   // `coupled`: the first turn with a Pain Split between two Pokemon both shown
-  // as percentages (`jointPainSplit`).
+  // as percentages that could be on too many HPs together to be linked
+  // (`jointPainSplit`).
   const state = { ended: false, dry: 0, hold: 0, coupled: Infinity };
   const events = [];
   const pendingHits = new Map();
@@ -2769,16 +2771,16 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       for (const c of R.pending.splice(0)) apply(R, c, null);
     }
     const ord = painOrdinal++;
-    // Each keeps the HPs some pair leaves it on, not which pair: one path
-    // through each is no path through both, so no exact turn is handed on from
-    // here (`exactTurns`).
-    state.coupled = Math.min(state.coupled, battle.turn);
     const ga = [...groupsOf(A, null)];
     const gb = [...groupsOf(B, null)];
     const what = `Pain Split between ${named(A)} and ${named(B)}`;
-    const changes = new Map([[A, { dim: null, table: new Map(), via: null, final: true, what }], [B, { dim: null, table: new Map(), via: null, final: true, what }]]);
+    const painTurn = battle.turn;
+    const changes = new Map([[A, { dim: null, table: new Map(), via: null, final: true, what, painTurn }], [B, { dim: null, table: new Map(), via: null, final: true, what, painTurn }]]);
     if (ga.length * gb.length > 60000) {
       note(what, 'the two could be on too many HPs together, so it was not used');
+      // Each display is read alone, so one path through each is no path
+      // through both: no exact turn is handed on from here (`exactTurns`).
+      state.coupled = Math.min(state.coupled, painTurn);
       return real();
     }
     for (const [R, change] of changes) R.painSplit = change;
@@ -2805,6 +2807,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         return !!band && h >= band[0] && h <= band[1];
       };
       const sets = new Map([[A, new Map()], [B, new Map()]]);
+      // Which pair of HPs each pair leaves them on: a path through one fixes
+      // the other's (`paths`).
+      const outcomes = new Map();
       for (const [g1, [hp1, , h1]] of ga) {
         const M1 = maxHp(A, hp1);
         for (const [g2, [hp2, , h2]] of gb) {
@@ -2823,8 +2828,15 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           if (!sets.get(B).has(g2)) sets.get(B).set(g2, new Set());
           sets.get(A).get(g1).add(x);
           sets.get(B).get(g2).add(y);
+          if (!outcomes.has(g1)) outcomes.set(g1, new Map());
+          outcomes.get(g1).set(g2, [x, y]);
         }
       }
+      changes.get(A).pair = { partner: B, other: changes.get(B), at: (mine, theirs) => outcomes.get(mine)?.get(theirs) || null };
+      changes.get(B).pair = {
+        partner: A, other: changes.get(A),
+        at: (mine, theirs) => { const r = outcomes.get(theirs)?.get(mine); return r ? [r[1], r[0]] : null; },
+      };
       for (const [R, change] of changes) {
         for (const [g] of (R === A ? ga : gb)) change.table.set(g, Int32Array.from(sets.get(R).get(g) || []));
         if (R.painSplit) {
@@ -3511,6 +3523,16 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const cur = new Map();
     const chosen = new Map(recs.map(rec => [rec, []]));
     const rolls = new Map();
+    // A joint Pain Split: the HP the second of the two must take, once the
+    // first took one; and the first turn where the two could not be kept to
+    // one pair, from which no exact turn is handed on.
+    const pairedTo = new Map();
+    const passed = new Set();
+    let coupled = Infinity;
+    const startOf = (rec) => {
+      const [k, hs] = [...(rec.history[0]?.pre || new Map()).entries()][0] || [];
+      return k === undefined ? null : [k, hs[0]];
+    };
     const secretAt = new Map();
     for (const rec of recs) {
       for (const { at, hist } of rec.shown) {
@@ -3569,6 +3591,24 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         }
       }
       if (!options.length) return null;
+      const pair = e.change.pair;
+      if (pair) {
+        let want = pairedTo.get(e.change);
+        let theirs = null;
+        if (want === undefined && !passed.has(pair.other)) {
+          if (!cur.has(pair.partner) && startOf(pair.partner)) cur.set(pair.partner, startOf(pair.partner));
+          const ps = cur.get(pair.partner);
+          const r = ps ? pair.at((KEY_HP[k] * SPAN) * HP_BITS + h, (KEY_HP[ps[0]] * SPAN) * HP_BITS + ps[1]) : null;
+          if (r) [want, theirs] = r;
+        }
+        if (want !== undefined && options.includes(want)) {
+          options.splice(0, options.length, want);
+          if (theirs !== null) pairedTo.set(pair.other, theirs);
+        } else {
+          coupled = Math.min(coupled, e.change.painTurn);
+        }
+        passed.add(e.change);
+      }
       const own = e.token !== null ? scaffoldHp(rec, i) : null;
       const h2 = options.includes(own) ? own : options[0];
       chosen.get(rec)[i] = h2;
@@ -3588,7 +3628,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         tokens.set(secretAt.get(`${rec.id}|${hist}`), h ? `${h}/${maxHp(rec, KEY_HP[k])}` : '0');
       }
     }
-    return { tokens, rolls };
+    return { tokens, rolls, coupled };
   }
 
   return {
