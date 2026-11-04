@@ -252,7 +252,7 @@ function revealOrder(lines) {
  * packed team, so the max HP is the simulator's - and whether the log shows
  * that side's HP exactly. A side with no team has no sheet.
  */
-function sheetsOf(formatid, packedTeams, channel) {
+function sheetsOf(formatid, packedTeams, channel, guessed = null) {
   const out = {};
   for (const [s, packed] of packedTeams.entries()) {
     if (!packed) continue;
@@ -263,6 +263,9 @@ function sheetsOf(formatid, packedTeams, channel) {
         name: p.name,
         moves: new Set(p.set.moves.map(toID)),
         maxhp: p.maxhp,
+        // On a side whose spreads are guesses (`guessed`), every max HP its
+        // Stat Points allow: one HP for each point, 0 to 32.
+        ...(guessed?.includes(`p${s + 1}`) ? { hpSpan: [p.maxhp - (p.set.evs?.hp || 0), p.maxhp - (p.set.evs?.hp || 0) + 32] } : {}),
         illusion: toID(p.set.ability) === 'illusion',
       })),
     };
@@ -2183,6 +2186,8 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
 async function reconstructOnce({
   formatid,
   packedTeams,
+  // The sides whose spreads are guesses, whose max HP proves nothing alone.
+  guessed = null,
   playerNames,
   observed,
   forced = null,
@@ -2207,7 +2212,7 @@ async function reconstructOnce({
 
   // Who was really sent in, and who really acted, is planned from the log with
   // every Illusion seen through; the turns are still compared as shown.
-  const unmasked = unmaskIllusion(lines, sheetsOf(formatid, packedTeams, channel), forced);
+  const unmasked = unmaskIllusion(lines, sheetsOf(formatid, packedTeams, channel, guessed), forced);
   const plans = splitTurns(unmasked.lines).map(s => planSegment(s, dex));
   recoverChargeTargets(plans);
 
@@ -2609,7 +2614,7 @@ export async function reconstruct(options) {
   const { brokenProof: broken } = best;
   if (best.report.complete || options.fixedReadings) return { ...best, forced: [...forced], cost };
   const lines = options.observed.filter(l => typeof l === 'string');
-  const stays = illusionStays(lines, sheetsOf(options.formatid, options.packedTeams, options.channel ?? -1));
+  const stays = illusionStays(lines, sheetsOf(options.formatid, options.packedTeams, options.channel ?? -1, options.guessed));
   const further = (a, b) => {
     const at = r => [r.report.diffs[0]?.turn ?? Infinity, r.report.diffs[0]?.index ?? Infinity];
     const [x, y] = [at(a), at(b)];
@@ -2634,13 +2639,13 @@ export async function reconstruct(options) {
 }
 
 /** The switch-ins of a log that could be an Illusion user in disguise, as `illusionStays` gives them. */
-export function disguisableStays(formatid, packedTeams, channel, observed) {
-  return illusionStays(observed.filter(l => typeof l === 'string'), sheetsOf(formatid, packedTeams, channel));
+export function disguisableStays(formatid, packedTeams, channel, observed, guessed = null) {
+  return illusionStays(observed.filter(l => typeof l === 'string'), sheetsOf(formatid, packedTeams, channel, guessed));
 }
 
 /** Those of them nothing settles, as `unsettledStays` gives them. */
-export function unsettledDisguises(formatid, packedTeams, channel, observed) {
-  return unsettledStays(observed.filter(l => typeof l === 'string'), sheetsOf(formatid, packedTeams, channel));
+export function unsettledDisguises(formatid, packedTeams, channel, observed, guessed = null) {
+  return unsettledStays(observed.filter(l => typeof l === 'string'), sheetsOf(formatid, packedTeams, channel, guessed));
 }
 
 /** Both teams as set objects, the shape a `.log.json` carries them in. */
