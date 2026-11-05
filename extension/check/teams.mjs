@@ -47,12 +47,28 @@ export async function run({ root, dist, headful }) {
       }
       const same=await encoreable.call('editTeams',1,m.teams,m.token,{threads:1,maxProbes:1});
       if(same.ok) await encoreable.call('close',same.opened.key);
+      const whitespace=[];
+      for(const value of ['EVs: 24  HP','EVs:24 HP','EVs:\\t24\\tHP']) {
+        const teams=m.teams.slice();teams[0]=teams[0].replace('EVs: 24 HP',value);
+        const r=await encoreable.call('editTeams',1,teams,m.token,{threads:1,maxProbes:1});
+        whitespace.push(r.ok&&!r.changed);
+        if(r.ok) await encoreable.call('close',r.opened.key);
+      }
+      const ballTeams=m.teams.slice();ballTeams[0]=ballTeams[0].replace('Ability: Blaze','Pokeball: Ultra Ball\\nAbility: Blaze');
+      const withBall=await encoreable.call('editTeams',1,ballTeams,m.token,{threads:1,maxProbes:1});
+      const ballModel=withBall.ok&&await encoreable.call('teamEditor',withBall.opened.key);
+      const ballAgain=ballModel&&await encoreable.call('editTeams',withBall.opened.key,ballModel.teams,ballModel.token,{threads:1,maxProbes:1});
+      const ball=ballModel&&ballModel.teams[0].includes('Pokeball: Ultra Ball')&&ballAgain.ok&&!ballAgain.changed;
+      if(withBall.ok) await encoreable.call('close',withBall.opened.key);
+      if(ballAgain?.ok) await encoreable.call('close',ballAgain.opened.key);
       const bad=m.teams.slice(); bad[0]=bad[0].replace('- Dragon Claw','- Dragon Tail');
       const failed=await encoreable.call('editTeams',1,bad,m.token,{threads:1,maxProbes:1});
-      return {guard:results.every(Boolean),same:same.ok&&!same.changed,failed:!failed.ok&&failed.message.includes('does not rule out'),original:(await encoreable.exportLog(${source.n})).inputLog};
+      return {guard:results.every(Boolean),same:same.ok&&!same.changed,whitespace:whitespace.every(Boolean),ball,failed:!failed.ok&&failed.message.includes('does not rule out'),original:(await encoreable.exportLog(${source.n})).inputLog};
     })()`);
     check(guard.guard, 'range syntax, unknown choices, illegal Stat Points and IVs cannot silently enter the simulator');
     check(guard.same, 'applying unchanged teams retains their inference');
+    check(guard.whitespace, 'extra spaces, tabs and a missing space after the stat colon preserve every value');
+    check(guard.ball, 'Poké Ball metadata survives exporting, editing and applying the editor’s own exports');
     check(guard.failed && JSON.stringify(guard.original) === JSON.stringify(original.inputLog), 'an incomplete rebuild leaves the original intact and rules out nothing');
 
     await page.evaluate(`document.querySelector('#enc-team-p1').value=document.querySelector('#enc-team-p1').value.replace('EVs: 24 HP','EVs: 24-32 HP')`);
@@ -79,8 +95,9 @@ export async function run({ root, dist, headful }) {
     await stream.writeEnd(); await drain;
     check(!diff, 'the edited browser battle replays identically in Node');
 
+    await page.evaluate('window.__beforeTeamReload = true');
     await page.send('Page.reload');
-    await page.waitFor(`window.encoreable && encoreable.branches().some(b=>b.n===${edited.n}) && app.rooms[${JSON.stringify(edited.rooms[0])}]?.request`, 45000);
+    await page.waitFor(`!window.__beforeTeamReload && window.encoreable && encoreable.branches().some(b=>b.n===${edited.n}) && app.rooms[${JSON.stringify(edited.rooms[0])}]?.request`, 45000);
     const restored = await page.evaluate(`encoreable.exportLog(${edited.n})`);
     check(JSON.stringify(restored.inputLog) === JSON.stringify(played.inputLog), 'the edited branch survives a page reload');
     await page.evaluate(`encoreable.editTeams(${edited.n})`);

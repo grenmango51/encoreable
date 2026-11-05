@@ -651,7 +651,13 @@ export function teamEditor(key, inference = null, evidence = null, read = null) 
 
 /** Reject range syntax before Teams.import can silently truncate it with parseInt. */
 function editedTeam(text, original, formatid, side) {
-  const normalized = String(text).replace(/\r/g, '').replace(/^Stat Points:/gm, 'EVs:');
+  // Teams.import splits a stat on one literal space and expects ': '. Give it
+  // exactly that syntax after accepting user whitespace, never a lossy variant.
+  const normalized = String(text).replace(/\r/g, '').split('\n').map(raw => {
+    const line = raw.trim().replace(/^Stat Points:/, 'EVs:');
+    const m = /^(EVs|IVs):[ \t]*(.*)$/.exec(line);
+    return m ? `${m[1]}: ${m[2].split('/').map(s => s.trim().replace(/\s+/g, ' ')).join(' / ')}` : line;
+  }).join('\n');
   for (const block of normalized.trim().split(/\n\s*\n/)) {
     const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
     for (const line of lines.slice(1)) {
@@ -660,7 +666,7 @@ function editedTeam(text, original, formatid, side) {
         if (stats.some(s => !/^\d+\s+(HP|Atk|Def|SpA|SpD|Spe)$/i.test(s.trim()))) {
           throw new Error(`${side}: choose exact stat values in Sets to test. Ranges belong in Replay evidence.`);
         }
-      } else if (!/^(Ability: .+|Level: \d+|Shiny: Yes|Happiness: \d+|Tera Type: .+|[A-Za-z]+ Nature|- .+)$/.test(line)) {
+      } else if (!/^(Ability: .+|Level: \d+|Shiny: Yes|Happiness: \d+|Pokeball: .+|Tera Type: .+|[A-Za-z]+ Nature|- .+)$/.test(line)) {
         throw new Error(`${side}: unrecognised team line: ${line}`);
       }
       if (/^(Ability: Unknown|Unknown Nature|- Unknown)$/i.test(line)) {
