@@ -16,7 +16,7 @@
 import { simRequire, SIM_ENTRY, RNG_COMMAND } from './cjs.js';
 import fs from './node/fs.js';
 import { truncateAtTurn, inputLogLines } from '../../scripts/lib/truncate.mjs';
-import { battleLines } from '../../scripts/lib/protocol.mjs';
+import { battleLines, firstDivergence } from '../../scripts/lib/protocol.mjs';
 import { reconstruct, unpackTeams } from '../../scripts/lib/reconstruct.mjs';
 import { combineGames, inferSpreads, inferenceRecord } from '../../scripts/lib/inference/infer.mjs';
 import {
@@ -27,7 +27,7 @@ import {
   teamsForSides, withLogIdentity,
 } from '../../scripts/lib/replay-source.mjs';
 
-const { BattleStream, Dex, Teams, extractChannelMessages } = simRequire(SIM_ENTRY);
+const { BattleStream, Dex, Teams, TeamValidator, extractChannelMessages } = simRequire(SIM_ENTRY);
 const rng = simRequire(RNG_COMMAND);
 
 rng.teachStream(BattleStream);
@@ -441,6 +441,16 @@ export async function reconstructReplay({ source: input, teams = [null, null], i
     const selfConsistent = battleLines(replayed.omniscient).join('\n') === battleLines(built.log).join('\n');
     const r = built.report;
     const [p1team, p2team] = unpackTeams(packedTeams);
+    const teamEvidence = packedTeams.map((packed, i) => {
+      if (supplied(i)) return Teams.unpack(packed);
+      if (source.sheets?.[i]) return setsFromSheet(source.sheets[i]);
+      const read = setsFromLog(observed, `p${i + 1}`, source.formatid);
+      return read.sets.map((set, j) => ({
+        ...set, nature: null,
+        item: read.boxes[j].item === 'assumed' ? null : set.item,
+        ability: read.boxes[j].ability === 'assumed' ? null : set.ability,
+      }));
+    });
     return {
       ok: r.complete && selfConsistent,
       selfConsistent,
@@ -467,6 +477,7 @@ export async function reconstructReplay({ source: input, teams = [null, null], i
         p1team,
         p2team,
         inference: inference ? inferenceRecord(inference, inferred) : undefined,
+        teamEvidence,
         inputLog: built.inputLog,
         log: built.log,
         format: source.formatid,
@@ -582,7 +593,152 @@ export function spreadPanelClose(handle) {
   return true;
 }
 
+// --------------------------------------------------------------- team editor
+
+const STAT_LABELS = ['HP', 'Atk', 'Def', 'SpA', 'SpD', 'Spe'];
+
+/** Ordinary Showdown exports, with all six Stat Points explicit. */
+function teamText(team) {
+  return team.map(set => Teams.exportSet({ ...set, nature: set.nature || 'Serious' })
+    .replace(/^EVs:.*\n/gm, '')
+    .replace(/^[A-Za-z]+ Nature/m, `EVs: ${STAT_IDS.map((s, i) => `${set.evs?.[s] || 0} ${STAT_LABELS[i]}`).join(' / ')}\n$&`))
+    .join('\n').trim();
+}
+
+/**
+ * Evidence stays separate from the concrete set used to rebuild a battle.
+ * Old inferred recordings did not keep which non-stat fields were assumed;
+ * those fields are unknown here, rather than presenting a stand-in as a fact.
+ */
+function evidenceText(teams, inference, read = null) {
+  return teams.map((team, side) => team.map((set, i) => {
+    const p = inference?.pokemon?.find(p => p.id === `p${side + 1}:${i}`);
+    const inferred = inference?.inferred?.includes(`p${side + 1}`);
+    const known = read?.[side]?.[i];
+    const ranges = p?.knowledge ? rangesOfValues(valuesOfKnowledge(unpackKnowledge(p.knowledge))) : null;
+    const name = set.name && set.name !== set.species ? `${set.name} (${set.species})` : set.species;
+    const stat = (s) => {
+      const r = ranges?.[s];
+      return r ? r.min === r.max ? `${r.min}` : `${r.min}-${r.max}` : inferred ? '?' : `${set.evs?.[s] || 0}`;
+    };
+    const item = known ? known.item : inferred ? null : set.item;
+    const ability = known ? known.ability : inferred ? null : set.ability;
+    const nature = known ? known.nature : inferred ? null : set.nature;
+    const moves = known ? known.moves : inferred ? [] : set.moves;
+    return [
+      `${name} @ ${item === null || item === undefined ? 'Unknown' : item || 'None'}`,
+      `Ability: ${ability || 'Unknown'}`, ...(set.shiny ? ['Shiny: Yes'] : []),
+      `Stat Points: ${STAT_IDS.map((s, i) => `${stat(s)} ${STAT_LABELS[i]}`).join(' / ')}`,
+      `${nature || 'Unknown'} Nature`, ...Array.from({ length: 4 }, (_, j) => `- ${moves?.[j] || 'Unknown'}`),
+    ].join('\n');
+  }).join('\n\n'));
+}
+
+function valuesOfKnowledge(kn) {
+  return valuesOf(maskKeys(kn.keys), kn.dom, kn.spent, kn.ties).values;
+}
+
+export function teamEditor(key, inference = null, evidence = null, read = null) {
+  const s = session(key);
+  // side.team retains the full six, including the two left at team preview.
+  const teams = s.battle.sides.map(side => side.team);
+  return {
+    turn: s.battle.turn, players: s.battle.sides.map(side => side.name), formatid: s.battle.format.id,
+    token: s.battle.inputLog.join('\n'), teams: teams.map(teamText),
+    evidence: evidence || evidenceText(teams, inference, read),
+  };
+}
+
+/** Reject range syntax before Teams.import can silently truncate it with parseInt. */
+function editedTeam(text, original, formatid, side) {
+  const normalized = String(text).replace(/\r/g, '').replace(/^Stat Points:/gm, 'EVs:');
+  for (const block of normalized.trim().split(/\n\s*\n/)) {
+    const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
+    for (const line of lines.slice(1)) {
+      if (/^(EVs|IVs):/.test(line)) {
+        const stats = line.slice(line.indexOf(':') + 1).trim().split('/');
+        if (stats.some(s => !/^\d+\s+(HP|Atk|Def|SpA|SpD|Spe)$/i.test(s.trim()))) {
+          throw new Error(`${side}: choose exact stat values in Sets to test. Ranges belong in Replay evidence.`);
+        }
+      } else if (!/^(Ability: .+|Level: \d+|Shiny: Yes|Happiness: \d+|Tera Type: .+|[A-Za-z]+ Nature|- .+)$/.test(line)) {
+        throw new Error(`${side}: unrecognised team line: ${line}`);
+      }
+      if (/^(Ability: Unknown|Unknown Nature|- Unknown)$/i.test(line)) {
+        throw new Error(`${side}: replace Unknown with a concrete choice in Sets to test.`);
+      }
+    }
+    if (!lines.some(l => /^[A-Za-z]+ Nature$/.test(l)) || !lines.some(l => l.startsWith('Ability: '))) {
+      throw new Error(`${side}: include an ability and a nature for each Pokémon.`);
+    }
+  }
+  const team = Teams.import(normalized);
+  if (!team || team.length !== original.length || team.some((set, i) =>
+    set.species !== original[i].species || (set.name || set.species) !== (original[i].name || original[i].species))) {
+    throw new Error(`${side}: keep the same Pokémon, nicknames and team order; edit their sets.`);
+  }
+  const problems = new TeamValidator(formatid).validateTeam(team);
+  if (problems?.length) throw new Error(`${side}: ${problems.join('\n')}`);
+  return Teams.pack(team);
+}
+
+// A changed team sheet is expected; every battle event still has to match.
+const historyLines = log => battleLines(log).filter(l => !l.startsWith('|showteam|'));
+
+/**
+ * Creates a new analysis branch; never edits the source session or its evidence.
+ * First try its recorded dice. If they no longer fit, ask the existing rebuild
+ * to settle dice against the public history. An incomplete search proves nothing.
+ */
+export async function editTeams(key, texts, token, { threads = 2, maxProbes = 4000 } = {}) {
+  const s = session(key);
+  const battle = s.battle;
+  const unchanged = () => !battle.ended && battle.inputLog.join('\n') === token;
+  if (!unchanged()) throw new Error('The battle changed. Close the editor and reopen it at the current turn.');
+  if (!battle.sides.every(side => side.requestState === 'move' && !side.isChoiceDone())) {
+    throw new Error('Cancel pending choices on both sides, then edit at the start of a turn.');
+  }
+  if (!Array.isArray(texts) || texts.length !== 2) throw new Error('Both teams are required.');
+  const original = battle.sides.map(side => side.team);
+  const packedTeams = texts.map((text, i) => editedTeam(text, original[i], battle.format.id, `p${i + 1}`));
+  const changed = packedTeams.some((packed, i) => teamText(Teams.unpack(packed)) !== teamText(original[i]));
+  const edited = inputLogLines(token).map(line => {
+    const m = /^>player (p[12]) (\{.*\})$/.exec(line);
+    if (!m) return line;
+    const options = JSON.parse(m[2]);
+    if (options.team !== undefined) options.team = packedTeams[Number(m[1][1]) - 1];
+    return `>player ${m[1]} ${JSON.stringify(options)}`;
+  }).join('\n');
+  const observed = extractChannelMessages(s.log.join('\n'), [0])[0];
+  const target = historyLines(observed);
+  const probe = new Session();
+  let matches = false;
+  try {
+    for (const line of inputLogLines(edited)) await probe.write(line);
+    matches = !probe.crash && probe.battle?.turn === battle.turn &&
+      !firstDivergence(target, historyLines(extractChannelMessages(probe.log.join('\n'), [0])[0]));
+  } finally {
+    probe.stream.destroy();
+  }
+  let inputLog = edited;
+  if (!matches) {
+    if (battle.turn < 2) return { ok: false, message: 'The edited teams did not reproduce team preview and the opening position. The original branch is unchanged.' };
+    const built = await reconstruct({
+      formatid: battle.format.id, packedTeams, playerNames: battle.sides.map(side => side.name),
+      observed, channel: 0, threads, maxProbes,
+    });
+    if (!built.report.complete) return {
+      ok: false, message: `Could not verify the edited teams through turn ${battle.turn - 1} (search stopped: ${built.report.stop}). ` +
+        'This does not rule out the teams. The original branch is unchanged.',
+    };
+    inputLog = built.inputLog;
+  }
+  if (!unchanged()) throw new Error('The battle advanced while rebuilding. Reopen the editor before applying edits.');
+  const result = await branch(inputLog, battle.turn);
+  return { ok: true, changed, opened: result };
+}
+
 export const methods = {
   resim, open, branch, choose, undo, forfeit, view, exportLog, close, reconstructReplay, rngCommand,
   combineSet, spreadPanel, spreadMove, spreadReach, spreadPanelClose,
+  teamEditor, editTeams,
 };

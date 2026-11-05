@@ -21,6 +21,7 @@
  * Nothing addressed to a fake room is ever sent. Everything else is untouched.
  */
 import { annotate, install as installSpreads, loadPanel } from './spread-panel.js';
+import { installTeamEditor } from './team-editor.js';
 
 (() => {
   'use strict';
@@ -151,7 +152,7 @@ import { annotate, install as installSpreads, loadPanel } from './spread-panel.j
   function persist(b, summary) {
     store.set(STORE + b.n, {
       n: b.n, formatid: b.formatid, players: b.players, source: b.source, start: b.start, inference: b.inference,
-      inputLog: summary.inputLog,
+      inputLog: summary.inputLog, evidence: b.evidence,
     });
   }
 
@@ -174,6 +175,7 @@ import { annotate, install as installSpreads, loadPanel } from './spread-panel.j
       deliver(id, ['|init|battle', `|title|${title(b, side)}`, ...annotate(view.scrollback, b, side)], { init: true });
       if (view.request) deliver(id, [view.request]);
       b.closed.delete(side);
+      teamEditor.attach(b, app.rooms[id]);
     }
     if (app.rooms[roomId(b, focusSide)]) app.focusRoom(roomId(b, focusSide));
   }
@@ -183,17 +185,23 @@ import { annotate, install as installSpreads, loadPanel } from './spread-panel.j
    * `source` is a label kept with it (a file name, a replay id); `inference` is
    * the recording's, when its Stat Points were worked out from a replay.
    */
-  async function openBranch({ inputLog, turn, source = '', inference = null }) {
+  async function openBranch({ inputLog, turn, source = '', inference = null, evidence = null, teamEvidence = null, setup = false }) {
     if (!window.app || !app.receive) throw new Error('the Showdown client is not loaded yet');
     const opened = await call('branch', String(inputLog), Number(turn));
+    return registerBranch(opened, { source, inference, evidence, teamEvidence, setup });
+  }
+
+  async function registerBranch(opened, { source = '', inference = null, evidence = null, teamEvidence = null, setup = false } = {}) {
     const b = {
       n: allocate(), key: opened.key, formatid: opened.formatid, players: opened.players, source,
       start: opened.turn, inference, closed: new Set(),
     };
+    b.evidence = evidence || (await call('teamEditor', b.key, inference, null, teamEvidence)).evidence;
     branches.set(b.n, b);
     persist(b, opened);
     await withPanel(b);
     show(b, opened, 'p1');
+    if (setup) await teamEditor.open(b);
     log('opened branch', b.n, 'at turn', opened.turn, 'from', source || '(unnamed)');
     return { n: b.n, rooms: SIDES.map(s => roomId(b, s)), turn: opened.turn };
   }
@@ -206,7 +214,7 @@ import { annotate, install as installSpreads, loadPanel } from './spread-panel.j
     const opened = await call('open', saved.inputLog);
     const b = {
       n, key: opened.key, formatid: saved.formatid, players: saved.players, source: saved.source,
-      start: saved.start, inference: saved.inference || null, closed: new Set(SIDES),
+      start: saved.start, inference: saved.inference || null, evidence: saved.evidence || null, closed: new Set(SIDES),
     };
     branches.set(n, b);
     await withPanel(b);
@@ -221,6 +229,20 @@ import { annotate, install as installSpreads, loadPanel } from './spread-panel.j
     if (b.panel) await call('spreadPanelClose', b.panel.handle).catch(() => {});
     await call('close', b.key).catch(() => {});
   }
+
+  const teamEditor = installTeamEditor({
+    call,
+    apply: async (b, teams, token) => {
+      const result = await call('editTeams', b.key, teams, token);
+      if (!result.ok) return result;
+      const opened = await registerBranch(result.opened, {
+        source: `${b.source || 'Analysis'} · edited from branch ${b.n}`,
+        inference: result.changed ? null : b.inference, evidence: b.evidence,
+      });
+      banner(`Edited teams verified against the visible history. Branch ${opened.n} is ready at turn ${opened.turn}; branch ${b.n} is kept.`, { done: true });
+      return { ok: true, ...opened };
+    },
+  });
 
   // ------------------------------------------------------ the swallower
 
@@ -466,7 +488,7 @@ import { annotate, install as installSpreads, loadPanel } from './spread-panel.j
         `It is saved as "${name}"; open it at turn ${reach} or earlier from the Encoreable recordings page.`);
     }
     const set = await withSet(name, rec);
-    const opened = await openBranch({ inputLog: rec.inputLog.join('\n'), turn, source: `replay ${id}`, inference: set.inference });
+    const opened = await openBranch({ inputLog: rec.inputLog.join('\n'), turn, source: `replay ${id}`, inference: set.inference, teamEvidence: rec.teamEvidence, setup: true });
     banner([`${id}: rebuilt (${rec.complete ? 'matches the replay line for line' : `verified through turn ${reach}`}) and branched at turn ${opened.turn}.`,
       ...set.said].join(' '), { done: true });
     return opened;
@@ -488,7 +510,7 @@ import { annotate, install as installSpreads, loadPanel } from './spread-panel.j
       const data = JSON.parse(request.recording.text);
       const inputLog = Array.isArray(data.inputLog) ? data.inputLog.join('\n') : String(data.inputLog);
       const set = await withSet(request.recording.name, data);
-      const opened = await openBranch({ inputLog, turn: request.turn, source: request.recording.name, inference: set.inference });
+      const opened = await openBranch({ inputLog, turn: request.turn, source: request.recording.name, inference: set.inference, teamEvidence: data.teamEvidence, setup: true });
       banner([`${request.recording.name} branched at turn ${opened.turn}.`, ...set.said].join(' '), { done: true });
       return opened;
     }
@@ -545,6 +567,11 @@ import { annotate, install as installSpreads, loadPanel } from './spread-panel.j
   window.encoreable = {
     version: 1,
     openBranch,
+    editTeams: async n => {
+      const b = await ensure(Number(n));
+      if (!b) throw new Error(`no branch ${n}`);
+      return teamEditor.open(b);
+    },
     openReplay: (id, turn) => openReplay({ id }, Number(turn) || 1),
     branches: () => [...branches.values()].map(b => ({
       n: b.n, players: b.players, source: b.source, rooms: SIDES.map(s => roomId(b, s)), combined: b.inference?.combined || null,

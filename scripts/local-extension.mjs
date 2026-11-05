@@ -49,7 +49,7 @@ const PS = path.join(packageDir('pokemon-showdown'), 'dist');
 /** Mods whose data is embedded. Every mod is still listed, so every format loads. */
 const BUNDLED_MODS = ['champions', 'championsregmb'];
 
-const CHECKS = ['sim', 'room', 'entry', 'rng', 'package'];
+const CHECKS = ['sim', 'room', 'entry', 'rng', 'teams', 'package'];
 
 const argv = process.argv.slice(2);
 const flag = name => argv.includes(name);

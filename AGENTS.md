@@ -98,7 +98,7 @@ saved replay is always S4.
 | `scripts/server/` | Runs inside the Showdown server: CommonJS, copied into `runtime/config/`. `rng-command.js` is the one RNG interceptor |
 | `scripts/client/` | Browser scripts served over HTTP |
 | `scripts/fixtures/` | CommonJS. `teams.js` holds the owner's teams as export text; `catalog.js` holds the catalog's cast and hand-set battles; `benchmark.js` the battles `npm run score` grades. `score-baseline.json` is written by `npm run score -- --accept`, and `usage-spreads.json` by `npm run crawl -- --usage`, never by hand |
-| `extension/` | `src/` is bundled for Chrome (a new entry point goes in `ENTRIES` in `scripts/local-extension.mjs`). `src/node/` holds browser stand-ins for Node built-ins. `check/` holds Node checks named in `CHECKS` |
+| `extension/` | `src/` is bundled for Chrome (a new entry point goes in `ENTRIES` in `scripts/local-extension.mjs`). `team-editor.js` opens both teams before analysis and from Edit teams; applying sets verifies the public history in the simulator and opens a separate branch, keeping the original evidence. `src/node/` holds browser stand-ins for Node built-ins. `check/` holds Node checks named in `CHECKS` |
 | `recordings/local/{scripted,branched,self-play,probes}/` | Battles our server ran, with full input logs: the ground truth. `npm run replay` files new ones; probes are filed by hand |
 | `recordings/showdown/{mine,others}-{open,closed}/`, `full-sheets/` | Replays from play.pokemonshowdown.com, as the downloaded `.html` or the link's `.json`. *open*: the replay has `\|showteam\|`. *mine*: the owner played. *full-sheets*: both complete sheets are known |
 | `recordings/reconstructed/` | Input logs written by `npm run reconstruct` |
