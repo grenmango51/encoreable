@@ -52,6 +52,9 @@ const FALLBACK_REBUILDS = 8;
 /** Switch-ins that could each be the Illusion user, up to which every reading of them is inferred. */
 const MAX_READINGS = 3;
 const FALLBACK_TOTAL = 32;
+// The last start of a search that gave up from both: the fallback's rebuilds
+// and the joint guess tries this many times wider (`wide`).
+const WIDE = 4;
 
 /**
  * The line a rebuild stopped on, in the replay's turn: the lines from the
@@ -247,6 +250,7 @@ export async function inferSpreads({
   budgetScale = 1,
   usage = null,
   start = 'default',
+  wide = false,
   spend = { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() },
 }) {
   const options = { ...arguments[0], spend };
@@ -255,6 +259,7 @@ export async function inferSpreads({
   // invisible choices walked - to price what the limits cost
   // (`npm run score -- --budget <n>`). The nested inferences scale the same.
   const S = budgetScale;
+  const W = wide ? WIDE : 1;
   maxProbes *= S;
   maxRounds *= S;
   // The sides inferred: their spreads in a rebuild are guesses.
@@ -476,7 +481,7 @@ export async function inferSpreads({
     // Asked only where there is more to try, so a no names the limit that
     // stopped the search.
     const affordable = () => {
-      const out = spent >= FALLBACK_REBUILDS * S ? 'fallbackRebuilds' : spend.rebuilds <= 0 ? 'fallbackTotal'
+      const out = spent >= FALLBACK_REBUILDS * S * W ? 'fallbackRebuilds' : spend.rebuilds <= 0 ? 'fallbackTotal'
         : Date.now() >= deadline ? 'deadline' : null;
       if (out) limits.add(out);
       return !out;
@@ -911,7 +916,7 @@ export async function inferSpreads({
     }
     const next = picks.map(team => team.map(e => ({ ...e })));
     const emptied = kn => !kn.keys.includes(1) || FLAT.some(x => !kn.dom[x].includes(1));
-    let tries = 32 * S;
+    let tries = 32 * S * W;
     const choose = async (n, cond) => {
       if (n === order.length) {
         tries--;
@@ -1079,27 +1084,45 @@ export async function inferSpreads({
   // Where the search starts decides, more than anything, whether a hard battle
   // rebuilds: the same battle can give up from one start and rebuild from
   // another. So a search that gave up starts once more, from the spreads people
-  // run (`usage`), with a budget of its own. Every spread either removed was
-  // removed by evidence, so each Pokemon keeps only what both left, and the
-  // rebuild is the one that reproduced the log, if one did: never worse than
-  // the first search alone.
+  // run (`usage`), with a budget of its own; and one that gave up from both
+  // once more from the first guess, with the fallback and the joint guesses
+  // `WIDE` times wider (`wide`). More of either is no better everywhere - the
+  // fallback can hold a guess that gets past one line and leads nowhere - so
+  // it is a start of its own, after the two, not a wider first one: a battle
+  // either rebuilds takes the path it always took. Every spread any of them
+  // removed was removed by evidence, so each Pokemon keeps only what all
+  // left, and the rebuild is the one that reproduced the log, if one did:
+  // never worse than the first search alone.
+  if (plain.complete || wide || start !== 'default' || Date.now() >= deadline) return plain;
   const from = { plain: firstGuesses('default'), usual: usage ? firstGuesses('usage') : null };
-  const differs = from.usual && start === 'default'
-    && sets.some((team, s) => team.some((set, i) => !sameSpread(from.usual[s][i], from.plain[s][i])));
-  if (plain.complete || !differs || Date.now() >= deadline) return plain;
-  onProgress('the search gave up; searching again from the spreads people run');
-  const second = absorb(await inferSpreads({
-    ...options, start: 'usage', spend: { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() },
-  }));
-  const [kept, partner] = second.complete ? [second, plain] : [plain, second];
-  for (const p of kept.pokemon) {
-    if (p.known) continue;
-    const kn = kept.knowledge.get(p.id);
-    const other = partner.knowledge.get(p.id);
-    if (!kn || !other) continue;
-    intersectKnowledge(kn, maskKeys(other.keys), other.dom, other.ties);
-    tighten(kn);
-    Object.assign(p, summarise(kn), { contains: evs => containsSpread(kn, evs) });
+  const differs = from.usual && sets.some((team, s) => team.some((set, i) => !sameSpread(from.usual[s][i], from.plain[s][i])));
+  const starts = [plain];
+  if (differs) {
+    onProgress('the search gave up; searching again from the spreads people run');
+    starts.push(absorb(await inferSpreads({
+      ...options, start: 'usage', spend: { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() },
+    })));
+  }
+  // Not for the inferences run again under another reading of an Illusion
+  // (`readings: false`): a battle that rebuilds keeps its path.
+  if (readings && !starts.some(r => r.complete) && Date.now() < deadline) {
+    onProgress(`the search gave up; searching once more with ${WIDE} times the fallback's rebuilds and the joint guess tries`);
+    starts.push(absorb(await inferSpreads({
+      ...options, wide: true, spend: { rebuilds: FALLBACK_TOTAL * WIDE * budgetScale, fruitless: new Set() },
+    })));
+  }
+  const kept = starts.find(r => r.complete) || plain;
+  for (const partner of starts) {
+    if (partner === kept) continue;
+    for (const p of kept.pokemon) {
+      if (p.known) continue;
+      const kn = kept.knowledge.get(p.id);
+      const other = partner.knowledge.get(p.id);
+      if (!kn || !other) continue;
+      intersectKnowledge(kn, maskKeys(other.keys), other.dom, other.ties);
+      tighten(kn);
+      Object.assign(p, summarise(kn), { contains: evs => containsSpread(kn, evs) });
+    }
   }
   return Object.assign(kept, { work, warnings, limits: [...limits].sort() });
 
