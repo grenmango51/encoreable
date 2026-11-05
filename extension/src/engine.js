@@ -611,6 +611,7 @@ function teamText(team) {
  * those fields are unknown here, rather than presenting a stand-in as a fact.
  */
 function evidenceText(teams, inference, read = null) {
+  const named = (table, value) => value ? Dex[table].get(value).name || value : value;
   return teams.map((team, side) => team.map((set, i) => {
     const p = inference?.pokemon?.find(p => p.id === `p${side + 1}:${i}`);
     const inferred = inference?.inferred?.includes(`p${side + 1}`);
@@ -626,10 +627,10 @@ function evidenceText(teams, inference, read = null) {
     const nature = known ? known.nature : inferred ? null : set.nature;
     const moves = known ? known.moves : inferred ? [] : set.moves;
     return [
-      `${name} @ ${item === null || item === undefined ? 'Unknown' : item || 'None'}`,
-      `Ability: ${ability || 'Unknown'}`, ...(set.shiny ? ['Shiny: Yes'] : []),
+      `${name} @ ${item === null || item === undefined ? 'Unknown' : named('items', item) || 'None'}`,
+      `Ability: ${named('abilities', ability) || 'Unknown'}`, ...(set.shiny ? ['Shiny: Yes'] : []),
       `Stat Points: ${STAT_IDS.map((s, i) => `${stat(s)} ${STAT_LABELS[i]}`).join(' / ')}`,
-      `${nature || 'Unknown'} Nature`, ...Array.from({ length: 4 }, (_, j) => `- ${moves?.[j] || 'Unknown'}`),
+      `${named('natures', nature) || 'Unknown'} Nature`, ...Array.from({ length: 4 }, (_, j) => `- ${named('moves', moves?.[j]) || 'Unknown'}`),
     ].join('\n');
   }).join('\n\n'));
 }

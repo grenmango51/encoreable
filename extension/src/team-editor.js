@@ -13,7 +13,7 @@ const CSS = `
 .enc-team-dialog label { display:block; font-weight:bold; margin-bottom:7px; }
 .enc-team-dialog textarea { display:block; box-sizing:border-box; width:100%; height:min(470px,52vh); min-height:160px; resize:vertical; padding:8px; border:1px solid #8e9eab; border-radius:3px; background:#fff; color:#111; font:13px/1.4 monospace; white-space:pre; tab-size:2; }
 .enc-team-dialog textarea:focus { outline:2px solid #6c9bd2; outline-offset:0; }
-.enc-team-dialog textarea[readonly] { background:#fafafa; color:#444; }
+.enc-team-dialog textarea[readonly] { background:#fafafa; color:#444; white-space:pre-wrap; }
 .enc-team-dialog footer { display:flex; align-items:center; gap:8px; padding:10px 18px; border-top:1px solid #bbb; background:#eee; }
 .enc-team-dialog .enc-team-status { flex:1; white-space:pre-wrap; max-height:100px; overflow:auto; line-height:1.5; }
 .enc-team-dialog .enc-team-error { color:#9b2323; }
@@ -70,7 +70,7 @@ export function installTeamEditor({ call, apply }) {
       drafts.set(b.n, { token: model.token, teams: edited.slice() });
     };
     const render = () => {
-      areas.forEach((area, i) => { area.value = (view === 'sets' ? edited : model.evidence)[i]; area.readOnly = view !== 'sets'; });
+      areas.forEach((area, i) => { area.value = (view === 'sets' ? edited : model.evidence)[i]; area.readOnly = view !== 'sets'; area.wrap = view === 'sets' ? 'off' : 'soft'; });
       dialog.querySelectorAll('[data-view]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.view === view)));
       dialog.querySelector('.enc-team-help').textContent = view === 'sets'
         ? 'Edit stats, moves, item, ability or nature in Showdown export format. EVs are Champions Stat Points; IVs stay 31. Apply opens a new branch with the same visible history.'
