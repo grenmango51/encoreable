@@ -3380,6 +3380,107 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     });
   }
 
+  // A Pokemon's highest stat, which the simulator's `getBestStat` picks for
+  // whatever raises it - the boost after a knockout, a Paradox ability's
+  // chosen stat - and the line that follows names. Named, it beats each of
+  // the other four, and which of two wins is asked of `getBestStat` itself,
+  // the other three at nothing, so its own order settles a tie. Each pair is
+  // kept to the values that let the named stat win it: a pair tie of two flat
+  // stats, a flat stat's values per key against Defence or Special Defence,
+  // the keys where those two meet. Named means the scaffold's line, verified,
+  // or the replay's own where the scaffold's is the first to differ, and only
+  // in the stat; and only while all five stats stand on the Pokemon's own
+  // Stat Points.
+  const BEST_STOP = /^\|(move|switch|drag|replace|cant|turn|upkeep)\|/;
+  function bestNamed(rec, real, from) {
+    let i = viewPos;
+    while (i < view.length && view[i].at < from) i++;
+    for (; i < view.length && !BEST_STOP.test(view[i].line); i++) {
+      const entry = view[i];
+      if (entry.at > prefix.cutoffAt) return null;
+      const parts = entry.line.split('|');
+      if (parts[2] !== String(rec.pokemon)) continue;
+      const j = parts.findIndex((f, x) => x >= 3 && /^[a-z]+$/.test(f) && f.endsWith(real));
+      if (j < 0) continue;
+      if (entry.at < prefix.cutoffAt) return real;
+      for (const other of MOVABLE) {
+        if (other === real) continue;
+        const swapped = parts.map((f, x) => (x === j ? f.slice(0, -real.length) + other : f)).join('|');
+        if (battleLines([swapped])[0] === prefix.observedLine) return other;
+      }
+      return null;
+    }
+    return null;
+  }
+  for (const rec of recs) {
+    if (rec.kn.known) continue;
+    const getBestStat = rec.pokemon.getBestStat;
+    override(rec.pokemon, 'getBestStat', function (unboosted, unmodified) {
+      const real = getBestStat.call(this, unboosted, unmodified);
+      if (state.dry || state.ended) return real;
+      sync();
+      if (state.ended) return real;
+      const what = `${named(rec)}'s highest stat`;
+      if (MOVABLE.some(s => !plain(rec, s))) {
+        note(what, 'a stat no longer stands on its own Stat Points, so it was not read');
+        return real;
+      }
+      const best = bestNamed(rec, real, battle.log.length);
+      if (!best) return real;
+      // Which of two stats wins, for every pair of their values.
+      const wins = new Map();
+      guarded(() => {
+        const zero = Object.fromEntries(MOVABLE.map(s => [s, 0]));
+        for (const o of MOVABLE) {
+          if (o === best) continue;
+          const w = new Uint8Array(SPAN * SPAN);
+          for (let a = 0; a < SPAN; a++) {
+            for (let b = 0; b < SPAN; b++) {
+              const undo = patchAll([{ pokemon: rec.pokemon, stats: { ...zero, [best]: rec.stat(best, a), [o]: rec.stat(o, b) } }]);
+              try { w[a * SPAN + b] = getBestStat.call(rec.pokemon, unboosted, unmodified) === best ? 1 : 0; } finally { undo(); }
+            }
+          }
+          wins.set(o, w);
+        }
+      });
+      const before = record ? measure(rec) : null;
+      // The keys still alive: its HP chain's, or before any change moved its
+      // HP, its knowledge's.
+      const keys = () => (rec.chain ? [...rec.chain.keys()] : rec.knKeys);
+      const dropKeys = (keep) => {
+        if (rec.chain) for (const k of [...rec.chain.keys()]) { if (!keep(k)) rec.chain.delete(k); }
+        else rec.knKeys = rec.knKeys.filter(keep);
+      };
+      for (const [o, w] of wins) {
+        const won = (a, b) => w[a * SPAN + b] === 1;
+        if (FLAT.includes(best) && FLAT.includes(o)) {
+          const [x, y] = FLAT.indexOf(best) < FLAT.indexOf(o) ? [best, o] : [o, best];
+          const m = new Uint8Array(SPAN * SPAN);
+          for (let a = 0; a < SPAN; a++) for (let b = 0; b < SPAN; b++) if (won(a, b)) m[x === best ? a * SPAN + b : b * SPAN + a] = 1;
+          const name = pairName(x, y);
+          const had = rec.ties[name];
+          if (had) for (let i = 0; i < had.length; i++) had[i] &= m[i];
+          else rec.ties[name] = m;
+        } else if (FLAT.includes(best) || FLAT.includes(o)) {
+          const [flat, keyed] = FLAT.includes(best) ? [best, o] : [o, best];
+          const byKey = new Map();
+          for (const k of keys()) {
+            const d = KEY_DIM[keyed][k];
+            const vs = [];
+            for (let v = 0; v < SPAN; v++) if (flat === best ? won(v, d) : won(d, v)) vs.push(v);
+            byKey.set(k, vs);
+          }
+          tie(rec, flat, byKey);
+        } else {
+          dropKeys(k => won(KEY_DIM[best][k], KEY_DIM[o][k]));
+        }
+      }
+      const cut = record ? cutOf(rec, before) : null;
+      if (cut) events.push({ turn: battle.turn, what: `${what}: ${best}`, cuts: [cut] });
+      return real;
+    });
+  }
+
   const speed = attachSpeed(battle, {
     state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label: named, measure, cutOf, note, depOf, ownValue,
     unmaskedAfter, frames,
