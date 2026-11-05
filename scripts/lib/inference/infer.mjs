@@ -654,10 +654,10 @@ export async function inferSpreads({
       // from it: they are addressed by the order the dice were thrown in, and
       // a Speed that moves an earlier turn's order moves which throw each
       // lands on. The spread with those turns' dice searched again says
-      // whether it was the dice.
+      // whether it was the dice, under the search the guess alone gets.
       let fresh = false;
       if (b && !b.report.complete && reach(b)[0] < t && Object.keys(handed.subs).length && affordable()) {
-        const again = await rebuild(chosen, budget, { given: null });
+        const again = await rebuild(chosen, budgets[1], { given: null });
         if (further(reach(again), reach(b))) [b, fresh] = [again, true];
       }
       const stop = b && b.report.diffs[0];
@@ -834,7 +834,7 @@ export async function inferSpreads({
       if (!read) gap(mark, { turn: t, what: text, who: whoIn(text, by), reason: 'no evidence hook reads this line, and the fallback found a spread that reproduces it' }, true);
       onProgress(`  fallback on turn ${t}: ${found ? 'reproduced' : `past the line, stopping at ${reach(ahead.got.b).join('.')}`} in ${spent} rebuilds, ${clock()}`);
       const spreads = new Map(win.by.map(c => [c.id, win.got.chosen[c.s][c.i]]));
-      return { picks: win.got.chosen, pins: win.got.fresh ? null : handed, held: spreads, level: budget === budgets[0] ? 0 : 1 };
+      return { picks: win.got.chosen, pins: win.got.fresh ? null : handed, held: spreads, level: budget === budgets[0] && !win.got.fresh ? 0 : 1 };
     }
 
     // No surviving value gets past it: the values just past each range that
