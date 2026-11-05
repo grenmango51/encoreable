@@ -48,10 +48,10 @@ const { extractChannelMessages } = require('pokemon-showdown/dist/sim/battle.js'
 // all but a few checks it always makes, which they do not count. Nothing here
 // is measured in time: a limit in time makes the answer depend on the machine
 // and its load.
-const FALLBACK_REBUILDS = 32;
+const FALLBACK_REBUILDS = 8;
 /** Switch-ins that could each be the Illusion user, up to which every reading of them is inferred. */
 const MAX_READINGS = 3;
-const FALLBACK_TOTAL = 128;
+const FALLBACK_TOTAL = 32;
 
 /**
  * The line a rebuild stopped on, in the replay's turn: the lines from the
@@ -911,7 +911,7 @@ export async function inferSpreads({
     }
     const next = picks.map(team => team.map(e => ({ ...e })));
     const emptied = kn => !kn.keys.includes(1) || FLAT.some(x => !kn.dom[x].includes(1));
-    let tries = 128 * S;
+    let tries = 32 * S;
     const choose = async (n, cond) => {
       if (n === order.length) {
         tries--;
