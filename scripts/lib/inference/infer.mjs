@@ -649,11 +649,21 @@ export async function inferSpreads({
       done.add(signature(chosen));
       const same = !!plain && !changes.some(c => disputed.has(c.id))
         && JSON.stringify(await replayWith(built.inputLog, packOf(chosen), t, channel)) === JSON.stringify(plain);
-      const b = same ? null : await rebuild(chosen, budget);
+      let b = same ? null : await rebuild(chosen, budget);
+      // Stopped on a turn the guess gets through, under the dice handed on
+      // from it: they are addressed by the order the dice were thrown in, and
+      // a Speed that moves an earlier turn's order moves which throw each
+      // lands on. The spread with those turns' dice searched again says
+      // whether it was the dice.
+      let fresh = false;
+      if (b && !b.report.complete && reach(b)[0] < t && Object.keys(handed.subs).length && affordable()) {
+        const again = await rebuild(chosen, budget, { given: null });
+        if (further(reach(again), reach(b))) [b, fresh] = [again, true];
+      }
       const stop = b && b.report.diffs[0];
       onProgress(`  fallback on turn ${t}: ${changes.map(c => `${c.name} ${c.stat} ${c.value}`).join(', ')} - ${same ? 'plays out the same'
-        : b.report.complete ? 'reproduces it' : `stops at ${reach(b).join('.')}: wanted ${stop?.expected}, got ${stop?.actual}`}, ${clock()}`);
-      return { chosen, b, same };
+        : b.report.complete ? 'reproduces it' : `stops at ${reach(b).join('.')}: wanted ${stop?.expected}, got ${stop?.actual}`}${fresh ? ' with the dice before it searched again' : ''}, ${clock()}`);
+      return { chosen, b, same, fresh };
     };
 
     const baseReach = reach(base);
@@ -824,7 +834,7 @@ export async function inferSpreads({
       if (!read) gap(mark, { turn: t, what: text, who: whoIn(text, by), reason: 'no evidence hook reads this line, and the fallback found a spread that reproduces it' }, true);
       onProgress(`  fallback on turn ${t}: ${found ? 'reproduced' : `past the line, stopping at ${reach(ahead.got.b).join('.')}`} in ${spent} rebuilds, ${clock()}`);
       const spreads = new Map(win.by.map(c => [c.id, win.got.chosen[c.s][c.i]]));
-      return { picks: win.got.chosen, pins: handed, held: spreads, level: budget === budgets[0] ? 0 : 1 };
+      return { picks: win.got.chosen, pins: win.got.fresh ? null : handed, held: spreads, level: budget === budgets[0] ? 0 : 1 };
     }
 
     // No surviving value gets past it: the values just past each range that
