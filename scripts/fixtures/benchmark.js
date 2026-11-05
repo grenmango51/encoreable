@@ -192,6 +192,8 @@ const SWEPT = [
   'mimic:gen9championsvgc2026regmcbo3-2701411559', // 2026-10-20: a flinched Follow Me found under the first search's dice before the budget ran out
   'mimic:gen9championsvgc2026regmcbo3-2698960530', // 2026-10-15: Dire Claw's status pick, and an HP two hits back
   'mimic:gen9championsvgc2026regmcbo3-2699035058', // 2026-10-15: a Giga Drain through the Substitute an Orthworm's Shed Tail made
+  'mimic:gen9championsvgc2026regmcbo3-2708011359', // 2026-11-02: Eelevate's boost after a knockout names Mega Eelektross's highest stat
+  'mimic:gen9championsvgc2026regmcbo3-2707900624', // 2026-11-02: a Speed that reorders an earlier turn moves the dice handed on from it
 ];
 
 const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));
