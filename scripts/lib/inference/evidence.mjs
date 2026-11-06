@@ -408,6 +408,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   const healContext = new Map();
   let viewPos = 0;
   let hitOrdinal = 0;
+  // Inside the simulator's own damage calculation of a dry row, not the
+  // snapshot `guarded` takes around it, which reads every field of everyone.
+  let calculating = 0;
   // The hidden stats each hit of the current turn read, as `id|stat`: those
   // of the turn the verified log ends in are what a search that stops on its
   // line moves first.
@@ -737,7 +740,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       });
       try {
         restoreItems(hit.items);
-        const out = withRoll(0, () => onMove(hit, move => hit.getDamage.call(actions, hit.source, hit.target, move, true)), hit.draws);
+        const out = withRoll(0, () => onMove(hit, move => {
+          calculating++;
+          try { return hit.getDamage.call(actions, hit.source, hit.target, move, true); } finally { calculating--; }
+        }), hit.draws);
         return row || new Array(ROLLS).fill(typeof out === 'number' ? out : null);
       } finally {
         undoModify();
@@ -868,7 +874,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       for (const p of battle.sides.flatMap(side => side.pokemon)) {
         const own = Object.getOwnPropertyDescriptor(p, 'set');
         if (p.isActive || !own || !('value' in own)) continue;
-        Object.defineProperty(p, 'set', { configurable: true, enumerable: own.enumerable, get() { back.add(p); return own.value; }, set(v) { own.value = v; } });
+        Object.defineProperty(p, 'set', { configurable: true, enumerable: own.enumerable, get() { if (calculating) back.add(p); return own.value; }, set(v) { own.value = v; } });
         undo.push(() => Object.defineProperty(p, 'set', own));
       }
       let base;
