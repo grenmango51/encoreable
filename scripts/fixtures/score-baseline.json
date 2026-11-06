@@ -1,30 +1,30 @@
 {
- "commit": "125866cd4c6e",
+ "commit": "c2dcc23dfaa2",
  "pool": "1e0b71cf750545f5",
  "usage": "52468dff24156b2b",
  "grade": {
-  "cases": 1032,
+  "cases": 1038,
   "removed": 0,
   "witnessesRemoved": 0,
   "results": {
-   "PASS": 1027,
+   "PASS": 1033,
    "NO MATCH": 0,
    "GAVE UP": 5,
    "CRASH": 0,
    "REMOVED": 0
   },
-  "exactShare": 0.009222536984576644,
-  "medianLog10Spreads": 7.596334097428965,
-  "probes": 5934224,
+  "exactShare": 0.009233176838810642,
+  "medianLog10Spreads": 7.59553639771814,
+  "probes": 6120018,
   "rebuilds": 12757,
   "seconds": {
-   "median": 30.8,
-   "p95": 530.6,
-   "max": 2789
+   "median": 30.7,
+   "p95": 533.9,
+   "max": 2811.9
   },
-  "ranked": 1448,
-  "first": 0.5752762430939227,
-  "top3": 0.7838397790055248
+  "ranked": 1472,
+  "first": 0.578125,
+  "top3": 0.7860054347826086
  },
  "cases": {
   "fuzz:1002 both@spectator": {
@@ -13255,6 +13255,90 @@
     "p2:3": 29539545,
     "p2:4": 8044912,
     "p2:5": 97491702
+   }
+  },
+  "mimic:gen9championsvgc2026regmcbo3-2707900624 both@spectator": {
+   "result": "PASS",
+   "battle": "bbc455b45bdb1a14",
+   "spreads": {
+    "p1:0": 8451696,
+    "p1:1": 136663185,
+    "p1:2": 496495,
+    "p1:3": 130871609,
+    "p1:4": 106618604,
+    "p1:5": 136663185,
+    "p2:0": 136663185,
+    "p2:1": 136663185,
+    "p2:2": 136663185,
+    "p2:3": 136663185,
+    "p2:4": 136663185,
+    "p2:5": 37621923
+   }
+  },
+  "mimic:gen9championsvgc2026regmcbo3-2707900624 p1@p2": {
+   "result": "PASS",
+   "battle": "bbc455b45bdb1a14",
+   "spreads": {
+    "p1:0": 184780,
+    "p1:1": 136663185,
+    "p1:2": 4368,
+    "p1:3": 43827832,
+    "p1:4": 17000321,
+    "p1:5": 136663185
+   }
+  },
+  "mimic:gen9championsvgc2026regmcbo3-2707900624 p2@p1": {
+   "result": "PASS",
+   "battle": "bbc455b45bdb1a14",
+   "spreads": {
+    "p2:0": 136663185,
+    "p2:1": 136663185,
+    "p2:2": 6784085,
+    "p2:3": 10807885,
+    "p2:4": 118693036,
+    "p2:5": 10273510
+   }
+  },
+  "mimic:gen9championsvgc2026regmcbo3-2708011359 both@spectator": {
+   "result": "PASS",
+   "battle": "377b878246c67987",
+   "spreads": {
+    "p1:0": 43906166,
+    "p1:1": 66889414,
+    "p1:2": 33536214,
+    "p1:3": 136663185,
+    "p1:4": 67410729,
+    "p1:5": 136663185,
+    "p2:0": 136663185,
+    "p2:1": 56752655,
+    "p2:2": 83035694,
+    "p2:3": 136663185,
+    "p2:4": 12387499,
+    "p2:5": 136663185
+   }
+  },
+  "mimic:gen9championsvgc2026regmcbo3-2708011359 p1@p2": {
+   "result": "PASS",
+   "battle": "377b878246c67987",
+   "spreads": {
+    "p1:0": 11619696,
+    "p1:1": 5828286,
+    "p1:2": 2933535,
+    "p1:3": 136663185,
+    "p1:4": 67410729,
+    "p1:5": 136663185
+   }
+  },
+  "mimic:gen9championsvgc2026regmcbo3-2708011359 p2@p1": {
+   "result": "PASS",
+   "battle": "377b878246c67987",
+   "spreads": {
+    "p2:0": 136630879,
+    "p2:1": 172588,
+    "p2:2": 24469050,
+    "p2:3": 136663185,
+    "p2:4": 4509205,
+    "p2:5": 136663185
    }
   },
   "recordings/local/branched/gen9championsvgc2026regmb-144.log.json both@spectator": {
