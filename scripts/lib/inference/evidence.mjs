@@ -3390,34 +3390,63 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   // the keys where those two meet. Named means the scaffold's line, verified,
   // or the replay's own where the scaffold's is the first to differ, and only
   // in the stat; and only while all five stats stand on the Pokemon's own
-  // Stat Points.
+  // Stat Points. The line must be one the asking effect prints itself, in the
+  // same event: a boost already at +6 prints nothing, and a later line about
+  // the same stat proves nothing about the pick.
   const BEST_STOP = /^\|(move|switch|drag|replace|cant|turn|upkeep)\|/;
-  function bestNamed(rec, real, from) {
+  const statField = (parts, stat) => parts.findIndex((f, x) => x >= 3 && /^[a-z]+$/.test(f) && f.endsWith(stat));
+  // Whether any line still to come, before the next action, names one of
+  // its stats: if none does, the pick cannot be read and costs nothing.
+  function bestAhead(rec, from) {
     let i = viewPos;
     while (i < view.length && view[i].at < from) i++;
     for (; i < view.length && !BEST_STOP.test(view[i].line); i++) {
       const entry = view[i];
-      if (entry.at > prefix.cutoffAt) return null;
+      if (entry.at > prefix.cutoffAt) return false;
       const parts = entry.line.split('|');
-      if (parts[2] !== String(rec.pokemon)) continue;
-      const j = parts.findIndex((f, x) => x >= 3 && /^[a-z]+$/.test(f) && f.endsWith(real));
-      if (j < 0) continue;
-      if (entry.at < prefix.cutoffAt) return real;
-      for (const other of MOVABLE) {
-        if (other === real) continue;
-        const swapped = parts.map((f, x) => (x === j ? f.slice(0, -real.length) + other : f)).join('|');
-        if (battleLines([swapped])[0] === prefix.observedLine) return other;
-      }
-      return null;
+      if (parts[2] === String(rec.pokemon) && MOVABLE.some(s => statField(parts, s) >= 0)) return true;
+    }
+    return false;
+  }
+  // The stat a line names in place of the scaffold's pick `real`: the pick,
+  // verified, or at the cutoff the one stat that turns it into the replay's.
+  function bestIn(rec, real, entry) {
+    if (entry.at > prefix.cutoffAt) return null;
+    const parts = entry.line.split('|');
+    if (parts[2] !== String(rec.pokemon)) return null;
+    const j = statField(parts, real);
+    if (j < 0) return null;
+    if (entry.at < prefix.cutoffAt) return real;
+    for (const other of MOVABLE) {
+      if (other === real) continue;
+      const swapped = parts.map((f, x) => (x === j ? f.slice(0, -real.length) + other : f)).join('|');
+      if (battleLines([swapped])[0] === prefix.observedLine) return other;
     }
     return null;
   }
+  // The pick waiting for its line: read off each line the same event and
+  // effect print, until one names it.
+  let bestOpen = null;
+  const add = battle.add;
+  override(battle, 'add', function (...args) {
+    const at = battle.log.length;
+    const result = add.apply(this, args);
+    const open = bestOpen;
+    if (!open || battle.event !== open.event || battle.effect !== open.effect || state.dry || state.ended) return result;
+    for (let i = viewPos; i < view.length && view[i].at <= at; i++) {
+      if (view[i].at < at) continue;
+      const best = bestIn(open.rec, open.real, view[i]);
+      if (best) { bestOpen = null; open.narrow(best); break; }
+    }
+    return result;
+  });
   for (const rec of recs) {
     if (rec.kn.known) continue;
     const getBestStat = rec.pokemon.getBestStat;
     override(rec.pokemon, 'getBestStat', function (unboosted, unmodified) {
       const real = getBestStat.call(this, unboosted, unmodified);
       if (state.dry || state.ended) return real;
+      bestOpen = null;
       sync();
       if (state.ended) return real;
       const what = `${named(rec)}'s highest stat`;
@@ -3427,60 +3456,71 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         note(what, 'a stat no longer stands on its own Stat Points, so it was not read');
         return real;
       }
-      const best = bestNamed(rec, real, battle.log.length);
-      if (!best) return real;
-      // Which of two stats wins, for every pair of their values.
-      const wins = new Map();
+      if (!bestAhead(rec, battle.log.length)) return real;
+      // Which of two stats wins, for every pair of their values, asked now,
+      // while the Pokemon stands as it did for the pick.
+      const pairWins = new Map();
       guarded(() => {
         const zero = Object.fromEntries(MOVABLE.map(s => [s, 0]));
-        for (const o of MOVABLE) {
-          if (o === best) continue;
+        for (const [x, y] of MOVABLE.flatMap((s, i) => MOVABLE.slice(i + 1).map(t => [s, t]))) {
           const w = new Uint8Array(SPAN * SPAN);
           for (let a = 0; a < SPAN; a++) {
             for (let b = 0; b < SPAN; b++) {
-              const undo = patchAll([{ pokemon: rec.pokemon, stats: { ...zero, [best]: rec.stat(best, a), [o]: rec.stat(o, b) } }]);
-              try { w[a * SPAN + b] = getBestStat.call(rec.pokemon, unboosted, unmodified) === best ? 1 : 0; } finally { undo(); }
+              const undo = patchAll([{ pokemon: rec.pokemon, stats: { ...zero, [x]: rec.stat(x, a), [y]: rec.stat(y, b) } }]);
+              try { w[a * SPAN + b] = getBestStat.call(rec.pokemon, unboosted, unmodified) === x ? 1 : 0; } finally { undo(); }
             }
           }
-          wins.set(o, w);
+          pairWins.set(`${x} ${y}`, w);
         }
       });
-      const before = record ? measure(rec) : null;
-      // The keys still alive: its HP chain's, or before any change moved its
-      // HP, its knowledge's.
-      const keys = () => (rec.chain ? [...rec.chain.keys()] : rec.knKeys);
-      const dropKeys = (keep) => {
-        if (rec.chain) for (const k of [...rec.chain.keys()]) { if (!keep(k)) rec.chain.delete(k); }
-        else rec.knKeys = rec.knKeys.filter(keep);
-      };
-      for (const [o, w] of wins) {
-        const won = (a, b) => w[a * SPAN + b] === 1;
-        if (FLAT.includes(best) && FLAT.includes(o)) {
-          const [x, y] = FLAT.indexOf(best) < FLAT.indexOf(o) ? [best, o] : [o, best];
-          const m = new Uint8Array(SPAN * SPAN);
-          for (let a = 0; a < SPAN; a++) for (let b = 0; b < SPAN; b++) if (won(a, b)) m[x === best ? a * SPAN + b : b * SPAN + a] = 1;
-          const name = pairName(x, y);
-          const had = rec.ties[name];
-          if (had) for (let i = 0; i < had.length; i++) had[i] &= m[i];
-          else rec.ties[name] = m;
-        } else if (FLAT.includes(best) || FLAT.includes(o)) {
-          const [flat, keyed] = FLAT.includes(best) ? [best, o] : [o, best];
-          const byKey = new Map();
-          for (const k of keys()) {
-            const d = KEY_DIM[keyed][k];
-            const vs = [];
-            for (let v = 0; v < SPAN; v++) if (flat === best ? won(v, d) : won(d, v)) vs.push(v);
-            byKey.set(k, vs);
-          }
-          tie(rec, flat, byKey);
-        } else {
-          dropKeys(k => won(KEY_DIM[best][k], KEY_DIM[o][k]));
-        }
-      }
-      const cut = record ? cutOf(rec, before) : null;
-      if (cut) events.push({ turn: battle.turn, what: `${what}: ${best}`, cuts: [cut] });
+      bestOpen = { rec, real, event: battle.event, effect: battle.effect, narrow: best => narrowBest(rec, best, pairWins, what) };
       return real;
     });
+  }
+  function narrowBest(rec, best, pairWins, what) {
+    // `best`, worth `a`, beats `o`, worth `b`.
+    const winsOver = (o) => {
+      const ahead = MOVABLE.indexOf(best) < MOVABLE.indexOf(o);
+      const w = pairWins.get(ahead ? `${best} ${o}` : `${o} ${best}`);
+      const out = new Uint8Array(SPAN * SPAN);
+      for (let a = 0; a < SPAN; a++) for (let b = 0; b < SPAN; b++) out[a * SPAN + b] = ahead ? w[a * SPAN + b] : 1 - w[b * SPAN + a];
+      return out;
+    };
+    const wins = new Map(MOVABLE.filter(o => o !== best).map(o => [o, winsOver(o)]));
+    const before = record ? measure(rec) : null;
+    // The keys still alive: its HP chain's, or before any change moved its
+    // HP, its knowledge's.
+    const keys = () => (rec.chain ? [...rec.chain.keys()] : rec.knKeys);
+    const dropKeys = (keep) => {
+      if (rec.chain) for (const k of [...rec.chain.keys()]) { if (!keep(k)) rec.chain.delete(k); }
+      else rec.knKeys = rec.knKeys.filter(keep);
+    };
+    for (const [o, w] of wins) {
+      const won = (a, b) => w[a * SPAN + b] === 1;
+      if (FLAT.includes(best) && FLAT.includes(o)) {
+        const [x, y] = FLAT.indexOf(best) < FLAT.indexOf(o) ? [best, o] : [o, best];
+        const m = new Uint8Array(SPAN * SPAN);
+        for (let a = 0; a < SPAN; a++) for (let b = 0; b < SPAN; b++) if (won(a, b)) m[x === best ? a * SPAN + b : b * SPAN + a] = 1;
+        const name = pairName(x, y);
+        const had = rec.ties[name];
+        if (had) for (let i = 0; i < had.length; i++) had[i] &= m[i];
+        else rec.ties[name] = m;
+      } else if (FLAT.includes(best) || FLAT.includes(o)) {
+        const [flat, keyed] = FLAT.includes(best) ? [best, o] : [o, best];
+        const byKey = new Map();
+        for (const k of keys()) {
+          const d = KEY_DIM[keyed][k];
+          const vs = [];
+          for (let v = 0; v < SPAN; v++) if (flat === best ? won(v, d) : won(d, v)) vs.push(v);
+          byKey.set(k, vs);
+        }
+        tie(rec, flat, byKey);
+      } else {
+        dropKeys(k => won(KEY_DIM[best][k], KEY_DIM[o][k]));
+      }
+    }
+    const cut = record ? cutOf(rec, before) : null;
+    if (cut) events.push({ turn: battle.turn, what: `${what}: ${best}`, cuts: [cut] });
   }
 
   const speed = attachSpeed(battle, {
