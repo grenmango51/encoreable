@@ -418,7 +418,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     let n = 0;
     for (const e of view) {
       if (e.at >= prefix.cutoffAt) break;
-      const m = /^|turn|(d+)/.exec(e.line);
+      const m = /^\|turn\|(\d+)/.exec(e.line);
       if (m) n = Number(m[1]);
     }
     return n;
