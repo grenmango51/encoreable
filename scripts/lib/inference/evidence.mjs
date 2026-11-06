@@ -413,6 +413,16 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   // line moves first.
   let readTurn = null;
   let turnReads = new Set();
+  // The turn the verified log ends in: the battle plays the rest of it.
+  const cutTurn = () => {
+    let n = 0;
+    for (const e of view) {
+      if (e.at >= prefix.cutoffAt) break;
+      const m = /^|turn|(d+)/.exec(e.line);
+      if (m) n = Number(m[1]);
+    }
+    return n;
+  };
   let changeOrdinal = 0;
   let seq = 0;
 
@@ -3855,7 +3865,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         // the whole-path check, then speed order, which needs every turn's sort.
         events: events.map(e => ({ ...e, ...unmark(e.what) })),
         checks: checks.map(c => ({ ...c, ...unmark(c.what) })),
-        cutoff: prefix.cutoffAt === Infinity ? null : { turn: prefix.turn, observed: prefix.observedLine, reads: readTurn === battle.turn ? [...turnReads] : [] },
+        cutoff: prefix.cutoffAt === Infinity ? null : { turn: prefix.turn, observed: prefix.observedLine, reads: readTurn === cutTurn() ? [...turnReads] : [] },
       };
     },
   };
