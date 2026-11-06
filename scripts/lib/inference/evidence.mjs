@@ -846,6 +846,16 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         undo.push(override(p, 'calculateStat', function (stat, ...rest) { reads.push([p, toID(stat)]); return calc.call(this, stat, ...rest); }));
         undo.push(override(p, 'getStat', function (stat, ...rest) { reads.push([p, toID(stat)]); return get.call(this, stat, ...rest); }));
       }
+      // Beat Up's power is read off the set of each Pokemon it calls on, and
+      // who stands in the back of the party, and where, is a choice the
+      // replay never shows: the rebuild's is one guess among others.
+      const back = new Set();
+      for (const p of battle.sides.flatMap(side => side.pokemon)) {
+        const own = Object.getOwnPropertyDescriptor(p, 'set');
+        if (p.isActive || !own || !('value' in own)) continue;
+        Object.defineProperty(p, 'set', { configurable: true, enumerable: own.enumerable, get() { back.add(p); return own.value; }, set(v) { own.value = v; } });
+        undo.push(() => Object.defineProperty(p, 'set', own));
+      }
       let base;
       try { base = dryRow(hit, [], new Map()); } finally { for (const u of undo.reverse()) u(); }
 
@@ -911,12 +921,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const carried = !!clone.damageCallback && !reads.length && !targetHp && !sourceHp;
       return {
         off, offOwner: offVar?.owner ?? null, extra: extraVar ? { owner: extraVar.owner, stat: extraVar.stat } : null,
-        def, readers, supported: supported && !carried, carried,
-        moved: [...unmapped], targetHp, sourceHp,
+        def, readers, supported: supported && !carried && !back.size, carried,
+        moved: [...unmapped], targetHp, sourceHp, back: back.size > 0,
       };
     });
     Object.assign(hit, shape);
     if (hit.moved.length) note(what, `${hit.moved.join(' and ')} had a stat it read moved where no one candidate value says what it became, so it was not used`);
+    if (hit.back) note(what, 'its power was read off a Pokemon in the back of the party, whose place there the replay does not show, so it was not used');
     if (!hit.supported) return hit;
 
     // The attacking stat is a flat domain (Attack, Special Attack) or, for Body
