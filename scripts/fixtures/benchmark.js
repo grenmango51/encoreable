@@ -172,15 +172,17 @@ const MIMIC = [
 const PLANTED = [
   'fuzz:1002', // speed.mjs:387 ===→!== keeps more spreads
   'fuzz:1005', // evidence.mjs:1006 ===→!== removes a real spread
-  'fuzz:1008', // knowledge.mjs:759 <→<= keeps more spreads
-  'fuzz:1009', // infer.mjs:553, infer.mjs:563 !==→===, infer.mjs:780, knowledge.mjs:782 deleted: gives up; evidence.mjs:676 deleted: keeps more
+  'fuzz:1008', // knowledge.mjs:759 <→<= keeps more spreads; infer.mjs:326 ===→!==, knowledge.mjs:433 + 1→+ 0: keeps more
+  'fuzz:1009', // infer.mjs:553, infer.mjs:563 !==→===, infer.mjs:780, knowledge.mjs:782 deleted: gives up; evidence.mjs:676 deleted, knowledge.mjs:433 + 1→+ 0: keeps more
   'fuzz:1012', // speed.mjs:404 deleted: crashes
   'fuzz:1013', // evidence.mjs:1029 &&→||: crashes
-  'fuzz:1016', // evidence.mjs:751 deleted removes a real spread; evidence.mjs:2396 deleted, evidence.mjs:721 drop !: keeps more
+  'fuzz:1016', // evidence.mjs:751 deleted removes a real spread; evidence.mjs:2396 deleted, evidence.mjs:721 drop !, knowledge.mjs:433 + 1→+ 0: keeps more
   'fuzz:1020', // evidence.mjs:3488 ||→&&, evidence.mjs:3499 deleted: gives up
   // Hunted on fuzz 1031-1090 at d2c6742, among the 172 the first hunt left:
   'fuzz:1040', // knowledge.mjs:477 deleted: crashes
   'fuzz:1042', // evidence.mjs:3517 drop !: gives up
+  // Sample 270 of seed 2 at 9a4c807, its four that only did better hunted on fuzz 1001-1030:
+  'fuzz:1001', // evidence.mjs:3652 &&→|| removes a real spread
 ];
 
 // Games a corpus sweep found the rebuild or the inference failing on
