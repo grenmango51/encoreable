@@ -1,32 +1,74 @@
 {
- "commit": "5eb43ce73712",
+ "commit": "613d711382ec",
  "pool": "1e0b71cf750545f5",
  "usage": "52468dff24156b2b",
  "grade": {
-  "cases": 1038,
+  "cases": 1041,
   "removed": 0,
   "witnessesRemoved": 0,
   "results": {
-   "PASS": 1033,
+   "PASS": 1036,
    "NO MATCH": 0,
    "GAVE UP": 5,
    "CRASH": 0,
    "REMOVED": 0
   },
-  "exactShare": 0.009233176838810642,
-  "medianLog10Spreads": 7.59553639771814,
-  "probes": 6122607,
-  "rebuilds": 12757,
+  "exactShare": 0.009205517069213007,
+  "medianLog10Spreads": 7.596345197757428,
+  "probes": 6126026,
+  "rebuilds": 12780,
   "seconds": {
-   "median": 31.6,
-   "p95": 547.5,
-   "max": 2852.5
+   "median": 31.3,
+   "p95": 534.7,
+   "max": 2781.4
   },
   "ranked": 1472,
   "first": 0.578125,
   "top3": 0.7860054347826086
  },
  "cases": {
+  "fuzz:1001 both@spectator": {
+   "result": "PASS",
+   "battle": "1c0d4e56f80b78aa",
+   "spreads": {
+    "p1:0": 136663185,
+    "p1:1": 3133963,
+    "p1:2": 56147382,
+    "p1:3": 136663185,
+    "p1:4": 65495480,
+    "p1:5": 136663185,
+    "p2:0": 101197665,
+    "p2:1": 103174306,
+    "p2:2": 136663185,
+    "p2:3": 84677166,
+    "p2:4": 136663185,
+    "p2:5": 109255154
+   }
+  },
+  "fuzz:1001 p1@p2": {
+   "result": "PASS",
+   "battle": "1c0d4e56f80b78aa",
+   "spreads": {
+    "p1:0": 136663185,
+    "p1:1": 495205,
+    "p1:2": 9737386,
+    "p1:3": 136663185,
+    "p1:4": 1278912,
+    "p1:5": 136663185
+   }
+  },
+  "fuzz:1001 p2@p1": {
+   "result": "PASS",
+   "battle": "1c0d4e56f80b78aa",
+   "spreads": {
+    "p2:0": 60336193,
+    "p2:1": 16339354,
+    "p2:2": 136663185,
+    "p2:3": 60690246,
+    "p2:4": 136663185,
+    "p2:5": 14988108
+   }
+  },
   "fuzz:1002 both@spectator": {
    "result": "PASS",
    "battle": "9b955ef2138f3163",
