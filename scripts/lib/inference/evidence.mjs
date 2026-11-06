@@ -408,6 +408,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   const healContext = new Map();
   let viewPos = 0;
   let hitOrdinal = 0;
+  // The hidden stats each hit of the current turn read, as `id|stat`: those
+  // of the turn the verified log ends in are what a search that stops on its
+  // line moves first.
+  let readTurn = null;
+  let turnReads = new Set();
   let changeOrdinal = 0;
   let seq = 0;
 
@@ -926,6 +931,12 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       };
     });
     Object.assign(hit, shape);
+    if (readTurn !== battle.turn) { readTurn = battle.turn; turnReads = new Set(); }
+    const read = (rec, stat) => { if (rec && stat && !rec.kn.known) turnReads.add(`${rec.id}|${stat}`); };
+    read(T, 'hp');
+    read(T, hit.def);
+    read(hit.offOwner ? byId.get(hit.offOwner) : S, hit.off);
+    if (hit.extra) read(byId.get(hit.extra.owner), hit.extra.stat);
     if (hit.moved.length) note(what, `${hit.moved.join(' and ')} had a stat it read moved where no one candidate value says what it became, so it was not used`);
     if (hit.back) note(what, 'its power was read off a Pokemon in the back of the party, whose place there the replay does not show, so it was not used');
     if (!hit.supported) return hit;
@@ -3844,7 +3855,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         // the whole-path check, then speed order, which needs every turn's sort.
         events: events.map(e => ({ ...e, ...unmark(e.what) })),
         checks: checks.map(c => ({ ...c, ...unmark(c.what) })),
-        cutoff: prefix.cutoffAt === Infinity ? null : { turn: prefix.turn, observed: prefix.observedLine },
+        cutoff: prefix.cutoffAt === Infinity ? null : { turn: prefix.turn, observed: prefix.observedLine, reads: readTurn === battle.turn ? [...turnReads] : [] },
       };
     },
   };

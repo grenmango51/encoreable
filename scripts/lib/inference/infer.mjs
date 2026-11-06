@@ -453,7 +453,7 @@ export async function inferSpreads({
    *          needed - or null, when the turn is the dice search's or nothing
    *          gets past the line.
    */
-  const fallback = async (seen, start, proven) => {
+  const fallback = async (seen, start, proven, reads = []) => {
     const diff = built.report.diffs[0];
     const t = diff?.turn;
     const mark = markOf(diff);
@@ -604,6 +604,11 @@ export async function inferSpreads({
         dims.push({ ...u, stat, alive: aliveOf(values[stat]), now: start[u.s][u.i][stat], sides: new Map(), best: null, moved: false, passed: false });
       }
     }
+    // The stats the turn's hits read, as the simulator asked for them, first:
+    // a crit that knocks a Focus Sash holder to 1 reads the attacker's Special
+    // Attack, whatever else the turn names.
+    const readFirst = new Set(reads);
+    dims.sort((a, b) => !readFirst.has(`${a.id}|${a.stat}`) - !readFirst.has(`${b.id}|${b.stat}`));
     if (order) dims.sort((a, b) => (a.stat !== 'spe') - (b.stat !== 'spe'));
     const spots = (d) => {
       const n = d.alive.length;
@@ -624,7 +629,11 @@ export async function inferSpreads({
           kn = restrictKnowledge(kn, c.stat, c.value);
           aim[c.stat] = c.value;
         }
-        const spread = closestSpread(kn, aim);
+        // The room a change needs is taken from the other stats, Speed last: a
+        // Speed moved on the way reorders a turn the guess got through, and
+        // the probe stops there instead of telling anything about its line.
+        const held = list.some(c => c.stat === 'spe') ? null : closestSpread(restrictKnowledge(kn, 'spe', aim.spe), aim);
+        const spread = held || closestSpread(kn, aim);
         if (!spread || list.some(c => spread[c.stat] !== c.value)) return null;
         out[s][i] = spread;
       }
@@ -908,7 +917,7 @@ export async function inferSpreads({
     const cache = new Map();
     const evidenceStart = Date.now();
     evidenceTurn = Math.max(evidenceTurn, diff?.turn ?? 0);
-    const { seen, passes: read } = await settle(built.inputLog, knowledge, cache);
+    const { seen, passes: read, cutoff } = await settle(built.inputLog, knowledge, cache);
 
     // New guesses, chosen together. Each Pokemon is pinned before the next is
     // chosen, because two unknowns can each be possible alone and impossible
@@ -986,7 +995,7 @@ export async function inferSpreads({
     failed.add(markOf(diff));
     if (unchanged || again || read < 2) {
       const start = picks.map((team, s) => team.map((e, i) => (containsSpread(knowledge.get(`p${s + 1}:${i}`), e) ? e : next[s][i])));
-      const found = await fallback(seen, start, exact ? { picks: next, exact, pins } : null);
+      const found = await fallback(seen, start, exact ? { picks: next, exact, pins } : null, cutoff?.reads);
       if (found) {
         for (const [id, spread] of found.held) held.set(id, spread);
         picks = found.picks;
