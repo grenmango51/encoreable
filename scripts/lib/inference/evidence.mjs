@@ -3421,7 +3421,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       sync();
       if (state.ended) return real;
       const what = `${named(rec)}'s highest stat`;
-      if (MOVABLE.some(s => !plain(rec, s))) {
+      // Transforming copies the stats before the copied ability starts and
+      // asks this, and says what they stand on only once it returns.
+      if (this.transformed || MOVABLE.some(s => !plain(rec, s))) {
         note(what, 'a stat no longer stands on its own Stat Points, so it was not read');
         return real;
       }
