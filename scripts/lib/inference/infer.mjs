@@ -771,6 +771,14 @@ export async function inferSpreads({
     // has the line's values between them, as an order between two speeds
     // does, and is halved until a value gets past the line or the halves stop
     // telling the two apart. Then every stat at its middle.
+    // The stats the turn's hits read, each at its ends before any is halved:
+    // one halved first spends the budget before the next is asked at all.
+    for (const d of dims.filter(x => readFirst.has(`${x.id}|${x.stat}`))) {
+      const n = d.alive.length;
+      if (!n || found || ahead || !affordable()) continue;
+      await tryValue(d, d.alive[0]);
+      if (!found && !ahead && affordable()) await tryValue(d, d.alive[n - 1]);
+    }
     for (const d of dims) {
       const n = d.alive.length;
       if (!n || found || ahead || !affordable()) continue;
