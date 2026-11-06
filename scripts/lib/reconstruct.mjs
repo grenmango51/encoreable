@@ -233,6 +233,48 @@ function carriedInto(plans, t) {
   return out;
 }
 
+/**
+ * Note in `out` each turn (`at.k`) on which a move reads the set of a
+ * Pokemon not on the field: what Beat Up reads of each Pokemon it calls on.
+ */
+function watchParty(battle, at, out) {
+  for (const side of battle.sides) {
+    for (const pokemon of side.pokemon) {
+      let set = pokemon.set;
+      Object.defineProperty(pokemon, 'set', {
+        configurable: true,
+        enumerable: true,
+        get() {
+          if (!this.isActive && battle.activeMove && !out.includes(at.k)) out.push(at.k);
+          return set;
+        },
+        set(value) { set = value; },
+      });
+    }
+  }
+}
+
+/** Every way to take `k` of `items` (as many as there are, if fewer), the first ones first. */
+function combinations(items, k) {
+  k = Math.min(k, items.length);
+  if (k === 0) return [[]];
+  const out = [];
+  for (let i = 0; i <= items.length - k; i++) {
+    for (const rest of combinations(items.slice(i + 1), k - 1)) out.push([items[i], ...rest]);
+  }
+  return out;
+}
+
+/** Every order of `items`, the given one first. */
+function permutations(items) {
+  if (items.length <= 1) return [items.slice()];
+  const out = [];
+  for (let i = 0; i < items.length; i++) {
+    for (const rest of permutations([...items.slice(0, i), ...items.slice(i + 1)])) out.push([items[i], ...rest]);
+  }
+  return out;
+}
+
 /** The order Pokemon were revealed, per side: leads first, then first sightings. */
 function revealOrder(lines) {
   const order = { p1: [], p2: [] };
@@ -411,18 +453,27 @@ function choiceFor(side, plan, state, notes) {
       .filter(name => !state.reveal[sideId].slice(0, leads).includes(name))
       .map(name => bench.indexOf(name))
       .filter(at => at >= 0);
-    const order = [];
+    const seen = [];
     for (const name of state.reveal[sideId]) {
       const at = bench.indexOf(name);
-      if (at >= 0 && !order.includes(at + 1) && !last.includes(at)) order.push(at + 1);
+      if (at >= 0 && !seen.includes(at) && !last.includes(at)) seen.push(at);
     }
-    for (let i = 0; i < bench.length && order.length < state.sizes[sideId] - last.length; i++) {
-      if (!order.includes(i + 1) && !last.includes(i)) {
-        order.push(i + 1);
-        notes.push(`${sideId} brought a Pokemon that never appeared - assumed ${bench[i]}`);
-      }
+    // The leads are the first seen. Who else was brought, and in what order
+    // they stand behind the leads, the replay never shows - a move that reads
+    // the back of the party, Beat Up, shows only what it read - so it is a
+    // hidden choice: those seen there, and the rest from the sheet, in every
+    // order. The first is the order they were seen in, then the sheet's.
+    const front = seen.slice(0, leads);
+    const known = seen.slice(leads);
+    const room = Math.max(0, state.sizes[sideId] - last.length - front.length);
+    const pool = bench.map((_, i) => i).filter(i => !seen.includes(i) && !last.includes(i));
+    const options = [];
+    for (const chosen of combinations(pool, Math.max(0, room - known.length))) {
+      for (const back of permutations([...known, ...chosen])) options.push({ back, chosen });
     }
-    order.push(...last.map(at => at + 1));
+    const { back, chosen } = options.length > 1 ? options[state.nextVariantDigit(options.length, true)] : options[0];
+    for (const i of chosen) notes.push(`${sideId} brought a Pokemon that never appeared - assumed ${bench[i]}`);
+    const order = [...front, ...back, ...last].map(at => at + 1);
     return `team ${order.slice(0, state.sizes[sideId]).join(', ')}`;
   }
 
@@ -1092,7 +1143,7 @@ const pinsBefore = (subs, draws) => Object.keys(subs || {})
  * refuses, and it is installed again on restore. A battle the serializer cannot
  * take gets no snapshot, and its probes replay from the start as before.
  */
-function takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes, hidden }) {
+function takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes, hidden, party }) {
   const st = battle.__rng;
   let json;
   delete battle.__rng;
@@ -1118,6 +1169,7 @@ function takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes,
     widths: widths.slice(0, k),
     notes: notes.slice(),
     hidden: hidden.slice(),
+    party: party.slice(),
   };
 }
 
@@ -1226,6 +1278,10 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
   const notes = from ? from.notes.slice() : [];
   // The turns where a choice the replay never showed was substituted.
   const hidden = from ? from.hidden.slice() : [];
+  // The turns on which a move read a Pokemon in the back of the party: who
+  // stands there, and where, is the team preview's hidden choice.
+  const party = from ? from.party.slice() : [];
+  watchParty(battle, at, party);
   // Each choice written, with how long the log was when it was: like a die, a
   // choice cannot change a line written before it.
   const choices = [];
@@ -1237,7 +1293,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
 
   for (let k = from ? from.turn : 0; k < segments.length; k++) {
     if (snaps && !from && k === stopAt && k >= 1) {
-      const snap = takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes, hidden });
+      const snap = takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes, hidden, party });
       if (snap) snaps.set(k, snap);
     }
     markDraws(battle, k);
@@ -1363,6 +1419,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
     starts,
     notes,
     hidden,
+    party,
     trace,
     choices,
     steer: steered,
@@ -2453,7 +2510,11 @@ async function reconstructOnce({
     if (!solved && run.diffs[0]?.index !== -1) {
       const from = scoreOf(run, t);
       let carried = false;
-      for (const k of carriedInto(plans, t)) {
+      // The team preview chose who stands in the back of the party, and
+      // where; a move that reads them there carries that choice out.
+      const carriers = carriedInto(plans, t);
+      if ((run.party || []).includes(t) && !carriers.includes(0)) carriers.push(0);
+      for (const k of carriers) {
         const keep = variants[k] || 0;
         const width = Math.min(run.widths?.[k] || 1, maxVariants);
         for (let v = 0; v < width && !carried; v++) {
