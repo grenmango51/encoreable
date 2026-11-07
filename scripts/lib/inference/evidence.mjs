@@ -3103,8 +3103,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const byVar = asked?.tables.get(`${rec.id}|${s}`);
       const moving = asked && (byVar || !asked.vars.length)
         ? asked.vars.filter(key => { const t = byVar.get(key); return t.some(x => x !== t[0]); }) : null;
+      // Where what moved the stat could not be asked, every other Pokemon the
+      // same event wrote a stat of, beside whoever moved it before.
       if (moving) rec.lent[s] = new Set(moving.map(key => key.split('|')[0]).filter(id => id !== rec.id));
-      else delete rec.lent[s];
+      else rec.lent[s] = new Set([...(rec.lent[s] || []), ...written.map(([r]) => r.id)].filter(id => id !== rec.id));
       let dep = null;
       if (moving && moving.length === 0) dep = CONSTANT;
       if (moving && moving.length === 1) {
@@ -3484,7 +3486,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         for (const [r, s] of written) {
           const dep = r === rec ? copied[s] : null;
           if (r === rec) {
-            const lent = new Set(from.lent[s] || []);
+            // What the original's stat stood on, the original among it: an
+            // average it took part in is its own Stat Points' too.
+            const lent = new Set([...(from.lent[s] || []), from.id]);
             if (copied[s]?.owner) lent.add(copied[s].owner.id);
             lent.delete(r.id);
             r.lent[s] = lent;

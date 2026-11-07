@@ -100,9 +100,20 @@ function ahead(pool, list, growing) {
     run.state = 'running';
     run.held = held;
     run.result = new Promise((resolve) => { run.resolve = resolve; });
-    const worker = new Worker(new URL(import.meta.url), {
-      workerData: { role: ROLE, options: portable(run.options), own: held.length - 1 },
-    });
+    // A worker that cannot start - its data not cloned, no thread to be had -
+    // gives its threads back and leaves the start to run where it is asked
+    // for, as one whose thread failed does.
+    let worker;
+    try {
+      worker = new Worker(new URL(import.meta.url), {
+        workerData: { role: ROLE, options: portable(run.options), own: held.length - 1 },
+      });
+    } catch {
+      run.state = 'finished';
+      release(run);
+      run.resolve(null);
+      return;
+    }
     run.worker = worker;
     worker.on('message', (msg) => {
       if (msg.progress !== undefined) {
