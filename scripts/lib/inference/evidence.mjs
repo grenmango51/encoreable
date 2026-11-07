@@ -47,6 +47,9 @@ const HP_BITS = 4096;
 // decoding's number (the backward walk's `rowOf`).
 const pairStamp = new Uint32Array(HP_BITS * SPAN);
 let stamp = 0;
+// The backward walk's later states by HP, for one key at a time: all zero
+// between keys.
+const byHpScratch = new Float64Array(HP_BITS + 2);
 
 /**
  * A set of values of one flat stat, 0 to 32, as one number: values 0-31 in its
@@ -1170,8 +1173,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           // bit, and the first roll that gave it: a repeat within one value and
           // state adds nothing (other values and states pack differently).
           const start = n;
-          for (const [r, value] of row.entries()) {
-            const o = outcome(value);
+          for (let r = 0; r < row.length; r++) {
+            const o = outcome(row[r]);
             if (o.left === null) continue;
             const packed = v + o.left;
             let repeat = false;
@@ -3702,9 +3705,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           // the fixed bound, answer each start in a binary search.
           const span = change.band ? bandSpan(later, change.band, M, allow) : null;
           // The later states by HP, for the table's lookups.
+          // One array for every key, cleared after it of what it set.
           let byHp = null;
           if (!change.same && !span) {
-            byHp = new Float64Array(M + 2);
+            byHp = byHpScratch;
             for (const [x, mx] of later) if (x <= M + 1) byHp[x] = mx;
           }
           for (const h of hs) {
@@ -3736,6 +3740,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             }
             if (m) keep.set(h, m);
           }
+          if (byHp) for (const x of later.keys()) if (x <= M + 1) byHp[x] = 0;
           if (keep.size) {
             prev.set(k, keep);
             if (byKey) byKey.set(k, vs);
