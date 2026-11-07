@@ -43,6 +43,13 @@ const require = createRequire(import.meta.url);
 const { BattleStream, toID } = require('pokemon-showdown');
 
 const HP_BITS = 4096;
+// Which (HP, value) pairs a row being decoded has had, marked with that
+// decoding's number (the backward walk's `rowOf`).
+const pairStamp = new Uint32Array(HP_BITS * SPAN);
+let stamp = 0;
+// The backward walk's later states by HP, for one key at a time: all zero
+// between keys.
+const byHpScratch = new Float64Array(HP_BITS + 2);
 
 /**
  * A set of values of one flat stat, 0 to 32, as one number: values 0-31 in its
@@ -236,7 +243,7 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
   try {
     for (const line of lines) {
       if (!ctx && /^>p[1-4] /.test(line)) {
-        ctx = attachInference(stream.battle, { view, prefix, channel, knowledge, cache, record });
+        ctx = attachInference(stream.battle, { view, prefix, channel, knowledge, cache, record, exact });
       }
       await stream.write(line);
       // Draw ordinals count from installation, and `playThrough` installs right
@@ -393,7 +400,7 @@ function snapshot(battle, extra = []) {
   };
 }
 
-function attachInference(battle, { view, prefix, channel, knowledge, cache, record }) {
+function attachInference(battle, { view, prefix, channel, knowledge, cache, record, exact = false }) {
   const st = install(battle);
   const actions = battle.actions;
   // `coupled`: the first turn with a Pain Split between two Pokemon both shown
@@ -1031,6 +1038,21 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
    * observing channel shows them.
    */
   function damageEvent(hit, ctx, T, M, h, x, granted = false) {
+    // A hit's table asks this once per stat value, attacker state and roll,
+    // mostly with an amount asked before: those answers are kept on the hit
+    // itself, under a number, in front of the cache shared between passes.
+    const n = Number.isInteger(x) && x >= 0 && x < 2 ** 20 ? ((M * HP_BITS + h) * 2 ** 21) + x * 2 + (granted ? 1 : 0) : null;
+    const local = hit.events || (hit.events = new Map());
+    if (n !== null) {
+      const had = local.get(n);
+      if (had !== undefined) return had;
+    }
+    const value = damageEventShared(hit, ctx, T, M, h, x, granted);
+    if (n !== null) local.set(n, value);
+    return value;
+  }
+
+  function damageEventShared(hit, ctx, T, M, h, x, granted) {
     return memo(`dmgev|${hit.ord}|${M}|${h}|${x}|${granted}`, () => guarded(() => {
       const undo = patchAll([{ pokemon: T.pokemon, maxhp: M, hp: h }]);
       const from = battle.log.length;
@@ -1094,37 +1116,87 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     // `randomChance` succeeds - since the line proves a Focus Band's came up
     // whatever this replay's die did. Such a pair is left on 1 HP.
     const lethal = new Map();
+    const nS = hit.sStates.length;
+    // Without the target's HP in the calculation, a row depends on the
+    // defence value alone: looked up once per value, not once per HP.
+    const rowsByD = new Map();
+    const rowsOf = (d, hp, h) => {
+      if (hit.targetHp) return hit.aVals.flatMap(a => hit.sStates.map((_, si) => hit.rows.get(rowKey(a, d, hp, h, si)) || null));
+      let list = rowsByD.get(d);
+      if (!list) {
+        list = hit.aVals.flatMap(a => hit.sStates.map((_, si) => hit.rows.get(rowKey(a, d, null, null, si)) || null));
+        rowsByD.set(d, list);
+      }
+      return list;
+    };
+    let cap = 64;
+    let pairs = new Int32Array(cap);
+    let rs = new Uint8Array(cap);
+    let fatal = new Uint8Array(cap);
     for (const [g, [hp, d, h]] of groupsOf(T, hit.def)) {
       const M = maxHp(T, hp);
-      const pairs = [];
-      const rs = [];
-      const fatal = [];
-      for (const a of hit.aVals) {
-        for (let si = 0; si < hit.sStates.length; si++) {
-          const row = hit.rows.get(rowKey(a, d, hit.targetHp ? hp : null, hit.targetHp ? h : null, si));
+      const rows = rowsOf(d, hp, h);
+      // What one rolled amount leaves the target on, from this HP: the HP
+      // after (null: its Damage event printed what the replay does not), and
+      // whether the display that says it survived allows it. The same for
+      // every value and state that rolled that amount.
+      const outcomes = new Map();
+      const outcome = (value) => {
+        let o = outcomes.get(value);
+        if (o) return o;
+        let x = clamp(value);
+        let left = h;
+        o = null;
+        if (typeof x === 'number' && x > 0) {
+          if (modified || x >= h) {
+            const ev = damageEvent(hit, ctx, T, M, h, x);
+            if (shown && !sameLines(ev.lines, shown)) o = { left: null, fatal: 0 };
+            x = clamp(ev.value);
+          }
+          if (!o && typeof x === 'number' && x > 0) left = Math.max(0, h - Math.trunc(x));
+        }
+        if (!o) {
+          const raw = clamp(value);
+          o = { left, fatal: typeof raw === 'number' && raw >= h && h - Math.trunc(clamp(damageEvent(hit, ctx, T, M, h, raw, true).value)) >= 1 ? 1 : 0 };
+        }
+        outcomes.set(value, o);
+        return o;
+      };
+      let n = 0;
+      for (let ai = 0; ai < hit.aVals.length; ai++) {
+        const a = hit.aVals[ai];
+        for (let si = 0; si < nS; si++) {
+          const row = rows[ai * nS + si];
           if (!row) continue;
           const v = (a + SPAN * si) * HP_BITS;
-          for (const [r, value] of row.entries()) {
-            let x = clamp(value);
-            let left = h;
-            if (typeof x === 'number' && x > 0) {
-              if (modified || x >= h) {
-                const ev = damageEvent(hit, ctx, T, M, h, x);
-                if (shown && !sameLines(ev.lines, shown)) continue;
-                x = clamp(ev.value);
-              }
-              if (typeof x === 'number' && x > 0) left = Math.max(0, h - Math.trunc(x));
+          // Every reader takes these as a set of pairs, each with its lethal
+          // bit, and the first roll that gave it: a repeat within one value and
+          // state adds nothing (other values and states pack differently).
+          const start = n;
+          for (let r = 0; r < row.length; r++) {
+            const o = outcome(row[r]);
+            if (o.left === null) continue;
+            const packed = v + o.left;
+            let repeat = false;
+            for (let j = start; j < n; j++) if (pairs[j] === packed && fatal[j] === o.fatal) { repeat = true; break; }
+            if (repeat) continue;
+            if (n === cap) {
+              cap *= 2;
+              const grow = (arr, Type) => { const out = new Type(cap); out.set(arr); return out; };
+              pairs = grow(pairs, Int32Array);
+              rs = grow(rs, Uint8Array);
+              fatal = grow(fatal, Uint8Array);
             }
-            const raw = clamp(value);
-            rs.push(r);
-            fatal.push(typeof raw === 'number' && raw >= h && h - Math.trunc(clamp(damageEvent(hit, ctx, T, M, h, raw, true).value)) >= 1 ? 1 : 0);
-            pairs.push(v + left);
+            pairs[n] = packed;
+            rs[n] = r;
+            fatal[n] = o.fatal;
+            n++;
           }
         }
       }
-      table.set(g, Int32Array.from(pairs));
-      rolls.set(g, Uint8Array.from(rs));
-      lethal.set(g, Uint8Array.from(fatal));
+      table.set(g, pairs.slice(0, n));
+      rolls.set(g, rs.slice(0, n));
+      lethal.set(g, fatal.slice(0, n));
     }
     const via = !hit.off || hit.A.kn.known ? null
       : hit.offDim ? { rec: hit.A, dim: hit.off } : { rec: hit.A, stat: hit.off };
@@ -2095,14 +2167,35 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         }
         if (allowSet || xDim) {
           const byKey = new Map();
+          // The states by the max HP they stand on, and a key's HPs marked
+          // once, not searched once per state.
+          const anyHp = [];
+          const byMax = new Map();
+          for (const [si, values] of byState) {
+            const st = change.sourceStates[si];
+            if (st[0] === null) anyHp.push([st, values]);
+            else {
+              if (!byMax.has(st[0])) byMax.set(st[0], []);
+              byMax.get(st[0]).push([st, values]);
+            }
+          }
+          const mark = new Uint8Array(HP_BITS);
           for (const [k, hs] of S.chain) {
             const M = maxHp(S, KEY_HP[k]);
             const vs = new Set();
-            for (const [si, values] of byState) {
-              const [sM, sH, sX] = change.sourceStates[si];
-              if (sM !== null && (sM !== M || !hs.includes(sH))) continue;
-              if (xDim && X === S && sX !== KEY_DIM[change.extra.stat][k]) continue;
+            const xd = xDim && X === S ? KEY_DIM[change.extra.stat][k] : null;
+            for (const [st, values] of anyHp) {
+              if (xd !== null && st[2] !== xd) continue;
               for (const v of values) vs.add(v);
+            }
+            const atMax = byMax.get(M);
+            if (atMax) {
+              for (const h of hs) mark[h] = 1;
+              for (const [st, values] of atMax) {
+                if (!mark[st[1]] || (xd !== null && st[2] !== xd)) continue;
+                for (const v of values) vs.add(v);
+              }
+              for (const h of hs) mark[h] = 0;
             }
             byKey.set(k, vs);
           }
@@ -3572,9 +3665,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         const m = track && rec.ties[track] ? maskAnd(full, tieMask(rec.ties[track], k)) : full;
         if (m) alive.set(k, new Map(hs.map(h => [h, m])));
       }
-      rec.alive = [];
+      // The states alive after each step, for `paths`: only a pass asked for
+      // exact turns reads them.
+      rec.alive = exact ? [] : null;
       for (let i = rec.history.length - 1; i >= 0; i--) {
-        rec.alive[i] = new Map([...alive].map(([k, states]) => [k, [...states.keys()]]));
+        if (exact) rec.alive[i] = new Map([...alive].map(([k, states]) => [k, [...states.keys()]]));
         const { change, token, survived, pre } = rec.history[i];
         const seen = change.via && token !== null ? new Uint8Array(SPAN) : null;
         const tied = tiedStat(rec, change);
@@ -3593,11 +3688,22 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             const packs = change.table.get(g) || [];
             const after = new Int32Array(packs.length);
             const at = new Int32Array(packs.length);
+            // Without a lethal mask, which is read by position, an entry
+            // counts only as its pair of HP after and value: each pair once.
+            const uAfter = new Int32Array(packs.length);
+            const uAt = new Int32Array(packs.length);
+            let u = 0;
+            stamp++;
             for (let j = 0; j < packs.length; j++) {
               after[j] = packs[j] % HP_BITS;
               at[j] = Math.floor(packs[j] / HP_BITS) % SPAN;
+              const pair = after[j] * SPAN + at[j];
+              if (pairStamp[pair] === stamp) continue;
+              pairStamp[pair] = stamp;
+              uAfter[u] = after[j];
+              uAt[u++] = at[j];
             }
-            row = { after, at };
+            row = { after, at, uAfter: uAfter.subarray(0, u), uAt: uAt.subarray(0, u) };
             rows.set(g, row);
           }
           return row;
@@ -3622,9 +3728,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           // the fixed bound, answer each start in a binary search.
           const span = change.band ? bandSpan(later, change.band, M, allow) : null;
           // The later states by HP, for the table's lookups.
+          // One array for every key, cleared after it of what it set.
           let byHp = null;
           if (!change.same && !span) {
-            byHp = new Float64Array(M + 2);
+            byHp = byHpScratch;
             for (const [x, mx] of later) if (x <= M + 1) byHp[x] = mx;
           }
           for (const h of hs) {
@@ -3636,7 +3743,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             } else {
               const g = (hp * SPAN + d) * HP_BITS + h;
               const fatal = fatalOf?.get(g);
-              const { after, at } = rowOf(g);
+              const row = rowOf(g);
+              const after = fatal ? row.after : row.uAfter;
+              const at = fatal ? row.at : row.uAt;
               for (let j = 0; j < after.length; j++) {
                 if (fatal && !fatal[j]) continue;
                 const h2 = fatal ? 1 : after[j];
@@ -3654,6 +3763,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             }
             if (m) keep.set(h, m);
           }
+          if (byHp) for (const x of later.keys()) if (x <= M + 1) byHp[x] = 0;
           if (keep.size) {
             prev.set(k, keep);
             if (byKey) byKey.set(k, vs);

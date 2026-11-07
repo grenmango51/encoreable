@@ -1,5 +1,5 @@
 {
- "commit": "b1d809b24230",
+ "commit": "6c7a9a92ede2",
  "pool": "1e0b71cf750545f5",
  "usage": "52468dff24156b2b",
  "grade": {
@@ -18,9 +18,9 @@
   "probes": 6278184,
   "rebuilds": 13156,
   "seconds": {
-   "median": 31.3,
-   "p95": 547.7,
-   "max": 2784.6
+   "median": 23.5,
+   "p95": 261.1,
+   "max": 1174
   },
   "ranked": 1472,
   "first": 0.578125,

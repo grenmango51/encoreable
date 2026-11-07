@@ -255,6 +255,20 @@ function tiedBudget(keys, dom, ties, spent) {
     // Every total the two untied stats reach, and each one's with the other's.
     const both = reach(free.map(x => dom[x]));
     const other = Object.fromEntries(free.map((x, i) => [x, reach([dom[free[1 - i]]])]));
+    // Whether some total `totals` reaches, added to `base`, fits `room`: within
+    // it, the least total does; spent to the point, the one total that lands
+    // on it.
+    const least = totals => totals.indexOf(1);
+    const lowBoth = least(both);
+    const lowOther = Object.fromEntries(free.map(x => [x, least(other[x])]));
+    const fitsWith = (totals, low, base, room) => {
+      if (!spent) return low >= 0 && base + low <= room;
+      const need = room - base;
+      return need >= 0 && need < totals.length && totals[need] === 1;
+    };
+    // What a tied value marks beside the untied stats depends on the room and
+    // the value alone: each pair of them is worked out once.
+    const marked = new Uint8Array((BUDGET + 1) * SPAN);
     for (const k of keys) {
       const room = BUDGET - KEY_SUM[k];
       if (room < 0) continue;
@@ -262,15 +276,14 @@ function tiedBudget(keys, dom, ties, spent) {
       const list = wordValues((ties[t][2 * k] & words[j][0]) >>> 0, ties[t][2 * k + 1] & words[j][1]);
       let any = false;
       for (const v of list) {
-        let ok = false;
-        for (let u = 0; u < both.length && !ok; u++) ok = both[u] === 1 && fit(v + u, room);
-        if (!ok) continue;
+        if (!fitsWith(both, lowBoth, v, room)) continue;
         any = true;
         flatOk[t][v] = 1;
+        if (marked[room * SPAN + v]) continue;
+        marked[room * SPAN + v] = 1;
         for (const x of free) {
           for (const w of vals[x]) {
-            if (flatOk[x][w]) continue;
-            for (let u = 0; u < other[x].length; u++) if (other[x][u] && fit(v + w + u, room)) { flatOk[x][w] = 1; break; }
+            if (!flatOk[x][w] && fitsWith(other[x], lowOther[x], v + w, room)) flatOk[x][w] = 1;
           }
         }
       }
