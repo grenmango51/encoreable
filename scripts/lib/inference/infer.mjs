@@ -780,12 +780,19 @@ export async function inferSpreads({
     // has the line's values between them, as an order between two speeds
     // does, and is halved until a value gets past the line or the halves stop
     // telling the two apart. Then every stat at its middle.
+    // Every stat's ends first, across the whole cast, and only then the
+    // halving: a halving spends a rebuild per step, and spent on the first
+    // Pokemon's stats it leaves none for the one whose stat decides the line -
+    // the Orthworm whose Shed Tail made the Substitute a drain was taken off.
+    const halve = [];
     for (const d of dims) {
       const n = d.alive.length;
       if (!n || found || ahead || !affordable()) continue;
-      let [i, j] = [0, n - 1];
-      const ends = [await tryValue(d, d.alive[i]), found || ahead || !affordable() ? null : await tryValue(d, d.alive[j])];
-      if (!ends.includes('early') || !ends.includes('same')) continue;
+      const ends = [await tryValue(d, d.alive[0]), found || ahead || !affordable() ? null : await tryValue(d, d.alive[n - 1])];
+      if (ends.includes('early') && ends.includes('same')) halve.push({ d, ends });
+    }
+    for (const { d, ends } of halve) {
+      let [i, j] = [0, d.alive.length - 1];
       while (j - i > 1 && !found && !ahead && affordable()) {
         const m = (i + j) >> 1;
         const side = await tryValue(d, d.alive[m], { escorted: false });
