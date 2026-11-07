@@ -883,6 +883,37 @@ export async function inferSpreads({
   let stop = null;
   // Every guess a round has rebuilt from.
   const visited = new Set();
+  // The first mix of two guesses no round has rebuilt from: each Pokemon of
+  // `order` that differs takes its spread from `a` or `b`, then each stat that
+  // differs its value from one or the other, fewest taken from `b` first.
+  const mixOf = (a, b, order) => {
+    const allowed = (m, list) => list.every(([s, i]) => containsSpread(knowledge.get(`p${s + 1}:${i}`), m[s][i]));
+    const label = ([s, i]) => sets[s][i].name || sets[s][i].species;
+    const differ = order.filter(([s, i]) => !sameSpread(a[s][i], b[s][i]));
+    const byCount = n => [...Array(2 ** n).keys()].slice(1, -1).sort((x, y) => bits(x) - bits(y) || x - y);
+    const bits = x => { let c = 0; for (; x; x &= x - 1) c++; return c; };
+    if (differ.length > 1 && differ.length <= 6) {
+      for (const mask of byCount(differ.length)) {
+        const m = a.map(team => team.map(e => ({ ...e })));
+        differ.forEach(([s, i], j) => { if (mask & (1 << j)) m[s][i] = { ...b[s][i] }; });
+        if (!visited.has(signature(m)) && allowed(m, differ)) {
+          return { picks: m, what: differ.map((d, j) => `${label(d)} from the ${mask & (1 << j) ? 'last' : 'new'}`).join(', ') };
+        }
+      }
+    }
+    const cells = differ.flatMap(([s, i]) => STAT_IDS.filter(x => a[s][i][x] !== b[s][i][x]).map(x => [s, i, x]));
+    if (cells.length > 1 && cells.length <= 10) {
+      for (const mask of byCount(cells.length)) {
+        const m = a.map(team => team.map(e => ({ ...e })));
+        cells.forEach(([s, i, x], j) => { if (mask & (1 << j)) m[s][i][x] = b[s][i][x]; });
+        if (!visited.has(signature(m)) && allowed(m, differ)) {
+          const taken = cells.filter((_, j) => mask & (1 << j)).map(([s, i, x]) => `${label([s, i])}'s ${x} ${b[s][i][x]}`);
+          return { picks: m, what: `${taken.join(', ')} from the last` };
+        }
+      }
+    }
+    return null;
+  };
   while (stalled < maxRounds && rounds < 4 * maxRounds && (!rounds || Date.now() < deadline)) {
     rounds++;
     work.rounds++;
@@ -1009,24 +1040,19 @@ export async function inferSpreads({
       level = floor;
     }
     // A guess an earlier round already rebuilt from: the rounds are going back
-    // and forth between two guesses, each getting past the line the other
-    // stops on. Each Pokemon can still take its spread from either; the next
-    // round tries one such mix no round has, each spread one the evidence
-    // allows, before going back.
+    // and forth, each guess getting past the line the other stops on, and the
+    // evidence of neither line moving what survives (a line a rebuild stops on
+    // proves nothing). No guess is rebuilt twice: the next round takes a mix of
+    // the two no round has tried, first whole Pokemon from one or the other,
+    // then single stats, fewest changed first, each spread one the evidence
+    // allows. With none left, the search goes on as it would have.
     if (!unchanged && visited.has(signature(next))) {
-      const differ = order.filter(([s, i]) => !sameSpread(next[s][i], picks[s][i]));
-      if (differ.length > 1 && differ.length <= 4) {
-        for (let mask = 1; mask < (1 << differ.length) - 1; mask++) {
-          const mix = next.map(team => team.map(e => ({ ...e })));
-          differ.forEach(([s, i], b) => { if (mask & (1 << b)) mix[s][i] = { ...picks[s][i] }; });
-          if (visited.has(signature(mix))) continue;
-          if (!differ.every(([s, i]) => containsSpread(knowledge.get(`p${s + 1}:${i}`), mix[s][i]))) continue;
-          onProgress(`  back to a guess already tried; mixing it with the last one: ${differ.map(([s, i], b) => `${sets[s][i].name || sets[s][i].species} from the ${mask & (1 << b) ? 'last' : 'new'}`).join(', ')}`);
-          next = mix;
-          exact = null;
-          pins = null;
-          break;
-        }
+      const mix = mixOf(next, picks, order);
+      if (mix) {
+        onProgress(`  back to a guess already tried; mixing it with the last one: ${mix.what}`);
+        next = mix.picks;
+        exact = null;
+        pins = null;
       }
     }
     picks = next;
