@@ -243,7 +243,7 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
   try {
     for (const line of lines) {
       if (!ctx && /^>p[1-4] /.test(line)) {
-        ctx = attachInference(stream.battle, { view, prefix, channel, knowledge, cache, record });
+        ctx = attachInference(stream.battle, { view, prefix, channel, knowledge, cache, record, exact });
       }
       await stream.write(line);
       // Draw ordinals count from installation, and `playThrough` installs right
@@ -400,7 +400,7 @@ function snapshot(battle, extra = []) {
   };
 }
 
-function attachInference(battle, { view, prefix, channel, knowledge, cache, record }) {
+function attachInference(battle, { view, prefix, channel, knowledge, cache, record, exact = false }) {
   const st = install(battle);
   const actions = battle.actions;
   // `coupled`: the first turn with a Pain Split between two Pokemon both shown
@@ -3665,9 +3665,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         const m = track && rec.ties[track] ? maskAnd(full, tieMask(rec.ties[track], k)) : full;
         if (m) alive.set(k, new Map(hs.map(h => [h, m])));
       }
-      rec.alive = [];
+      // The states alive after each step, for `paths`: only a pass asked for
+      // exact turns reads them.
+      rec.alive = exact ? [] : null;
       for (let i = rec.history.length - 1; i >= 0; i--) {
-        rec.alive[i] = new Map([...alive].map(([k, states]) => [k, [...states.keys()]]));
+        if (exact) rec.alive[i] = new Map([...alive].map(([k, states]) => [k, [...states.keys()]]));
         const { change, token, survived, pre } = rec.history[i];
         const seen = change.via && token !== null ? new Uint8Array(SPAN) : null;
         const tied = tiedStat(rec, change);
