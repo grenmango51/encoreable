@@ -34,7 +34,7 @@ import {
   splitTurns, withDice,
 } from '../reconstruct.mjs';
 import {
-  FLAT, KEY_DIM, KEY_HP, SPAN, STAT_IDS, aliveOf, fullEvs, maskKeys, newTie, packBits, pairName, rangesOfValues, spreadCount, supported,
+  FLAT, KEY_DIM, KEY_HP, SPAN, STAT_IDS, aliveOf, containsSpread, fullEvs, maskKeys, newTie, packBits, pairName, rangesOfValues, spreadCount, supported,
   tieHas, tieWords, valuesOf,
 } from './knowledge.mjs';
 import { attachSpeed } from './speed.mjs';
@@ -2122,7 +2122,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       change.victim.dealtOk = dealtOk;
       narrowDealt(change.hurt, change.victim, dealtOk, change);
     }
-    rec.history.push({ change, token, survived, pre: rec.chain, seq: seq++ });
+    rec.history.push({ change, token, survived, pre: rec.chain, seq: seq++, turn: battle.turn });
     rec.chain = next;
     if (dealt) {
       const S = change.dealtBy;
@@ -3842,6 +3842,12 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     // it at, for the recoil or drain that follows it.
     const dealtBy = new Map();
     let coupled = Infinity;
+    // Asked for other spreads than the scaffold was built with, a line no
+    // hook read keeps the HP the scaffold printed, which those spreads need
+    // not give: a drain off a Substitute heals half of what the Substitute
+    // held, whoever made it. No exact turn is handed on from the first such
+    // line on a Pokemon shown only as a percentage.
+    const stale = recs.some(rec => !rec.kn.known && !containsSpread(rec.kn, rec.pokemon.set.evs));
     const startOf = (rec) => {
       const [k, hs] = [...(rec.history[0]?.pre || new Map()).entries()][0] || [];
       return k === undefined ? null : [k, hs[0]];
@@ -3872,6 +3878,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const later = alive.get(k) || [];
       const M = maxHp(rec, KEY_HP[k]);
       const d = e.change.dim ? KEY_DIM[e.change.dim][k] : 0;
+      if (e.change.band && stale && !rec.exact) coupled = Math.min(coupled, e.turn ?? 0);
       const options = [];
       const rollOf = new Map();
       // The attacking value behind the first entry giving each HP: the one the
