@@ -226,6 +226,10 @@ function handOn(built, rolls, coupled = Infinity) {
  *          again under another reading add theirs. The loop goes on as if it
  *          had not been counted. No recording carries either
  *          (`inferenceRecord`).
+ * @param parallel threads to spare (`spareThreads` in `speculate.mjs`): the
+ *                 starts a search that gives up runs next begin on them at
+ *                 once, and are taken in order only if needed - the same
+ *                 answer, work and limits as without, sooner
  */
 export async function inferSpreads({
   formatid,
@@ -255,6 +259,7 @@ export async function inferSpreads({
   wide = false,
   widest = false,
   spend = { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() },
+  parallel = null,
 }) {
   const options = { ...arguments[0], spend };
   // `budgetScale` multiplies every search limit at once - probes, backtracks,
@@ -330,6 +335,7 @@ export async function inferSpreads({
     return usual ? { ...usual.evs } : defaultSpread(dex, set, hp);
   }));
   let picks = firstGuesses(start);
+  const ahead = parallel && deadline === Infinity && start === 'default' && !wide ? parallel.ahead(restarts()) : null;
 
   const settle = async (inputLog, knowledge, cache, record = false) => {
     const counts = () => new Map([...knowledge].map(([id, kn]) => [id, spreadsLeft(kn)]));
@@ -1038,6 +1044,7 @@ export async function inferSpreads({
         tighten(other.knowledge.get(p.id));
         Object.assign(p, summarise(other.knowledge.get(p.id)));
       }
+      ahead?.cancel();
       return spareDisguises(Object.assign(other, { work, warnings }));
     }
   }
@@ -1109,30 +1116,17 @@ export async function inferSpreads({
   // runs the three once more with every limit `WIDE` times wider (`widest`),
   // as `--budget` widens them, and no wider after that: a battle any earlier
   // start rebuilds never gets there.
-  if (plain.complete || wide || start !== 'default' || Date.now() >= deadline) return plain;
-  const from = { plain: firstGuesses('default'), usual: usage ? firstGuesses('usage') : null };
-  const differs = from.usual && sets.some((team, s) => team.some((set, i) => !sameSpread(from.usual[s][i], from.plain[s][i])));
+  if (plain.complete || wide || start !== 'default' || Date.now() >= deadline) {
+    ahead?.cancel();
+    return plain;
+  }
   const starts = [plain];
-  if (differs) {
-    onProgress('the search gave up; searching again from the spreads people run');
-    starts.push(absorb(await inferSpreads({
-      ...options, start: 'usage', spend: { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() },
-    })));
+  for (const next of restarts()) {
+    if (next.key !== 'usage' && (starts.some(r => r.complete) || Date.now() >= deadline)) break;
+    onProgress(next.note);
+    starts.push(absorb(await (ahead?.take(next.key) ?? inferSpreads(next.options))));
   }
-  // Not for the inferences run again under another reading of an Illusion
-  // (`readings: false`): a battle that rebuilds keeps its path.
-  if (readings && !starts.some(r => r.complete) && Date.now() < deadline) {
-    onProgress(`the search gave up; searching once more with ${WIDE} times the fallback's rebuilds and the joint guess tries`);
-    starts.push(absorb(await inferSpreads({
-      ...options, wide: true, spend: { rebuilds: FALLBACK_TOTAL * WIDE * budgetScale, fruitless: new Set() },
-    })));
-  }
-  if (readings && !widest && !starts.some(r => r.complete) && Date.now() < deadline) {
-    onProgress(`the search gave up from every start; searching from each again with every limit ${WIDE} times wider`);
-    starts.push(absorb(await inferSpreads({
-      ...options, widest: true, budgetScale: budgetScale * WIDE, spend: { rebuilds: FALLBACK_TOTAL * WIDE * budgetScale, fruitless: new Set() },
-    })));
-  }
+  ahead?.cancel();
   const kept = starts.find(r => r.complete) || plain;
   for (const partner of starts) {
     if (partner === kept) continue;
@@ -1147,6 +1141,38 @@ export async function inferSpreads({
     }
   }
   return Object.assign(kept, { work, warnings, limits: [...limits].sort() });
+
+  /**
+   * The starts a search that gives up runs next, in order, each run only while
+   * none before it rebuilt the log (above): from the spreads people run, where
+   * that is another start; the fallback and the joint guesses wider; every
+   * limit wider. `need` is how many starts each runs next in turn.
+   */
+  function restarts() {
+    const from = { plain: firstGuesses('default'), usual: usage ? firstGuesses('usage') : null };
+    const differs = from.usual && sets.some((team, s) => team.some((set, i) => !sameSpread(from.usual[s][i], from.plain[s][i])));
+    const list = [];
+    if (differs) {
+      list.push({
+        key: 'usage', need: 0, note: 'the search gave up; searching again from the spreads people run',
+        options: { ...options, start: 'usage', spend: { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() } },
+      });
+    }
+    // Not for the inferences run again under another reading of an Illusion
+    // (`readings: false`): a battle that rebuilds keeps its path.
+    if (!readings) return list;
+    list.push({
+      key: 'wide', need: 0, note: `the search gave up; searching once more with ${WIDE} times the fallback's rebuilds and the joint guess tries`,
+      options: { ...options, wide: true, spend: { rebuilds: FALLBACK_TOTAL * WIDE * budgetScale, fruitless: new Set() } },
+    });
+    if (!widest) {
+      list.push({
+        key: 'widest', need: list.length, note: `the search gave up from every start; searching from each again with every limit ${WIDE} times wider`,
+        options: { ...options, widest: true, budgetScale: budgetScale * WIDE, spend: { rebuilds: FALLBACK_TOTAL * WIDE * budgetScale, fruitless: new Set() } },
+      });
+    }
+    return list;
+  }
 
   /**
    * A switch-in nothing settles could have been the Illusion user in disguise

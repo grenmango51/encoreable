@@ -65,6 +65,7 @@ import { inferSpreads } from './lib/inference/infer.mjs';
 import { FUZZ_TURNS, fuzzRecipe, fuzzTeams, playFuzz } from './lib/fuzz.mjs';
 import { USAGE_FILE, mimicRecipe, playMimic, usageSpreads } from './lib/mimic.mjs';
 import { likelySpreads, usualSpreads } from './lib/inference/usage.mjs';
+import { spareThreads } from './lib/speculate.mjs';
 
 const require = createRequire(import.meta.url);
 const { BattleStream, Dex, Teams } = require('pokemon-showdown');
@@ -192,7 +193,7 @@ function miscount(p, key) {
 }
 
 /** One battle from one view, graded. */
-async function runCase(id, view, { budget = 1, trace = false, mimicDir = null } = {}) {
+async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, parallel = null } = {}) {
   const started = Date.now();
   const base = { id, view };
   try {
@@ -218,7 +219,7 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null } 
     const dex = Dex.forFormat(formatid);
     const inf = await inferSpreads({
       formatid, sets, known, playerNames: players.map(p => p.name), observed: replayed.channels[channel], channel,
-      sampleSeed: 1, threads: 1, budgetScale: budget, usage,
+      sampleSeed: 1, threads: 1, budgetScale: budget, usage, parallel,
       ...(trace ? { onProgress: m => process.stderr.write(`[${id} ${view}] ${m}\n`) } : {}),
     });
     const pokemon = [];
@@ -322,15 +323,22 @@ function dealt(cases, timings, shard) {
   return mine;
 }
 
-/** The cases on a pool of worker threads; results in case order. */
+/**
+ * The cases on a pool of worker threads; results in case order. A thread with
+ * no case left is a thread to spare: the cases still running begin the starts
+ * their search would run next on it (`speculate.mjs`), which changes how soon
+ * they end, never what they find.
+ */
 async function runCases(cases, threads, budget, { trace = false, mimicDir = null } = {}) {
   const out = new Array(cases.length);
   let next = 0;
   let done = 0;
   const started = Date.now();
   const size = Math.max(1, Math.min(threads, cases.length));
+  const spare = new Int32Array(new SharedArrayBuffer(4));
+  spare[0] = Math.max(0, threads - size);
   await Promise.all(Array.from({ length: size }, () => new Promise((resolve, reject) => {
-    const worker = new Worker(fileURLToPath(import.meta.url), { workerData: { role: WORKER_ROLE } });
+    const worker = new Worker(fileURLToPath(import.meta.url), { workerData: { role: WORKER_ROLE, spare } });
     const feed = () => {
       if (next >= cases.length) { worker.postMessage(null); return; }
       const at = next++;
@@ -343,7 +351,10 @@ async function runCases(cases, threads, budget, { trace = false, mimicDir = null
       feed();
     });
     worker.on('error', reject);
-    worker.on('exit', resolve);
+    worker.on('exit', () => {
+      Atomics.add(spare, 0, 1);
+      resolve();
+    });
     feed();
   })));
   return out;
@@ -589,8 +600,11 @@ if (isMainThread) {
     process.exitCode = 1;
   });
 } else if (workerData?.role === WORKER_ROLE) {
+  const parallel = spareThreads({ shared: workerData.spare });
   parentPort.on('message', async (job) => {
     if (!job) { process.exit(0); return; }
-    parentPort.postMessage({ at: job.at, record: await runCase(job.id, job.view, job) });
+    const record = await runCase(job.id, job.view, { ...job, parallel });
+    parallel.release();
+    parentPort.postMessage({ at: job.at, record });
   });
 }
