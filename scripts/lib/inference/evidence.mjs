@@ -3834,6 +3834,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     // one pair, from which no exact turn is handed on.
     const pairedTo = new Map();
     const passed = new Set();
+    // Per hit on the path, the amount it dealt and the attacking value it dealt
+    // it at, for the recoil or drain that follows it.
+    const dealtBy = new Map();
     let coupled = Infinity;
     const startOf = (rec) => {
       const [k, hs] = [...(rec.history[0]?.pre || new Map()).entries()][0] || [];
@@ -3867,6 +3870,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const d = e.change.dim ? KEY_DIM[e.change.dim][k] : 0;
       const options = [];
       const rollOf = new Map();
+      // The attacking value behind the first entry giving each HP: the one the
+      // roll handed on for it was found under.
+      const tagOf = new Map();
       if (e.change.same) {
         if (later.includes(h) && dimAllowed(e.change, k) && (!e.change.allowSet || e.change.allowSet.has(M * HP_BITS + h)) && (!e.change.allow || e.change.allow(M, h))) options.push(h);
       } else if (e.change.band) {
@@ -3880,12 +3886,18 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         const packs = e.change.table.get(g) || [];
         const rs = e.change.rolls?.get(g);
         const fatal = e.survived ? e.change.lethal?.get(g) : null;
+        // Recoil or drain: the amount the path's own hit dealt, under the value
+        // it dealt it at, and no other - a heal that fits some amount the hit
+        // could have dealt is not the one the roll handed on for it deals.
+        const amounts = e.change.dealtOf?.get(g);
+        const dealt = amounts && e.change.victim ? dealtBy.get(e.change.victim) : null;
         for (let j = 0; j < packs.length; j++) {
           if (fatal && !fatal[j]) continue;
           const packed = packs[j];
           const h2 = fatal ? 1 : packed % HP_BITS;
           if (!later.includes(h2)) continue;
           const tag = Math.floor(packed / HP_BITS);
+          if (dealt && (amounts[j] !== dealt.amount || tag % SPAN !== dealt.v)) continue;
           if (e.change.dealtOk && !e.change.dealtOk.has((tag % SPAN) * HP_BITS + h - h2)) continue;
           if (e.change.sourceStates) {
             const [sM, sH, sX] = e.change.sourceStates[Math.floor(tag / SPAN)];
@@ -3894,6 +3906,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           }
           options.push(h2);
           if (rs && !rollOf.has(h2)) rollOf.set(h2, rs[j]);
+          if (!tagOf.has(h2)) tagOf.set(h2, tag % SPAN);
         }
       }
       if (!options.length) return null;
@@ -3919,6 +3932,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const h2 = options.includes(own) ? own : options[0];
       chosen.get(rec)[i] = h2;
       cur.set(rec, [k, h2]);
+      if (tagOf.has(h2)) dealtBy.set(e.change, { amount: h - h2, v: tagOf.get(h2) });
       if (e.change.rollAt !== null && e.change.rollAt !== undefined && rollOf.has(h2)) rolls.set(e.change.rollAt, rollOf.get(h2));
     }
 
