@@ -355,6 +355,7 @@ export async function inferSpreads({
       checks: first.checks,
       cutoff: first.cutoff,
       seen: new Set(first.recs.filter(r => r.seen).map(r => r.id)),
+      lent: new Map(first.recs.map(r => [r.id, r.lent || []])),
       initial,
       afterFirst,
       passes,
@@ -363,6 +364,9 @@ export async function inferSpreads({
 
   const knowledge = cloneKnowledge(blank);
   let built = null;
+  // Per Pokemon, the others whose Stat Points moved one of its stats, from the
+  // last round's evidence.
+  let lent = new Map();
   let rounds = 0;
   let level = 0;
   // The budget a turn has needed - a round that got further than the last on
@@ -551,7 +555,12 @@ export async function inferSpreads({
         }
       }
     }
-    const tiers = [names([diff.expected, diff.actual, ...leaving]), names(place.action), names(started), names([...segment, ...stood.values()])];
+    // Then the Pokemon whose Stat Points moved a stat of one of those - a
+    // Guard Split's partner, the one a Transform copied - which the turn need
+    // not name: it can have fainted.
+    const near = [names([diff.expected, diff.actual, ...leaving]), names(place.action)];
+    const lender = new Set([...near[0], ...near[1]].flatMap(id => lent.get(id) || []));
+    const tiers = [...near, lender, names(started), names([...segment, ...stood.values()])];
     const rank = u => tiers.findIndex(tier => tier.has(u.id));
     const cast = unknown.filter(u => rank(u) >= 0 && (seen.has(u.id) || rank(u) === 0)).sort((a, b) => rank(a) - rank(b));
 
@@ -945,7 +954,8 @@ export async function inferSpreads({
     const cache = new Map();
     const evidenceStart = Date.now();
     evidenceTurn = Math.max(evidenceTurn, diff?.turn ?? 0);
-    const { seen, passes: read } = await settle(built.inputLog, knowledge, cache);
+    const { seen, lent: lentNow, passes: read } = await settle(built.inputLog, knowledge, cache);
+    lent = lentNow;
 
     // New guesses, chosen together. Each Pokemon is pinned before the next is
     // chosen, because two unknowns can each be possible alone and impossible

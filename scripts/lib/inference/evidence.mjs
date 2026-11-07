@@ -505,6 +505,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       // equal the old value still stops depending on the spread.
       rec.deps = {};
       rec.unmapped = new Set();
+      // Whose Stat Points a written stat was moved by, read or not: the other
+      // Pokemon a search may have to move to change what reads it.
+      rec.lent = {};
       let settingSpecies = 0;
       pokemon.storedStats = new Proxy(pokemon.storedStats, {
         set(target, key, value) {
@@ -526,6 +529,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           if (!state.dry && !args[2]) {
             rec.deps = {};
             rec.unmapped.clear();
+            rec.lent = {};
           }
         }
       });
@@ -3099,6 +3103,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const byVar = asked?.tables.get(`${rec.id}|${s}`);
       const moving = asked && (byVar || !asked.vars.length)
         ? asked.vars.filter(key => { const t = byVar.get(key); return t.some(x => x !== t[0]); }) : null;
+      if (moving) rec.lent[s] = new Set(moving.map(key => key.split('|')[0]).filter(id => id !== rec.id));
+      else delete rec.lent[s];
       let dep = null;
       if (moving && moving.length === 0) dep = CONSTANT;
       if (moving && moving.length === 1) {
@@ -3477,6 +3483,12 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         writes = outer;
         for (const [r, s] of written) {
           const dep = r === rec ? copied[s] : null;
+          if (r === rec) {
+            const lent = new Set(from.lent[s] || []);
+            if (copied[s]?.owner) lent.add(copied[s].owner.id);
+            lent.delete(r.id);
+            r.lent[s] = lent;
+          }
           if (dep && (!dep.owner || dep.at(ownValue(dep)) === r.pokemon.storedStats[s])) {
             r.deps[s] = dep;
             r.unmapped.delete(s);
@@ -3955,6 +3967,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           flat: rec.flat,
           ties: rec.ties,
           seen: !!rec.chain,
+          lent: [...new Set(Object.values(rec.lent).flatMap(x => [...x]))],
         })),
         // In the order they were applied: every HP event as the battle ran, then
         // the whole-path check, then speed order, which needs every turn's sort.
