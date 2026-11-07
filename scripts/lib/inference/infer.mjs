@@ -54,8 +54,8 @@ const MAX_READINGS = 3;
 const FALLBACK_TOTAL = 32;
 // The third start of a search that gave up from both: the fallback's rebuilds
 // and the joint guess tries this many times wider (`wide`); and the last, of
-// one that gave up from all three: every limit this many times wider
-// (`widest`).
+// one that gave up from all three: the three again with every limit this many
+// times wider (`widest`).
 const WIDE = 4;
 
 /**
@@ -1106,10 +1106,10 @@ export async function inferSpreads({
   // removed was removed by evidence, so each Pokemon keeps only what all
   // left, and the rebuild is the one that reproduced the log, if one did:
   // never worse than the first search alone. One that gave up from all three
-  // starts last from the first guess with every limit `WIDE` times wider
-  // (`widest`), as `--budget` widens them: a battle any earlier start rebuilds
-  // never gets there.
-  if (plain.complete || wide || widest || start !== 'default' || Date.now() >= deadline) return plain;
+  // runs the three once more with every limit `WIDE` times wider (`widest`),
+  // as `--budget` widens them, and no wider after that: a battle any earlier
+  // start rebuilds never gets there.
+  if (plain.complete || wide || start !== 'default' || Date.now() >= deadline) return plain;
   const from = { plain: firstGuesses('default'), usual: usage ? firstGuesses('usage') : null };
   const differs = from.usual && sets.some((team, s) => team.some((set, i) => !sameSpread(from.usual[s][i], from.plain[s][i])));
   const starts = [plain];
@@ -1127,8 +1127,8 @@ export async function inferSpreads({
       ...options, wide: true, spend: { rebuilds: FALLBACK_TOTAL * WIDE * budgetScale, fruitless: new Set() },
     })));
   }
-  if (readings && !starts.some(r => r.complete) && Date.now() < deadline) {
-    onProgress(`the search gave up from every start; searching once more with every limit ${WIDE} times wider`);
+  if (readings && !widest && !starts.some(r => r.complete) && Date.now() < deadline) {
+    onProgress(`the search gave up from every start; searching from each again with every limit ${WIDE} times wider`);
     starts.push(absorb(await inferSpreads({
       ...options, widest: true, budgetScale: budgetScale * WIDE, spend: { rebuilds: FALLBACK_TOTAL * WIDE * budgetScale, fruitless: new Set() },
     })));
