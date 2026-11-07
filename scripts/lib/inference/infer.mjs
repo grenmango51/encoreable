@@ -881,9 +881,12 @@ export async function inferSpreads({
   let deepest = null;
   let stalled = 0;
   let stop = null;
+  // Every guess a round has rebuilt from.
+  const visited = new Set();
   while (stalled < maxRounds && rounds < 4 * maxRounds && (!rounds || Date.now() < deadline)) {
     rounds++;
     work.rounds++;
+    visited.add(signature(picks));
     const packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
     const searchStart = Date.now();
     const resample = budgets[level].resample || 0;
@@ -927,7 +930,7 @@ export async function inferSpreads({
       if (known[s]) continue;
       for (const i of team.keys()) if (seen.has(`p${s + 1}:${i}`)) order.push([s, i]);
     }
-    const next = picks.map(team => team.map(e => ({ ...e })));
+    let next = picks.map(team => team.map(e => ({ ...e })));
     const emptied = kn => !kn.keys.includes(1) || FLAT.some(x => !kn.dom[x].includes(1));
     let tries = 32 * S * W;
     const choose = async (n, cond) => {
@@ -1004,6 +1007,27 @@ export async function inferSpreads({
       if (++level >= budgets.length) { stop = 'searches'; break; }
     } else {
       level = floor;
+    }
+    // A guess an earlier round already rebuilt from: the rounds are going back
+    // and forth between two guesses, each getting past the line the other
+    // stops on. Each Pokemon can still take its spread from either; the next
+    // round tries one such mix no round has, each spread one the evidence
+    // allows, before going back.
+    if (!unchanged && visited.has(signature(next))) {
+      const differ = order.filter(([s, i]) => !sameSpread(next[s][i], picks[s][i]));
+      if (differ.length > 1 && differ.length <= 4) {
+        for (let mask = 1; mask < (1 << differ.length) - 1; mask++) {
+          const mix = next.map(team => team.map(e => ({ ...e })));
+          differ.forEach(([s, i], b) => { if (mask & (1 << b)) mix[s][i] = { ...picks[s][i] }; });
+          if (visited.has(signature(mix))) continue;
+          if (!differ.every(([s, i]) => containsSpread(knowledge.get(`p${s + 1}:${i}`), mix[s][i]))) continue;
+          onProgress(`  back to a guess already tried; mixing it with the last one: ${differ.map(([s, i], b) => `${sets[s][i].name || sets[s][i].species} from the ${mask & (1 << b) ? 'last' : 'new'}`).join(', ')}`);
+          next = mix;
+          exact = null;
+          pins = null;
+          break;
+        }
+      }
     }
     picks = next;
   }
