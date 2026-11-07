@@ -2167,14 +2167,35 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         }
         if (allowSet || xDim) {
           const byKey = new Map();
+          // The states by the max HP they stand on, and a key's HPs marked
+          // once, not searched once per state.
+          const anyHp = [];
+          const byMax = new Map();
+          for (const [si, values] of byState) {
+            const st = change.sourceStates[si];
+            if (st[0] === null) anyHp.push([st, values]);
+            else {
+              if (!byMax.has(st[0])) byMax.set(st[0], []);
+              byMax.get(st[0]).push([st, values]);
+            }
+          }
+          const mark = new Uint8Array(HP_BITS);
           for (const [k, hs] of S.chain) {
             const M = maxHp(S, KEY_HP[k]);
             const vs = new Set();
-            for (const [si, values] of byState) {
-              const [sM, sH, sX] = change.sourceStates[si];
-              if (sM !== null && (sM !== M || !hs.includes(sH))) continue;
-              if (xDim && X === S && sX !== KEY_DIM[change.extra.stat][k]) continue;
+            const xd = xDim && X === S ? KEY_DIM[change.extra.stat][k] : null;
+            for (const [st, values] of anyHp) {
+              if (xd !== null && st[2] !== xd) continue;
               for (const v of values) vs.add(v);
+            }
+            const atMax = byMax.get(M);
+            if (atMax) {
+              for (const h of hs) mark[h] = 1;
+              for (const [st, values] of atMax) {
+                if (!mark[st[1]] || (xd !== null && st[2] !== xd)) continue;
+                for (const v of values) vs.add(v);
+              }
+              for (const h of hs) mark[h] = 0;
             }
             byKey.set(k, vs);
           }
