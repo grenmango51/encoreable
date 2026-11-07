@@ -266,6 +266,9 @@ function tiedBudget(keys, dom, ties, spent) {
       const need = room - base;
       return need >= 0 && need < totals.length && totals[need] === 1;
     };
+    // What a tied value marks beside the untied stats depends on the room and
+    // the value alone: each pair of them is worked out once.
+    const marked = new Uint8Array((BUDGET + 1) * SPAN);
     for (const k of keys) {
       const room = BUDGET - KEY_SUM[k];
       if (room < 0) continue;
@@ -276,6 +279,8 @@ function tiedBudget(keys, dom, ties, spent) {
         if (!fitsWith(both, lowBoth, v, room)) continue;
         any = true;
         flatOk[t][v] = 1;
+        if (marked[room * SPAN + v]) continue;
+        marked[room * SPAN + v] = 1;
         for (const x of free) {
           for (const w of vals[x]) {
             if (!flatOk[x][w] && fitsWith(other[x], lowOther[x], v + w, room)) flatOk[x][w] = 1;
