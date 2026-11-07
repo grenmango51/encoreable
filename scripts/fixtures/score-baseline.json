@@ -1,5 +1,5 @@
 {
- "commit": "bbd986c76bf4",
+ "commit": "8d16546e143b",
  "pool": "1e0b71cf750545f5",
  "usage": "52468dff24156b2b",
  "grade": {
@@ -7,20 +7,20 @@
   "removed": 0,
   "witnessesRemoved": 0,
   "results": {
-   "PASS": 1056,
+   "PASS": 1058,
    "NO MATCH": 0,
-   "GAVE UP": 3,
+   "GAVE UP": 1,
    "CRASH": 0,
    "REMOVED": 0
   },
   "exactShare": 0.009225205345102365,
   "medianLog10Spreads": 7.592584924522983,
-  "probes": 8850732,
-  "rebuilds": 15778,
+  "probes": 8456843,
+  "rebuilds": 15217,
   "seconds": {
    "median": 23.3,
-   "p95": 275.5,
-   "max": 5752.7
+   "p95": 281.5,
+   "max": 2052.1
   },
   "ranked": 1472,
   "first": 0.578125,
@@ -1120,7 +1120,7 @@
    }
   },
   "fuzz:110 both@spectator": {
-   "result": "GAVE UP",
+   "result": "PASS",
    "battle": "9438440b2671119d",
    "spreads": {
     "p1:0": 61714028,
@@ -1131,7 +1131,7 @@
     "p1:5": 111196143,
     "p2:0": 136663185,
     "p2:1": 23737932,
-    "p2:2": 12133982,
+    "p2:2": 10648224,
     "p2:3": 136663185,
     "p2:4": 80537595,
     "p2:5": 78350826
@@ -14098,7 +14098,7 @@
    }
   },
   "recordings/local/probes/gen9championsvgc2026regmc-296.log.json both@spectator": {
-   "result": "GAVE UP",
+   "result": "PASS",
    "battle": "051258bb7822434a",
    "spreads": {
     "p1:0": 136663185,
@@ -14109,8 +14109,8 @@
     "p1:5": 136663185,
     "p2:0": 32352654,
     "p2:1": 136663185,
-    "p2:2": 136663185,
-    "p2:3": 136663185,
+    "p2:2": 108614390,
+    "p2:3": 128396817,
     "p2:4": 136663185,
     "p2:5": 136663185
    }

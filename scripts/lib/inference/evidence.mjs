@@ -505,6 +505,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       // equal the old value still stops depending on the spread.
       rec.deps = {};
       rec.unmapped = new Set();
+      // Whose Stat Points a written stat was moved by, read or not: the other
+      // Pokemon a search may have to move to change what reads it.
+      rec.lent = {};
       let settingSpecies = 0;
       pokemon.storedStats = new Proxy(pokemon.storedStats, {
         set(target, key, value) {
@@ -526,6 +529,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           if (!state.dry && !args[2]) {
             rec.deps = {};
             rec.unmapped.clear();
+            rec.lent = {};
           }
         }
       });
@@ -3099,6 +3103,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const byVar = asked?.tables.get(`${rec.id}|${s}`);
       const moving = asked && (byVar || !asked.vars.length)
         ? asked.vars.filter(key => { const t = byVar.get(key); return t.some(x => x !== t[0]); }) : null;
+      // Where what moved the stat could not be asked, every other Pokemon the
+      // same event wrote a stat of, beside whoever moved it before.
+      if (moving) rec.lent[s] = new Set(moving.map(key => key.split('|')[0]).filter(id => id !== rec.id));
+      else rec.lent[s] = new Set([...(rec.lent[s] || []), ...written.map(([r]) => r.id)].filter(id => id !== rec.id));
       let dep = null;
       if (moving && moving.length === 0) dep = CONSTANT;
       if (moving && moving.length === 1) {
@@ -3477,6 +3485,14 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         writes = outer;
         for (const [r, s] of written) {
           const dep = r === rec ? copied[s] : null;
+          if (r === rec) {
+            // What the original's stat stood on, the original among it: an
+            // average it took part in is its own Stat Points' too.
+            const lent = new Set([...(from.lent[s] || []), from.id]);
+            if (copied[s]?.owner) lent.add(copied[s].owner.id);
+            lent.delete(r.id);
+            r.lent[s] = lent;
+          }
           if (dep && (!dep.owner || dep.at(ownValue(dep)) === r.pokemon.storedStats[s])) {
             r.deps[s] = dep;
             r.unmapped.delete(s);
@@ -3822,6 +3838,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     // one pair, from which no exact turn is handed on.
     const pairedTo = new Map();
     const passed = new Set();
+    // Per hit on the path, the amount it dealt and the attacking value it dealt
+    // it at, for the recoil or drain that follows it.
+    const dealtBy = new Map();
     let coupled = Infinity;
     const startOf = (rec) => {
       const [k, hs] = [...(rec.history[0]?.pre || new Map()).entries()][0] || [];
@@ -3855,6 +3874,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const d = e.change.dim ? KEY_DIM[e.change.dim][k] : 0;
       const options = [];
       const rollOf = new Map();
+      // The attacking value behind the first entry giving each HP: the one the
+      // roll handed on for it was found under.
+      const tagOf = new Map();
       if (e.change.same) {
         if (later.includes(h) && dimAllowed(e.change, k) && (!e.change.allowSet || e.change.allowSet.has(M * HP_BITS + h)) && (!e.change.allow || e.change.allow(M, h))) options.push(h);
       } else if (e.change.band) {
@@ -3868,12 +3890,18 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         const packs = e.change.table.get(g) || [];
         const rs = e.change.rolls?.get(g);
         const fatal = e.survived ? e.change.lethal?.get(g) : null;
+        // Recoil or drain: the amount the path's own hit dealt, under the value
+        // it dealt it at, and no other - a heal that fits some amount the hit
+        // could have dealt is not the one the roll handed on for it deals.
+        const amounts = e.change.dealtOf?.get(g);
+        const dealt = amounts && e.change.victim ? dealtBy.get(e.change.victim) : null;
         for (let j = 0; j < packs.length; j++) {
           if (fatal && !fatal[j]) continue;
           const packed = packs[j];
           const h2 = fatal ? 1 : packed % HP_BITS;
           if (!later.includes(h2)) continue;
           const tag = Math.floor(packed / HP_BITS);
+          if (dealt && (amounts[j] !== dealt.amount || tag % SPAN !== dealt.v)) continue;
           if (e.change.dealtOk && !e.change.dealtOk.has((tag % SPAN) * HP_BITS + h - h2)) continue;
           if (e.change.sourceStates) {
             const [sM, sH, sX] = e.change.sourceStates[Math.floor(tag / SPAN)];
@@ -3882,6 +3910,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           }
           options.push(h2);
           if (rs && !rollOf.has(h2)) rollOf.set(h2, rs[j]);
+          if (!tagOf.has(h2)) tagOf.set(h2, tag % SPAN);
         }
       }
       if (!options.length) return null;
@@ -3907,6 +3936,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const h2 = options.includes(own) ? own : options[0];
       chosen.get(rec)[i] = h2;
       cur.set(rec, [k, h2]);
+      if (tagOf.has(h2)) dealtBy.set(e.change, { amount: h - h2, v: tagOf.get(h2) });
       if (e.change.rollAt !== null && e.change.rollAt !== undefined && rollOf.has(h2)) rolls.set(e.change.rollAt, rollOf.get(h2));
     }
 
@@ -3955,6 +3985,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           flat: rec.flat,
           ties: rec.ties,
           seen: !!rec.chain,
+          lent: [...new Set(Object.values(rec.lent).flatMap(x => [...x]))],
         })),
         // In the order they were applied: every HP event as the battle ran, then
         // the whole-path check, then speed order, which needs every turn's sort.

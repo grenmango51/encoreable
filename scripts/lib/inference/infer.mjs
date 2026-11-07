@@ -226,6 +226,10 @@ function handOn(built, rolls, coupled = Infinity) {
  *          again under another reading add theirs. The loop goes on as if it
  *          had not been counted. No recording carries either
  *          (`inferenceRecord`).
+ * @param parallel threads to spare (`spareThreads` in `speculate.mjs`): the
+ *                 starts a search that gives up runs next begin on them at
+ *                 once, and are taken in order only if needed - the same
+ *                 answer, work and limits as without, sooner
  */
 export async function inferSpreads({
   formatid,
@@ -255,6 +259,7 @@ export async function inferSpreads({
   wide = false,
   widest = false,
   spend = { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() },
+  parallel = null,
 }) {
   const options = { ...arguments[0], spend };
   // `budgetScale` multiplies every search limit at once - probes, backtracks,
@@ -330,6 +335,7 @@ export async function inferSpreads({
     return usual ? { ...usual.evs } : defaultSpread(dex, set, hp);
   }));
   let picks = firstGuesses(start);
+  const ahead = parallel && deadline === Infinity && start === 'default' && !wide ? parallel.ahead(restarts()) : null;
 
   const settle = async (inputLog, knowledge, cache, record = false) => {
     const counts = () => new Map([...knowledge].map(([id, kn]) => [id, spreadsLeft(kn)]));
@@ -355,6 +361,7 @@ export async function inferSpreads({
       checks: first.checks,
       cutoff: first.cutoff,
       seen: new Set(first.recs.filter(r => r.seen).map(r => r.id)),
+      lent: new Map(first.recs.map(r => [r.id, r.lent || []])),
       initial,
       afterFirst,
       passes,
@@ -363,6 +370,9 @@ export async function inferSpreads({
 
   const knowledge = cloneKnowledge(blank);
   let built = null;
+  // Per Pokemon, the others whose Stat Points moved one of its stats, from the
+  // last round's evidence.
+  let lent = new Map();
   let rounds = 0;
   let level = 0;
   // The budget a turn has needed - a round that got further than the last on
@@ -551,7 +561,12 @@ export async function inferSpreads({
         }
       }
     }
-    const tiers = [names([diff.expected, diff.actual, ...leaving]), names(place.action), names(started), names([...segment, ...stood.values()])];
+    // Then the Pokemon whose Stat Points moved a stat of one of those - a
+    // Guard Split's partner, the one a Transform copied - which the turn need
+    // not name: it can have fainted.
+    const near = [names([diff.expected, diff.actual, ...leaving]), names(place.action)];
+    const lender = new Set([...near[0], ...near[1]].flatMap(id => lent.get(id) || []));
+    const tiers = [...near, lender, names(started), names([...segment, ...stood.values()])];
     const rank = u => tiers.findIndex(tier => tier.has(u.id));
     const cast = unknown.filter(u => rank(u) >= 0 && (seen.has(u.id) || rank(u) === 0)).sort((a, b) => rank(a) - rank(b));
 
@@ -881,9 +896,43 @@ export async function inferSpreads({
   let deepest = null;
   let stalled = 0;
   let stop = null;
+  // Every guess a round has rebuilt from.
+  const visited = new Set();
+  // The first mix of two guesses no round has rebuilt from: each Pokemon of
+  // `order` that differs takes its spread from `a` or `b`, then each stat that
+  // differs its value from one or the other, fewest taken from `b` first.
+  const mixOf = (a, b, order) => {
+    const allowed = (m, list) => list.every(([s, i]) => containsSpread(knowledge.get(`p${s + 1}:${i}`), m[s][i]));
+    const label = ([s, i]) => sets[s][i].name || sets[s][i].species;
+    const differ = order.filter(([s, i]) => !sameSpread(a[s][i], b[s][i]));
+    const byCount = n => [...Array(2 ** n).keys()].slice(1, -1).sort((x, y) => bits(x) - bits(y) || x - y);
+    const bits = x => { let c = 0; for (; x; x &= x - 1) c++; return c; };
+    if (differ.length > 1 && differ.length <= 6) {
+      for (const mask of byCount(differ.length)) {
+        const m = a.map(team => team.map(e => ({ ...e })));
+        differ.forEach(([s, i], j) => { if (mask & (1 << j)) m[s][i] = { ...b[s][i] }; });
+        if (!visited.has(signature(m)) && allowed(m, differ)) {
+          return { picks: m, what: differ.map((d, j) => `${label(d)} from the ${mask & (1 << j) ? 'last' : 'new'}`).join(', ') };
+        }
+      }
+    }
+    const cells = differ.flatMap(([s, i]) => STAT_IDS.filter(x => a[s][i][x] !== b[s][i][x]).map(x => [s, i, x]));
+    if (cells.length > 1 && cells.length <= 10) {
+      for (const mask of byCount(cells.length)) {
+        const m = a.map(team => team.map(e => ({ ...e })));
+        cells.forEach(([s, i, x], j) => { if (mask & (1 << j)) m[s][i][x] = b[s][i][x]; });
+        if (!visited.has(signature(m)) && allowed(m, differ)) {
+          const taken = cells.filter((_, j) => mask & (1 << j)).map(([s, i, x]) => `${label([s, i])}'s ${x} ${b[s][i][x]}`);
+          return { picks: m, what: `${taken.join(', ')} from the last` };
+        }
+      }
+    }
+    return null;
+  };
   while (stalled < maxRounds && rounds < 4 * maxRounds && (!rounds || Date.now() < deadline)) {
     rounds++;
     work.rounds++;
+    visited.add(signature(picks));
     const packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
     const searchStart = Date.now();
     const resample = budgets[level].resample || 0;
@@ -911,7 +960,8 @@ export async function inferSpreads({
     const cache = new Map();
     const evidenceStart = Date.now();
     evidenceTurn = Math.max(evidenceTurn, diff?.turn ?? 0);
-    const { seen, passes: read } = await settle(built.inputLog, knowledge, cache);
+    const { seen, lent: lentNow, passes: read } = await settle(built.inputLog, knowledge, cache);
+    lent = lentNow;
 
     // New guesses, chosen together. Each Pokemon is pinned before the next is
     // chosen, because two unknowns can each be possible alone and impossible
@@ -927,7 +977,7 @@ export async function inferSpreads({
       if (known[s]) continue;
       for (const i of team.keys()) if (seen.has(`p${s + 1}:${i}`)) order.push([s, i]);
     }
-    const next = picks.map(team => team.map(e => ({ ...e })));
+    let next = picks.map(team => team.map(e => ({ ...e })));
     const emptied = kn => !kn.keys.includes(1) || FLAT.some(x => !kn.dom[x].includes(1));
     let tries = 32 * S * W;
     const choose = async (n, cond) => {
@@ -1005,6 +1055,22 @@ export async function inferSpreads({
     } else {
       level = floor;
     }
+    // A guess an earlier round already rebuilt from: the rounds are going back
+    // and forth, each guess getting past the line the other stops on, and the
+    // evidence of neither line moving what survives (a line a rebuild stops on
+    // proves nothing). No guess is rebuilt twice: the next round takes a mix of
+    // the two no round has tried, first whole Pokemon from one or the other,
+    // then single stats, fewest changed first, each spread one the evidence
+    // allows. With none left, the search goes on as it would have.
+    if (!unchanged && visited.has(signature(next))) {
+      const mix = mixOf(next, picks, order);
+      if (mix) {
+        onProgress(`  back to a guess already tried; mixing it with the last one: ${mix.what}`);
+        next = mix.picks;
+        exact = null;
+        pins = null;
+      }
+    }
     picks = next;
   }
   // Why the rounds ended: the log reproduces; every search budget was tried on
@@ -1038,6 +1104,7 @@ export async function inferSpreads({
         tighten(other.knowledge.get(p.id));
         Object.assign(p, summarise(other.knowledge.get(p.id)));
       }
+      ahead?.cancel();
       return spareDisguises(Object.assign(other, { work, warnings }));
     }
   }
@@ -1109,30 +1176,17 @@ export async function inferSpreads({
   // runs the three once more with every limit `WIDE` times wider (`widest`),
   // as `--budget` widens them, and no wider after that: a battle any earlier
   // start rebuilds never gets there.
-  if (plain.complete || wide || start !== 'default' || Date.now() >= deadline) return plain;
-  const from = { plain: firstGuesses('default'), usual: usage ? firstGuesses('usage') : null };
-  const differs = from.usual && sets.some((team, s) => team.some((set, i) => !sameSpread(from.usual[s][i], from.plain[s][i])));
+  if (plain.complete || wide || start !== 'default' || Date.now() >= deadline) {
+    ahead?.cancel();
+    return plain;
+  }
   const starts = [plain];
-  if (differs) {
-    onProgress('the search gave up; searching again from the spreads people run');
-    starts.push(absorb(await inferSpreads({
-      ...options, start: 'usage', spend: { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() },
-    })));
+  for (const next of restarts()) {
+    if (next.key !== 'usage' && (starts.some(r => r.complete) || Date.now() >= deadline)) break;
+    onProgress(next.note);
+    starts.push(absorb(await (ahead?.take(next.key) ?? inferSpreads(next.options))));
   }
-  // Not for the inferences run again under another reading of an Illusion
-  // (`readings: false`): a battle that rebuilds keeps its path.
-  if (readings && !starts.some(r => r.complete) && Date.now() < deadline) {
-    onProgress(`the search gave up; searching once more with ${WIDE} times the fallback's rebuilds and the joint guess tries`);
-    starts.push(absorb(await inferSpreads({
-      ...options, wide: true, spend: { rebuilds: FALLBACK_TOTAL * WIDE * budgetScale, fruitless: new Set() },
-    })));
-  }
-  if (readings && !widest && !starts.some(r => r.complete) && Date.now() < deadline) {
-    onProgress(`the search gave up from every start; searching from each again with every limit ${WIDE} times wider`);
-    starts.push(absorb(await inferSpreads({
-      ...options, widest: true, budgetScale: budgetScale * WIDE, spend: { rebuilds: FALLBACK_TOTAL * WIDE * budgetScale, fruitless: new Set() },
-    })));
-  }
+  ahead?.cancel();
   const kept = starts.find(r => r.complete) || plain;
   for (const partner of starts) {
     if (partner === kept) continue;
@@ -1147,6 +1201,38 @@ export async function inferSpreads({
     }
   }
   return Object.assign(kept, { work, warnings, limits: [...limits].sort() });
+
+  /**
+   * The starts a search that gives up runs next, in order, each run only while
+   * none before it rebuilt the log (above): from the spreads people run, where
+   * that is another start; the fallback and the joint guesses wider; every
+   * limit wider. `need` is how many starts each runs next in turn.
+   */
+  function restarts() {
+    const from = { plain: firstGuesses('default'), usual: usage ? firstGuesses('usage') : null };
+    const differs = from.usual && sets.some((team, s) => team.some((set, i) => !sameSpread(from.usual[s][i], from.plain[s][i])));
+    const list = [];
+    if (differs) {
+      list.push({
+        key: 'usage', need: 0, note: 'the search gave up; searching again from the spreads people run',
+        options: { ...options, start: 'usage', spend: { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() } },
+      });
+    }
+    // Not for the inferences run again under another reading of an Illusion
+    // (`readings: false`): a battle that rebuilds keeps its path.
+    if (!readings) return list;
+    list.push({
+      key: 'wide', need: 0, note: `the search gave up; searching once more with ${WIDE} times the fallback's rebuilds and the joint guess tries`,
+      options: { ...options, wide: true, spend: { rebuilds: FALLBACK_TOTAL * WIDE * budgetScale, fruitless: new Set() } },
+    });
+    if (!widest) {
+      list.push({
+        key: 'widest', need: list.length, note: `the search gave up from every start; searching from each again with every limit ${WIDE} times wider`,
+        options: { ...options, widest: true, budgetScale: budgetScale * WIDE, spend: { rebuilds: FALLBACK_TOTAL * WIDE * budgetScale, fruitless: new Set() } },
+      });
+    }
+    return list;
+  }
 
   /**
    * A switch-in nothing settles could have been the Illusion user in disguise
