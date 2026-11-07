@@ -1113,37 +1113,87 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     // `randomChance` succeeds - since the line proves a Focus Band's came up
     // whatever this replay's die did. Such a pair is left on 1 HP.
     const lethal = new Map();
+    const nS = hit.sStates.length;
+    // Without the target's HP in the calculation, a row depends on the
+    // defence value alone: looked up once per value, not once per HP.
+    const rowsByD = new Map();
+    const rowsOf = (d, hp, h) => {
+      if (hit.targetHp) return hit.aVals.flatMap(a => hit.sStates.map((_, si) => hit.rows.get(rowKey(a, d, hp, h, si)) || null));
+      let list = rowsByD.get(d);
+      if (!list) {
+        list = hit.aVals.flatMap(a => hit.sStates.map((_, si) => hit.rows.get(rowKey(a, d, null, null, si)) || null));
+        rowsByD.set(d, list);
+      }
+      return list;
+    };
+    let cap = 64;
+    let pairs = new Int32Array(cap);
+    let rs = new Uint8Array(cap);
+    let fatal = new Uint8Array(cap);
     for (const [g, [hp, d, h]] of groupsOf(T, hit.def)) {
       const M = maxHp(T, hp);
-      const pairs = [];
-      const rs = [];
-      const fatal = [];
-      for (const a of hit.aVals) {
-        for (let si = 0; si < hit.sStates.length; si++) {
-          const row = hit.rows.get(rowKey(a, d, hit.targetHp ? hp : null, hit.targetHp ? h : null, si));
+      const rows = rowsOf(d, hp, h);
+      // What one rolled amount leaves the target on, from this HP: the HP
+      // after (null: its Damage event printed what the replay does not), and
+      // whether the display that says it survived allows it. The same for
+      // every value and state that rolled that amount.
+      const outcomes = new Map();
+      const outcome = (value) => {
+        let o = outcomes.get(value);
+        if (o) return o;
+        let x = clamp(value);
+        let left = h;
+        o = null;
+        if (typeof x === 'number' && x > 0) {
+          if (modified || x >= h) {
+            const ev = damageEvent(hit, ctx, T, M, h, x);
+            if (shown && !sameLines(ev.lines, shown)) o = { left: null, fatal: 0 };
+            x = clamp(ev.value);
+          }
+          if (!o && typeof x === 'number' && x > 0) left = Math.max(0, h - Math.trunc(x));
+        }
+        if (!o) {
+          const raw = clamp(value);
+          o = { left, fatal: typeof raw === 'number' && raw >= h && h - Math.trunc(clamp(damageEvent(hit, ctx, T, M, h, raw, true).value)) >= 1 ? 1 : 0 };
+        }
+        outcomes.set(value, o);
+        return o;
+      };
+      let n = 0;
+      for (let ai = 0; ai < hit.aVals.length; ai++) {
+        const a = hit.aVals[ai];
+        for (let si = 0; si < nS; si++) {
+          const row = rows[ai * nS + si];
           if (!row) continue;
           const v = (a + SPAN * si) * HP_BITS;
+          // Every reader takes these as a set of pairs, each with its lethal
+          // bit, and the first roll that gave it: a repeat within one value and
+          // state adds nothing (other values and states pack differently).
+          const start = n;
           for (const [r, value] of row.entries()) {
-            let x = clamp(value);
-            let left = h;
-            if (typeof x === 'number' && x > 0) {
-              if (modified || x >= h) {
-                const ev = damageEvent(hit, ctx, T, M, h, x);
-                if (shown && !sameLines(ev.lines, shown)) continue;
-                x = clamp(ev.value);
-              }
-              if (typeof x === 'number' && x > 0) left = Math.max(0, h - Math.trunc(x));
+            const o = outcome(value);
+            if (o.left === null) continue;
+            const packed = v + o.left;
+            let repeat = false;
+            for (let j = start; j < n; j++) if (pairs[j] === packed && fatal[j] === o.fatal) { repeat = true; break; }
+            if (repeat) continue;
+            if (n === cap) {
+              cap *= 2;
+              const grow = (arr, Type) => { const out = new Type(cap); out.set(arr); return out; };
+              pairs = grow(pairs, Int32Array);
+              rs = grow(rs, Uint8Array);
+              fatal = grow(fatal, Uint8Array);
             }
-            const raw = clamp(value);
-            rs.push(r);
-            fatal.push(typeof raw === 'number' && raw >= h && h - Math.trunc(clamp(damageEvent(hit, ctx, T, M, h, raw, true).value)) >= 1 ? 1 : 0);
-            pairs.push(v + left);
+            pairs[n] = packed;
+            rs[n] = r;
+            fatal[n] = o.fatal;
+            n++;
           }
         }
       }
-      table.set(g, Int32Array.from(pairs));
-      rolls.set(g, Uint8Array.from(rs));
-      lethal.set(g, Uint8Array.from(fatal));
+      table.set(g, pairs.slice(0, n));
+      rolls.set(g, rs.slice(0, n));
+      lethal.set(g, fatal.slice(0, n));
     }
     const via = !hit.off || hit.A.kn.known ? null
       : hit.offDim ? { rec: hit.A, dim: hit.off } : { rec: hit.A, stat: hit.off };
