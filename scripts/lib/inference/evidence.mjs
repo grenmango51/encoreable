@@ -43,6 +43,10 @@ const require = createRequire(import.meta.url);
 const { BattleStream, toID } = require('pokemon-showdown');
 
 const HP_BITS = 4096;
+// Which (HP, value) pairs a row being decoded has had, marked with that
+// decoding's number (the backward walk's `rowOf`).
+const pairStamp = new Uint32Array(HP_BITS * SPAN);
+let stamp = 0;
 
 /**
  * A set of values of one flat stat, 0 to 32, as one number: values 0-31 in its
@@ -1031,6 +1035,21 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
    * observing channel shows them.
    */
   function damageEvent(hit, ctx, T, M, h, x, granted = false) {
+    // A hit's table asks this once per stat value, attacker state and roll,
+    // mostly with an amount asked before: those answers are kept on the hit
+    // itself, under a number, in front of the cache shared between passes.
+    const n = Number.isInteger(x) && x >= 0 && x < 2 ** 20 ? ((M * HP_BITS + h) * 2 ** 21) + x * 2 + (granted ? 1 : 0) : null;
+    const local = hit.events || (hit.events = new Map());
+    if (n !== null) {
+      const had = local.get(n);
+      if (had !== undefined) return had;
+    }
+    const value = damageEventShared(hit, ctx, T, M, h, x, granted);
+    if (n !== null) local.set(n, value);
+    return value;
+  }
+
+  function damageEventShared(hit, ctx, T, M, h, x, granted) {
     return memo(`dmgev|${hit.ord}|${M}|${h}|${x}|${granted}`, () => guarded(() => {
       const undo = patchAll([{ pokemon: T.pokemon, maxhp: M, hp: h }]);
       const from = battle.log.length;
@@ -3593,11 +3612,22 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             const packs = change.table.get(g) || [];
             const after = new Int32Array(packs.length);
             const at = new Int32Array(packs.length);
+            // Without a lethal mask, which is read by position, an entry
+            // counts only as its pair of HP after and value: each pair once.
+            const uAfter = new Int32Array(packs.length);
+            const uAt = new Int32Array(packs.length);
+            let u = 0;
+            stamp++;
             for (let j = 0; j < packs.length; j++) {
               after[j] = packs[j] % HP_BITS;
               at[j] = Math.floor(packs[j] / HP_BITS) % SPAN;
+              const pair = after[j] * SPAN + at[j];
+              if (pairStamp[pair] === stamp) continue;
+              pairStamp[pair] = stamp;
+              uAfter[u] = after[j];
+              uAt[u++] = at[j];
             }
-            row = { after, at };
+            row = { after, at, uAfter: uAfter.subarray(0, u), uAt: uAt.subarray(0, u) };
             rows.set(g, row);
           }
           return row;
@@ -3636,7 +3666,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             } else {
               const g = (hp * SPAN + d) * HP_BITS + h;
               const fatal = fatalOf?.get(g);
-              const { after, at } = rowOf(g);
+              const row = rowOf(g);
+              const after = fatal ? row.after : row.uAfter;
+              const at = fatal ? row.at : row.uAt;
               for (let j = 0; j < after.length; j++) {
                 if (fatal && !fatal[j]) continue;
                 const h2 = fatal ? 1 : after[j];
