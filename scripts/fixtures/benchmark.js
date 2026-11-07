@@ -179,12 +179,18 @@ const PLANTED = [
   'fuzz:1016', // evidence.mjs:751 deleted removes a real spread; evidence.mjs:2396 deleted, evidence.mjs:721 drop !, knowledge.mjs:433 + 1→+ 0: keeps more
   'fuzz:1020', // evidence.mjs:3488 ||→&&, evidence.mjs:3499 deleted, evidence.mjs:252 deleted: gives up
   // Hunted on fuzz 1031-1090 at d2c6742, among the 172 the first hunt left:
-  'fuzz:1040', // knowledge.mjs:477 deleted: crashes; speed.mjs:587 deleted removes a real spread
+  'fuzz:1040', // knowledge.mjs:477 deleted: crashes; speed.mjs:587 deleted, knowledge.mjs:305 deleted remove a real spread; knowledge.mjs:309 deleted: crashes
   'fuzz:1042', // evidence.mjs:3517 drop !: gives up
   // Sample 270 of seed 2 at 9a4c807, its four that only did better hunted on fuzz 1001-1030:
   'fuzz:1001', // evidence.mjs:3652 &&→|| removes a real spread; evidence.mjs:3673 deleted: keeps more
   // and the 171 that changed nothing on the quick slice, hunted on fuzz 1001-1030:
   'fuzz:1007', // knowledge.mjs:679 deleted: crashes
+  // and the 162 those left, hunted on fuzz 1031-1090:
+  'fuzz:1043', // evidence.mjs:1265 deleted: keeps more spreads
+  'fuzz:1054', // infer.mjs:243 true→false: gives up
+  'fuzz:1061', // evidence.mjs:161 &&→||, speed.mjs:655 <→<=: remove a real spread
+  'fuzz:1070', // evidence.mjs:1780 deleted, evidence.mjs:83 <=→<: remove a real spread
+  'fuzz:1086', // knowledge.mjs:632 <→<= keeps more spreads
 ];
 
 // Games a corpus sweep found the rebuild or the inference failing on
