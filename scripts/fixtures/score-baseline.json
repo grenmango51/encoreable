@@ -1,5 +1,5 @@
 {
- "commit": "8d16546e143b",
+ "commit": "e38ed9e65f17",
  "pool": "1e0b71cf750545f5",
  "usage": "52468dff24156b2b",
  "grade": {
@@ -7,23 +7,23 @@
   "removed": 0,
   "witnessesRemoved": 0,
   "results": {
-   "PASS": 1058,
+   "PASS": 1059,
    "NO MATCH": 0,
-   "GAVE UP": 1,
+   "GAVE UP": 0,
    "CRASH": 0,
    "REMOVED": 0
   },
   "exactShare": 0.009225205345102365,
-  "medianLog10Spreads": 7.592584924522983,
-  "probes": 8456843,
-  "rebuilds": 15217,
+  "medianLog10Spreads": 7.592249470642742,
+  "probes": 7870435,
+  "rebuilds": 14764,
   "seconds": {
-   "median": 23.3,
-   "p95": 281.5,
-   "max": 2052.1
+   "median": 22.9,
+   "p95": 262.7,
+   "max": 1471.1
   },
   "ranked": 1472,
-  "first": 0.578125,
+  "first": 0.5788043478260869,
   "top3": 0.7860054347826086
  },
  "cases": {
@@ -9184,20 +9184,20 @@
    }
   },
   "mimic:gen9championsvgc2026regmcbo3-2699035058 both@spectator": {
-   "result": "GAVE UP",
+   "result": "PASS",
    "battle": "c7c00b0b1f1f03a4",
    "spreads": {
-    "p1:0": 71167705,
+    "p1:0": 35593781,
     "p1:1": 98062828,
-    "p1:2": 14298420,
+    "p1:2": 13870223,
     "p1:3": 136663185,
     "p1:4": 136663185,
     "p1:5": 64937721,
     "p2:0": 136663185,
-    "p2:1": 124117760,
+    "p2:1": 70488872,
     "p2:2": 70482493,
     "p2:3": 136663185,
-    "p2:4": 14295029,
+    "p2:4": 13358087,
     "p2:5": 136663185
    }
   },
