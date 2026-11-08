@@ -59,6 +59,8 @@ planned).
   guide); `score.sh <ref> fast` is the check between, and several changes share one full run.
   A score run fails on any removed possibility, any crash, any case whose result got worse,
   any Pokémon left with more spreads than the baseline (`scripts/fixtures/score-baseline.json`),
+  any case breaking more of the proofs it was handed than the baseline (a turn the evidence
+  called exact that the simulator plays otherwise: a bug even when the case passes),
   and in a full run any baseline case missing or playing another battle. `--accept` refuses crashes, missing shares and uncommitted checkouts.
   When a full run improves on it, or is worse on purpose (a soundness fix keeps more spreads),
   accept it (`npm run score -- --tier full --accept`, or `--merge` the shares with `--accept`) in
