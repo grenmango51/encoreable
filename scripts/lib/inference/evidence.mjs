@@ -3842,12 +3842,14 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     // it at, for the recoil or drain that follows it.
     const dealtBy = new Map();
     let coupled = Infinity;
-    // Asked for other spreads than the scaffold was built with, a line no
-    // hook read keeps the HP the scaffold printed, which those spreads need
-    // not give: a drain off a Substitute heals half of what the Substitute
-    // held, whoever made it. No exact turn is handed on from the first such
-    // line on a Pokemon shown only as a percentage.
-    const stale = recs.some(rec => !rec.kn.known && !containsSpread(rec.kn, rec.pokemon.set.evs));
+    // A line no hook read keeps the HP the scaffold printed, which holds only
+    // while everything before it is as the scaffold had it: asked about other
+    // spreads than it was built with, or once the path took another HP than
+    // the scaffold printed, it need not - a drain off a Substitute heals half
+    // of what the Substitute held, whoever made it; a Mirror Coat returns
+    // twice the hit the path chose. No exact turn is handed on from the first
+    // such line on a Pokemon shown only as a percentage.
+    let stale = recs.some(rec => !rec.kn.known && !containsSpread(rec.kn, rec.pokemon.set.evs));
     const startOf = (rec) => {
       const [k, hs] = [...(rec.history[0]?.pre || new Map()).entries()][0] || [];
       return k === undefined ? null : [k, hs[0]];
@@ -3941,6 +3943,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
       const own = e.token !== null ? scaffoldHp(rec, i) : null;
       const h2 = options.includes(own) ? own : options[0];
+      if (own !== null && h2 !== own) stale = true;
       chosen.get(rec)[i] = h2;
       cur.set(rec, [k, h2]);
       if (tagOf.has(h2)) dealtBy.set(e.change, { amount: h - h2, v: tagOf.get(h2) });
