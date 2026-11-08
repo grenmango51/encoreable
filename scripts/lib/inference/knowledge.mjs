@@ -408,6 +408,40 @@ export function tighten(kn) {
   return moved;
 }
 
+/**
+ * Speed orders kept from earlier rounds, each `{ fast, slow, tf, ts }` as
+ * evidence.mjs hands them on: the ids of the Pokemon whose Stat Points the two
+ * speeds stand on, and each one's speed at every Speed Stat Point at that
+ * sort. Bounds each Speed by the other the way speed.mjs does, all of them
+ * again until none moves: an order between two Pokemon holds whatever was
+ * guessed, so it is kept beside them, not only as the bounds it left on each
+ * - a tie needs both orders at once, and a guess can rebuild only one of the
+ * two lines that prove it. Returns whether anything went.
+ */
+export function orderSpeeds(map, orders) {
+  let any = false;
+  for (let moved = true; moved;) {
+    moved = false;
+    for (const { fast, slow, tf, ts } of orders) {
+      const f = map.get(fast)?.dom.spe;
+      const w = map.get(slow)?.dom.spe;
+      if (!f || !w) continue;
+      let maxFast = -Infinity;
+      let minSlow = Infinity;
+      for (let v = 0; v < SPAN; v++) {
+        if (f[v]) maxFast = Math.max(maxFast, tf[v]);
+        if (w[v]) minSlow = Math.min(minSlow, ts[v]);
+      }
+      for (let v = 0; v < SPAN; v++) {
+        if (f[v] && tf[v] < minSlow) { f[v] = 0; moved = true; }
+        if (w[v] && ts[v] > maxFast) { w[v] = 0; moved = true; }
+      }
+    }
+    any = any || moved;
+  }
+  return any;
+}
+
 /** How many ways each total can be made, one value from each list. */
 function sums(lists) {
   let out = Float64Array.of(1);
