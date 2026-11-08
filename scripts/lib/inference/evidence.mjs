@@ -1614,7 +1614,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
     };
     const via = span ? { rec: V, dim: 'hp' } : perA ? { rec: S, stat: off } : null;
-    return { dim: null, table, via, after, what };
+    // For an exact path: the total each entry stands for, and the hits that
+    // add up to it besides `rest`, so the recoil the path takes is the one
+    // the amounts its own hits dealt give.
+    return { dim: null, table, via, after, what, totals, hits: lasts.map(l => l.change), rest, perA };
   }
 
   /**
@@ -3946,6 +3949,17 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         // could have dealt is not the one the roll handed on for it deals.
         const amounts = e.change.dealtOf?.get(g);
         const dealt = amounts && e.change.victim ? dealtBy.get(e.change.victim) : null;
+        // Recoil, Shell Bell: the total the path's own hits dealt, under the
+        // value they dealt it at, once each of them is on the path.
+        let total = null;
+        let totalV = null;
+        if (e.change.totals) {
+          const got = e.change.hits.map(c => dealtBy.get(c));
+          if (got.every(Boolean)) {
+            total = got.reduce((t, x) => t + x.amount, e.change.rest);
+            if (e.change.perA && got.every(x => x.v === got[0].v)) totalV = got[0]?.v ?? null;
+          }
+        }
         for (let j = 0; j < packs.length; j++) {
           if (fatal && !fatal[j]) continue;
           const packed = packs[j];
@@ -3953,6 +3967,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           if (!later.includes(h2)) continue;
           const tag = Math.floor(packed / HP_BITS);
           if (dealt && (amounts[j] !== dealt.amount || tag % SPAN !== dealt.v)) continue;
+          if (total !== null && (e.change.totals[Math.floor(tag / SPAN)] !== total || (totalV !== null && tag % SPAN !== totalV))) continue;
           if (e.change.dealtOk && !e.change.dealtOk.has((tag % SPAN) * HP_BITS + h - h2)) continue;
           if (e.change.sourceStates) {
             const [sM, sH, sX] = e.change.sourceStates[Math.floor(tag / SPAN)];
