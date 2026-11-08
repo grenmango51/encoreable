@@ -300,7 +300,7 @@ function exactTurns(raw, tokens, prefix, coupled = Infinity, cutAt = Infinity) {
     if (prefix.turn !== null && k === prefix.turn && (cut || entry.at > prefix.cutoffAt)) {
       // The failing line itself is proved only when it is a hidden HP the path
       // chose; anything else there is the scaffold's mistake, not the truth.
-      if (cut && tokens.has(entry.at)) lines.push(withHp(entry.line, tokens.get(entry.at)));
+      if (cut && tokens.has(entry.at) && entry.at < cutAt) lines.push(withHp(entry.line, tokens.get(entry.at)));
       break;
     }
     if (k >= coupled) break;
