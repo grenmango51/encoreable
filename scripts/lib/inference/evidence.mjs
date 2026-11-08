@@ -593,7 +593,14 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
 
   function initChain(rec) {
     rec.chain = new Map();
-    for (const k of rec.knKeys) rec.chain.set(k, [maxHp(rec, KEY_HP[k])]);
+    // Keys on one max HP share one list: nothing writes a chain's lists in
+    // place, and a step that sees the same list gives the same answer.
+    const byMax = new Map();
+    for (const k of rec.knKeys) {
+      const M = maxHp(rec, KEY_HP[k]);
+      if (!byMax.has(M)) byMax.set(M, [M]);
+      rec.chain.set(k, byMax.get(M));
+    }
   }
 
   /** The HP values behind one printed display, read off the simulator's `getHealth`. */
@@ -2040,6 +2047,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const tied = tiedStat(rec, change);
     const held = tied ? rec.ties[tied] : null;
     const byKey = tied && token !== null ? new Map() : null;
+    // Without a tie the HPs a key goes to depend on its list, its max HP and
+    // the value the change reads alone: worked out once for each and shared,
+    // as the list it came from may be.
+    const shared = tied ? null : new Map();
     for (const [k, hs] of rec.chain) {
       const hp = KEY_HP[k];
       const M = maxHp(rec, hp);
@@ -2051,6 +2062,16 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
       if (!dimAllowed(change, k)) continue;
       const d = change.dim ? KEY_DIM[change.dim][k] : 0;
+      let group = null;
+      if (shared) {
+        group = shared.get(hs);
+        if (!group) { group = new Map(); shared.set(hs, group); }
+        const had = group.get(hp * SPAN + d);
+        if (had !== undefined) {
+          if (had) next.set(k, had);
+          continue;
+        }
+      }
       const out = new Set();
       const vs = byKey ? new Set() : null;
       for (const h of hs) {
@@ -2111,8 +2132,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         for (const h2 of res.hs) out.add(h2);
         if (supported) for (const v of res.via) supported[v] = 1;
       }
-      if (out.size) {
-        next.set(k, [...out]);
+      const list = out.size ? [...out] : null;
+      if (group) group.set(hp * SPAN + d, list);
+      if (list) {
+        next.set(k, list);
         if (byKey) byKey.set(k, vs);
       }
     }
@@ -3677,9 +3700,16 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const track = [...reads].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
       const full = track ? maskOf(rec.flat[track]) : ALL_VALUES;
       let alive = new Map();
+      // Keys with one list and one mask start from one map of states: the walk
+      // writes none in place, so keys that share their inputs share answers.
+      const starts = new Map();
       for (const [k, hs] of rec.chain) {
         const m = track && rec.ties[track] ? maskAnd(full, tieMask(rec.ties[track], k)) : full;
-        if (m) alive.set(k, new Map(hs.map(h => [h, m])));
+        if (!m) continue;
+        let byMask = starts.get(hs);
+        if (!byMask) { byMask = new Map(); starts.set(hs, byMask); }
+        if (!byMask.has(m)) byMask.set(m, new Map(hs.map(h => [h, m])));
+        alive.set(k, byMask.get(m));
       }
       // The states alive after each step, for `paths`: only a pass asked for
       // exact turns reads them.
@@ -3724,6 +3754,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           }
           return row;
         };
+        // Without a per-key tie or filter, what a key keeps depends on its
+        // list, its later states, its max HP and the value the change reads
+        // alone: worked out once for each and shared.
+        const shareable = !held && !byKey && !(change.same && (change.allowDims || change.allowGrid));
+        const shared = shareable ? new Map() : null;
         for (const [k, hs] of pre) {
           const later = alive.get(k);
           if (!later) continue;
@@ -3736,6 +3771,18 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             if (!allow) continue;
           }
           const d = change.dim ? KEY_DIM[change.dim][k] : 0;
+          let group = null;
+          if (shared) {
+            let byLater = shared.get(hs);
+            if (!byLater) { byLater = new Map(); shared.set(hs, byLater); }
+            group = byLater.get(later);
+            if (!group) { group = new Map(); byLater.set(later, group); }
+            const had = group.get(hp * SPAN + d);
+            if (had !== undefined) {
+              if (had) prev.set(k, had);
+              continue;
+            }
+          }
           const fatalOf = survived ? change.lethal : null;
           const keep = new Map();
           const vs = byKey ? new Set() : null;
@@ -3780,6 +3827,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             if (m) keep.set(h, m);
           }
           if (byHp) for (const x of later.keys()) if (x <= M + 1) byHp[x] = 0;
+          if (group) group.set(hp * SPAN + d, keep.size ? keep : null);
           if (keep.size) {
             prev.set(k, keep);
             if (byKey) byKey.set(k, vs);
