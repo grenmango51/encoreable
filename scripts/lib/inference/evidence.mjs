@@ -256,7 +256,7 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
     if (exact) {
       const found = ctx.paths(pre);
       ctx.coupled = Math.min(ctx.state.coupled, found?.coupled ?? Infinity);
-      ctx.exact = found && exactTurns(pre, found.tokens, prefix, ctx.coupled);
+      ctx.exact = found && exactTurns(pre, found.tokens, prefix, ctx.coupled, found.cutAt);
       ctx.rolls = found?.rolls || null;
     }
     const clock = l => (String(l).startsWith('|t:|') ? '|t:|' : l);
@@ -273,13 +273,19 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
  * The verified turns of a scaffold as the omniscient channel shows them, with
  * every hidden HP replaced by the exact value an evidence path chose - those
  * before turn `coupled`, where the paths chosen one Pokemon at a time can be
- * no path of the two together.
+ * no path of the two together. From raw line `cutAt` on they are what a
+ * rebuild must reach but no proof: each turn from there says how many of its
+ * lines were proved (`proved`).
  */
-function exactTurns(raw, tokens, prefix, coupled = Infinity) {
+function exactTurns(raw, tokens, prefix, coupled = Infinity, cutAt = Infinity) {
   const view = channelView(raw, -1);
   const turns = new Map();
   let k = 0;
   let lines = [];
+  // Where proof ends and only what a rebuild must reach goes on: the turn and
+  // the number of its lines before raw line `cutAt`.
+  let provedAt = null;
+  const proved = t => (provedAt === null || t < provedAt.k ? {} : { proved: t === provedAt.k ? provedAt.n : 0 });
   // A path that ends a Pokemon on 0 HP prints it fainted, whatever HP the
   // scaffold left it on.
   const withHp = (line, token) => {
@@ -299,18 +305,24 @@ function exactTurns(raw, tokens, prefix, coupled = Infinity) {
     if (prefix.turn !== null && k === prefix.turn && (cut || entry.at > prefix.cutoffAt)) {
       // The failing line itself is proved only when it is a hidden HP the path
       // chose; anything else there is the scaffold's mistake, not the truth.
-      if (cut && tokens.has(entry.at)) lines.push(withHp(entry.line, tokens.get(entry.at)));
+      if (cut && tokens.has(entry.at)) {
+        if (entry.at >= cutAt && provedAt === null) provedAt = { k, n: lines.length };
+        lines.push(withHp(entry.line, tokens.get(entry.at)));
+      }
       break;
     }
     if (k >= coupled) break;
+    if (entry.at >= cutAt && provedAt === null) provedAt = { k, n: lines.length };
     lines.push(withHp(entry.line, tokens.get(entry.at)));
     if (/^\|turn\|\d+/.test(entry.line)) {
-      turns.set(k, { lines, partial: false });
+      turns.set(k, { lines, partial: false, ...proved(k) });
       k++;
       lines = [];
     }
   }
-  if (prefix.turn !== null && prefix.turn < coupled && lines.length) turns.set(prefix.turn, { lines, partial: true });
+  if (prefix.turn !== null && prefix.turn < coupled && lines.length) {
+    turns.set(prefix.turn, { lines, partial: true, ...proved(prefix.turn) });
+  }
   return turns;
 }
 
@@ -1672,10 +1684,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
     const last = T.lastDealt;
     if (T.exact && last?.byA.size && last.victim === U && last.hitsOn === 1 && last.turn === battle.turn) {
-      return dealtChange(T, last, what, 'ctr', d => asDealt(U.pokemon, d, () => withRoll(0, () => {
+      return Object.assign(dealtChange(T, last, what, 'ctr', d => asDealt(U.pokemon, d, () => withRoll(0, () => {
         const amount = hit.clone.damageCallback.call(battle, U.pokemon, T.pokemon);
         battle.spreadDamage([amount], [T.pokemon], U.pokemon, ctx.effect);
-      }, ctx.dice)));
+      }, ctx.dice))), { dealtBy: U, move: ctx.effect, off: null });
     }
     note(what, 'its damage was carried over from an earlier hit, so it was not used');
     return band('down', what);
@@ -3888,14 +3900,17 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const chosen = new Map(recs.map(rec => [rec, []]));
     const rolls = new Map();
     // A joint Pain Split: the HP the second of the two must take, once the
-    // first took one; and the first turn where the two could not be kept to
-    // one pair, from which no exact turn is handed on.
+    // first took one; the first turn where the two could not be kept to one
+    // pair, from which no exact turn is handed on; and the first raw line a
+    // change read only as a band left the HP the scaffold landed on, from
+    // which no line is.
     const pairedTo = new Map();
     const passed = new Set();
     // Per hit on the path, the amount it dealt and the attacking value it dealt
     // it at, for the recoil or drain that follows it.
     const dealtBy = new Map();
     let coupled = Infinity;
+    let cutAt = Infinity;
     const startOf = (rec) => {
       const [k, hs] = [...(rec.history[0]?.pre || new Map()).entries()][0] || [];
       return k === undefined ? null : [k, hs[0]];
@@ -4000,6 +4015,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
       const own = e.token !== null ? scaffoldHp(rec, i) : null;
       const h2 = options.includes(own) ? own : options[0];
+      // A change read only as a band hands on no roll: an HP the scaffold
+      // did not land on is one nothing handed on makes. It and what follows
+      // are still the HPs the display allows, handed on as what a rebuild
+      // must reach, but proved no further than the line before it.
+      if (e.change.band && own !== null && h2 !== own && cutAt === Infinity) cutAt = secretAt.get(`${rec.id}|${i}`) ?? Infinity;
       chosen.get(rec)[i] = h2;
       cur.set(rec, [k, h2]);
       if (tagOf.has(h2)) dealtBy.set(e.change, { amount: h - h2, v: tagOf.get(h2) });
@@ -4018,7 +4038,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         tokens.set(secretAt.get(`${rec.id}|${hist}`), h ? `${h}/${maxHp(rec, KEY_HP[k])}` : '0');
       }
     }
-    return { tokens, rolls, coupled };
+    return { tokens, rolls, coupled, cutAt };
   }
 
   return {

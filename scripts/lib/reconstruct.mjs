@@ -782,6 +782,7 @@ function compareTurn({ segments, exact, channel }, k, slice) {
   let wantHard = hard(segments[k]);
   let gotHard = hard(onChannel(slice, channel));
   let exactUpTo = 0;
+  let provedUpTo = 0;
   const known = exact?.get(k);
   if (known) {
     const proved = hard(known.lines);
@@ -789,8 +790,9 @@ function compareTurn({ segments, exact, channel }, k, slice) {
     wantHard = known.partial ? [...proved, ...wantHard.slice(proved.length)] : proved;
     gotHard = known.partial ? [...gotExact.slice(0, proved.length), ...gotHard.slice(proved.length)] : gotExact;
     exactUpTo = known.partial ? proved.length : Infinity;
+    provedUpTo = known.proved === undefined ? exactUpTo : hard(known.lines.slice(0, known.proved)).length;
   }
-  return { wantHard, gotHard, exactUpTo };
+  return { wantHard, gotHard, exactUpTo, provedUpTo };
 }
 
 /** Lines that start another action: a hit's own HP line always comes before them. */
@@ -1729,7 +1731,7 @@ function brokenProof(common, run, proof) {
   if (diff.index < 0 && run.starts?.[t] === undefined) return null;
   const compared = compareTurn(common, t, diff.index < 0 ? run.rawLog.slice(run.starts[t]) : []);
   const index = diff.index < 0 ? compared.gotHard.length : diff.index;
-  if (!(index < compared.exactUpTo)) return null;
+  if (!(index < compared.exactUpTo) || !(index < compared.provedUpTo)) return null;
   if (proof.starts?.[t] === undefined || !proof.rawLog) return null;
   const diffs = [{ ...diff, index }];
   const reach = canReach(common, { ...run, diffs }, t);
