@@ -751,6 +751,24 @@ export function attachSpeed(battle, {
         || (!unseen && y && x.lowest !== null && x.lowest >= y.priority));
       const rule = P && Q && P !== Q && real && !tainted.has(S.turn) && !movedAfter(x.action, S) && !movedAfter(y.action, S) ? ruleOf(P, Q, S.speeds, S.turn, `${label(P)} ${verbOf(y.action)} before ${label(Q)}`) : null;
       if (rule) rules.push(rule);
+      // Every action the replay shows before P's, as the rebuild ran it too,
+      // went before P's in the real battle: one its own last sort had at the
+      // same order and priority as P's went at least as fast. P's priority is
+      // the one sorted when its move is seen, and otherwise no higher than
+      // the earlier one's, as no move it has sorts below that.
+      const cutIndex = ex ? executed.indexOf(ex) : -1;
+      for (const [k, zx] of executed.entries()) {
+        if (!P || !y || k >= cutIndex) break;
+        const Sz = zx.sort;
+        if (!Sz || tainted.has(Sz.turn) || movedAfter(zx.action, Sz) || movedAfter(y.action, Sz) || !shown.get(zx.action)?.on) continue;
+        const z = Sz.list.find(item => item.action === zx.action);
+        const w = Sz.list.find(item => item.action === y.action);
+        if (!z || !w || !z.pokemon || z.pokemon === y.pokemon || Sz.list.indexOf(w) < Sz.list.indexOf(z)) continue;
+        if (w.order !== z.order || !(w.priority === z.priority && (!unseen || (w.lowest !== null && w.lowest >= z.priority)))) continue;
+        const Z = byPokemon.get(z.pokemon);
+        const earlier = Z && Z !== P ? ruleOf(Z, P, Sz.speeds, Sz.turn, `${label(Z)} ${verbOf(z.action)} before ${label(P)}`) : null;
+        if (earlier) rules.push(earlier);
+      }
     }
 
     // The log diverged inside an event sort: the rebuild's handler for Q wrote
