@@ -304,8 +304,10 @@ function exactTurns(raw, tokens, prefix, coupled = Infinity, cutAt = Infinity) {
     const cut = entry.at === prefix.cutoffAt || (split && entry.at === prefix.cutoffAt - 1);
     if (prefix.turn !== null && k === prefix.turn && (cut || entry.at > prefix.cutoffAt)) {
       // The failing line itself is proved only when it is a hidden HP the path
-      // chose; anything else there is the scaffold's mistake, not the truth.
-      if (cut && tokens.has(entry.at)) {
+      // chose on the line the log shows; anything else there - another
+      // Pokemon switching in first, another handler healing first - is the
+      // scaffold's mistake, not the truth, even where it prints an HP too.
+      if (cut && tokens.has(entry.at) && prefix.observedLine !== null && sameButHp(battleLines([entry.line])[0], prefix.observedLine)) {
         if (entry.at >= cutAt && provedAt === null) provedAt = { k, n: lines.length };
         lines.push(withHp(entry.line, tokens.get(entry.at)));
       }
