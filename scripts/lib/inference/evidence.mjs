@@ -3676,6 +3676,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label: named, measure, cutOf, note, depOf, ownValue,
     unmaskedAfter, frames,
   });
+  // The speed orders the last `finish` read, handed on so later rounds keep
+  // them between the two Pokemon and not only as bounds on each.
+  let speedOrders = [];
 
   /**
    * An attacking stat survives a hit only if a candidate it moved there can
@@ -4016,7 +4019,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         for (const c of rec.pending.splice(0, last + 1)) apply(rec, c, null);
       }
       wholePaths();
-      speed.apply(speed.rules());
+      speedOrders = speed.rules();
+      speed.apply(speedOrders);
       for (const rec of recs) {
         if (!rec.chain || !Object.keys(rec.ties).length) continue;
         const sup = supported(rec.chain.keys(), rec.flat, rec.ties);
@@ -4037,6 +4041,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         })),
         // In the order they were applied: every HP event as the battle ran, then
         // the whole-path check, then speed order, which needs every turn's sort.
+        orders: speedOrders.map(r => ({ fast: r.fast.id, slow: r.slow.id, tf: Array.from(r.tf), ts: Array.from(r.ts) })),
         events: events.map(e => ({ ...e, ...unmark(e.what) })),
         checks: checks.map(c => ({ ...c, ...unmark(c.what) })),
         cutoff: prefix.cutoffAt === Infinity ? null : { turn: prefix.turn, observed: prefix.observedLine },

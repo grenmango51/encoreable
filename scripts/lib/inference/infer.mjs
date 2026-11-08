@@ -33,7 +33,7 @@ import { sameSheet } from '../replay-source.mjs';
 import {
   BUDGET, FLAT, SPAN, STAT_IDS, aimFor, aliveOf, cloneKnowledge, closestSpread, containsSpread, defaultSpread, freshKnowledge, fullEvs,
   intersectKnowledge, keyOf, maskKeys, packKnowledge, pinKnowledge, restrictKnowledge, sameSpread, spreadAt, spreadsLeft, summarise,
-  tighten, uniteKnowledge, unpackKnowledge, valuesOf,
+  orderSpeeds, tighten, uniteKnowledge, unpackKnowledge, valuesOf,
 } from './knowledge.mjs';
 import { usualSpreads } from './usage.mjs';
 import { evidencePass } from './evidence.mjs';
@@ -337,7 +337,11 @@ export async function inferSpreads({
   let picks = firstGuesses(start);
   const ahead = parallel && deadline === Infinity && start === 'default' && !wide ? parallel.ahead(restarts()) : null;
 
-  const settle = async (inputLog, knowledge, cache, record = false) => {
+  // Every speed order a round's own evidence read, by its two Pokemon and
+  // tables: applied in every settle after, the guess picker's too, so a pin
+  // on one Speed moves the other.
+  const orders = new Map();
+  const settle = async (inputLog, knowledge, cache, record = false, learn = false) => {
     const counts = () => new Map([...knowledge].map(([id, kn]) => [id, spreadsLeft(kn)]));
     const initial = record ? counts() : null;
     let first = null;
@@ -348,6 +352,8 @@ export async function inferSpreads({
       passes++;
       let moved = false;
       for (const r of pass.recs) moved = intersectKnowledge(knowledge.get(r.id), r.keys, r.flat, r.ties) || moved;
+      if (learn) for (const o of pass.orders || []) orders.set(`${o.fast}|${o.slow}|${o.tf}|${o.ts}`, o);
+      moved = orderSpeeds(knowledge, [...orders.values()]) || moved;
       for (const kn of knowledge.values()) moved = tighten(kn) || moved;
       if (!first) {
         first = pass;
@@ -972,7 +978,7 @@ export async function inferSpreads({
     const cache = new Map();
     const evidenceStart = Date.now();
     evidenceTurn = Math.max(evidenceTurn, diff?.turn ?? 0);
-    const { seen, lent: lentNow, passes: read } = await settle(built.inputLog, knowledge, cache);
+    const { seen, lent: lentNow, passes: read } = await settle(built.inputLog, knowledge, cache, false, true);
     lent = lentNow;
 
     // New guesses, chosen together. Each Pokemon is pinned before the next is
@@ -1129,8 +1135,9 @@ export async function inferSpreads({
   for (const [id, kn] of final) {
     const had = knowledge.get(id);
     intersectKnowledge(kn, maskKeys(had.keys), had.dom, had.ties);
-    tighten(kn);
   }
+  orderSpeeds(final, [...orders.values()]);
+  for (const kn of final.values()) tighten(kn);
 
   const pokemon = [];
   for (const [s, team] of sets.entries()) {
