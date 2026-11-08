@@ -369,10 +369,10 @@ async function runCases(cases, threads, job) {
 // What a machine serving a run (`--serve`) says on stdout starts with this:
 // anything else there - the shell's, npm's - is not for the run.
 const TAG = '@score ';
-// How long cases wait, after the first machine says it is there, for every
-// machine's threads to ask: then the longest go one to a machine, not all to
-// the first.
-const GATHER_MS = 60_000;
+// How long, after the first machine says it is there, each machine gets one
+// case only, until every machine's threads have asked: the longest cases go
+// one to a machine, not all to the first ones up.
+const GATHER_MS = 120_000;
 
 /**
  * This machine's threads, for a run handed out from elsewhere (`--hosts`): a
@@ -406,8 +406,8 @@ async function serve(threads) {
  * this checkout's commit. A thread that is free takes the longest case left,
  * so a faster or larger machine takes more and none waits on a deal made in
  * advance; while several want one, the machine running fewest goes first.
- * A machine more than twice as slow as most (`pace`) takes the shortest case
- * left instead: a long one there would end the run late. A
+ * A machine more than twice as slow as the fastest (`pace`) takes the
+ * shortest case left instead: a long one there would end the run late. A
  * machine that stops gives back the cases it held, to whichever takes next,
  * or to machines that ended well once all have ended; a case lost twice is a
  * CRASH. Results in case order.
@@ -423,24 +423,31 @@ async function runHosts(cases, hosts, remote, job) {
   let done = 0;
   let open = false;
   let gather = null;
-  let typicalPace = Infinity;
+  // Stopping the run stops the machines' share of it: each ends when its stdin closes.
+  const children = new Set();
+  process.on('exit', () => { for (const c of children) c.kill(); });
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => process.exit(1));
   const dispatch = () => {
     if (!open && sessions.every(s => s.ended || s.asked >= s.hello?.threads)) open = true;
-    if (!open) return;
-    typicalPace = median(sessions.filter(s => s.hello).map(s => s.hello.pace)) ?? Infinity;
-    while (wants.length) {
-      let k = 0;
-      for (let j = 1; j < wants.length; j++) if (wants[j].held.size < wants[k].held.size) k = j;
+    const fastest = Math.min(...sessions.filter(s => s.hello).map(s => s.hello.pace));
+    for (;;) {
+      let k = -1;
+      for (let j = 0; j < wants.length; j++) {
+        const s = wants[j];
+        if (!s.ended && (open || !s.held.size) && (k < 0 || s.held.size < wants[k].held.size)) k = j;
+      }
+      if (k < 0) break;
       const [s] = wants.splice(k, 1);
-      if (s.ended) continue;
-      const at = s.hello.pace > 2 * typicalPace ? queue.pop() : queue.shift();
+      const at = s.hello.pace > 2 * fastest ? queue.pop() : queue.shift();
       if (at === undefined) { s.send(null); continue; }
       s.held.add(at);
       s.send({ at, ...job, ...cases[at] });
     }
+    for (let j = wants.length; j--;) if (wants[j].ended) wants.splice(j, 1);
   };
   const start = host => new Promise((resolve) => {
-    const child = spawn('sh', ['-c', `${remote.replaceAll('{host}', host)} node scripts/local-score.mjs --serve`], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn('sh', ['-c', `exec ${remote.replaceAll('{host}', host)} node scripts/local-score.mjs --serve`], { stdio: ['pipe', 'pipe', 'pipe'] });
+    children.add(child);
     const s = { host, hello: null, asked: 0, ended: false, held: new Set(), send: m => child.stdin.write(`${JSON.stringify(m)}\n`) };
     sessions.push(s);
     child.stdin.on('error', () => {});
@@ -468,6 +475,7 @@ async function runHosts(cases, hosts, remote, job) {
       dispatch();
     });
     child.on('close', (code) => {
+      children.delete(child);
       s.ended = true;
       s.well = code === 0 && !!s.hello;
       for (const at of s.held) {
