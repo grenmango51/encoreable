@@ -337,13 +337,16 @@ export async function inferSpreads({
   let picks = firstGuesses(start);
   const ahead = parallel && deadline === Infinity && start === 'default' && !wide ? parallel.ahead(restarts()) : null;
 
-  const settle = async (inputLog, knowledge, cache, record = false) => {
+  // `most` passes at the most: the guess picker's settles, on copies of the
+  // knowledge it throws away and checks with an exact pass at the end, take
+  // one; what survives is settled to the end.
+  const settle = async (inputLog, knowledge, cache, record = false, most = 8 * S) => {
     const counts = () => new Map([...knowledge].map(([id, kn]) => [id, spreadsLeft(kn)]));
     const initial = record ? counts() : null;
     let first = null;
     let afterFirst = null;
     let passes = 0;
-    while (passes < 8 * S) {
+    while (passes < most) {
       const pass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, record: record && !first });
       passes++;
       let moved = false;
@@ -1015,7 +1018,7 @@ export async function inferSpreads({
         pinned.keys.fill(0);
         pinned.keys[keyOf(first.hp, first.def, first.spd)] = 1;
         tries--;
-        await settle(built.inputLog, keyed, cache);
+        await settle(built.inputLog, keyed, cache, false, 1);
         const pick = closestSpread(pinned, aim);
         if (!pick || tried.some(t => sameSpread(t, pick))) continue;
         tried.push(pick);
@@ -1023,7 +1026,7 @@ export async function inferSpreads({
         pinKnowledge(narrowed.get(id), pick);
         if (n < order.length - 1) {
           tries--;
-          await settle(built.inputLog, narrowed, cache);
+          await settle(built.inputLog, narrowed, cache, false, 1);
           if (order.slice(n + 1).some(([s2, i2]) => emptied(narrowed.get(`p${s2 + 1}:${i2}`)))) continue;
         }
         const found = await choose(n + 1, narrowed);
