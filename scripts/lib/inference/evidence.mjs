@@ -273,14 +273,19 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
  * The verified turns of a scaffold as the omniscient channel shows them, with
  * every hidden HP replaced by the exact value an evidence path chose - those
  * before turn `coupled`, where the paths chosen one Pokemon at a time can be
- * no path of the two together, and before raw line `cutAt`, the turn it falls
- * in proved up to it.
+ * no path of the two together. From raw line `cutAt` on they are what a
+ * rebuild must reach but no proof: each turn from there says how many of its
+ * lines were proved (`proved`).
  */
 function exactTurns(raw, tokens, prefix, coupled = Infinity, cutAt = Infinity) {
   const view = channelView(raw, -1);
   const turns = new Map();
   let k = 0;
   let lines = [];
+  // Where proof ends and only what a rebuild must reach goes on: the turn and
+  // the number of its lines before raw line `cutAt`.
+  let provedAt = null;
+  const proved = t => (provedAt === null || t < provedAt.k ? {} : { proved: t === provedAt.k ? provedAt.n : 0 });
   // A path that ends a Pokemon on 0 HP prints it fainted, whatever HP the
   // scaffold left it on.
   const withHp = (line, token) => {
@@ -300,22 +305,24 @@ function exactTurns(raw, tokens, prefix, coupled = Infinity, cutAt = Infinity) {
     if (prefix.turn !== null && k === prefix.turn && (cut || entry.at > prefix.cutoffAt)) {
       // The failing line itself is proved only when it is a hidden HP the path
       // chose; anything else there is the scaffold's mistake, not the truth.
-      if (cut && tokens.has(entry.at) && entry.at < cutAt) lines.push(withHp(entry.line, tokens.get(entry.at)));
+      if (cut && tokens.has(entry.at)) {
+        if (entry.at >= cutAt && provedAt === null) provedAt = { k, n: lines.length };
+        lines.push(withHp(entry.line, tokens.get(entry.at)));
+      }
       break;
     }
     if (k >= coupled) break;
-    if (entry.at >= cutAt) {
-      if (lines.length) turns.set(k, { lines, partial: true });
-      return turns;
-    }
+    if (entry.at >= cutAt && provedAt === null) provedAt = { k, n: lines.length };
     lines.push(withHp(entry.line, tokens.get(entry.at)));
     if (/^\|turn\|\d+/.test(entry.line)) {
-      turns.set(k, { lines, partial: false });
+      turns.set(k, { lines, partial: false, ...proved(k) });
       k++;
       lines = [];
     }
   }
-  if (prefix.turn !== null && prefix.turn < coupled && lines.length) turns.set(prefix.turn, { lines, partial: true });
+  if (prefix.turn !== null && prefix.turn < coupled && lines.length) {
+    turns.set(prefix.turn, { lines, partial: true, ...proved(prefix.turn) });
+  }
   return turns;
 }
 
@@ -4009,13 +4016,14 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const own = e.token !== null ? scaffoldHp(rec, i) : null;
       const h2 = options.includes(own) ? own : options[0];
       // A change read only as a band hands on no roll: an HP the scaffold
-      // did not land on is one nothing handed on makes, so nothing from its
-      // line on is proved, and no roll chosen after it is handed on.
+      // did not land on is one nothing handed on makes. It and what follows
+      // are still the HPs the display allows, handed on as what a rebuild
+      // must reach, but proved no further than the line before it.
       if (e.change.band && own !== null && h2 !== own && cutAt === Infinity) cutAt = secretAt.get(`${rec.id}|${i}`) ?? Infinity;
       chosen.get(rec)[i] = h2;
       cur.set(rec, [k, h2]);
       if (tagOf.has(h2)) dealtBy.set(e.change, { amount: h - h2, v: tagOf.get(h2) });
-      if (cutAt === Infinity && e.change.rollAt !== null && e.change.rollAt !== undefined && rollOf.has(h2)) rolls.set(e.change.rollAt, rollOf.get(h2));
+      if (e.change.rollAt !== null && e.change.rollAt !== undefined && rollOf.has(h2)) rolls.set(e.change.rollAt, rollOf.get(h2));
     }
 
     const tokens = new Map();
