@@ -3914,8 +3914,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const dealtBy = new Map();
     let coupled = Infinity;
     let cutAt = Infinity;
-    // Every change the path chose another HP for than the scaffold landed on.
+    // Every change the path made deal another amount than the scaffold's did,
+    // and the HP the scaffold showed each Pokemon on last (null where its last
+    // change showed none).
     const drifted = new Set();
+    const scaffoldWas = new Map();
     const startOf = (rec) => {
       const [k, hs] = [...(rec.history[0]?.pre || new Map()).entries()][0] || [];
       return k === undefined ? null : [k, hs[0]];
@@ -4026,7 +4029,12 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       // must reach, but proved no further than the line before it.
       const carriedOff = e.change.carriedFrom && (e.change.carriedFrom === 'unknown' || drifted.has(e.change.carriedFrom));
       if (e.change.band && own !== null && (h2 !== own || carriedOff) && cutAt === Infinity) cutAt = secretAt.get(`${rec.id}|${i}`) ?? Infinity;
-      if (own !== null && h2 !== own) drifted.add(e.change);
+      // What the scaffold's change dealt is known where its HP before and
+      // after were both shown; a change the path made deal anything else, or
+      // whose amount the scaffold did not show, drifted.
+      const was = scaffoldWas.get(rec);
+      if (own === null || was === undefined || was === null || h - h2 !== was - own) drifted.add(e.change);
+      scaffoldWas.set(rec, own);
       chosen.get(rec)[i] = h2;
       cur.set(rec, [k, h2]);
       if (tagOf.has(h2)) dealtBy.set(e.change, { amount: h - h2, v: tagOf.get(h2) });
