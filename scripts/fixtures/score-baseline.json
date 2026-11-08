@@ -1,5 +1,5 @@
 {
- "commit": "74f631930232",
+ "commit": "d0ec0528b05b",
  "pool": "1e0b71cf750545f5",
  "usage": "52468dff24156b2b",
  "grade": {
@@ -15,12 +15,12 @@
   },
   "exactShare": 0.009225205345102365,
   "medianLog10Spreads": 7.592249470642742,
-  "probes": 6326400,
-  "rebuilds": 13216,
+  "probes": 6139211,
+  "rebuilds": 12990,
   "seconds": {
-   "median": 20.5,
-   "p95": 222.9,
-   "max": 863
+   "median": 23.3,
+   "p95": 249.1,
+   "max": 1068.4
   },
   "ranked": 1472,
   "first": 0.5788043478260869,
