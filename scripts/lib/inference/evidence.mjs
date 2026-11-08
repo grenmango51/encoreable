@@ -256,7 +256,7 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
     if (exact) {
       const found = ctx.paths(pre);
       ctx.coupled = Math.min(ctx.state.coupled, found?.coupled ?? Infinity);
-      ctx.exact = found && exactTurns(pre, found.tokens, prefix, ctx.coupled);
+      ctx.exact = found && exactTurns(pre, found.tokens, prefix, ctx.coupled, found.cutAt);
       ctx.rolls = found?.rolls || null;
     }
     const clock = l => (String(l).startsWith('|t:|') ? '|t:|' : l);
@@ -273,9 +273,10 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
  * The verified turns of a scaffold as the omniscient channel shows them, with
  * every hidden HP replaced by the exact value an evidence path chose - those
  * before turn `coupled`, where the paths chosen one Pokemon at a time can be
- * no path of the two together.
+ * no path of the two together, and before raw line `cutAt`, the turn it falls
+ * in proved up to it.
  */
-function exactTurns(raw, tokens, prefix, coupled = Infinity) {
+function exactTurns(raw, tokens, prefix, coupled = Infinity, cutAt = Infinity) {
   const view = channelView(raw, -1);
   const turns = new Map();
   let k = 0;
@@ -303,6 +304,10 @@ function exactTurns(raw, tokens, prefix, coupled = Infinity) {
       break;
     }
     if (k >= coupled) break;
+    if (entry.at >= cutAt) {
+      if (lines.length) turns.set(k, { lines, partial: true });
+      return turns;
+    }
     lines.push(withHp(entry.line, tokens.get(entry.at)));
     if (/^\|turn\|\d+/.test(entry.line)) {
       turns.set(k, { lines, partial: false });
@@ -3898,15 +3903,17 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const chosen = new Map(recs.map(rec => [rec, []]));
     const rolls = new Map();
     // A joint Pain Split: the HP the second of the two must take, once the
-    // first took one; and the first turn from which no exact turn is handed
-    // on - where the two could not be kept to one pair, or where a change read
-    // only as a band left the HP the scaffold landed on.
+    // first took one; the first turn where the two could not be kept to one
+    // pair, from which no exact turn is handed on; and the first raw line a
+    // change read only as a band left the HP the scaffold landed on, from
+    // which no line is.
     const pairedTo = new Map();
     const passed = new Set();
     // Per hit on the path, the amount it dealt and the attacking value it dealt
     // it at, for the recoil or drain that follows it.
     const dealtBy = new Map();
     let coupled = Infinity;
+    let cutAt = Infinity;
     const startOf = (rec) => {
       const [k, hs] = [...(rec.history[0]?.pre || new Map()).entries()][0] || [];
       return k === undefined ? null : [k, hs[0]];
@@ -4013,13 +4020,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const own = e.token !== null ? scaffoldHp(rec, i) : null;
       const h2 = options.includes(own) ? own : options[0];
       // A change read only as a band hands on no roll: an HP the scaffold
-      // did not land on is one nothing handed on makes, so no turn from its
-      // own is proved.
-      if (e.change.band && own !== null && h2 !== own) coupled = Math.min(coupled, e.change.turn ?? Infinity);
+      // did not land on is one nothing handed on makes, so nothing from its
+      // line on is proved, and no roll chosen after it is handed on.
+      if (e.change.band && own !== null && h2 !== own && cutAt === Infinity) cutAt = secretAt.get(`${rec.id}|${i}`) ?? Infinity;
       chosen.get(rec)[i] = h2;
       cur.set(rec, [k, h2]);
       if (tagOf.has(h2)) dealtBy.set(e.change, { amount: h - h2, v: tagOf.get(h2) });
-      if (e.change.rollAt !== null && e.change.rollAt !== undefined && rollOf.has(h2)) rolls.set(e.change.rollAt, rollOf.get(h2));
+      if (cutAt === Infinity && e.change.rollAt !== null && e.change.rollAt !== undefined && rollOf.has(h2)) rolls.set(e.change.rollAt, rollOf.get(h2));
     }
 
     const tokens = new Map();
@@ -4034,7 +4041,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         tokens.set(secretAt.get(`${rec.id}|${hist}`), h ? `${h}/${maxHp(rec, KEY_HP[k])}` : '0');
       }
     }
-    return { tokens, rolls, coupled };
+    return { tokens, rolls, coupled, cutAt };
   }
 
   return {
