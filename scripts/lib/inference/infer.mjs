@@ -992,6 +992,10 @@ export async function inferSpreads({
     let next = picks.map(team => team.map(e => ({ ...e })));
     const emptied = kn => !kn.keys.includes(1) || FLAT.some(x => !kn.dom[x].includes(1));
     let tries = 32 * S * W;
+    // The longest run of pins that held together - each Pokemon pinned with
+    // the ones before it settled - and the knowledge they leave the rest.
+    const stack = [];
+    let deepest = { n: 0, picks: [], cond: null };
     const choose = async (n, cond) => {
       if (n === order.length) {
         tries--;
@@ -1026,7 +1030,10 @@ export async function inferSpreads({
           await settle(built.inputLog, narrowed, cache);
           if (order.slice(n + 1).some(([s2, i2]) => emptied(narrowed.get(`p${s2 + 1}:${i2}`)))) continue;
         }
+        stack.push([s, i, pick]);
+        if (n + 1 > deepest.n) deepest = { n: n + 1, picks: stack.slice(), cond: narrowed };
         const found = await choose(n + 1, narrowed);
+        stack.pop();
         if (found) { next[s][i] = pick; return found; }
       }
       return null;
@@ -1034,11 +1041,18 @@ export async function inferSpreads({
     const proof = await choose(0, cloneKnowledge(knowledge));
     exact = proof?.exact || null;
     pins = proof ? handOn(built, proof.rolls, proof.coupled) : null;
+    // No set the evidence could follow through every verified turn: the pins
+    // that held together longest are kept, and each Pokemon after them is
+    // chosen from what those pins leave it, not from its own ranges alone -
+    // two guesses each possible alone can be impossible together, and the
+    // rebuild then stops between them round after round.
     if (!exact) {
+      const kept = new Map(deepest.picks.map(([s, i, pick]) => [`p${s + 1}:${i}`, pick]));
       for (const [s, i] of order) {
         const id = `p${s + 1}:${i}`;
-        const kn = knowledge.get(id);
-        next[s][i] = closestSpread(kn, aimed(id, kn, picks[s][i])) || next[s][i];
+        if (kept.has(id)) { next[s][i] = kept.get(id); continue; }
+        const kn = deepest.cond?.get(id) || knowledge.get(id);
+        next[s][i] = closestSpread(kn, aimed(id, kn, picks[s][i])) || closestSpread(knowledge.get(id), aimed(id, knowledge.get(id), picks[s][i])) || next[s][i];
       }
     }
     onProgress(`  evidence and new guesses, ${((Date.now() - evidenceStart) / 1000).toFixed(1)}s${exact ? `, ${exact.size} turns exact` : ''}${pins ? `, ${Object.keys(pins.subs).length} dice handed on` : ''}`);
