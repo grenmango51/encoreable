@@ -1,7 +1,10 @@
 {
- "commit": "d0ec0528b05b",
+ "commit": "f8f496967720",
  "pool": "1e0b71cf750545f5",
  "usage": "52468dff24156b2b",
+ "counts": {
+  "broken": true
+ },
  "grade": {
   "cases": 1059,
   "removed": 0,
@@ -15,12 +18,14 @@
   },
   "exactShare": 0.009225205345102365,
   "medianLog10Spreads": 7.592249470642742,
-  "probes": 6139211,
-  "rebuilds": 12990,
+  "probes": 6028592,
+  "rebuilds": 12758,
+  "broken": 31,
+  "brokenCases": 7,
   "seconds": {
-   "median": 23.3,
-   "p95": 249.1,
-   "max": 1068.4
+   "median": 23.6,
+   "p95": 256.7,
+   "max": 1377.6
   },
   "ranked": 1472,
   "first": 0.5788043478260869,
@@ -2634,6 +2639,7 @@
   "fuzz:146 both@spectator": {
    "result": "PASS",
    "battle": "010af018f619555c",
+   "broken": 1,
    "spreads": {
     "p1:0": 21019295,
     "p1:1": 12838416,
@@ -7242,6 +7248,7 @@
   "fuzz:255 p2@p1": {
    "result": "PASS",
    "battle": "fa0bbd4da838c14a",
+   "broken": 1,
    "spreads": {
     "p2:0": 29983879,
     "p2:1": 37975286,
@@ -9186,6 +9193,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2699035058 both@spectator": {
    "result": "PASS",
    "battle": "c7c00b0b1f1f03a4",
+   "broken": 2,
    "spreads": {
     "p1:0": 35593781,
     "p1:1": 98062828,
@@ -11598,6 +11606,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2706819244 p1@p2": {
    "result": "PASS",
    "battle": "194229a6a4e44221",
+   "broken": 1,
    "spreads": {
     "p1:0": 22299935,
     "p1:1": 50320,
@@ -13974,6 +13983,7 @@
   "recordings/local/probes/gen9championsvgc2026regmc-23.log.json both@spectator": {
    "result": "PASS",
    "battle": "e9b8c015b95f94f7",
+   "broken": 16,
    "spreads": {
     "p1:0": 2832786,
     "p1:1": 97888475,
@@ -13992,6 +14002,7 @@
   "recordings/local/probes/gen9championsvgc2026regmc-23.log.json p1@p2": {
    "result": "PASS",
    "battle": "e9b8c015b95f94f7",
+   "broken": 1,
    "spreads": {
     "p1:0": 179970,
     "p1:1": 825280,
@@ -14100,6 +14111,7 @@
   "recordings/local/probes/gen9championsvgc2026regmc-296.log.json both@spectator": {
    "result": "PASS",
    "battle": "051258bb7822434a",
+   "broken": 9,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 107962102,

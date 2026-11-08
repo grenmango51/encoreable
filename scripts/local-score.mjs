@@ -43,8 +43,9 @@
  *
  * The baseline, `scripts/fixtures/score-baseline.json`, holds each case's
  * result and spreads as of the last accepted run. A run fails when any case is
- * REMOVED, when a case's result gets worse, or when a Pokemon keeps more
- * spreads than it did; a case the baseline has and the run does not is a
+ * REMOVED, when a case's result gets worse, when a Pokemon keeps more spreads
+ * than it did, or when a case breaks more proofs it was handed than it did (a
+ * turn the evidence called exact that the simulator plays otherwise); a case the baseline has and the run does not is a
  * CRASH. A change that makes something worse on purpose - a soundness fix that
  * keeps more spreads - accepts a new baseline in the same commit, so the diff
  * shows what got worse.
@@ -263,6 +264,12 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
       ...base, result, sound, complete: inf.complete, limitHit, asSaved, stop: inf.stop, limits, pokemon,
       ...(wrongCount ? { error: `${wrongCount.id} ${wrongCount.species}: ${wrongCount.miscounted}` } : {}),
       work: { rounds: inf.work.rounds, rebuilds: inf.work.rebuilds, probes: inf.work.probes },
+      // Each proof a rebuild was handed that broke under its own dice and
+      // choices: the evidence called a turn exact that the simulator plays
+      // otherwise. It removes nothing, but it is a bug in what is handed on,
+      // whatever the result.
+      broken: (inf.warnings || []).length,
+      ...(inf.warnings?.length ? { brokenAt: inf.warnings.slice(0, 3).map(w => `turn ${w.turn}: ${w.expected} / ${w.actual}`) } : {}),
       seconds: Number(((Date.now() - started) / 1000).toFixed(1)),
     };
   } catch (err) {
@@ -398,6 +405,8 @@ function grade(records) {
     medianLog10Spreads: median(seen.map(p => Math.log10(Math.max(1, p.spreads)))),
     probes: records.reduce((t, x) => t + (x.work?.probes || 0), 0),
     rebuilds: records.reduce((t, x) => t + (x.work?.rebuilds || 0), 0),
+    broken: records.reduce((t, x) => t + (x.broken || 0), 0),
+    brokenCases: records.filter(x => x.broken).length,
     seconds: { median: median(seconds), p95: quantile(seconds, 0.95), max: seconds.length ? Math.max(...seconds) : null },
     ranked: ranked.length,
     first: ranked.length ? ranked.filter(p => p.rank === 1).length / ranked.length : null,
@@ -426,6 +435,10 @@ function printGrade(records, tier) {
   console.log(`wide: ${wide.length} of ${views.length} view(s) with nothing removed and nothing crashed`);
   const all = grade(records);
   if (all.ranked) console.log(`likely: of ${all.ranked} seen Pokemon whose real spread is one people run, ${pct(all.first)} have it ranked first, ${pct(all.top3)} in the top 3`);
+  console.log(`consistent: ${all.broken} broken proof(s), in ${all.brokenCases} case(s) (each one a bug in what the evidence hands on)`);
+  for (const r of records.filter(x => x.broken).sort((a, b) => b.broken - a.broken).slice(0, 20)) {
+    console.log(`  BROKEN ${r.id} ${r.view}: ${r.broken}, first ${r.brokenAt?.[0] || '?'}`);
+  }
   console.log('closed team sheets: not graded yet');
   for (const r of records.filter(x => x.result === 'REMOVED' || x.result === 'CRASH')) {
     const lost = (r.pokemon || []).filter(p => !p.kept).map(p => `${p.id} ${p.species}`);
@@ -443,6 +456,7 @@ const keyOf = r => `${r.id} ${r.view}`;
 const baselineOf = records => Object.fromEntries(records.map(r => [keyOf(r), {
   result: r.result,
   ...(r.battle ? { battle: r.battle } : {}),
+  ...(r.broken ? { broken: r.broken } : {}),
   spreads: Object.fromEntries((r.pokemon || []).map(p => [p.id, p.spreads])),
 }]));
 
@@ -465,6 +479,13 @@ function compare(records, baseline, { whole = false } = {}) {
     if (was.battle && r.battle && was.battle !== r.battle) worse.push(`${key}: plays another battle than its baseline (${was.battle} -> ${r.battle})`);
     if (RANK[r.result] > RANK[was.result]) worse.push(`${key}: ${was.result} -> ${r.result}`);
     else if (RANK[r.result] < RANK[was.result]) better.push(`${key}: ${was.result} -> ${r.result}`);
+    // Broken proofs ratchet once the baseline counts them: none counted is
+    // none there.
+    if (baseline.counts?.broken && r.broken !== undefined) {
+      const before = was.broken || 0;
+      if (r.broken > before) worse.push(`${key}: ${r.broken} broken proof(s), was ${before}: ${r.brokenAt?.[0] || ''}`);
+      else if (r.broken < before) better.push(`${key}: ${r.broken} broken proof(s), was ${before}`);
+    }
     for (const p of r.pokemon || []) {
       const before = was.spreads?.[p.id];
       if (before === undefined || before === p.spreads) continue;
@@ -587,7 +608,7 @@ budget x${run.budget}: every search limit ${run.budget} times as wide`);
     if (crashed.length) throw new Error(`--accept: ${crashed.length} case(s) crashed or were carried by no share, e.g. ${keyOf(crashed[0])}: ${crashed[0].error || ''}`);
     const cases = baselineOf(run.records);
     const sorted = Object.fromEntries(Object.keys(cases).sort().map(k => [k, cases[k]]));
-    fs.writeFileSync(baselineFile, `${JSON.stringify({ commit: run.commit, pool: run.pool, usage: run.usage, grade: grade(run.records), cases: sorted }, null, 1)}\n`);
+    fs.writeFileSync(baselineFile, `${JSON.stringify({ commit: run.commit, pool: run.pool, usage: run.usage, ...(run.records.every(r => r.broken !== undefined || r.result === 'CRASH') ? { counts: { broken: true } } : {}), grade: grade(run.records), cases: sorted }, null, 1)}\n`);
     console.log(`wrote the baseline to ${path.relative(ROOT, baselineFile)}`);
     return;
   }
