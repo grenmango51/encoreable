@@ -382,10 +382,17 @@ const GATHER_MS = 60_000;
  */
 async function serve(threads) {
   const say = msg => process.stdout.write(`${TAG}${JSON.stringify(msg)}\n`);
+  // How long one thread takes over a fixed loop: crude, but it tells a
+  // machine slowed down - throttled, or busy with another's work - from one
+  // that is not.
+  const t = process.hrtime.bigint();
+  let x = 0;
+  for (let i = 0; i < 1e8; i++) x = (x * 31 + i) | 0;
+  const pace = Number(process.hrtime.bigint() - t) / 1e6 + (x & 0);
   const waiting = [];
   readline.createInterface({ input: process.stdin }).on('line', line => waiting.shift()?.(JSON.parse(line)));
   process.stdin.on('close', () => process.exit(1));
-  say({ hello: { host: os.hostname(), threads, commit: commitOf(), dirty: dirtyOf(), pool: poolPrint(), usage: usagePrint() } });
+  say({ hello: { host: os.hostname(), threads, pace, commit: commitOf(), dirty: dirtyOf(), pool: poolPrint(), usage: usagePrint() } });
   await runPool(threads, threads, () => new Promise((resolve) => {
     waiting.push(resolve);
     say({ want: true });
@@ -398,7 +405,9 @@ async function serve(threads) {
  * machine's name) with `node scripts/local-score.mjs --serve` after it, in
  * this checkout's commit. A thread that is free takes the longest case left,
  * so a faster or larger machine takes more and none waits on a deal made in
- * advance; while several want one, the machine running fewest goes first. A
+ * advance; while several want one, the machine running fewest goes first.
+ * A machine more than twice as slow as most (`pace`) takes the shortest case
+ * left instead: a long one there would end the run late. A
  * machine that stops gives back the cases it held, to whichever takes next,
  * or to machines that ended well once all have ended; a case lost twice is a
  * CRASH. Results in case order.
@@ -414,15 +423,17 @@ async function runHosts(cases, hosts, remote, job) {
   let done = 0;
   let open = false;
   let gather = null;
+  let typicalPace = Infinity;
   const dispatch = () => {
     if (!open && sessions.every(s => s.ended || s.asked >= s.hello?.threads)) open = true;
     if (!open) return;
+    typicalPace = median(sessions.filter(s => s.hello).map(s => s.hello.pace)) ?? Infinity;
     while (wants.length) {
       let k = 0;
       for (let j = 1; j < wants.length; j++) if (wants[j].held.size < wants[k].held.size) k = j;
       const [s] = wants.splice(k, 1);
       if (s.ended) continue;
-      const at = queue.shift();
+      const at = s.hello.pace > 2 * typicalPace ? queue.pop() : queue.shift();
       if (at === undefined) { s.send(null); continue; }
       s.held.add(at);
       s.send({ at, ...job, ...cases[at] });
@@ -445,6 +456,7 @@ async function runHosts(cases, hosts, remote, job) {
           return;
         }
         s.hello = msg.hello;
+        console.error(`[${host}] ${s.hello.threads} thread(s), pace ${s.hello.pace.toFixed(0)} ms`);
         gather ??= setTimeout(() => { open = true; dispatch(); }, GATHER_MS);
       } else if (msg.want) {
         s.asked++;
