@@ -1,7 +1,10 @@
 {
- "commit": "d0ec0528b05b",
+ "commit": "afd83fa1be23",
  "pool": "1e0b71cf750545f5",
  "usage": "52468dff24156b2b",
+ "counts": {
+  "broken": true
+ },
  "grade": {
   "cases": 1059,
   "removed": 0,
@@ -15,12 +18,14 @@
   },
   "exactShare": 0.009225205345102365,
   "medianLog10Spreads": 7.592249470642742,
-  "probes": 6139211,
-  "rebuilds": 12990,
+  "probes": 6027652,
+  "rebuilds": 12750,
+  "broken": 6,
+  "brokenCases": 3,
   "seconds": {
-   "median": 23.3,
-   "p95": 249.1,
-   "max": 1068.4
+   "median": 24,
+   "p95": 246.1,
+   "max": 1376
   },
   "ranked": 1472,
   "first": 0.5788043478260869,
@@ -2634,6 +2639,7 @@
   "fuzz:146 both@spectator": {
    "result": "PASS",
    "battle": "010af018f619555c",
+   "broken": 1,
    "spreads": {
     "p1:0": 21019295,
     "p1:1": 12838416,
@@ -7242,6 +7248,7 @@
   "fuzz:255 p2@p1": {
    "result": "PASS",
    "battle": "fa0bbd4da838c14a",
+   "broken": 1,
    "spreads": {
     "p2:0": 29983879,
     "p2:1": 37975286,
@@ -13974,6 +13981,7 @@
   "recordings/local/probes/gen9championsvgc2026regmc-23.log.json both@spectator": {
    "result": "PASS",
    "battle": "e9b8c015b95f94f7",
+   "broken": 4,
    "spreads": {
     "p1:0": 2832786,
     "p1:1": 97888475,
@@ -13994,7 +14002,7 @@
    "battle": "e9b8c015b95f94f7",
    "spreads": {
     "p1:0": 179970,
-    "p1:1": 825280,
+    "p1:1": 567659,
     "p1:2": 811923,
     "p1:3": 2606293,
     "p1:4": 136663185,
