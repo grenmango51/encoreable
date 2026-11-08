@@ -369,8 +369,9 @@ async function runCases(cases, threads, job) {
 // What a machine serving a run (`--serve`) says on stdout starts with this:
 // anything else there - the shell's, npm's - is not for the run.
 const TAG = '@score ';
-// How long cases wait, after the first machine is ready, for the rest: then
-// the longest go one to a machine, not all to the first.
+// How long cases wait, after the first machine says it is there, for every
+// machine's threads to ask: then the longest go one to a machine, not all to
+// the first.
 const GATHER_MS = 60_000;
 
 /**
@@ -414,7 +415,7 @@ async function runHosts(cases, hosts, remote, job) {
   let open = false;
   let gather = null;
   const dispatch = () => {
-    if (!open && sessions.every(s => s.hello || s.ended)) open = true;
+    if (!open && sessions.every(s => s.ended || s.asked >= s.hello?.threads)) open = true;
     if (!open) return;
     while (wants.length) {
       let k = 0;
@@ -429,7 +430,7 @@ async function runHosts(cases, hosts, remote, job) {
   };
   const start = host => new Promise((resolve) => {
     const child = spawn('sh', ['-c', `${remote.replaceAll('{host}', host)} node scripts/local-score.mjs --serve`], { stdio: ['pipe', 'pipe', 'pipe'] });
-    const s = { host, hello: null, ended: false, held: new Set(), send: m => child.stdin.write(`${JSON.stringify(m)}\n`) };
+    const s = { host, hello: null, asked: 0, ended: false, held: new Set(), send: m => child.stdin.write(`${JSON.stringify(m)}\n`) };
     sessions.push(s);
     child.stdin.on('error', () => {});
     readline.createInterface({ input: child.stderr }).on('line', line => console.error(`[${host}] ${line}`));
@@ -446,6 +447,7 @@ async function runHosts(cases, hosts, remote, job) {
         s.hello = msg.hello;
         gather ??= setTimeout(() => { open = true; dispatch(); }, GATHER_MS);
       } else if (msg.want) {
+        s.asked++;
         wants.push(s);
       } else if (s.held.delete(msg.at)) {
         out[msg.at] = msg.record;
