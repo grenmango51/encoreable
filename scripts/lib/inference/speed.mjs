@@ -783,6 +783,28 @@ export function attachSpeed(battle, {
       return ident ? named(ident) : null;
     };
     const rebuilt = cut && battleLines([cut.line])[0];
+    // The log diverged inside an event sort on the HP alone: the handler that
+    // wrote the line at the cutoff is the one the replay shows there, so it
+    // went before every later handler of that sort whose line the replay
+    // shows after it, before the next action.
+    if (rebuilt && prefix.observedLine && sameButHp(rebuilt, prefix.observedLine)) {
+      for (const entry of eventSorts) {
+        if (!entry.items) continue;
+        const ms = matched(entry);
+        const at = ms.findIndex(m => m.span.start <= prefix.cutoffAt && prefix.cutoffAt < m.span.end);
+        if (at < 0) continue;
+        for (const m of ms.slice(at + 1)) {
+          const i = firstAt(m.span.start);
+          const line = i < view.length && view[i].at < m.span.end ? battleLines([view[i].line])[0] : null;
+          if (!line) continue;
+          for (const seen of prefix.observedAfter) {
+            if (ACTION_START.has(seen.split('|')[1])) break;
+            if (sameButHp(seen, line)) { eventRule(entry, ms[at].item, m.item); break; }
+          }
+        }
+        break;
+      }
+    }
     if (rebuilt && prefix.observedLine && !was) {
       for (const entry of eventSorts) {
         if (!entry.items) continue;
