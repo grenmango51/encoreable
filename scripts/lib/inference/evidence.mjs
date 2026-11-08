@@ -1672,10 +1672,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
     const last = T.lastDealt;
     if (T.exact && last?.byA.size && last.victim === U && last.hitsOn === 1 && last.turn === battle.turn) {
-      return dealtChange(T, last, what, 'ctr', d => asDealt(U.pokemon, d, () => withRoll(0, () => {
+      return Object.assign(dealtChange(T, last, what, 'ctr', d => asDealt(U.pokemon, d, () => withRoll(0, () => {
         const amount = hit.clone.damageCallback.call(battle, U.pokemon, T.pokemon);
         battle.spreadDamage([amount], [T.pokemon], U.pokemon, ctx.effect);
-      }, ctx.dice)));
+      }, ctx.dice))), { dealtBy: U, move: ctx.effect, off: null });
     }
     note(what, 'its damage was carried over from an earlier hit, so it was not used');
     return Object.assign(band('down', what), { dealtBy: U, move: ctx.effect, off: null });
