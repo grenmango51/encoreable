@@ -7,15 +7,15 @@
  *   npm run score -- --tier full             every battle
  *   npm run score -- --only fuzz:204         one battle, every view
  *   npm run score -- --views p2@p1           only some views
- *   npm run score -- --tier full --shard 3/12 --out <file>   one share of a run, for one machine
- *   npm run score -- --merge <file>...       the shares put together, graded and compared
+ *   npm run score -- --tier full --hosts a,b,c --remote 'ssh {host} ...'   cases handed out over machines as their threads free up
+ *   npm run score -- --merge <file>...       saved runs put together, graded and compared
  *   npm run score -- --tier full --accept    write this run as the new baseline
  *   npm run score -- --tier full --budget 10  every search limit ten times as wide: what the limits cost
  *   npm run score -- --only fuzz:220 --views p2@p1 --trace   every step of the search, on stderr: why a case gave up
  *   npm run score -- --mimic-dir <dir>      every game in <dir> as a mimic battle, not the benchmark (a corpus sweep)
  *
  * Flags: --tier quick|fast|full --timings <run.json> --only <id>[,<id>...] --views <v>[,<v>...] --threads <n> --budget <n>
- *        --trace --mimic-dir <dir> --shard <i>/<n> --out <file> --merge <file>... --baseline <file> --accept
+ *        --trace --mimic-dir <dir> --hosts <a,b,...> --remote <command> --out <file> --merge <file>... --baseline <file> --accept
  *
  * A view is who is inferred and from whose screen:
  *   p2@p1           player 2's Stat Points, from player 1's channel (p1 known)
@@ -55,7 +55,8 @@ import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { execFileSync } from 'child_process';
+import readline from 'readline';
+import { execFileSync, spawn } from 'child_process';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
@@ -308,53 +309,33 @@ function casesOf({ tier, only, views, mimicDir = null }) {
 
 /**
  * The cases longest first, by the seconds each took in an earlier run (one it
- * lacks counts as that run's median), and, for a share, the cases dealt to the
- * shares so each gets about as much work: every share computes the same deal.
+ * lacks counts as that run's median): the longest start first, so they end
+ * nearest the rest.
  */
-function dealt(cases, timings, shard) {
+function longestFirst(cases, timings) {
   const seconds = new Map((timings?.records || []).map(r => [keyOf(r), r.seconds || 0]));
   const known = [...seconds.values()].sort((a, b) => a - b);
   const typical = known.length ? known[Math.floor(known.length / 2)] : 0;
   const cost = c => seconds.get(keyOf(c)) ?? typical;
-  const order = cases.map((c, k) => ({ c, k, t: cost(c) })).sort((a, b) => b.t - a.t || a.k - b.k);
-  if (!shard) return order.map(x => x.c);
-  if (!timings) return cases.filter((_, k) => k % shard.n === shard.i - 1);
-  const load = Array(shard.n).fill(0);
-  const mine = [];
-  for (const x of order) {
-    let at = 0;
-    for (let j = 1; j < shard.n; j++) if (load[j] < load[at]) at = j;
-    load[at] += x.t;
-    if (at === shard.i - 1) mine.push(x.c);
-  }
-  return mine;
+  return cases.map((c, k) => ({ c, k, t: cost(c) })).sort((a, b) => b.t - a.t || a.k - b.k).map(x => x.c);
 }
 
 /**
- * The cases on a pool of worker threads; results in case order. A thread with
- * no case left is a thread to spare: the cases still running begin the starts
- * their search would run next on it (`speculate.mjs`), which changes how soon
- * they end, never what they find.
+ * Cases on a pool of worker threads, each asking `take` for its next - `{ at,
+ * id, view, ... }`, or null when none is left - and handing its record to
+ * `put`. A thread with no case left is a thread to spare: the cases still
+ * running begin the starts their search would run next on it
+ * (`speculate.mjs`), which changes how soon they end, never what they find.
  */
-async function runCases(cases, threads, budget, { trace = false, mimicDir = null } = {}) {
-  const out = new Array(cases.length);
-  let next = 0;
-  let done = 0;
-  const started = Date.now();
-  const size = Math.max(1, Math.min(threads, cases.length));
+async function runPool(threads, most, take, put) {
+  const size = Math.max(1, Math.min(threads, most));
   const spare = new Int32Array(new SharedArrayBuffer(4));
   spare[0] = Math.max(0, threads - size);
   await Promise.all(Array.from({ length: size }, () => new Promise((resolve, reject) => {
     const worker = new Worker(fileURLToPath(import.meta.url), { workerData: { role: WORKER_ROLE, spare } });
-    const feed = () => {
-      if (next >= cases.length) { worker.postMessage(null); return; }
-      const at = next++;
-      worker.postMessage({ at, budget, trace, mimicDir, ...cases[at] });
-    };
+    const feed = async () => worker.postMessage(await take());
     worker.on('message', ({ at, record }) => {
-      out[at] = record;
-      done++;
-      console.error(`[${done}/${cases.length}] ${record.id} ${record.view}: ${record.result} ${record.seconds}s (${((Date.now() - started) / 1000).toFixed(0)}s)`);
+      put(at, record);
       feed();
     });
     worker.on('error', reject);
@@ -364,7 +345,138 @@ async function runCases(cases, threads, budget, { trace = false, mimicDir = null
     });
     feed();
   })));
+}
+
+const progress = (done, total, record, started, host = '') => `[${done}/${total}] ${record.id} ${record.view}: ${record.result} ${record.seconds}s (${((Date.now() - started) / 1000).toFixed(0)}s)${host && ` ${host}`}`;
+
+/** The cases on this machine's threads; results in case order. */
+async function runCases(cases, threads, job) {
+  const out = new Array(cases.length);
+  const started = Date.now();
+  let next = 0;
+  let done = 0;
+  await runPool(threads, cases.length, async () => {
+    if (next >= cases.length) return null;
+    const at = next++;
+    return { at, ...job, ...cases[at] };
+  }, (at, record) => {
+    out[at] = record;
+    console.error(progress(++done, cases.length, record, started));
+  });
   return out;
+}
+
+// What a machine serving a run (`--serve`) says on stdout starts with this:
+// anything else there - the shell's, npm's - is not for the run.
+const TAG = '@score ';
+// How long cases wait, after the first machine is ready, for the rest: then
+// the longest go one to a machine, not all to the first.
+const GATHER_MS = 60_000;
+
+/**
+ * This machine's threads, for a run handed out from elsewhere (`--hosts`): a
+ * line on stdout for each thread that wants a case, and one back on stdin, the
+ * case or null; a line on stdout for each record. It ends when its threads
+ * have no case left, or at once when its stdin closes.
+ */
+async function serve(threads) {
+  const say = msg => process.stdout.write(`${TAG}${JSON.stringify(msg)}\n`);
+  const waiting = [];
+  readline.createInterface({ input: process.stdin }).on('line', line => waiting.shift()?.(JSON.parse(line)));
+  process.stdin.on('close', () => process.exit(1));
+  say({ hello: { host: os.hostname(), threads, commit: commitOf(), dirty: dirtyOf(), pool: poolPrint(), usage: usagePrint() } });
+  await runPool(threads, threads, () => new Promise((resolve) => {
+    waiting.push(resolve);
+    say({ want: true });
+  }), (at, record) => say({ at, record }));
+  process.exit(0);
+}
+
+/**
+ * The cases handed out over machines, each started by `remote` (`{host}` the
+ * machine's name) with `node scripts/local-score.mjs --serve` after it, in
+ * this checkout's commit. A thread that is free takes the longest case left,
+ * so a faster or larger machine takes more and none waits on a deal made in
+ * advance; while several want one, the machine running fewest goes first. A
+ * machine that stops gives back the cases it held, to whichever takes next,
+ * or to machines that ended well once all have ended; a case lost twice is a
+ * CRASH. Results in case order.
+ */
+async function runHosts(cases, hosts, remote, job) {
+  const out = new Array(cases.length);
+  const queue = cases.map((_, at) => at);
+  const lost = new Map();
+  const me = { commit: commitOf(), dirty: dirtyOf(), pool: poolPrint(), usage: usagePrint() };
+  const started = Date.now();
+  const sessions = [];
+  const wants = [];
+  let done = 0;
+  let open = false;
+  let gather = null;
+  const dispatch = () => {
+    if (!open && sessions.every(s => s.hello || s.ended)) open = true;
+    if (!open) return;
+    while (wants.length) {
+      let k = 0;
+      for (let j = 1; j < wants.length; j++) if (wants[j].held.size < wants[k].held.size) k = j;
+      const [s] = wants.splice(k, 1);
+      if (s.ended) continue;
+      const at = queue.shift();
+      if (at === undefined) { s.send(null); continue; }
+      s.held.add(at);
+      s.send({ at, ...job, ...cases[at] });
+    }
+  };
+  const start = host => new Promise((resolve) => {
+    const child = spawn('sh', ['-c', `${remote.replaceAll('{host}', host)} node scripts/local-score.mjs --serve`], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const s = { host, hello: null, ended: false, held: new Set(), send: m => child.stdin.write(`${JSON.stringify(m)}\n`) };
+    sessions.push(s);
+    child.stdin.on('error', () => {});
+    readline.createInterface({ input: child.stderr }).on('line', line => console.error(`[${host}] ${line}`));
+    readline.createInterface({ input: child.stdout }).on('line', (line) => {
+      if (!line.startsWith(TAG)) return;
+      const msg = JSON.parse(line.slice(TAG.length));
+      if (msg.hello) {
+        const off = Object.keys(me).filter(k => msg.hello[k] !== me[k]);
+        if (off.length) {
+          console.error(`[${host}] left out: another checkout (${off.join(', ')})`);
+          child.kill();
+          return;
+        }
+        s.hello = msg.hello;
+        gather ??= setTimeout(() => { open = true; dispatch(); }, GATHER_MS);
+      } else if (msg.want) {
+        wants.push(s);
+      } else if (s.held.delete(msg.at)) {
+        out[msg.at] = msg.record;
+        console.error(progress(++done, cases.length, msg.record, started, host));
+      }
+      dispatch();
+    });
+    child.on('close', (code) => {
+      s.ended = true;
+      s.well = code === 0 && !!s.hello;
+      for (const at of s.held) {
+        lost.set(at, (lost.get(at) || 0) + 1);
+        if (lost.get(at) < 2) queue.push(at);
+        else out[at] = { ...cases[at], result: 'CRASH', error: `lost twice, last on ${host}`, seconds: 0 };
+      }
+      queue.sort((a, b) => a - b);
+      if (s.held.size) console.error(`[${host}] stopped (${code}) holding ${s.held.size} case(s)`);
+      s.held.clear();
+      dispatch();
+      resolve();
+    });
+  });
+  await Promise.all(hosts.map(start));
+  // Cases given back once no machine was left to take them.
+  for (let before = -1; queue.length && queue.length !== before;) {
+    before = queue.length;
+    const well = [...new Set(sessions.filter(s => s.well).map(s => s.host))].slice(0, queue.length);
+    await Promise.all(well.map(start));
+  }
+  clearTimeout(gather);
+  return out.map((r, at) => r || { ...cases[at], result: 'CRASH', error: 'no machine ran this case' });
 }
 
 const commitOf = () => {
@@ -504,6 +616,8 @@ function opt(name, fallback = null) {
 const flag = name => process.argv.includes(name);
 
 async function main() {
+  const threads = Number(opt('--threads', String(Math.max(1, os.availableParallelism() - 1))));
+  if (flag('--serve')) return serve(threads);
   let merge = null;
   if (flag('--merge')) {
     const after = process.argv.slice(process.argv.indexOf('--merge') + 1);
@@ -538,26 +652,22 @@ async function main() {
     for (const v of views) if (!VIEWS[v]) throw new Error(`no view ${v} - have ${Object.keys(VIEWS).join(', ')}`);
     const mimicDir = opt('--mimic-dir') ? path.resolve(opt('--mimic-dir')) : null;
     let cases = casesOf({ tier, only, views, mimicDir });
-    let shard = null;
-    if (opt('--shard')) {
-      const [i, n] = opt('--shard').split('/').map(Number);
-      if (!(n >= 1 && i >= 1 && i <= n)) throw new Error('--shard <i>/<n>, 1 <= i <= n');
-      shard = { i, n };
-    }
     const timings = opt('--timings') && fs.existsSync(opt('--timings')) ? JSON.parse(fs.readFileSync(opt('--timings'), 'utf8')) : null;
-    cases = dealt(cases, timings, shard);
-    const threads = Number(opt('--threads', String(Math.max(1, os.availableParallelism() - 1))));
+    cases = longestFirst(cases, timings);
     const budget = Number(opt('--budget', '1'));
     if (!(Number.isInteger(budget) && budget >= 1)) throw new Error('--budget <n>: a whole number, at least 1');
-    console.error(`score: ${cases.length} case(s) on ${threads} thread(s)`);
-    run = { commit: commitOf(), dirty: dirtyOf(), pool: poolPrint(), usage: usagePrint(), budget, tier, only, views, mimicDir, shard, host: os.hostname(), records: await runCases(cases, threads, budget, { trace: flag('--trace'), mimicDir }) };
+    const job = { budget, trace: flag('--trace'), mimicDir };
+    const hosts = opt('--hosts') ? opt('--hosts').split(/[\s,]+/).filter(Boolean) : null;
+    if (hosts && !opt('--remote')) throw new Error('--hosts needs --remote <command>, {host} the machine');
+    console.error(`score: ${cases.length} case(s) on ${hosts ? `${hosts.length} machine(s)` : `${threads} thread(s)`}`);
+    const records = hosts ? await runHosts(cases, hosts, opt('--remote'), job) : await runCases(cases, threads, job);
+    run = { commit: commitOf(), dirty: dirtyOf(), pool: poolPrint(), usage: usagePrint(), budget, tier, only, views, mimicDir, host: os.hostname(), ...(hosts ? { hosts } : {}), records };
   }
 
-  const out = opt('--out') || path.join(OUT_DIR, `${run.tier}-${run.commit || 'local'}${run.budget > 1 ? `-budget${run.budget}` : ''}${run.shard ? `-${run.shard.i}of${run.shard.n}` : ''}.json`);
+  const out = opt('--out') || path.join(OUT_DIR, `${run.tier}-${run.commit || 'local'}${run.budget > 1 ? `-budget${run.budget}` : ''}.json`);
   fs.mkdirSync(path.dirname(path.resolve(ROOT, out)), { recursive: true });
   fs.writeFileSync(path.resolve(ROOT, out), JSON.stringify(run));
   console.error(`wrote ${out}`);
-  if (run.shard) return;
 
   printGrade(run.records, run.tier);
 
