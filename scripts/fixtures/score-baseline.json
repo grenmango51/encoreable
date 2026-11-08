@@ -1,5 +1,5 @@
 {
- "commit": "afd83fa1be23",
+ "commit": "c1d855ccff47",
  "pool": "1e0b71cf750545f5",
  "usage": "52468dff24156b2b",
  "counts": {
@@ -18,14 +18,14 @@
   },
   "exactShare": 0.009225205345102365,
   "medianLog10Spreads": 7.592249470642742,
-  "probes": 6027652,
-  "rebuilds": 12750,
-  "broken": 6,
-  "brokenCases": 3,
+  "probes": 5881429,
+  "rebuilds": 12661,
+  "broken": 4,
+  "brokenCases": 1,
   "seconds": {
-   "median": 24,
-   "p95": 246.1,
-   "max": 1376
+   "median": 33.8,
+   "p95": 207.5,
+   "max": 1086.7
   },
   "ranked": 1472,
   "first": 0.5788043478260869,
@@ -2639,7 +2639,6 @@
   "fuzz:146 both@spectator": {
    "result": "PASS",
    "battle": "010af018f619555c",
-   "broken": 1,
    "spreads": {
     "p1:0": 21019295,
     "p1:1": 12838416,
@@ -7248,7 +7247,6 @@
   "fuzz:255 p2@p1": {
    "result": "PASS",
    "battle": "fa0bbd4da838c14a",
-   "broken": 1,
    "spreads": {
     "p2:0": 29983879,
     "p2:1": 37975286,
