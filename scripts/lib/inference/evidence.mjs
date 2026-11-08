@@ -3898,8 +3898,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const chosen = new Map(recs.map(rec => [rec, []]));
     const rolls = new Map();
     // A joint Pain Split: the HP the second of the two must take, once the
-    // first took one; and the first turn where the two could not be kept to
-    // one pair, from which no exact turn is handed on.
+    // first took one; and the first turn from which no exact turn is handed
+    // on - where the two could not be kept to one pair, or where a change read
+    // only as a band left the HP the scaffold landed on.
     const pairedTo = new Map();
     const passed = new Set();
     // Per hit on the path, the amount it dealt and the attacking value it dealt
@@ -4011,6 +4012,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
       const own = e.token !== null ? scaffoldHp(rec, i) : null;
       const h2 = options.includes(own) ? own : options[0];
+      // A change read only as a band hands on no roll: an HP the scaffold
+      // did not land on is one nothing handed on makes, so no turn from its
+      // own is proved.
+      if (e.change.band && own !== null && h2 !== own) coupled = Math.min(coupled, e.change.turn ?? Infinity);
       chosen.get(rec)[i] = h2;
       cur.set(rec, [k, h2]);
       if (tagOf.has(h2)) dealtBy.set(e.change, { amount: h - h2, v: tagOf.get(h2) });
