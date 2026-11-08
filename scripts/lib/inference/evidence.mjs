@@ -4026,6 +4026,18 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       if (e.change.rollAt !== null && e.change.rollAt !== undefined && rollOf.has(h2)) rolls.set(e.change.rollAt, rollOf.get(h2));
     }
 
+    // A line past what the evidence settled keeps the scaffold's own HP,
+    // which follows from the HP the scaffold was on before it: where the path
+    // left the Pokemon on another, no line of its own from there is proved.
+    for (const rec of recs) {
+      if (rec.exact) continue;
+      const settled = rec.shown.filter(x => !x.ahead);
+      const last = settled.at(-1);
+      if (!last || settled.length === rec.shown.length) continue;
+      const theirs = scaffoldHp(rec, last.hist);
+      if (theirs === null || chosen.get(rec)[last.hist] === theirs) continue;
+      for (const x of rec.shown) if (x.ahead) cutAt = Math.min(cutAt, secretAt.get(`${rec.id}|${x.hist}`) ?? Infinity);
+    }
     const tokens = new Map();
     for (const rec of recs) {
       if (rec.exact) continue;
