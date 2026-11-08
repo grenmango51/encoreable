@@ -1678,7 +1678,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }, ctx.dice)));
     }
     note(what, 'its damage was carried over from an earlier hit, so it was not used');
-    return band('down', what);
+    return Object.assign(band('down', what), { dealtBy: U, move: ctx.effect, off: null });
   }
 
   /**
@@ -1889,7 +1889,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const V = byPokemon.get(frame.holder);
     const last = T.lastDealt;
     const move = battle.activeMove;
-    if (!V || V === T || !last || last.victim !== V || last.move !== move || last.turn !== battle.turn) return null;
+    if (!V || V === T || !last?.byA.size || last.victim !== V || last.move !== move || last.turn !== battle.turn) return null;
     const log = T.moveHits?.move === move ? T.moveHits.all : null;
     if (!log?.length || log.at(-1).victim !== V || log.at(-1).dealt !== frame.relay) return null;
     const ord = changeOrdinal;
@@ -1959,7 +1959,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         const hitsOn = src ? src.moveHits.all.filter(x => x.victim === rec).length + 1 : 1;
         change = hit?.supported ? moveChange(rec, hit, info.d, { ...ctx, effect })
           : hit?.carried ? carriedChange(rec, hit, { ...ctx, effect })
-            : band('down', `${effect.name} hit ${named(rec)}`);
+            : Object.assign(band('down', `${effect.name} hit ${named(rec)}`), src ? { dealtBy: src, move: effect, off: null } : {});
         change.hitsOn = hitsOn;
         if (src) src.moveHits.all.push({ victim: rec, dealt: info.dealt, change });
       } else {
@@ -2037,6 +2037,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const next = new Map();
     const supported = change.via ? new Uint8Array(SPAN) : null;
     const dealt = change.dealtBy && token !== null && !change.noDealt ? new Map() : null;
+    let bandLoose = false;
     const dealtOk = change.dealtOf && token !== null ? new Set() : null;
     const sourceOk = change.sourceStates && token !== null ? new Set() : null;
     const passed = change.after && token !== null ? new Set() : null;
@@ -2090,6 +2091,14 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             let hi = change.band === 'down' ? h : M;
             if (allow) { lo = Math.max(lo, allow[0]); hi = Math.min(hi, allow[1]); }
             for (let x = lo; x <= hi; x++) res.hs.push(x);
+            // A hit read as a band dealt the HP it was on less where it
+            // landed: kept for what reads it next only where the display pins
+            // where it landed for every HP - a knockout - so the amounts are
+            // every HP it could have been on, and none is missing.
+            if (dealt && lo === hi) {
+              if (!dealt.has(0)) dealt.set(0, new Set());
+              dealt.get(0).add(h - lo);
+            } else if (dealt && lo < hi) bandLoose = true;
           } else {
             const pairs = change.table.get(g) || [];
             const amounts = dealtOk ? change.dealtOf.get(g) : null;
@@ -2143,6 +2152,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
     }
     if (byKey) tie(rec, tied, byKey);
+    if (bandLoose) dealt.clear();
     if (passed) change.after(passed);
     if (dealtOk) {
       change.victim.dealtOk = dealtOk;
@@ -3937,6 +3947,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         const lo = e.change.band === 'up' ? h : 0;
         const hi = e.change.band === 'down' ? h : M;
         for (const x of later) if (x >= lo && x <= hi) options.push(x);
+        if (e.change.dealtBy) for (const x of options) tagOf.set(x, 0);
       } else {
         const attacker = e.change.sourceStates ? cur.get(e.change.dealtBy) : null;
         const extra = e.change.extra && !FLAT.includes(e.change.extra.stat) ? cur.get(byId.get(e.change.extra.owner)) : null;
