@@ -995,7 +995,7 @@ export async function inferSpreads({
     // The longest run of pins that held together - each Pokemon pinned with
     // the ones before it settled - and the knowledge they leave the rest.
     const stack = [];
-    let deepest = { n: 0, picks: [], cond: null };
+    let longest = { n: 0, picks: [], cond: null };
     const choose = async (n, cond) => {
       if (n === order.length) {
         tries--;
@@ -1031,7 +1031,7 @@ export async function inferSpreads({
           if (order.slice(n + 1).some(([s2, i2]) => emptied(narrowed.get(`p${s2 + 1}:${i2}`)))) continue;
         }
         stack.push([s, i, pick]);
-        if (n + 1 > deepest.n) deepest = { n: n + 1, picks: stack.slice(), cond: narrowed };
+        if (n + 1 > longest.n) longest = { n: n + 1, picks: stack.slice(), cond: narrowed };
         const found = await choose(n + 1, narrowed);
         stack.pop();
         if (found) { next[s][i] = pick; return found; }
@@ -1047,11 +1047,11 @@ export async function inferSpreads({
     // two guesses each possible alone can be impossible together, and the
     // rebuild then stops between them round after round.
     if (!exact) {
-      const kept = new Map(deepest.picks.map(([s, i, pick]) => [`p${s + 1}:${i}`, pick]));
+      const kept = new Map(longest.picks.map(([s, i, pick]) => [`p${s + 1}:${i}`, pick]));
       for (const [s, i] of order) {
         const id = `p${s + 1}:${i}`;
         if (kept.has(id)) { next[s][i] = kept.get(id); continue; }
-        const kn = deepest.cond?.get(id) || knowledge.get(id);
+        const kn = longest.cond?.get(id) || knowledge.get(id);
         next[s][i] = closestSpread(kn, aimed(id, kn, picks[s][i])) || closestSpread(knowledge.get(id), aimed(id, knowledge.get(id), picks[s][i])) || next[s][i];
       }
     }
