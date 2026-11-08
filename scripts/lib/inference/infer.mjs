@@ -998,13 +998,22 @@ export async function inferSpreads({
     let next = picks.map(team => team.map(e => ({ ...e })));
     const emptied = kn => !kn.keys.includes(1) || FLAT.some(x => !kn.dom[x].includes(1));
     let tries = 32 * S * W;
+    // The order Pokemon are pinned in, and how often each was left with
+    // nothing by a pin before it.
+    const seq = order.slice();
+    const blocked = new Map();
+    const blocks = (map, n) => {
+      const out = seq.slice(n + 1).filter(([s2, i2]) => emptied(map.get(`p${s2 + 1}:${i2}`)));
+      for (const [s2, i2] of out) blocked.set(`${s2}:${i2}`, (blocked.get(`${s2}:${i2}`) || 0) + 1);
+      return out.length > 0;
+    };
     const choose = async (n, cond) => {
-      if (n === order.length) {
+      if (n === seq.length) {
         tries--;
         const proof = await evidencePass({ inputLog: built.inputLog, observed: lines, channel, knowledge: cond, cache, exact: true });
         return proof.exact ? proof : null;
       }
-      const [s, i] = order[n];
+      const [s, i] = seq[n];
       const id = `p${s + 1}:${i}`;
       const kn = cond.get(id);
       const tried = [];
@@ -1022,22 +1031,39 @@ export async function inferSpreads({
         pinned.keys[keyOf(first.hp, first.def, first.spd)] = 1;
         tries--;
         await settle(built.inputLog, keyed, cache);
+        if (blocks(keyed, n)) continue;
         const pick = closestSpread(pinned, aim);
         if (!pick || tried.some(t => sameSpread(t, pick))) continue;
         tried.push(pick);
         const narrowed = cloneKnowledge(cond);
         pinKnowledge(narrowed.get(id), pick);
-        if (n < order.length - 1) {
+        if (n < seq.length - 1) {
           tries--;
           await settle(built.inputLog, narrowed, cache);
-          if (order.slice(n + 1).some(([s2, i2]) => emptied(narrowed.get(`p${s2 + 1}:${i2}`)))) continue;
+          if (blocks(narrowed, n)) continue;
         }
         const found = await choose(n + 1, narrowed);
         if (found) { next[s][i] = pick; return found; }
       }
       return null;
     };
-    const proof = await choose(0, cloneKnowledge(knowledge));
+    let proof = await choose(0, cloneKnowledge(knowledge));
+    // Fail first: a Pokemon that pins before it kept leaving with nothing is
+    // pinned first, and the search runs again - its pin then narrows the
+    // others to what fits beside it, where their nearest spreads alone did
+    // not. A drain ties the attacker's HP to the damage its target took, and
+    // the target picked first can rule out every spread near the attacker's.
+    // Each Pokemon moves to the front once; the order changes which spreads
+    // are tried first, never which survive.
+    const moved = new Set();
+    while (!proof && tries > 0) {
+      const key = [...blocked].filter(([k]) => !moved.has(k)).sort((a, b) => b[1] - a[1])[0]?.[0];
+      if (key === undefined) break;
+      moved.add(key);
+      blocked.clear();
+      seq.unshift(...seq.splice(seq.findIndex(([s, i]) => `${s}:${i}` === key), 1));
+      proof = await choose(0, cloneKnowledge(knowledge));
+    }
     exact = proof?.exact || null;
     pins = proof ? handOn(built, proof.rolls, proof.coupled) : null;
     if (!exact) {
