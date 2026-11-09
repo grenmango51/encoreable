@@ -757,6 +757,20 @@ export function attachSpeed(battle, {
         || (!unseen && y && x.lowest !== null && x.lowest >= y.priority));
       const rule = P && Q && P !== Q && real && !tainted.has(S.turn) && !movedAfter(x.action, S) && !movedAfter(y.action, S) ? ruleOf(P, Q, S.speeds, S.turn, `${label(P)} ${verbOf(y.action)} before ${label(Q)}`) : null;
       if (rule) rules.push(rule);
+      // P's action went before every action of the sort the replay shows
+      // later in the turn using the very move the rebuild queued, of its own
+      // choice: one at the same order and priority as P's went no faster.
+      if (P && y && !unseen && !tainted.has(S.turn) && !movedAfter(y.action, S)) {
+        for (const z of S.list) {
+          if (z === y || z === x || !z.pokemon || z.pokemon === y.pokemon || z.order !== y.order || z.priority !== y.priority) continue;
+          if (z.action?.choice !== 'move' || movedAfter(z.action, S) || shown.get(z.action)?.on) continue;
+          const Z = byPokemon.get(z.pokemon);
+          if (!Z || Z === P || S.turn !== prefix.turn || !realLater(Z, z.action.move?.id)) continue;
+          // The replay's own line at the cutoff is P's, so Z's comes after it.
+          const later = ruleOf(P, Z, S.speeds, S.turn, `${label(P)} ${verbOf(y.action)} before ${label(Z)}`);
+          if (later) rules.push(later);
+        }
+      }
       // Every action the replay shows before P's, as the rebuild ran it too,
       // went before P's in the real battle: one its own last sort had at the
       // same order and priority as P's went at least as fast. P's priority is
