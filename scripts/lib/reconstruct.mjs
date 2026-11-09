@@ -2094,10 +2094,16 @@ function hiddenCulprit(segment, line, channel) {
   return null;
 }
 
-/** A Pokemon's exact HP at the end of a raw log, or null if it never appears. */
+/**
+ * A Pokemon's exact HP at the end of a raw log, or null if it never appears.
+ * A line split by side prints the exact HP first and the public one after
+ * it: only the first is read, or a Pokemon shown as a percentage would read as
+ * that percentage, the same whatever its HP.
+ */
 function exactHp(rawLog, who) {
   let hp = null;
-  for (const line of rawLog) {
+  for (const [i, line] of rawLog.entries()) {
+    if (i >= 2 && String(rawLog[i - 2]).startsWith('|split|')) continue;
     const parts = line.split('|');
     const shown = { '-damage': 3, '-heal': 3, '-sethp': 3, switch: 4, drag: 4, replace: 4, detailschange: 4 }[parts[1]];
     if (shown === undefined || identName(parts[2]) !== who) continue;
