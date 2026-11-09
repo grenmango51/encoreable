@@ -764,6 +764,15 @@ export function attachSpeed(battle, {
       // rebuild's action at the cutoff had.
       const yo = !S ? null : !unseen ? S.list.find(item => item.pokemon && opened(item, between)) : y;
       const PO = yo && byPokemon.get(yo.pokemon);
+      // The rebuild's action at the cutoff sorted at another priority than
+      // P's - a Protect the replay never shows, its user knocked out first -
+      // yet no move Q has sorts below P's: Q's real action went after P's at
+      // P's own priority, so P went at least as fast.
+      if (PO && Q && PO !== Q && x && x !== yo && x.order === yo.order && !unseen && x.lowest !== null && x.lowest >= yo.priority
+        && !tainted.has(S.turn) && !movedAfter(x.action, S) && !movedAfter(yo.action, S)) {
+        const low = ruleOf(PO, Q, S.speeds, S.turn, `${label(PO)} ${verbOf(yo.action)} before ${label(Q)}`);
+        if (low) rules.push(low);
+      }
       if (PO && yo && !unseen && !tainted.has(S.turn) && !movedAfter(yo.action, S)) {
         for (const z of S.list) {
           if (z === yo || z === x || !z.pokemon || z.pokemon === yo.pokemon || z.order !== yo.order || z.priority !== yo.priority) continue;
