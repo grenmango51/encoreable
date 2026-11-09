@@ -604,7 +604,9 @@ export function attachSpeed(battle, {
         // Or it went past the cutoff, and the replay shows it using, later in
         // the turn, the very move the rebuild queued for it.
         const shownLater = () => y.action?.choice === 'move' && S.turn === prefix.turn && realLater(byPokemon.get(y.pokemon), y.action.move?.id);
-        if (later === undefined || later <= i || !(second?.on || (second?.seen && y.lowest !== null && y.lowest >= x.priority) || shownLater())) continue;
+        // A rebuild stops at the cutoff, so one the replay shows only past it
+        // may never have run.
+        if (later === undefined ? !shownLater() : later <= i || !(second?.on || (second?.seen && y.lowest !== null && y.lowest >= x.priority) || shownLater())) continue;
         const X = byPokemon.get(x.pokemon);
         const Y = byPokemon.get(y.pokemon);
         const rule = ruleOf(X, Y, S.speeds, S.turn, `${label(X)} ${verbOf(x.action)} before ${label(Y)}`);
