@@ -328,8 +328,8 @@ function exactTurns(raw, tokens, prefix, coupled = Infinity, cutAt = Infinity) {
 
 // ------------------------------------------------- what a dry run hands back
 
-const isPlain = v => v !== null && typeof v === 'object' && !Object.isFrozen(v)
-  && (Array.isArray(v) || Object.getPrototypeOf(v) === Object.prototype);
+const isPlain = v => v !== null && typeof v === 'object'
+  && (Array.isArray(v) || Object.getPrototypeOf(v) === Object.prototype) && !Object.isFrozen(v);
 
 /**
  * A plain object or array as it is now, `depth` levels down, so that it can
@@ -342,7 +342,7 @@ function keep(obj, depth, shallow = null) {
   const subs = [];
   if (Array.isArray(obj)) {
     const vals = obj.slice();
-    if (depth > 0) for (const v of vals) if (isPlain(v)) subs.push(keep(v, depth - 1));
+    if (depth > 0) for (let i = 0; i < vals.length; i++) if (isPlain(vals[i])) subs.push(keep(vals[i], depth - 1));
     return { obj, keys: null, vals, subs };
   }
   const keys = Object.keys(obj);
@@ -361,13 +361,15 @@ function putBack({ obj, keys, vals, subs }) {
     for (let i = 0; i < vals.length; i++) if (obj[i] !== vals[i]) obj[i] = vals[i];
   } else {
     const now = Object.keys(obj);
-    if (now.length !== keys.length || now.some((k, i) => k !== keys[i])) {
+    let same = now.length === keys.length;
+    for (let i = 0; same && i < keys.length; i++) same = now[i] === keys[i];
+    if (!same) {
       const had = new Set(keys);
       for (const k of now) if (!had.has(k)) delete obj[k];
     }
     for (let i = 0; i < keys.length; i++) if (obj[keys[i]] !== vals[i]) obj[keys[i]] = vals[i];
   }
-  for (const sub of subs) putBack(sub);
+  for (let i = 0; i < subs.length; i++) putBack(subs[i]);
 }
 
 // The battle's own fields an event can move: what is acting, the last damage,
