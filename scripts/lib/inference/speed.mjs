@@ -561,6 +561,23 @@ export function attachSpeed(battle, {
       }
       return false;
     };
+    // An Encore begun on `rec` by `line`.
+    const encore = (line, rec) => {
+      const parts = String(line || '').split('|');
+      return parts[1] === '-start' && /Encore$/.test(parts[3] || '') && identSide(parts[2]) === rec.side && shownNames(rec).has(identName(parts[2]));
+    };
+    // Q's queued move is the one Q really chose when the replay, later in the
+    // turn, shows Q using that very move of its own choice, with no Encore
+    // begun on it before.
+    const realLater = (rec, id) => {
+      if (!rec || !id || encoredBefore(rec, prefix.cutoffAt)) return false;
+      for (const line of [prefix.observedLine, ...(prefix.observedAfter || [])]) {
+        const parts = String(line || '').split('|');
+        if (parts[1] === 'turn' || encore(line, rec)) return false;
+        if (ownMove(line, rec, id)) return true;
+      }
+      return false;
+    };
     const shown = new Map(executed.map((ex) => {
       const seen = visible(ex);
       return [ex.action, { ex, seen, on: seen && sorted(ex) }];
@@ -584,7 +601,12 @@ export function attachSpeed(battle, {
         // its real priority was no higher than X's, and no move it has sorts
         // below that.
         const second = shown.get(y.action);
-        if (later === undefined || later <= i || !(second?.on || (second?.seen && y.lowest !== null && y.lowest >= x.priority))) continue;
+        // Or it went past the cutoff, and the replay shows it using, later in
+        // the turn, the very move the rebuild queued for it.
+        const shownLater = () => y.action?.choice === 'move' && S.turn === prefix.turn && realLater(byPokemon.get(y.pokemon), y.action.move?.id);
+        // A rebuild stops at the cutoff, so one the replay shows only past it
+        // may never have run.
+        if (later === undefined ? !shownLater() : later <= i || !(second?.on || (second?.seen && y.lowest !== null && y.lowest >= x.priority) || shownLater())) continue;
         const X = byPokemon.get(x.pokemon);
         const Y = byPokemon.get(y.pokemon);
         const rule = ruleOf(X, Y, S.speeds, S.turn, `${label(X)} ${verbOf(x.action)} before ${label(Y)}`);
@@ -684,10 +706,6 @@ export function attachSpeed(battle, {
     // to the turn's end, unless an Encore begun on it this turn before then
     // put another in its place. A rebuild that chose another for it sorted
     // another priority, and then the order says nothing about speed.
-    const encore = (line, rec) => {
-      const parts = String(line || '').split('|');
-      return parts[1] === '-start' && /Encore$/.test(parts[3] || '') && identSide(parts[2]) === rec.side && shownNames(rec).has(identName(parts[2]));
-    };
     const chosen = () => {
       const P = named(was.ident);
       if (!P || encoredBefore(P, prefix.cutoffAt)) return null;
@@ -697,18 +715,6 @@ export function attachSpeed(battle, {
         if (parts[1] === 'move' && parts[2] === was.ident && !String(line).includes('[from]')) return String(parts[3]).toLowerCase().replace(/[^a-z0-9]/g, '');
       }
       return null;
-    };
-    // Q's queued move is the one Q really chose when the replay, later in the
-    // turn, shows Q using that very move of its own choice, with no Encore
-    // begun on it before.
-    const realLater = (rec, id) => {
-      if (!rec || !id || encoredBefore(rec, prefix.cutoffAt)) return false;
-      for (const line of [prefix.observedLine, ...(prefix.observedAfter || [])]) {
-        const parts = String(line || '').split('|');
-        if (parts[1] === 'turn' || encore(line, rec)) return false;
-        if (ownMove(line, rec, id)) return true;
-      }
-      return false;
     };
     // The queued action the replay's line opens: P's move, P's Mega
     // Evolution, or the switch out of the slot the line names. A move P never
