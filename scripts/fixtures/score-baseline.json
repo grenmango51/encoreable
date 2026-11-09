@@ -1,5 +1,5 @@
 {
- "commit": "c1d855ccff47",
+ "commit": "2144b5548b44",
  "pool": "1e0b71cf750545f5",
  "usage": "52468dff24156b2b",
  "counts": {
@@ -20,12 +20,12 @@
   "medianLog10Spreads": 7.592249470642742,
   "probes": 5881429,
   "rebuilds": 12661,
-  "broken": 4,
-  "brokenCases": 1,
+  "broken": 0,
+  "brokenCases": 0,
   "seconds": {
-   "median": 33.8,
-   "p95": 207.5,
-   "max": 1086.7
+   "median": 33.5,
+   "p95": 206.5,
+   "max": 1087.1
   },
   "ranked": 1472,
   "first": 0.5788043478260869,
@@ -13979,7 +13979,6 @@
   "recordings/local/probes/gen9championsvgc2026regmc-23.log.json both@spectator": {
    "result": "PASS",
    "battle": "e9b8c015b95f94f7",
-   "broken": 4,
    "spreads": {
     "p1:0": 2832786,
     "p1:1": 97888475,
