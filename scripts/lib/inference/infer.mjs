@@ -343,13 +343,13 @@ export async function inferSpreads({
   // tables: applied in every settle after, the guess picker's too, so a pin
   // on one Speed moves the other.
   const orders = new Map();
-  const settle = async (inputLog, knowledge, cache, record = false, learn = false) => {
+  const settle = async (inputLog, knowledge, cache, record = false, learn = false, most = 8 * S) => {
     const counts = () => new Map([...knowledge].map(([id, kn]) => [id, spreadsLeft(kn)]));
     const initial = record ? counts() : null;
     let first = null;
     let afterFirst = null;
     let passes = 0;
-    while (passes < 8 * S) {
+    while (passes < most) {
       const pass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, record: record && !first });
       passes++;
       work.passes++;
@@ -364,6 +364,7 @@ export async function inferSpreads({
       }
       if (!moved) break;
       if (passes === 8 * S) limits.add('evidencePasses');
+      if (passes >= most) break;
     }
     return {
       events: first.events,
@@ -1035,7 +1036,9 @@ export async function inferSpreads({
         pinned.keys.fill(0);
         pinned.keys[keyOf(first.hp, first.def, first.spd)] = 1;
         tries--;
-        await settle(built.inputLog, keyed, cache);
+        // The picker's settles only steer which spreads are tried: one pass
+        // each, as the whole guess is checked exactly at the end.
+        await settle(built.inputLog, keyed, cache, false, false, 1);
         if (blocks(keyed, n)) continue;
         const pick = closestSpread(pinned, aim);
         if (!pick || tried.some(t => sameSpread(t, pick))) continue;
@@ -1044,7 +1047,7 @@ export async function inferSpreads({
         pinKnowledge(narrowed.get(id), pick);
         if (n < seq.length - 1) {
           tries--;
-          await settle(built.inputLog, narrowed, cache);
+          await settle(built.inputLog, narrowed, cache, false, false, 1);
           if (blocks(narrowed, n)) continue;
         }
         const found = await choose(n + 1, narrowed);
