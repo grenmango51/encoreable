@@ -2582,13 +2582,13 @@ async function reconstructOnce({
       const stuck = identName(String(line || '').split('|')[2]);
       hpFigure = /^\|-(damage|heal|sethp)\|/.test(String(line || ''));
       back = t - 1;
-      if (hpFigure) {
-        const turns = blameTurns(segments, t, line);
-        const key = `${t}|${line}`;
-        const n = blamed.get(key) || 0;
-        blamed.set(key, n + 1);
-        back = turns[n % turns.length];
-      }
+      // The turn this line blames next: the one whose redraw last moved it,
+      // until a redraw there finds nothing, then the one before it.
+      const key = `${t}|${line}`;
+      const turns = hpFigure ? blameTurns(segments, t, line) : null;
+      const n = blamed.get(key) || 0;
+      if (hpFigure) back = turns[n % turns.length];
+      const first = back;
       while (back >= 0 && !moved) {
         // The later turns keep the dice they settled while a die is judged, so
         // the failing turn gets as far as the line in question.
@@ -2598,6 +2598,7 @@ async function reconstructOnce({
           : await redrawTurn(back, common, subs, subTurn, sample, maxProbes, null, true, t, partial?.tried, outcomes);
         if (!moved) back--;
       }
+      if (hpFigure && !(moved && back === first)) blamed.set(key, n + 1);
     }
     if (!moved) { stop = 'stuck'; break; }
     if (hpFigure ? ++backtracks > maxBacktracks : ++dieBacktracks > maxDieBacktracks) {
