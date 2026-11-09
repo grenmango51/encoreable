@@ -760,14 +760,18 @@ export function attachSpeed(battle, {
       // P's action went before every action of the sort the replay shows
       // later in the turn using the very move the rebuild queued, of its own
       // choice: one at the same order and priority as P's went no faster.
-      if (P && y && !unseen && !tainted.has(S.turn) && !movedAfter(y.action, S)) {
+      // P's queued action found by its own move, whatever priority the
+      // rebuild's action at the cutoff had.
+      const yo = !S ? null : !unseen ? S.list.find(item => item.pokemon && opened(item, between)) : y;
+      const PO = yo && byPokemon.get(yo.pokemon);
+      if (PO && yo && !unseen && !tainted.has(S.turn) && !movedAfter(yo.action, S)) {
         for (const z of S.list) {
-          if (z === y || z === x || !z.pokemon || z.pokemon === y.pokemon || z.order !== y.order || z.priority !== y.priority) continue;
+          if (z === yo || z === x || !z.pokemon || z.pokemon === yo.pokemon || z.order !== yo.order || z.priority !== yo.priority) continue;
           if (z.action?.choice !== 'move' || movedAfter(z.action, S) || shown.get(z.action)?.on) continue;
           const Z = byPokemon.get(z.pokemon);
-          if (!Z || Z === P || S.turn !== prefix.turn || !realLater(Z, z.action.move?.id)) continue;
+          if (!Z || Z === PO || S.turn !== prefix.turn || !realLater(Z, z.action.move?.id)) continue;
           // The replay's own line at the cutoff is P's, so Z's comes after it.
-          const later = ruleOf(P, Z, S.speeds, S.turn, `${label(P)} ${verbOf(y.action)} before ${label(Z)}`);
+          const later = ruleOf(PO, Z, S.speeds, S.turn, `${label(PO)} ${verbOf(yo.action)} before ${label(Z)}`);
           if (later) rules.push(later);
         }
       }
@@ -778,15 +782,15 @@ export function attachSpeed(battle, {
       // the earlier one's, as no move it has sorts below that.
       const cutIndex = ex ? executed.indexOf(ex) : -1;
       for (const [k, zx] of executed.entries()) {
-        if (!P || !y || k >= cutIndex) break;
+        if (!PO || !yo || k >= cutIndex) break;
         const Sz = zx.sort;
-        if (!Sz || tainted.has(Sz.turn) || movedAfter(zx.action, Sz) || movedAfter(y.action, Sz) || !shown.get(zx.action)?.on) continue;
+        if (!Sz || tainted.has(Sz.turn) || movedAfter(zx.action, Sz) || movedAfter(yo.action, Sz) || !shown.get(zx.action)?.on) continue;
         const z = Sz.list.find(item => item.action === zx.action);
-        const w = Sz.list.find(item => item.action === y.action);
-        if (!z || !w || !z.pokemon || z.pokemon === y.pokemon || Sz.list.indexOf(w) < Sz.list.indexOf(z)) continue;
+        const w = Sz.list.find(item => item.action === yo.action);
+        if (!z || !w || !z.pokemon || z.pokemon === yo.pokemon || Sz.list.indexOf(w) < Sz.list.indexOf(z)) continue;
         if (w.order !== z.order || !(w.priority === z.priority && (!unseen || (w.lowest !== null && w.lowest >= z.priority)))) continue;
         const Z = byPokemon.get(z.pokemon);
-        const earlier = Z && Z !== P ? ruleOf(Z, P, Sz.speeds, Sz.turn, `${label(Z)} ${verbOf(z.action)} before ${label(P)}`) : null;
+        const earlier = Z && Z !== PO ? ruleOf(Z, PO, Sz.speeds, Sz.turn, `${label(Z)} ${verbOf(z.action)} before ${label(PO)}`) : null;
         if (earlier) rules.push(earlier);
       }
     }
