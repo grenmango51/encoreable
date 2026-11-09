@@ -2080,7 +2080,7 @@ function blameTurns(segments, t, line) {
  */
 function hiddenCulprit(segment, line, channel) {
   const text = String(line || '');
-  if (channel === -1 || !/^|-(damage|heal)|/.test(text)) return null;
+  if (channel === -1 || !/^\|-(damage|heal)\|/.test(text)) return null;
   const tags = tagsOf(text);
   const fromHit = /^(recoil|drain)$/i.test(tags.from || '');
   if (tags.from && !fromHit) return null;
