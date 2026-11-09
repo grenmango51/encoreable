@@ -2306,6 +2306,8 @@ async function reconstructOnce({
   }
 
   /** Forget every draw settled from `turn` on, so they can be drawn again. */
+  // How often each failing line has exhausted its turn.
+  const lineTries = new Map();
   const forget = (turn) => {
     for (const key of Object.keys(subs)) {
       if (subTurn[key] >= turn) { delete subs[key]; delete subTurn[key]; }
@@ -2575,7 +2577,13 @@ async function reconstructOnce({
     let hpFigure = false;
     // When the Pokemon this backtrack blames has no earlier die that moves the
     // turn, the other one the line depends on is blamed before giving up.
-    const blames = attacker ? (backtracks % 2 === 1 ? [true, false] : [false, true]) : [false];
+    // Which of the two goes first alternates for each failing line on its
+    // own: a turn whose failing line alternates between the two Pokemon's own
+    // lines would otherwise blame the same one every time.
+    const lineKey = `${t}|${run.diffs[0]?.expected}`;
+    const tries = lineTries.get(lineKey) || 0;
+    lineTries.set(lineKey, tries + 1);
+    const blames = attacker ? (tries % 2 === 1 ? [true, false] : [false, true]) : [false];
     // A pass that finds nothing has forgotten the dice of every turn it
     // walked back over: the next starts from the ones settled before.
     const settled = { subs: { ...subs }, subTurn: { ...subTurn } };
