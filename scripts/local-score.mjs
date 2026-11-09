@@ -270,7 +270,7 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
     return {
       ...base, result, sound, complete: inf.complete, limitHit, asSaved, stop: inf.stop, limits, pokemon,
       ...(wrongCount ? { error: `${wrongCount.id} ${wrongCount.species}: ${wrongCount.miscounted}` } : {}),
-      work: { rounds: inf.work.rounds, rebuilds: inf.work.rebuilds, probes: inf.work.probes },
+      work: { rounds: inf.work.rounds, rebuilds: inf.work.rebuilds, probes: inf.work.probes, passes: inf.work.passes ?? null },
       // Each proof a rebuild was handed that broke under its own dice and
       // choices: the evidence called a turn exact that the simulator plays
       // otherwise. It removes nothing, but it is a bug in what is handed on,
@@ -577,6 +577,7 @@ function grade(records) {
     medianLog10Spreads: median(seen.map(p => Math.log10(Math.max(1, p.spreads)))),
     probes: records.reduce((t, x) => t + (x.work?.probes || 0), 0),
     rebuilds: records.reduce((t, x) => t + (x.work?.rebuilds || 0), 0),
+    passes: records.reduce((t, x) => t + (x.work?.passes || 0), 0),
     broken: records.reduce((t, x) => t + (x.broken || 0), 0),
     brokenCases: records.filter(x => x.broken).length,
     seconds: { median: median(seconds), p95: quantile(seconds, 0.95), max: seconds.length ? Math.max(...seconds) : null },
@@ -594,12 +595,12 @@ function printGrade(records, tier) {
   console.log('');
   console.log(`score: ${tier} tier, ${records.length} case(s), ${new Set(records.map(r => r.id)).size} battle(s)`);
   console.log('');
-  console.log('view              cases  removed  PASS  NO MATCH  GAVE UP  CRASH  exact stats  median spreads   probes   seconds median/p95/max');
+  console.log('view              cases  removed  PASS  NO MATCH  GAVE UP  CRASH  exact stats  median spreads   probes   passes   seconds median/p95/max');
   for (const [name, g] of rows) {
     console.log(`${name.padEnd(16)} ${String(g.cases).padStart(6)} ${String(g.removed).padStart(8)} ${String(g.results.PASS).padStart(5)}` +
       ` ${String(g.results['NO MATCH']).padStart(9)} ${String(g.results['GAVE UP']).padStart(8)} ${String(g.results.CRASH).padStart(6)}` +
       ` ${pct(g.exactShare).padStart(12)} ${(g.medianLog10Spreads === null ? '-' : `10^${g.medianLog10Spreads.toFixed(2)}`).padStart(15)}` +
-      ` ${String(g.probes).padStart(8)}   ${g.seconds.median}/${g.seconds.p95}/${g.seconds.max}`);
+      ` ${String(g.probes).padStart(8)} ${String(g.passes).padStart(8)}   ${g.seconds.median}/${g.seconds.p95}/${g.seconds.max}`);
   }
   const wide = views.filter(v => { const g = grade(records.filter(r => r.view === v)); return !g.removed && !g.results.CRASH; });
   console.log('');
