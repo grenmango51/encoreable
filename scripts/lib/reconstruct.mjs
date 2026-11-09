@@ -2576,8 +2576,15 @@ async function reconstructOnce({
     // When the Pokemon this backtrack blames has no earlier die that moves the
     // turn, the other one the line depends on is blamed before giving up.
     const blames = attacker ? (backtracks % 2 === 1 ? [true, false] : [false, true]) : [false];
+    // A pass that finds nothing has forgotten the dice of every turn it
+    // walked back over: the next starts from the ones settled before.
+    const settled = { subs: { ...subs }, subTurn: { ...subTurn } };
     for (const onAttacker of blames) {
       if (moved) break;
+      for (const key of Object.keys(subs)) delete subs[key];
+      for (const key of Object.keys(subTurn)) delete subTurn[key];
+      Object.assign(subs, settled.subs);
+      Object.assign(subTurn, settled.subTurn);
       const line = onAttacker ? `|-damage|${attacker}|` : run.diffs[0]?.expected;
       const stuck = identName(String(line || '').split('|')[2]);
       hpFigure = /^\|-(damage|heal|sethp)\|/.test(String(line || ''));
