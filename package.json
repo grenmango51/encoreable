@@ -24,6 +24,6 @@
     "postinstall": "node node_modules/pokemon-showdown/build"
   },
   "dependencies": {
-    "pokemon-showdown": "github:smogon/pokemon-showdown#d106d9675a900df7b563ce12b527dcd0369fb34e"
+    "pokemon-showdown": "github:smogon/pokemon-showdown#0e2f7f93af853b97e7c66172a854a7d1d5e7e017"
   }
 }
