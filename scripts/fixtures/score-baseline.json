@@ -1,5 +1,5 @@
 {
- "commit": "bb56187e3dd3",
+ "commit": "d279c999973b",
  "pool": "1e0b71cf750545f5",
  "usage": "52468dff24156b2b",
  "counts": {
@@ -18,14 +18,14 @@
   },
   "exactShare": 0.009225205345102365,
   "medianLog10Spreads": 7.592249470642742,
-  "probes": 5717631,
-  "rebuilds": 12435,
+  "probes": 5758610,
+  "rebuilds": 12398,
   "broken": 0,
   "brokenCases": 0,
   "seconds": {
-   "median": 33.6,
-   "p95": 212.3,
-   "max": 809.2
+   "median": 53.4,
+   "p95": 239.1,
+   "max": 797.4
   },
   "ranked": 1472,
   "first": 0.5788043478260869,
