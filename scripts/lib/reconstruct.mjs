@@ -2071,6 +2071,25 @@ function blameTurns(segments, t, line) {
 }
 
 /**
+ * Every Pokemon whose HP fed `who`'s through a drain before turn `t`, latest
+ * first: the line `|-heal|<who>|...|[from] drain|[of] <x>` names it.
+ */
+function drainFeeders(segments, t, who) {
+  const out = [];
+  if (!who) return out;
+  for (let k = t - 1; k >= 1; k--) {
+    for (const line of segments[k] || []) {
+      const parts = String(line).split('|');
+      if (parts[1] !== '-heal' || identName(parts[2]) !== who) continue;
+      const tags = tagsOf(String(line));
+      if (!/^drain$/i.test(tags.from || '') || !tags.of) continue;
+      if (!out.includes(tags.of)) out.push(tags.of);
+    }
+  }
+  return out;
+}
+
+/**
  * The other Pokemon a failing line depends on, when its HP is hidden behind a
  * percentage - or null. A damage line depends on the attacker too: Water Spout,
  * Eruption and every pinch ability read the attacker's own HP. A recoil or
@@ -2583,6 +2602,8 @@ async function reconstructOnce({
     // The failing turn's hidden choices, one for each score its search saw.
     const outcomes = [...new Map((variantsAt.get(t) || []).map(w => [JSON.stringify(w.score), w.variant])).values()].slice(0, MAX_OUTCOMES);
     let moved = false;
+    const settledSubs = { ...subs };
+    const settledTurns = { ...subTurn };
     while (back >= 0 && !moved) {
       // The later turns keep the dice they settled while a die is judged, so
       // the failing turn gets as far as the line in question.
@@ -2591,6 +2612,31 @@ async function reconstructOnce({
         ? await redrawTurn(back, common, subs, subTurn, sample, maxProbes, stuck, onAttacker, t)
         : await redrawTurn(back, common, subs, subTurn, sample, maxProbes, null, true, t, partial?.tried, outcomes);
       if (!moved) back--;
+    }
+    // Stuck on an HP line. Before giving up, the dice settled before the walk
+    // are put back and the other Pokemon the line depends on is blamed, and
+    // then each Pokemon whose HP fed the stuck one's through a drain on an
+    // earlier turn: the roll on it that its display allowed, and so what the
+    // drain gave back, followed from the HP it was on before.
+    if (!moved && hpFigure) {
+      const others = [];
+      if (attacker) others.push({ who: onAttacker ? run.diffs[0]?.expected : `|-damage|${attacker}|`, strict: !onAttacker });
+      const fed = identName(String(run.diffs[0]?.expected || '').split('|')[2]);
+      for (const x of drainFeeders(segments, t, fed)) others.push({ who: `|-damage|${x}|`, strict: true });
+      for (const other of others) {
+        if (moved) break;
+        for (const key of Object.keys(subs)) delete subs[key];
+        for (const key of Object.keys(subTurn)) delete subTurn[key];
+        Object.assign(subs, settledSubs);
+        Object.assign(subTurn, settledTurns);
+        const who = identName(String(other.who || '').split('|')[2]);
+        const turns = blameTurns(segments, t, other.who);
+        for (back = turns[0]; back >= 0 && !moved; back--) {
+          forget(back + 1);
+          moved = await redrawTurn(back, common, subs, subTurn, sample, maxProbes, who, other.strict, t);
+          if (moved) break;
+        }
+      }
     }
     if (!moved) { stop = 'stuck'; break; }
     if (hpFigure ? ++backtracks > maxBacktracks : ++dieBacktracks > maxDieBacktracks) {
