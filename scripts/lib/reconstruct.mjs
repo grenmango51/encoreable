@@ -2562,29 +2562,36 @@ async function reconstructOnce({
     // showed nothing then. So every earlier turn is tried, latest first, for a
     // die that brings this turn closer, and only such a die is redrawn.
     const attacker = hiddenCulprit(segments[t], run.diffs[0]?.expected, channel);
-    const onAttacker = attacker && backtracks % 2 === 1;
-    const line = onAttacker ? `|-damage|${attacker}|` : run.diffs[0]?.expected;
-    const stuck = identName(String(line || '').split('|')[2]);
-    const hpFigure = /^\|-(damage|heal|sethp)\|/.test(String(line || ''));
-    let back = t - 1;
-    if (hpFigure) {
-      const turns = blameTurns(segments, t, line);
-      const key = `${t}|${line}`;
-      const n = blamed.get(key) || 0;
-      blamed.set(key, n + 1);
-      back = turns[n % turns.length];
-    }
     // The failing turn's hidden choices, one for each score its search saw.
     const outcomes = [...new Map((variantsAt.get(t) || []).map(w => [JSON.stringify(w.score), w.variant])).values()].slice(0, MAX_OUTCOMES);
     let moved = false;
-    while (back >= 0 && !moved) {
-      // The later turns keep the dice they settled while a die is judged, so
-      // the failing turn gets as far as the line in question.
-      if (hpFigure) forget(back + 1);
-      moved = hpFigure
-        ? await redrawTurn(back, common, subs, subTurn, sample, maxProbes, stuck, onAttacker, t)
-        : await redrawTurn(back, common, subs, subTurn, sample, maxProbes, null, true, t, partial?.tried, outcomes);
-      if (!moved) back--;
+    let back = t - 1;
+    let hpFigure = false;
+    // When the Pokemon this backtrack blames has no earlier die that moves the
+    // turn, the other one the line depends on is blamed before giving up.
+    const blames = attacker ? (backtracks % 2 === 1 ? [true, false] : [false, true]) : [false];
+    for (const onAttacker of blames) {
+      if (moved) break;
+      const line = onAttacker ? `|-damage|${attacker}|` : run.diffs[0]?.expected;
+      const stuck = identName(String(line || '').split('|')[2]);
+      hpFigure = /^\|-(damage|heal|sethp)\|/.test(String(line || ''));
+      back = t - 1;
+      if (hpFigure) {
+        const turns = blameTurns(segments, t, line);
+        const key = `${t}|${line}`;
+        const n = blamed.get(key) || 0;
+        blamed.set(key, n + 1);
+        back = turns[n % turns.length];
+      }
+      while (back >= 0 && !moved) {
+        // The later turns keep the dice they settled while a die is judged, so
+        // the failing turn gets as far as the line in question.
+        if (hpFigure) forget(back + 1);
+        moved = hpFigure
+          ? await redrawTurn(back, common, subs, subTurn, sample, maxProbes, stuck, onAttacker, t)
+          : await redrawTurn(back, common, subs, subTurn, sample, maxProbes, null, true, t, partial?.tried, outcomes);
+        if (!moved) back--;
+      }
     }
     if (!moved) { stop = 'stuck'; break; }
     if (hpFigure ? ++backtracks > maxBacktracks : ++dieBacktracks > maxDieBacktracks) {
