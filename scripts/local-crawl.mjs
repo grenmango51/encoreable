@@ -7,9 +7,12 @@
  *   npm run crawl -- --usage 2026-09              rewrite scripts/fixtures/usage-spreads.json from that month's stats
  *   npm run crawl -- --pick 100 --day 2026-10-30  copy 100 Bo3 games of that day into recordings/showdown/others-open/
  *   npm run crawl -- --pick 500 --day 2026-10-12 --to <dir>  copy them into <dir> instead, for a sweep (npm run score -- --mimic-dir)
+ *   npm run crawl -- --pick 100000 --day 2026-10-12 --to <dir> --all-games --skip <dir2>   every game of the day
+ *                                                 with both open sheets, but none already in <dir2>
+ *   npm run crawl -- --pick 100000 --day 2026-10-12 --to <dir> --all-games --format gen9championsvgc2026regmc   the Bo1 ones
  *
  * Flags: --out <dir> --formats <id>[,<id>...] --days <n> --delay <ms> --usage <YYYY-MM>
- *        --pick <n> --day <YYYY-MM-DD> --to <dir>
+ *        --pick <n> --day <YYYY-MM-DD> --to <dir> --format <id> --all-games --skip <dir>[,<dir>...]
  *
  * Replays are kept as one gzipped JSON line each, in a bundle per format and
  * per day of upload (`<out>/<format>/<YYYY-MM-DD>.jsonl.gz`), appended to as
@@ -23,7 +26,9 @@
  * team sheets, teams the format accepts and a mimic battle that plays; games
  * are taken in an order fixed by their ids, so the same day gives the same
  * pick. The command prints the benchmark ids to add to
- * `scripts/fixtures/benchmark.js`.
+ * `scripts/fixtures/benchmark.js`. `--all-games` keeps what that leaves out
+ * for a sweep - games 2 and 3, games of a team seen already, games shorter
+ * than three turns - and any format's games (`--format`, Bo3 by default).
  */
 
 import crypto from 'crypto';
@@ -226,9 +231,9 @@ async function usage(month) {
 
 // ------------------------------------------------------------------ pick
 
-async function pick({ out, n, day, to = path.join(ROOT, MIMIC_DIR) }) {
-  const replays = readBundle(path.join(out, USAGE_FORMAT, `${day}.jsonl.gz`));
-  if (!replays.length) throw new Error(`no ${USAGE_FORMAT} replays of ${day} in ${out}`);
+async function pick({ out, n, day, to = path.join(ROOT, MIMIC_DIR), format = USAGE_FORMAT, allGames = false, skip = [] }) {
+  const replays = readBundle(path.join(out, format, `${day}.jsonl.gz`));
+  if (!replays.length) throw new Error(`no ${format} replays of ${day} in ${out}`);
   const hash = id => crypto.createHash('sha256').update(id).digest('hex');
   const seen = new Set();
   const ordered = [...new Map(replays.map(r => [r.id, r])).values()].sort((a, b) => hash(a.id).localeCompare(hash(b.id)));
@@ -237,13 +242,14 @@ async function pick({ out, n, day, to = path.join(ROOT, MIMIC_DIR) }) {
   const picked = [];
   for (const replay of ordered) {
     if (picked.length >= n) break;
+    if (skip.some(d => fs.existsSync(path.join(d, `${replay.id}.json`)))) continue;
     const lines = replay.log.split('\n');
     const heading = lines.filter(l => l.startsWith('|uhtml|bestof|')).at(-1) || '';
-    if (!/Game 1</.test(heading)) continue;
+    if (!allGames && !/Game 1</.test(heading)) continue;
     if (lines.filter(l => l.startsWith('|showteam|')).length < 2) continue;
-    if (!lines.some(l => l === '|turn|3')) continue;
+    if (!allGames && !lines.some(l => l === '|turn|3')) continue;
     const teams = lines.filter(l => l.startsWith('|showteam|')).map(l => l.split('|').slice(3).join('|')).sort().join('\n');
-    if (seen.has(teams)) continue;
+    if (!allGames && seen.has(teams)) continue;
     const file = path.join(dir, `${replay.id}.json`);
     const existed = fs.existsSync(file);
     if (!existed) fs.writeFileSync(file, `${JSON.stringify(replay)}\n`);
@@ -271,7 +277,10 @@ async function pick({ out, n, day, to = path.join(ROOT, MIMIC_DIR) }) {
 const out = path.resolve(flag('out', path.join(ROOT, '.cache/crawl')));
 if (flag('usage')) await usage(flag('usage'));
 else if (flag('pick')) {
-  await pick({ out, n: Number(flag('pick')), day: flag('day') || dayOf(Date.now() / 1000 - 86400), ...(flag('to') ? { to: path.resolve(flag('to')) } : {}) });
+  await pick({
+    out, n: Number(flag('pick')), day: flag('day') || dayOf(Date.now() / 1000 - 86400), ...(flag('to') ? { to: path.resolve(flag('to')) } : {}),
+    format: flag('format', USAGE_FORMAT), allGames: process.argv.includes('--all-games'), skip: flag('skip') ? flag('skip').split(',').map(d => path.resolve(d)) : [],
+  });
 }
 else {
   await crawl({

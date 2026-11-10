@@ -13,9 +13,12 @@
  *   npm run score -- --tier full --budget 10  every search limit ten times as wide: what the limits cost
  *   npm run score -- --only fuzz:220 --views p2@p1 --trace   every step of the search, on stderr: why a case gave up
  *   npm run score -- --mimic-dir <dir>      every game in <dir> as a mimic battle, not the benchmark (a corpus sweep)
+ *   npm run score -- --mimic-dir a,b,c --log <file>   one queue over several folders, in that order, each record
+ *                                           added to <file> as it ends: run again to go on from where it stopped
  *
  * Flags: --tier quick|fast|full --timings <run.json> --only <id>[,<id>...] --views <v>[,<v>...] --threads <n> --budget <n>
- *        --trace --mimic-dir <dir> --hosts <a,b,...> --remote <command> --out <file> --merge <file>... --baseline <file> --accept
+ *        --trace --mimic-dir <dir>[,<dir>...] --log <file> --hosts <a,b,...> --remote <command> --out <file> --merge <file>...
+ *        --baseline <file> --accept
  *
  * A view is who is inferred and from whose screen:
  *   p2@p1           player 2's Stat Points, from player 1's channel (p1 known)
@@ -147,7 +150,10 @@ async function battleOf(id, mimicDir = null) {
     return { inputLog: played.inputLog, replayed, same, asSaved: null };
   }
   if (id.startsWith('mimic:')) {
-    const recipe = mimicDir ? mimicRecipe(id, loadSource(path.join(mimicDir, `${id.slice('mimic:'.length)}.json`))) : mimicRecipe(id);
+    const name = `${id.slice('mimic:'.length)}.json`;
+    const dirs = mimicDir ? mimicDirsOf(mimicDir) : [];
+    const file = dirs.map(d => path.join(d, name)).find(f => fs.existsSync(f)) || (dirs.length ? path.join(dirs[0], name) : null);
+    const recipe = file ? mimicRecipe(id, loadSource(file)) : mimicRecipe(id);
     if (!recipe) throw new Error(`${id}: no open sheet for a side, or a team the format refuses`);
     const played = await playMimic(recipe);
     const replayed = await replayInputLog(played.inputLog);
@@ -280,14 +286,22 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
 
 // ------------------------------------------------------------- the run
 
+/** The folders of `--mimic-dir`, which may name several, comma-separated. */
+const mimicDirsOf = mimicDir => mimicDir.split(',');
+
 /** Every case of the tier, in list order, then view order. */
 function casesOf({ tier, only, views, mimicDir = null }) {
   // Games outside the benchmark - a sample of the crawled corpus - are graded
   // from their own directory, all of them unless `only` names some. None has a
   // baseline: a sweep looks for what was removed, crashed or gave up.
   if (mimicDir) {
-    const ids = only || fs.readdirSync(mimicDir).filter(f => f.endsWith('.json')).sort().map(f => `mimic:${f.slice(0, -'.json'.length)}`);
+    const ids = only || mimicDirsOf(mimicDir).flatMap(d => fs.readdirSync(d).filter(f => f.endsWith('.json')).sort().map(f => `mimic:${f.slice(0, -'.json'.length)}`));
     for (const id of ids) if (!id.startsWith('mimic:')) throw new Error(`--mimic-dir grades mimic battles only, not ${id}`);
+    const once = new Set();
+    for (const id of ids) {
+      if (once.has(id)) throw new Error(`--mimic-dir: ${id} is in two folders`);
+      once.add(id);
+    }
     return ids.flatMap(id => views.map(view => ({ id, view })));
   }
   const battles = BATTLES.filter(b => (only ? only.includes(b.id) : tier !== 'quick' || b.quick));
@@ -350,7 +364,7 @@ async function runPool(threads, most, take, put) {
 const progress = (done, total, record, started, host = '') => `[${done}/${total}] ${record.id} ${record.view}: ${record.result} ${record.seconds}s (${((Date.now() - started) / 1000).toFixed(0)}s)${host && ` ${host}`}`;
 
 /** The cases on this machine's threads; results in case order. */
-async function runCases(cases, threads, job) {
+async function runCases(cases, threads, job, onRecord = null) {
   const out = new Array(cases.length);
   const started = Date.now();
   let next = 0;
@@ -361,6 +375,7 @@ async function runCases(cases, threads, job) {
     return { at, ...job, ...cases[at] };
   }, (at, record) => {
     out[at] = record;
+    onRecord?.(record);
     console.error(progress(++done, cases.length, record, started));
   });
   return out;
@@ -410,9 +425,10 @@ async function serve(threads) {
  * shortest case left instead: a long one there would end the run late. A
  * machine that stops gives back the cases it held, to whichever takes next,
  * or to machines that ended well once all have ended; a case lost twice is a
- * CRASH. Results in case order.
+ * CRASH. Results in case order; `onRecord` gets each one a machine sends, as
+ * it comes.
  */
-async function runHosts(cases, hosts, remote, job) {
+async function runHosts(cases, hosts, remote, job, onRecord = null) {
   const out = new Array(cases.length);
   const queue = cases.map((_, at) => at);
   const lost = new Map();
@@ -470,6 +486,7 @@ async function runHosts(cases, hosts, remote, job) {
         wants.push(s);
       } else if (s.held.delete(msg.at)) {
         out[msg.at] = msg.record;
+        onRecord?.(msg.record);
         console.error(progress(++done, cases.length, msg.record, started, host));
       }
       dispatch();
@@ -637,6 +654,49 @@ function opt(name, fallback = null) {
 }
 const flag = name => process.argv.includes(name);
 
+/**
+ * The records a run logged so far (`--log`), by case: the file starts with
+ * what the run is - commit, pool, usage, budget, tier, views, folders - and a
+ * run that is not the same refuses to go on from it. A last line cut short by
+ * a stop is dropped, and so its case runs again. Only records a machine sent
+ * are logged: a case lost with its machine runs again too.
+ */
+function readLog(file, head) {
+  if (head.dirty !== false) throw new Error('--log: a checkout with uncommitted changes, or one that does not say, cannot be told apart from another at its commit');
+  if (!fs.existsSync(file) || !fs.statSync(file).size) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `${JSON.stringify({ head })}\n`);
+    return new Map();
+  }
+  const lines = fs.readFileSync(file, 'utf8').split('\n');
+  const was = JSON.parse(lines[0]).head;
+  const off = Object.keys(head).filter(k => JSON.stringify(was?.[k]) !== JSON.stringify(head[k]));
+  if (off.length) throw new Error(`--log: ${file} is another run's (${off.join(', ')})`);
+  const logged = new Map();
+  for (const line of lines.slice(1)) {
+    let record;
+    try { record = JSON.parse(line); } catch { continue; }
+    logged.set(keyOf(record), record);
+  }
+  // A cut line has no newline: the next record must not start on it.
+  if (lines.at(-1) !== '') fs.appendFileSync(file, '\n');
+  return logged;
+}
+
+/** A run as JSON, one record at a time: one string of a sweep of a few hundred thousand cases is longer than V8 holds. */
+function writeRun(file, run) {
+  const { records, ...rest } = run;
+  const head = JSON.stringify(rest);
+  const fd = fs.openSync(file, 'w');
+  try {
+    fs.writeSync(fd, `${head.slice(0, -1)}${head === '{}' ? '' : ','}"records":[`);
+    records.forEach((r, k) => fs.writeSync(fd, `${k ? ',' : ''}${JSON.stringify(r)}`));
+    fs.writeSync(fd, ']}');
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 async function main() {
   const threads = Number(opt('--threads', String(Math.max(1, os.availableParallelism() - 1))));
   if (flag('--serve')) return serve(threads);
@@ -672,7 +732,7 @@ async function main() {
     const only = opt('--only') ? opt('--only').split(',') : null;
     const views = opt('--views') ? [...new Set(opt('--views').split(','))] : Object.keys(VIEWS);
     for (const v of views) if (!VIEWS[v]) throw new Error(`no view ${v} - have ${Object.keys(VIEWS).join(', ')}`);
-    const mimicDir = opt('--mimic-dir') ? path.resolve(opt('--mimic-dir')) : null;
+    const mimicDir = opt('--mimic-dir') ? opt('--mimic-dir').split(',').map(d => path.resolve(d)).join(',') : null;
     let cases = casesOf({ tier, only, views, mimicDir });
     const timings = opt('--timings') && fs.existsSync(opt('--timings')) ? JSON.parse(fs.readFileSync(opt('--timings'), 'utf8')) : null;
     cases = longestFirst(cases, timings);
@@ -681,14 +741,20 @@ async function main() {
     const job = { budget, trace: flag('--trace'), mimicDir };
     const hosts = opt('--hosts') ? opt('--hosts').split(/[\s,]+/).filter(Boolean) : null;
     if (hosts && !opt('--remote')) throw new Error('--hosts needs --remote <command>, {host} the machine');
-    console.error(`score: ${cases.length} case(s) on ${hosts ? `${hosts.length} machine(s)` : `${threads} thread(s)`}`);
-    const records = hosts ? await runHosts(cases, hosts, opt('--remote'), job) : await runCases(cases, threads, job);
+    const logFile = opt('--log') ? path.resolve(opt('--log')) : null;
+    const logged = logFile ? readLog(logFile, { commit: commitOf(), dirty: dirtyOf(), pool: poolPrint(), usage: usagePrint(), budget, tier, only, views, mimicDir }) : new Map();
+    const todo = cases.filter(c => !logged.has(keyOf(c)));
+    const onRecord = logFile ? record => fs.appendFileSync(logFile, `${JSON.stringify(record)}\n`) : null;
+    console.error(`score: ${todo.length} case(s)${logged.size ? ` (${cases.length - todo.length} more already in ${logFile})` : ''} on ${hosts ? `${hosts.length} machine(s)` : `${threads} thread(s)`}`);
+    const fresh = !todo.length ? [] : hosts ? await runHosts(todo, hosts, opt('--remote'), job, onRecord) : await runCases(todo, threads, job, onRecord);
+    const now = new Map(fresh.map(r => [keyOf(r), r]));
+    const records = cases.map(c => now.get(keyOf(c)) || logged.get(keyOf(c)));
     run = { commit: commitOf(), dirty: dirtyOf(), pool: poolPrint(), usage: usagePrint(), budget, tier, only, views, mimicDir, host: os.hostname(), ...(hosts ? { hosts } : {}), records };
   }
 
   const out = opt('--out') || path.join(OUT_DIR, `${run.tier}-${run.commit || 'local'}${run.budget > 1 ? `-budget${run.budget}` : ''}.json`);
   fs.mkdirSync(path.dirname(path.resolve(ROOT, out)), { recursive: true });
-  fs.writeFileSync(path.resolve(ROOT, out), JSON.stringify(run));
+  writeRun(path.resolve(ROOT, out), run);
   console.error(`wrote ${out}`);
 
   printGrade(run.records, run.tier);
