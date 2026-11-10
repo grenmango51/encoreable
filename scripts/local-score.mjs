@@ -388,6 +388,7 @@ const TAG = '@score ';
 // case only, until every machine's threads have asked: the longest cases go
 // one to a machine, not all to the first ones up.
 const GATHER_MS = 120_000;
+const RETRY_MS = 300_000;
 
 /**
  * This machine's threads, for a run handed out from elsewhere (`--hosts`): a
@@ -425,7 +426,9 @@ async function serve(threads) {
  * shortest case left instead: a long one there would end the run late. A
  * machine that stops gives back the cases it held, to whichever takes next,
  * or to machines that ended well once all have ended; a case lost twice is a
- * CRASH. Results in case order; `onRecord` gets each one a machine sends, as
+ * CRASH. A machine that stops while cases wait and others still work - one
+ * rebooted, or taken back by its user - is asked again every `RETRY_MS`: a
+ * sweep of days would otherwise end on the few machines that never stopped. Results in case order; `onRecord` gets each one a machine sends, as
  * it comes.
  */
 async function runHosts(cases, hosts, remote, job, onRecord = null) {
@@ -460,7 +463,18 @@ async function runHosts(cases, hosts, remote, job, onRecord = null) {
       s.send({ at, ...job, ...cases[at] });
     }
     for (let j = wants.length; j--;) if (wants[j].ended) wants.splice(j, 1);
+    if (!queue.length || !working()) wake();
   };
+  // Machines waiting to be asked again: woken once nothing waits for them, so
+  // a run never ends late on a timer.
+  const sleepers = new Set();
+  const wake = () => { for (const w of [...sleepers]) w(); };
+  const working = () => sessions.some(s => !s.ended);
+  const pause = () => new Promise((resolve) => {
+    const done = () => { clearTimeout(timer); sleepers.delete(done); resolve(); };
+    const timer = setTimeout(done, RETRY_MS);
+    sleepers.add(done);
+  });
   const start = host => new Promise((resolve) => {
     const child = spawn('sh', ['-c', `exec ${remote.replaceAll('{host}', host)} node scripts/local-score.mjs --serve`], { stdio: ['pipe', 'pipe', 'pipe'] });
     children.add(child);
@@ -507,7 +521,14 @@ async function runHosts(cases, hosts, remote, job, onRecord = null) {
       resolve();
     });
   });
-  await Promise.all(hosts.map(start));
+  await Promise.all(hosts.map(async (host) => {
+    await start(host);
+    while (queue.length && working()) {
+      await pause();
+      if (!queue.length || !working()) break;
+      await start(host);
+    }
+  }));
   // Cases given back once no machine was left to take them.
   for (let before = -1; queue.length && queue.length !== before;) {
     before = queue.length;
