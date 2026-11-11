@@ -274,7 +274,9 @@ export async function inferSpreads({
   const guessed = [0, 1].filter(s => !known?.[s]).map(s => `p${s + 1}`);
   const searchLimits = { maxVariants: MAX_VARIANTS * S, maxDieBacktracks: DIE_BACKTRACKS * S, fixedReadings, guessed };
   const dex = Dex.forFormat(formatid);
-  const work = { rounds: 0, rebuilds: 0, probes: 0, fallback: 0, backtracks: 0, dieBacktracks: 0 };
+  // `passes`: every evidence pass, the settles' and the guess picker's - the
+  // work a round spends besides its rebuilds, counted as they are.
+  const work = { rounds: 0, rebuilds: 0, probes: 0, fallback: 0, backtracks: 0, dieBacktracks: 0, passes: 0 };
   const warnings = [];
   // Every limit that cut a search short, here or in a rebuild or an inference
   // this one ran: an answer reached past one is no proof that more would not
@@ -350,6 +352,7 @@ export async function inferSpreads({
     while (passes < 8 * S) {
       const pass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, record: record && !first });
       passes++;
+      work.passes++;
       let moved = false;
       for (const r of pass.recs) moved = intersectKnowledge(knowledge.get(r.id), r.keys, r.flat, r.ties) || moved;
       if (learn) for (const o of pass.orders || []) orders.set(`${o.fast}|${o.slow}|${o.tf}|${o.ts}`, o);
@@ -977,6 +980,7 @@ export async function inferSpreads({
 
     const cache = new Map();
     const evidenceStart = Date.now();
+    const passesBefore = work.passes;
     evidenceTurn = Math.max(evidenceTurn, diff?.turn ?? 0);
     const { seen, lent: lentNow, passes: read } = await settle(built.inputLog, knowledge, cache, false, true);
     lent = lentNow;
@@ -1010,6 +1014,7 @@ export async function inferSpreads({
     const choose = async (n, cond) => {
       if (n === seq.length) {
         tries--;
+        work.passes++;
         const proof = await evidencePass({ inputLog: built.inputLog, observed: lines, channel, knowledge: cond, cache, exact: true });
         return proof.exact ? proof : null;
       }
@@ -1073,7 +1078,7 @@ export async function inferSpreads({
         next[s][i] = closestSpread(kn, aimed(id, kn, picks[s][i])) || next[s][i];
       }
     }
-    onProgress(`  evidence and new guesses, ${((Date.now() - evidenceStart) / 1000).toFixed(1)}s${exact ? `, ${exact.size} turns exact` : ''}${pins ? `, ${Object.keys(pins.subs).length} dice handed on` : ''}`);
+    onProgress(`  evidence and new guesses, ${((Date.now() - evidenceStart) / 1000).toFixed(1)}s, ${work.passes - passesBefore} passes${exact ? `, ${exact.size} turns exact` : ''}${pins ? `, ${Object.keys(pins.subs).length} dice handed on` : ''}`);
     const unchanged = next.every((team, s) => team.every((e, i) => sameSpread(e, picks[s][i])));
     // The evidence accepts this guess, or it learned nothing from this
     // rebuild, or a line stops a rebuild again after the guess moved. Either
