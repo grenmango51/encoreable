@@ -253,8 +253,9 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
     // the same kind of line for another Pokemon, or another line altogether.
     const brokenKind = (w) => {
       const [e, a] = [String(w.expected || '').split('|'), String(w.actual || '').split('|')];
-      if (lineKind(w.expected) !== lineKind(w.actual)) return `${lineKind(w.expected)} where the proof has ${lineKind(w.actual)}`;
-      return `${lineKind(w.expected)}: ${e[2] === a[2] ? 'another amount' : 'another Pokemon first'}`;
+      if (lineKind(w.expected) !== lineKind(w.actual)) return `${lineKind(w.expected)} where the rebuild has ${lineKind(w.actual)}`;
+      if (e[2] !== a[2]) return `${lineKind(w.expected)}: another Pokemon first`;
+      return `${lineKind(w.expected)}: ${HP_AT[e[1]] ? 'another amount' : `another ${e.findIndex((x, n) => x !== a[n]) === 4 && e[1] === 'move' ? 'target' : 'outcome'}`}`;
     };
     const pokemon = [];
     for (const p of inf.pokemon) {
@@ -306,6 +307,8 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
       ...(inf.lost?.length ? { lost: inf.lost.filter((l, n, list) => list.findIndex(o => o.id === l.id) === n).map(l => ({ ...l, cause: l.by.length ? plain(l.by[0].what) : l.step })) } : {}),
       broken: (inf.warnings || []).length,
       ...(inf.warnings?.length ? { brokenAt: inf.warnings.slice(0, 3).map(w => `turn ${w.turn}: ${w.expected} / ${w.actual}`), brokenKind: brokenKind(inf.warnings[0]) } : {}),
+      // The line the rebuild kept stopped on, where it did not reproduce the log.
+      ...(!inf.complete && inf.built?.report?.diffs?.[0] ? { stoppedOn: (d => ({ turn: d.turn, expected: d.expected, actual: d.actual ?? null, kind: brokenKind(d) }))(inf.built.report.diffs[0]) } : {}),
       seconds: Number(((Date.now() - started) / 1000).toFixed(1)),
     };
   } catch (err) {
@@ -621,6 +624,7 @@ function grade(records) {
   };
 }
 
+const HP_AT = { '-damage': 3, '-heal': 3, '-sethp': 3 };
 const pct = x => (x === null ? '-' : `${(100 * x).toFixed(1)}%`);
 
 function printGrade(records, tier) {
@@ -665,7 +669,7 @@ function printGrade(records, tier) {
   };
   tally('a real spread removed at some step, whatever the result kept - case(s) by the first cause:', records.filter(r => r.lost?.length).map(r => [r.lost[0].cause, r]));
   tally('broken proofs - case(s) by the line the first one broke on:', records.filter(r => r.brokenKind).map(r => [r.brokenKind, r]));
-  tally('not rebuilt - case(s) by why the search stopped:', records.filter(r => r.result === 'GAVE UP' || r.result === 'NO MATCH').map(r => [`${r.result}: ${(r.limits || []).join(', ') || r.stop}`, r]));
+  tally('not rebuilt - case(s) by the line the rebuild stopped on:', records.filter(r => r.stoppedOn).map(r => [r.stoppedOn.kind, r]));
   console.log('closed team sheets: not graded yet');
   for (const r of records.filter(x => x.result === 'REMOVED' || x.result === 'CRASH')) {
     const lost = (r.pokemon || []).filter(p => !p.kept).map(p => `${p.id} ${p.species}`);
