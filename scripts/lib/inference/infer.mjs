@@ -263,6 +263,10 @@ export async function inferSpreads({
   // Each unknown set's first guess given outright, from every start: an
   // experiment's (`npm run score -- --seed-truth`), never evidence.
   seeded = null,
+  // An experiment's (`--seed-evidence`): what the evidence of a scaffold that
+  // reproduces the whole log leaves, read before any search - the knowledge
+  // the rounds start from, and the speed orders it read.
+  prior = null,
 }) {
   const options = { ...arguments[0], spend };
   // `budgetScale` multiplies every search limit at once - probes, backtracks,
@@ -385,6 +389,14 @@ export async function inferSpreads({
   };
 
   const knowledge = cloneKnowledge(blank);
+  if (prior) {
+    for (const [id, kn] of knowledge) {
+      const had = prior.knowledge.get(id);
+      if (had && !kn.known) { intersectKnowledge(kn, maskKeys(had.keys), had.dom, had.ties); tighten(kn); }
+    }
+    for (const o of prior.orders) orders.set(`${o.fast}|${o.slow}|${o.tf}|${o.ts}`, o);
+    picks = picks.map((team, s) => team.map((e, i) => (known[s] ? e : closestSpread(knowledge.get(`p${s + 1}:${i}`), e) || e)));
+  }
   let built = null;
   // Per Pokemon, the others whose Stat Points moved one of its stats, from the
   // last round's evidence.
@@ -1604,4 +1616,29 @@ export async function certifyRanges(inf, {
     }
   }
   return out;
+}
+
+/**
+ * An experiment's: everything the evidence reads off one input log that
+ * reproduces the whole replay, from every spread there is - the passes of a
+ * final settle, with no search. `{ knowledge, orders, passes }`.
+ */
+export async function readEvidence({ inputLog, sets, known, observed, channel }) {
+  const lines = observed.filter(l => typeof l === 'string');
+  const knowledge = new Map();
+  for (const [s, team] of sets.entries()) for (const [i, set] of team.entries()) knowledge.set(`p${s + 1}:${i}`, freshKnowledge(set, known[s], false));
+  const orders = new Map();
+  const cache = new Map();
+  let passes = 0;
+  for (; passes < 8;) {
+    const pass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, record: false });
+    passes++;
+    let moved = false;
+    for (const r of pass.recs) moved = intersectKnowledge(knowledge.get(r.id), r.keys, r.flat, r.ties) || moved;
+    for (const o of pass.orders || []) orders.set(`${o.fast}|${o.slow}|${o.tf}|${o.ts}`, o);
+    moved = orderSpeeds(knowledge, [...orders.values()]) || moved;
+    for (const kn of knowledge.values()) moved = tighten(kn) || moved;
+    if (!moved) break;
+  }
+  return { knowledge, orders: [...orders.values()], passes };
 }

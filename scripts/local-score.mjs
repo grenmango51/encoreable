@@ -66,7 +66,8 @@ import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 
 import { battleLines } from './lib/protocol.mjs';
 import { loadSource } from './lib/replay-source.mjs';
-import { inferSpreads } from './lib/inference/infer.mjs';
+import { inferSpreads, readEvidence } from './lib/inference/infer.mjs';
+import { spreadsLeft } from './lib/inference/knowledge.mjs';
 import { FUZZ_TURNS, fuzzRecipe, fuzzTeams, playFuzz } from './lib/fuzz.mjs';
 import { USAGE_FILE, mimicRecipe, playMimic, usageSpreads } from './lib/mimic.mjs';
 import { likelySpreads, usualSpreads } from './lib/inference/usage.mjs';
@@ -201,7 +202,7 @@ function miscount(p, key) {
 }
 
 /** One battle from one view, graded. */
-async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, parallel = null, seedTruth = false } = {}) {
+async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, parallel = null, seedTruth = false, seedEvidence = false } = {}) {
   const started = Date.now();
   const base = { id, view };
   try {
@@ -225,7 +226,12 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
     const sets = truth.map((team, s) => team.map(set => (known[s] ? set : { ...set, evs: { ...zero } })));
     const usage = usageSpreads()?.spreads || null;
     const dex = Dex.forFormat(formatid);
+    const oracleStart = Date.now();
+    const prior = seedEvidence ? await readEvidence({ inputLog, sets, known, observed: replayed.channels[channel], channel }) : null;
+    const oracleMs = Date.now() - oracleStart;
+    const oracleSpreads = prior ? Object.fromEntries([...prior.knowledge].filter(([, kn]) => !kn.known).map(([pid, kn]) => [pid, spreadsLeft(kn)])) : null;
     const inf = await inferSpreads({
+      ...(prior ? { prior } : {}),
       formatid, sets, known, playerNames: players.map(p => p.name), observed: replayed.channels[channel], channel,
       sampleSeed: 1, threads: 1, budgetScale: budget, usage, parallel,
       ...(seedTruth ? { seeded: truth.map((team, s) => (known[s] ? null : team.map(set => set.evs || {}))) } : {}),
@@ -272,7 +278,8 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
       ...base, result, sound, complete: inf.complete, limitHit, asSaved, stop: inf.stop, limits, pokemon,
       ...(wrongCount ? { error: `${wrongCount.id} ${wrongCount.species}: ${wrongCount.miscounted}` } : {}),
       work: { rounds: inf.work.rounds, rebuilds: inf.work.rebuilds, probes: inf.work.probes, passes: inf.work.passes ?? null },
-      ms: { rebuild: inf.work.msRebuild, evidence: inf.work.msEvidence },
+      ms: { rebuild: inf.work.msRebuild, evidence: inf.work.msEvidence, ...(prior ? { oracle: oracleMs, oraclePasses: prior.passes } : {}) },
+      ...(oracleSpreads ? { oracleSpreads } : {}),
       // Each proof a rebuild was handed that broke under its own dice and
       // choices: the evidence called a turn exact that the simulator plays
       // otherwise. It removes nothing, but it is a bug in what is handed on,
@@ -762,7 +769,7 @@ async function main() {
     cases = longestFirst(cases, timings);
     const budget = Number(opt('--budget', '1'));
     if (!(Number.isInteger(budget) && budget >= 1)) throw new Error('--budget <n>: a whole number, at least 1');
-    const job = { budget, trace: flag('--trace'), mimicDir, seedTruth: flag('--seed-truth') };
+    const job = { budget, trace: flag('--trace'), mimicDir, seedTruth: flag('--seed-truth'), seedEvidence: flag('--seed-evidence') };
     const hosts = opt('--hosts') ? opt('--hosts').split(/[\s,]+/).filter(Boolean) : null;
     if (hosts && !opt('--remote')) throw new Error('--hosts needs --remote <command>, {host} the machine');
     const logFile = opt('--log') ? path.resolve(opt('--log')) : null;
