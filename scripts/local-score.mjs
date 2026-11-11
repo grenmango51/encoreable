@@ -14,10 +14,11 @@
  *   npm run score -- --only fuzz:220 --views p2@p1 --trace   every step of the search, on stderr: why a case gave up
  *   npm run score -- --mimic-dir <dir>      every game in <dir> as a mimic battle, not the benchmark (a corpus sweep)
  *   npm run score -- --tier problem --mimic-dir <dir> [--why REMOVED,CRASH]   the sweep's problem games (`fixtures/problems.js`)
+ *   npm run score -- --tier fast --certify 20   one case in 20 also rebuilt one Stat Point outside every range it kept
  *   npm run score -- --mimic-dir a,b,c --log <file>   one queue over several folders, in that order, each record
  *                                           added to <file> as it ends: run again to go on from where it stopped
  *
- * Flags: --tier quick|fast|full|problem --why <reason>[,<reason>...] --timings <run.json> --only <id>[,<id>...] --views <v>[,<v>...] --threads <n> --budget <n>
+ * Flags: --tier quick|fast|full|problem --why <reason>[,<reason>...] --timings <run.json> --only <id>[,<id>...] --views <v>[,<v>...] --threads <n> --budget <n> --certify <n>
  *        --trace --mimic-dir <dir>[,<dir>...] --log <file> --hosts <a,b,...> --remote <command> --out <file> --merge <file>...
  *        --baseline <file> --accept
  *
@@ -67,7 +68,7 @@ import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 
 import { battleLines } from './lib/protocol.mjs';
 import { loadSource } from './lib/replay-source.mjs';
-import { inferSpreads } from './lib/inference/infer.mjs';
+import { certifyRanges, inferSpreads } from './lib/inference/infer.mjs';
 import { FUZZ_TURNS, fuzzRecipe, fuzzTeams, playFuzz } from './lib/fuzz.mjs';
 import { USAGE_FILE, mimicRecipe, playMimic, usageSpreads } from './lib/mimic.mjs';
 import { likelySpreads, usualSpreads } from './lib/inference/usage.mjs';
@@ -203,7 +204,7 @@ function miscount(p, key) {
 }
 
 /** One battle from one view, graded. */
-async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, parallel = null } = {}) {
+async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, parallel = null, certify = 0 } = {}) {
   const started = Date.now();
   const base = { id, view };
   try {
@@ -289,16 +290,37 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
     if (missing.length || stray.length) {
       return { ...base, result: 'CRASH', error: `the inference graded ${graded.join(', ') || 'no Pokemon'}, expected ${expected.join(', ')}`, seconds: Number(((Date.now() - started) / 1000).toFixed(1)) };
     }
+    // The planted spread is one spread: a removal that misses it shows only
+    // when another spread it removed is tried. On a sample of the cases that
+    // rebuilt (`--certify <n>`, one in n by the case's name), each stat of
+    // each seen Pokemon is rebuilt one Stat Point outside its range, as
+    // `npm run reconstruct -- --certify --outside` does: one that reproduces
+    // the log is a spread the replay allows and the inference removed.
+    let certified = null;
+    const drawn = certify > 0 && Number.parseInt(crypto.createHash('sha256').update(`certify ${id} ${view}`).digest('hex').slice(0, 8), 16) % certify === 0;
+    if (drawn && inf.complete) {
+      const proof = await certifyRanges(inf, {
+        formatid, sets, playerNames: players.map(p => p.name), observed: replayed.channels[channel], channel, sampleSeed: 1, threads: 1, outside: true,
+      });
+      const ends = Object.values(proof).flatMap(stats => Object.values(stats).flatMap(c => [c.min, c.max]));
+      certified = {
+        ends: ends.length,
+        proved: ends.filter(Boolean).length,
+        outside: Object.entries(proof).flatMap(([pid, stats]) => Object.entries(stats).flatMap(([stat, c]) => (c.outside || []).map(value => `${pid} ${stat} ${value}`))),
+      };
+    }
     // Each check on its own, so one failing does not hide another; `result`
     // sums them up.
     const limits = inf.limits || [];
-    const sound = pokemon.every(p => p.kept) && (!inf.complete || pokemon.every(p => p.witness));
+    const sound = pokemon.every(p => p.kept) && (!inf.complete || pokemon.every(p => p.witness)) && !certified?.outside.length;
     const limitHit = limits.some(l => SEARCH_LIMITS.has(l));
     const wrongCount = pokemon.find(p => p.miscounted);
     const result = !sound ? 'REMOVED' : wrongCount ? 'CRASH' : inf.complete ? 'PASS' : limitHit ? 'GAVE UP' : 'NO MATCH';
     return {
       ...base, result, sound, complete: inf.complete, limitHit, asSaved, stop: inf.stop, limits, pokemon,
       ...(wrongCount ? { error: `${wrongCount.id} ${wrongCount.species}: ${wrongCount.miscounted}` } : {}),
+      ...(certified ? { certified } : {}),
+      ...(certified?.outside.length ? { error: `a spread outside what was kept rebuilds the log: ${certified.outside.join(', ')}` } : {}),
       work: { rounds: inf.work.rounds, rebuilds: inf.work.rebuilds, probes: inf.work.probes, passes: inf.work.passes ?? null },
       // Each proof a rebuild was handed that broke under its own dice and
       // choices: the evidence called a turn exact that the simulator plays
@@ -669,6 +691,11 @@ function printGrade(records, tier) {
       console.log(`  ${String(rs.length).padStart(5)}  ${cause}   (fastest: ${eg.id} ${eg.view}, ${eg.seconds}s)`);
     }
   };
+  const sampled = records.filter(r => r.certified);
+  if (sampled.length) {
+    const sum = k => sampled.reduce((t, r) => t + r.certified[k], 0);
+    console.log(`certified: ${sampled.length} case(s) rebuilt at every end of every range, ${sum('proved')} of ${sum('ends')} ends reproduce the log; ${sampled.reduce((t, r) => t + r.certified.outside.length, 0)} spread(s) outside a range do (must be 0)`);
+  }
   tally('a real spread removed at some step, whatever the result kept - case(s) by the first cause:', records.filter(r => r.lost?.length).map(r => [r.lost[0].cause, r]));
   tally('broken proofs - case(s) by the line the first one broke on:', records.filter(r => r.brokenKind).map(r => [r.brokenKind, r]));
   tally('not rebuilt - case(s) by the line the rebuild stopped on:', records.filter(r => r.stoppedOn).map(r => [r.stoppedOn.kind, r]));
@@ -825,7 +852,9 @@ async function main() {
     cases = longestFirst(cases, timings);
     const budget = Number(opt('--budget', '1'));
     if (!(Number.isInteger(budget) && budget >= 1)) throw new Error('--budget <n>: a whole number, at least 1');
-    const job = { budget, trace: flag('--trace'), mimicDir };
+    const certify = Number(opt('--certify', '0'));
+    if (!(Number.isInteger(certify) && certify >= 0)) throw new Error('--certify <n>: one case in n, a whole number');
+    const job = { budget, trace: flag('--trace'), mimicDir, certify };
     const hosts = opt('--hosts') ? opt('--hosts').split(/[\s,]+/).filter(Boolean) : null;
     if (hosts && !opt('--remote')) throw new Error('--hosts needs --remote <command>, {host} the machine');
     const logFile = opt('--log') ? path.resolve(opt('--log')) : null;
