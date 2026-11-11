@@ -224,6 +224,7 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
     const zero = Object.fromEntries(STATS.map(s => [s, 0]));
     const sets = truth.map((team, s) => team.map(set => (known[s] ? set : { ...set, evs: { ...zero } })));
     const usage = usageSpreads()?.spreads || null;
+    process.env.ENCOREABLE_TRUTH = JSON.stringify(Object.fromEntries(truth.flatMap((team, s) => team.map((set, i) => [`p${s + 1}:${i}`, Object.fromEntries(STATS.map(x => [x, set.evs?.[x] || 0]))]))));
     const dex = Dex.forFormat(formatid);
     const inf = await inferSpreads({
       formatid, sets, known, playerNames: players.map(p => p.name), observed: replayed.channels[channel], channel,

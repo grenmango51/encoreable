@@ -341,7 +341,26 @@ export async function inferSpreads({
   // tables: applied in every settle after, the guess picker's too, so a pin
   // on one Speed moves the other.
   const orders = new Map();
+  let watchedKn = null;
   const settle = async (inputLog, knowledge, cache, record = false, learn = false) => {
+    const TRUTH = process.env.ENCOREABLE_TRUTH ? JSON.parse(process.env.ENCOREABLE_TRUTH) : null;
+    const watch = TRUTH && (knowledge === watchedKn || record);
+    const lostNow = () => new Set([...knowledge].filter(([id, kn]) => TRUTH[id] && !containsSpread(kn, TRUTH[id])).map(([id]) => id));
+    let lost = watch ? lostNow() : null;
+    const report = (step, pass, n) => {
+      if (!watch) return;
+      const now = lostNow();
+      for (const id of now) {
+        if (lost.has(id)) continue;
+        process.stderr.write(`TRUTH-LOST ${id} real ${JSON.stringify(TRUTH[id])} at ${step}, pass ${n}, record ${record}
+`);
+        for (const e of pass?.events || []) for (const c of e.cuts) if (c.id === id) process.stderr.write(`  t${e.turn} ${e.what}: ${c.before}->${c.after} ${JSON.stringify(c.stats)}
+`);
+        if (step !== 'intersect') for (const o of orders.values()) if (o.fast === id || o.slow === id) process.stderr.write(`  order ${JSON.stringify({ fast: o.fast, slow: o.slow, tf: o.tf, ts: o.ts, why: o.why || o.what })}
+`);
+      }
+      lost = now;
+    };
     const counts = () => new Map([...knowledge].map(([id, kn]) => [id, spreadsLeft(kn)]));
     const initial = record ? counts() : null;
     let first = null;
@@ -352,9 +371,12 @@ export async function inferSpreads({
       passes++;
       let moved = false;
       for (const r of pass.recs) moved = intersectKnowledge(knowledge.get(r.id), r.keys, r.flat, r.ties) || moved;
+      report('intersect', pass, passes);
       if (learn) for (const o of pass.orders || []) orders.set(`${o.fast}|${o.slow}|${o.tf}|${o.ts}`, o);
       moved = orderSpeeds(knowledge, [...orders.values()]) || moved;
+      report('orderSpeeds', pass, passes);
       for (const kn of knowledge.values()) moved = tighten(kn) || moved;
+      report('tighten', pass, passes);
       if (!first) {
         first = pass;
         if (record) afterFirst = counts();
@@ -375,6 +397,7 @@ export async function inferSpreads({
   };
 
   const knowledge = cloneKnowledge(blank);
+  watchedKn = knowledge;
   let built = null;
   // Per Pokemon, the others whose Stat Points moved one of its stats, from the
   // last round's evidence.
