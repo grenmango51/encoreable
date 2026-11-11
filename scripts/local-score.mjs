@@ -580,7 +580,7 @@ function grade(records) {
     passes: records.reduce((t, x) => t + (x.work?.passes || 0), 0),
     broken: records.reduce((t, x) => t + (x.broken || 0), 0),
     brokenCases: records.filter(x => x.broken).length,
-    seconds: { median: median(seconds), p95: quantile(seconds, 0.95), max: seconds.length ? Math.max(...seconds) : null },
+    seconds: { median: median(seconds), p95: quantile(seconds, 0.95), max: seconds.length ? seconds.reduce((a, b) => Math.max(a, b)) : null },
     ranked: ranked.length,
     first: ranked.length ? ranked.filter(p => p.rank === 1).length / ranked.length : null,
     top3: ranked.length ? ranked.filter(p => p.rank && p.rank <= 3).length / ranked.length : null,
