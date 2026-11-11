@@ -2875,15 +2875,20 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     if (state.ended) return origUpdate.call(this, eventid, target, ...rest);
     const ord = itemChecks++;
     const edge = new Map();
+    // The edge is found between 1 HP and the whole bar. A Pokemon knocked out
+    // is on neither side of it: what its item does at no HP is asked as well.
+    const out = new Map();
     for (const k of rec.chain ? rec.chain.keys() : rec.knKeys) {
       const M = maxHp(rec, KEY_HP[k]);
-      if (!edge.has(M)) edge.set(M, memo(`edge|${ord}|${rec.id}|${M}`, () => fireEdge(rec, M)));
+      if (edge.has(M)) continue;
+      edge.set(M, memo(`edge|${ord}|${rec.id}|${M}`, () => fireEdge(rec, M)));
+      out.set(M, memo(`edge0|${ord}|${rec.id}|${M}`, () => itemFires(rec, M, 0)));
     }
     // An edge of 0 or of the whole bar says nothing about HP.
     if ([...edge].every(([M, t]) => t === 0 || t === M)) return origUpdate.call(this, eventid, target, ...rest);
     const name = target.getItem().name;
     const gate = { same: true, gate: true, turn: battle.turn, what: `${name} on ${named(rec)}`, fired: null };
-    gate.allow = (M, h) => gate.fired === null || !edge.has(M) || (h <= edge.get(M)) === gate.fired;
+    gate.allow = (M, h) => gate.fired === null || !edge.has(M) || (h > 0 ? h <= edge.get(M) : out.get(M)) === gate.fired;
     rec.pending.push(gate);
     const held = target.item;
     try {
