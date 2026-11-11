@@ -418,6 +418,8 @@ export function attachSpeed(battle, {
       if (!sortedBy(fx, list[i], speedOf(list[i])) || !sortedBy(fy, list[i + 1], speedOf(list[i + 1]))) continue;
       if (tied(list[i], list[i + 1])) pairs.push({ i, X, Y });
     }
+    if (process.env.ENCOREABLE_TRUTH && battle.turn === 0) process.stderr.write(`HSORT ${process.env.ENCOREABLE_CASE} t${battle.turn} ${switchIn} [${list.map(it => `${pokemonOf(it)?.name}:${it.effect?.name || it.handler?.effect?.name || '?'}:${speedOf(it)}:${byPokemon.get(pokemonOf(it))?.cachedSpeed ? (varies(byPokemon.get(pokemonOf(it)).cachedSpeed) ? 'v' : 'k') : '-'}`).join(', ')}] pairs ${pairs.map(p => p.i).join(',')}
+`);
     if (!pairs.length) return;
     const keys = list.map(keyOf);
     const runs = memo(`hsort|${handlerSortCount++}`, () => {
