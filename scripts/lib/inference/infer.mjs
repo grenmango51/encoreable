@@ -345,14 +345,14 @@ export async function inferSpreads({
   const settle = async (inputLog, knowledge, cache, record = false, learn = false) => {
     const TRUTH = process.env.ENCOREABLE_TRUTH ? JSON.parse(process.env.ENCOREABLE_TRUTH) : null;
     const watch = TRUTH && (knowledge === watchedKn || record);
-    const lostNow = () => new Set([...knowledge].filter(([id, kn]) => TRUTH[id] && !containsSpread(kn, TRUTH[id])).map(([id]) => id));
+    const lostNow = () => new Set([...knowledge].filter(([id, kn]) => TRUTH[id] && !kn.known && !containsSpread(kn, TRUTH[id])).map(([id]) => id));
     let lost = watch ? lostNow() : null;
     const report = (step, pass, n) => {
       if (!watch) return;
       const now = lostNow();
       for (const id of now) {
         if (lost.has(id)) continue;
-        process.stderr.write(`TRUTH-LOST ${id} real ${JSON.stringify(TRUTH[id])} at ${step}, pass ${n}, record ${record}
+        process.stderr.write(`TRUTH-LOST ${process.env.ENCOREABLE_CASE} ${id} real ${JSON.stringify(TRUTH[id])} at ${step}, pass ${n}, record ${record}
 `);
         for (const e of pass?.events || []) for (const c of e.cuts) if (c.id === id) process.stderr.write(`  t${e.turn} ${e.what}: ${c.before}->${c.after} ${JSON.stringify(c.stats)}
 `);
@@ -367,7 +367,7 @@ export async function inferSpreads({
     let afterFirst = null;
     let passes = 0;
     while (passes < 8 * S) {
-      const pass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, record: record && !first });
+      const pass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, record: (record && !first) || !!watch });
       passes++;
       let moved = false;
       for (const r of pass.recs) moved = intersectKnowledge(knowledge.get(r.id), r.keys, r.flat, r.ties) || moved;
