@@ -479,7 +479,7 @@ export async function inferSpreads({
     const diff = built.report.diffs[0];
     const t = diff?.turn;
     const mark = markOf(diff);
-    if (!diff || !(t >= 1) || !(diff.index >= 0) || (searched.get(mark) || 0) >= 2 || spend.fruitless.has(mark)) return null;
+    if (!diff || !(t >= 0) || !(diff.index >= 0) || (searched.get(mark) || 0) >= 2 || spend.fruitless.has(mark)) return null;
     searched.set(mark, (searched.get(mark) || 0) + 1);
     const none = () => { searched.set(mark, 2); spend.fruitless.add(mark); return null; };
     if (spend.rebuilds <= 0) { limits.add('fallbackTotal'); return null; }
@@ -488,7 +488,9 @@ export async function inferSpreads({
       const at = observed.findIndex(l => typeof l === 'string' && Number(/^\|turn\|(\d+)/.exec(l)?.[1]) === turn + 1);
       return at < 0 ? observed : observed.slice(0, at + 1);
     };
-    const through = cutAt(t);
+    // A line before the first turn - the order the leads' abilities came in -
+    // is rebuilt through turn 1: a rebuild needs a whole turn.
+    const through = cutAt(Math.max(t, 1));
     const handed = handOn(built, null);
     const began = Date.now();
     let spent = 0;
