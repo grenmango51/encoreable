@@ -859,10 +859,23 @@ export function attachSpeed(battle, {
         const mine = x && ms.find(m => m.item === x);
         const first = mine ? firstAt(mine.span.start) : -1;
         const wrote = mine && first < view.length && view[first].at < mine.span.end ? battleLines([view[first].line])[0] : null;
+        // Q's line later in the replay: the rebuild's own but for the HP, or
+        // one of the same kind that names Q first and Q's effect as its
+        // source - what a handler prints can hang on a die, as which foe's
+        // ability Trace takes does.
+        const source = l => tagsOf(String(l)).from;
+        const fromQ = (line) => {
+          if (sameButHp(line, rebuilt)) return true;
+          const a = String(line).split('|');
+          const b = String(rebuilt).split('|');
+          const effect = hit.item.effect?.name;
+          return !!effect && a[1] === b[1] && a[2] === b[2] && /^p[1-4][a-d]?: /.test(a[2] || '')
+            && source(line) !== undefined && source(line) === source(rebuilt) && source(line).replace(/^\w+: /, '') === effect;
+        };
         let later = false;
         for (const line of prefix.observedAfter) {
           if (ACTION_START.has(line.split('|')[1])) break;
-          if (sameButHp(line, rebuilt)) { later = true; break; }
+          if (fromQ(line)) { later = true; break; }
         }
         if (x && later && wrote && sameButHp(wrote, prefix.observedLine)) eventRule(entry, x, hit.item);
         break;
