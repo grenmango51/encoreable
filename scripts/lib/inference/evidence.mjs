@@ -483,9 +483,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         pending: [],
         history: [],
         shown: [],
-        // A stat as the simulator computes it for this Pokemon's current forme.
-        stat(stat, sp) {
-          const species = stat === 'hp' ? hpSpecies : pokemon.species;
+        // A stat as the simulator computes it for this Pokemon's current forme,
+        // or for the forme it had when another Pokemon copied the stat.
+        stat(stat, sp, forme = pokemon.species) {
+          const species = stat === 'hp' ? hpSpecies : forme;
           let table = byForme.get(species);
           if (!table) {
             table = {};
@@ -563,7 +564,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     if (rec.unmapped.has(stat)) return null;
     if (rec.deps[stat]) return rec.deps[stat];
     if (rec.kn.known) return CONSTANT;
-    return { owner: rec, stat, at: v => rec.stat(stat, v) };
+    // The forme it is now: a copy Transform kept stays what it was when
+    // copied after the original Mega Evolves or changes forme.
+    const forme = rec.pokemon.species;
+    return { owner: rec, stat, at: v => rec.stat(stat, v, forme) };
   }
   const ownValue = dep => fullEvs(dep.owner.pokemon.set.evs)[dep.stat];
   /** Whether a stored stat is still the one the Pokemon's own Stat Points give. */
