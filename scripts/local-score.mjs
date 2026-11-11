@@ -231,6 +231,31 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
       truth: Object.fromEntries(truth.flatMap((team, s) => (known[s] ? [] : team.map((set, i) => [`p${s + 1}:${i}`, set.evs || {}])))),
       ...(trace ? { onProgress: m => process.stderr.write(`[${id} ${view}] ${m}\n`) } : {}),
     });
+    // A cause with this battle's names taken out, so that cases with one cause
+    // count together: every Pokemon is X, and every move, item and ability
+    // either sheet has is named by its kind.
+    const all = truth.flat();
+    const esc = x => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const names = (list, as) => [...new Set(list.filter(Boolean))].sort((a, b) => b.length - a.length).map(n => [new RegExp(`(?<![A-Za-z])${esc(n)}(?![A-Za-z])`, 'g'), as]);
+    const swaps = [
+      ...names(all.flatMap(set => [set.name, set.species, dex.species.get(set.species).baseSpecies]), 'X'),
+      ...names(all.flatMap(set => set.moves.map(m => dex.moves.get(m).name)), 'a move'),
+      ...names(all.map(set => dex.items.get(set.item).name), 'an item'),
+      ...names(all.map(set => dex.abilities.get(set.ability).name), 'an ability'),
+    ];
+    const plain = text => swaps.reduce((t, [re, as]) => t.replace(re, as), String(text)).replace(/\bp[1-4][a-d]?: /g, '');
+    const lineKind = (l) => {
+      const parts = String(l || '').split('|');
+      const from = /\[from\] ([^|]+)/.exec(String(l || ''))?.[1];
+      return `${parts[1] || 'nothing'}${from ? ` from ${plain(from)}` : ''}`;
+    };
+    // A broken proof by the line it broke on: the same line on another HP,
+    // the same kind of line for another Pokemon, or another line altogether.
+    const brokenKind = (w) => {
+      const [e, a] = [String(w.expected || '').split('|'), String(w.actual || '').split('|')];
+      if (lineKind(w.expected) !== lineKind(w.actual)) return `${lineKind(w.expected)} where the proof has ${lineKind(w.actual)}`;
+      return `${lineKind(w.expected)}: ${e[2] === a[2] ? 'another amount' : 'another Pokemon first'}`;
+    };
     const pokemon = [];
     for (const p of inf.pokemon) {
       if (p.known) continue;
@@ -278,9 +303,9 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
       // whatever the result.
       // Each real spread a step removed on the way, whatever the result kept:
       // the step, and the events that did it - the first time, of every start.
-      ...(inf.lost?.length ? { lost: inf.lost.filter((l, n, all) => all.findIndex(o => o.id === l.id) === n) } : {}),
+      ...(inf.lost?.length ? { lost: inf.lost.filter((l, n, list) => list.findIndex(o => o.id === l.id) === n).map(l => ({ ...l, cause: l.by.length ? plain(l.by[0].what) : l.step })) } : {}),
       broken: (inf.warnings || []).length,
-      ...(inf.warnings?.length ? { brokenAt: inf.warnings.slice(0, 3).map(w => `turn ${w.turn}: ${w.expected} / ${w.actual}`) } : {}),
+      ...(inf.warnings?.length ? { brokenAt: inf.warnings.slice(0, 3).map(w => `turn ${w.turn}: ${w.expected} / ${w.actual}`), brokenKind: brokenKind(inf.warnings[0]) } : {}),
       seconds: Number(((Date.now() - started) / 1000).toFixed(1)),
     };
   } catch (err) {
@@ -584,7 +609,12 @@ function grade(records) {
     passes: records.reduce((t, x) => t + (x.work?.passes || 0), 0),
     broken: records.reduce((t, x) => t + (x.broken || 0), 0),
     brokenCases: records.filter(x => x.broken).length,
-    seconds: { median: median(seconds), p95: quantile(seconds, 0.95), max: seconds.length ? seconds.reduce((a, b) => Math.max(a, b)) : null },
+    seconds: { median: median(seconds), p95: quantile(seconds, 0.95), p99: quantile(seconds, 0.99), max: seconds.length ? seconds.reduce((a, b) => Math.max(a, b)) : null },
+    // Work per case, the same on every machine: what a change to the search moves.
+    perCase: Object.fromEntries(['probes', 'passes', 'rounds'].map((k) => {
+      const xs = records.map(x => x.work?.[k]).filter(x => typeof x === 'number');
+      return [k, { median: median(xs), p95: quantile(xs, 0.95), p99: quantile(xs, 0.99), max: xs.length ? xs.reduce((a, b) => Math.max(a, b)) : null }];
+    })),
     ranked: ranked.length,
     first: ranked.length ? ranked.filter(p => p.rank === 1).length / ranked.length : null,
     top3: ranked.length ? ranked.filter(p => p.rank && p.rank <= 3).length / ranked.length : null,
@@ -606,6 +636,12 @@ function printGrade(records, tier) {
       ` ${pct(g.exactShare).padStart(12)} ${(g.medianLog10Spreads === null ? '-' : `10^${g.medianLog10Spreads.toFixed(2)}`).padStart(15)}` +
       ` ${String(g.probes).padStart(8)} ${String(g.passes).padStart(8)}   ${g.seconds.median}/${g.seconds.p95}/${g.seconds.max}`);
   }
+  const four = d => (d?.median === null || d === undefined ? '-' : `${d.median}/${d.p95}/${d.p99}/${d.max}`);
+  console.log('');
+  console.log('per case, median/p95/p99/max      probes                     passes                 rounds           seconds');
+  for (const [name, g] of rows) {
+    console.log(`${name.padEnd(16)} ${four(g.perCase.probes).padStart(28)} ${four(g.perCase.passes).padStart(22)} ${four(g.perCase.rounds).padStart(18)}   ${four(g.seconds)}`);
+  }
   const wide = views.filter(v => { const g = grade(records.filter(r => r.view === v)); return !g.removed && !g.results.CRASH; });
   console.log('');
   console.log(`accurate: ${grade(records).removed} real spread(s) removed, ${grade(records).witnessesRemoved} rebuilt spread(s) removed (both must be 0)`);
@@ -616,6 +652,20 @@ function printGrade(records, tier) {
   for (const r of records.filter(x => x.broken).sort((a, b) => b.broken - a.broken).slice(0, 20)) {
     console.log(`  BROKEN ${r.id} ${r.view}: ${r.broken}, first ${r.brokenAt?.[0] || '?'}`);
   }
+  // What went wrong, by cause: one fix each.
+  const tally = (title, pairs) => {
+    if (!pairs.length) return;
+    const by = new Map();
+    for (const [cause, r] of pairs) by.set(cause, [...(by.get(cause) || []), r]);
+    console.log(title);
+    for (const [cause, rs] of [...by].sort((a, b) => b[1].length - a[1].length).slice(0, 25)) {
+      const eg = rs.slice().sort((a, b) => (a.seconds || 0) - (b.seconds || 0))[0];
+      console.log(`  ${String(rs.length).padStart(5)}  ${cause}   (fastest: ${eg.id} ${eg.view}, ${eg.seconds}s)`);
+    }
+  };
+  tally('a real spread removed at some step, whatever the result kept - case(s) by the first cause:', records.filter(r => r.lost?.length).map(r => [r.lost[0].cause, r]));
+  tally('broken proofs - case(s) by the line the first one broke on:', records.filter(r => r.brokenKind).map(r => [r.brokenKind, r]));
+  tally('not rebuilt - case(s) by why the search stopped:', records.filter(r => r.result === 'GAVE UP' || r.result === 'NO MATCH').map(r => [`${r.result}: ${(r.limits || []).join(', ') || r.stop}`, r]));
   console.log('closed team sheets: not graded yet');
   for (const r of records.filter(x => x.result === 'REMOVED' || x.result === 'CRASH')) {
     const lost = (r.pokemon || []).filter(p => !p.kept).map(p => `${p.id} ${p.species}`);
