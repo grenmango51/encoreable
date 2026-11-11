@@ -260,6 +260,9 @@ export async function inferSpreads({
   widest = false,
   spend = { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() },
   parallel = null,
+  // Each unknown set's first guess given outright, from every start: an
+  // experiment's (`npm run score -- --seed-truth`), never evidence.
+  seeded = null,
 }) {
   const options = { ...arguments[0], spend };
   // `budgetScale` multiplies every search limit at once - probes, backtracks,
@@ -276,7 +279,9 @@ export async function inferSpreads({
   const dex = Dex.forFormat(formatid);
   // `passes`: every evidence pass, the settles' and the guess picker's - the
   // work a round spends besides its rebuilds, counted as they are.
-  const work = { rounds: 0, rebuilds: 0, probes: 0, fallback: 0, backtracks: 0, dieBacktracks: 0, passes: 0 };
+  const work = { rounds: 0, rebuilds: 0, probes: 0, fallback: 0, backtracks: 0, dieBacktracks: 0, passes: 0, msRebuild: 0, msEvidence: 0 };
+  // Where the time went, in milliseconds: informative only, never compared.
+  const timed = async (key, promise) => { const t = Date.now(); try { return await promise; } finally { work[key] += Date.now() - t; } };
   const warnings = [];
   // Every limit that cut a search short, here or in a rebuild or an inference
   // this one ran: an answer reached past one is no proof that more would not
@@ -328,8 +333,9 @@ export async function inferSpreads({
   // Each unknown set's first guess, from either start: bulk and the stat its
   // nature boosts, or (`start: 'usage'`) the spread people run most with its
   // species and nature. A guess is only where the search begins.
-  const firstGuesses = from => sets.map((team, s) => team.map((set) => {
+  const firstGuesses = from => sets.map((team, s) => team.map((set, i) => {
     if (known[s]) return fullEvs(set.evs);
+    if (seeded?.[s]?.[i]) return fullEvs(seeded[s][i]);
     const max = exactHp.get(`p${s + 1}:${set.name || set.species}`);
     const base = dex.species.get(set.species || set.name).baseStats.hp;
     const hp = max ? max - base - 75 : undefined;
@@ -350,7 +356,7 @@ export async function inferSpreads({
     let afterFirst = null;
     let passes = 0;
     while (passes < 8 * S) {
-      const pass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, record: record && !first });
+      const pass = await timed('msEvidence', evidencePass({ inputLog, observed: lines, channel, knowledge, cache, record: record && !first }));
       passes++;
       work.passes++;
       let moved = false;
@@ -495,10 +501,10 @@ export async function inferSpreads({
     const rebuild = async (chosen, budget, { upTo = through, given = handed } = {}) => {
       spent++;
       spend.rebuilds--;
-      return counted(await reconstruct({
+      return counted(await timed('msRebuild', reconstruct({
         formatid, packedTeams: packOf(chosen), playerNames, observed: upTo, channel, exact: null, forced: built.forced,
         seed, pins: given, sampleSeed, maxProbes: budget.maxProbes, maxBacktracks: budget.maxBacktracks, threads, deadline, ...searchLimits,
-      }), true);
+      })), true);
     };
     // Asked only where there is more to try, so a no names the limit that
     // stopped the search.
@@ -863,11 +869,11 @@ export async function inferSpreads({
       let read = false;
       for (const [chosen, given, ex] of [[start, handed, null], ...(proven?.exact ? [[proven.picks, proven.pins, proven.exact]] : [])]) {
         if (read) break;
-        const b = counted(await reconstruct({
+        const b = counted(await timed('msRebuild', reconstruct({
           formatid, packedTeams: packOf(chosen), playerNames, observed: through, channel, exact: ex, forced: built.forced,
           seed, pins: given, sampleSeed, maxProbes: budgets[widest].maxProbes, maxBacktracks: budgets[widest].maxBacktracks, threads, deadline,
           ...searchLimits,
-        }), true, ex);
+        })), true, ex);
         read = b.report.complete || further(reach(b), [t, diff.index]);
       }
       if (!read) gap(mark, { turn: t, what: text, who: whoIn(text, by), reason: 'no evidence hook reads this line, and the fallback found a spread that reproduces it' }, true);
@@ -957,7 +963,7 @@ export async function inferSpreads({
     const packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
     const searchStart = Date.now();
     const resample = budgets[level].resample || 0;
-    built = counted(await reconstruct({
+    built = counted(await timed('msRebuild', reconstruct({
       formatid, packedTeams, playerNames, observed, channel, exact, forced: built?.forced ?? forced,
       seed: resample ? null : seed,
       pins: resample ? null : pins,
@@ -967,7 +973,7 @@ export async function inferSpreads({
       threads,
       deadline,
       ...searchLimits,
-    }), false, exact);
+    })), false, exact);
     const diff = built.report.diffs[0];
     const at = built.report.complete ? [Infinity, Infinity] : [diff?.turn ?? -1, diff?.index ?? -1];
     if (level > floor && !budgets[level].resample && reached && past(at, reached)) floor = level;
@@ -1015,7 +1021,7 @@ export async function inferSpreads({
       if (n === seq.length) {
         tries--;
         work.passes++;
-        const proof = await evidencePass({ inputLog: built.inputLog, observed: lines, channel, knowledge: cond, cache, exact: true });
+        const proof = await timed('msEvidence', evidencePass({ inputLog: built.inputLog, observed: lines, channel, knowledge: cond, cache, exact: true }));
         return proof.exact ? proof : null;
       }
       const [s, i] = seq[n];

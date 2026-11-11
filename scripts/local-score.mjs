@@ -201,7 +201,7 @@ function miscount(p, key) {
 }
 
 /** One battle from one view, graded. */
-async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, parallel = null } = {}) {
+async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, parallel = null, seedTruth = false } = {}) {
   const started = Date.now();
   const base = { id, view };
   try {
@@ -228,6 +228,7 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
     const inf = await inferSpreads({
       formatid, sets, known, playerNames: players.map(p => p.name), observed: replayed.channels[channel], channel,
       sampleSeed: 1, threads: 1, budgetScale: budget, usage, parallel,
+      ...(seedTruth ? { seeded: truth.map((team, s) => (known[s] ? null : team.map(set => set.evs || {}))) } : {}),
       ...(trace ? { onProgress: m => process.stderr.write(`[${id} ${view}] ${m}\n`) } : {}),
     });
     const pokemon = [];
@@ -271,6 +272,7 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
       ...base, result, sound, complete: inf.complete, limitHit, asSaved, stop: inf.stop, limits, pokemon,
       ...(wrongCount ? { error: `${wrongCount.id} ${wrongCount.species}: ${wrongCount.miscounted}` } : {}),
       work: { rounds: inf.work.rounds, rebuilds: inf.work.rebuilds, probes: inf.work.probes, passes: inf.work.passes ?? null },
+      ms: { rebuild: inf.work.msRebuild, evidence: inf.work.msEvidence },
       // Each proof a rebuild was handed that broke under its own dice and
       // choices: the evidence called a turn exact that the simulator plays
       // otherwise. It removes nothing, but it is a bug in what is handed on,
@@ -760,7 +762,7 @@ async function main() {
     cases = longestFirst(cases, timings);
     const budget = Number(opt('--budget', '1'));
     if (!(Number.isInteger(budget) && budget >= 1)) throw new Error('--budget <n>: a whole number, at least 1');
-    const job = { budget, trace: flag('--trace'), mimicDir };
+    const job = { budget, trace: flag('--trace'), mimicDir, seedTruth: flag('--seed-truth') };
     const hosts = opt('--hosts') ? opt('--hosts').split(/[\s,]+/).filter(Boolean) : null;
     if (hosts && !opt('--remote')) throw new Error('--hosts needs --remote <command>, {host} the machine');
     const logFile = opt('--log') ? path.resolve(opt('--log')) : null;
