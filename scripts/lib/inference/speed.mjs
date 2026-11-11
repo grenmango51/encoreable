@@ -841,7 +841,8 @@ export function attachSpeed(battle, {
     if (rebuilt && prefix.observedLine && !was) {
       for (const entry of eventSorts) {
         if (!entry.items) continue;
-        const hit = matched(entry).find(m => m.span.start <= prefix.cutoffAt && prefix.cutoffAt < m.span.end);
+        const ms = matched(entry);
+        const hit = ms.find(m => m.span.start <= prefix.cutoffAt && prefix.cutoffAt < m.span.end);
         if (!hit) continue;
         // P's handler is the one for the same effect as Q's - both Pokemon's
         // Perish Song counts, both Leftovers - or the one whose effect the
@@ -851,12 +852,19 @@ export function attachSpeed(battle, {
         const x = P && entry.items.find(it => it.rec === P
           && (entry.kind === 'eachEvent'
             || (it.effect && (it.effect === hit.item.effect || prefix.observedLine.includes(it.effect.name)))));
+        // And the replay's line is that handler's: the one it wrote first in
+        // the rebuild too, on whatever HP. A line naming P that something
+        // before the sort wrote - a status its last move brought on, which the
+        // rebuild's dice did not - says nothing of the sort's order.
+        const mine = x && ms.find(m => m.item === x);
+        const first = mine ? firstAt(mine.span.start) : -1;
+        const wrote = mine && first < view.length && view[first].at < mine.span.end ? battleLines([view[first].line])[0] : null;
         let later = false;
         for (const line of prefix.observedAfter) {
           if (ACTION_START.has(line.split('|')[1])) break;
           if (sameButHp(line, rebuilt)) { later = true; break; }
         }
-        if (x && later) eventRule(entry, x, hit.item);
+        if (x && later && wrote && sameButHp(wrote, prefix.observedLine)) eventRule(entry, x, hit.item);
         break;
       }
     }
