@@ -193,6 +193,18 @@ export async function playFuzz(recipe, players = recipe.ai.map(seed => new FuzzP
     await stream.write(`>start ${JSON.stringify({ formatid: FORMAT, seed: recipe.seed })}`);
     const battle = stream.battle;
     for (const player of players) player.battle = battle;
+    // A move a hidden disable turned into Struggle - Imprison's, in doubles - is
+    // recorded as `move struggle`, which the request it answered never offered,
+    // so that line would be refused on replay: the choice that was written is
+    // recorded in its place, as `reconstruct` does.
+    const written = {};
+    const recordInput = battle.inputLog.push;
+    battle.inputLog.push = function (line, ...rest) {
+      const m = /^>(p[1-4]) (.*)$/.exec(String(line));
+      const raw = m && written[m[1]];
+      const fixed = raw && /\bmove struggle\b/.test(m[2]) && !/\bstruggle\b/.test(raw) ? `>${m[1]} ${raw}` : line;
+      return recordInput.call(this, fixed, ...rest);
+    };
     // Install before >player: even gender rolls belong to the ordinal stream.
     const dice = traceOn(battle);
     const push = dice.push;
@@ -228,6 +240,7 @@ export async function playFuzz(recipe, players = recipe.ai.map(seed => new FuzzP
           };
           // A forced replacement is still part of the turn that fainted it.
           markDraws(battle, turn);
+          written[side.id] = ai.chosen;
           await stream.write(`>${side.id} ${ai.chosen}`);
           if (!side.choice.error) {
             choices.push({ turn, side: side.id, raw: ai.chosen, offered, choice: describeChoice(request, ai.chosen), ...ai.note });

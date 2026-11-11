@@ -447,7 +447,9 @@ function choiceFor(side, plan, state, notes) {
   if (request.teamPreview) {
     const bench = request.side.pokemon.map(p => identName(p.ident));
     // Illusion copies the last Pokemon brought that has not fainted, so one it
-    // was shown as goes last - unless it led.
+    // was shown as goes last - unless it led. Shown as two, the second stood
+    // before the first, which had fainted - or a switch moved them: their order
+    // is a hidden choice too, the one seen last first.
     const leads = side.active.length;
     const last = (state.disguises?.[sideId] || [])
       .filter(name => !state.reveal[sideId].slice(0, leads).includes(name))
@@ -468,12 +470,15 @@ function choiceFor(side, plan, state, notes) {
     const room = Math.max(0, state.sizes[sideId] - last.length - front.length);
     const pool = bench.map((_, i) => i).filter(i => !seen.includes(i) && !last.includes(i));
     const options = [];
+    const lastOrders = permutations(last.slice().reverse());
     for (const chosen of combinations(pool, Math.max(0, room - known.length))) {
-      for (const back of permutations([...known, ...chosen])) options.push({ back, chosen });
+      for (const back of permutations([...known, ...chosen])) {
+        for (const ends of lastOrders) options.push({ back, chosen, ends });
+      }
     }
-    const { back, chosen } = options.length > 1 ? options[state.nextVariantDigit(options.length, true)] : options[0];
+    const { back, chosen, ends } = options.length > 1 ? options[state.nextVariantDigit(options.length, true)] : options[0];
     for (const i of chosen) notes.push(`${sideId} brought a Pokemon that never appeared - assumed ${bench[i]}`);
-    const order = [...front, ...back, ...last].map(at => at + 1);
+    const order = [...front, ...back, ...ends].map(at => at + 1);
     return `team ${order.slice(0, state.sizes[sideId]).join(', ')}`;
   }
 
