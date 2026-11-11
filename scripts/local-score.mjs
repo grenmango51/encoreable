@@ -228,6 +228,7 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
     const inf = await inferSpreads({
       formatid, sets, known, playerNames: players.map(p => p.name), observed: replayed.channels[channel], channel,
       sampleSeed: 1, threads: 1, budgetScale: budget, usage, parallel,
+      truth: Object.fromEntries(truth.flatMap((team, s) => (known[s] ? [] : team.map((set, i) => [`p${s + 1}:${i}`, set.evs || {}])))),
       ...(trace ? { onProgress: m => process.stderr.write(`[${id} ${view}] ${m}\n`) } : {}),
     });
     const pokemon = [];
@@ -275,6 +276,9 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
       // choices: the evidence called a turn exact that the simulator plays
       // otherwise. It removes nothing, but it is a bug in what is handed on,
       // whatever the result.
+      // Each real spread a step removed on the way, whatever the result kept:
+      // the step, and the events that did it - the first time, of every start.
+      ...(inf.lost?.length ? { lost: inf.lost.filter((l, n, all) => all.findIndex(o => o.id === l.id) === n) } : {}),
       broken: (inf.warnings || []).length,
       ...(inf.warnings?.length ? { brokenAt: inf.warnings.slice(0, 3).map(w => `turn ${w.turn}: ${w.expected} / ${w.actual}`) } : {}),
       seconds: Number(((Date.now() - started) / 1000).toFixed(1)),
