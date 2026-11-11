@@ -277,8 +277,8 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
       // otherwise. It removes nothing, but it is a bug in what is handed on,
       // whatever the result.
       // Each real spread a step removed on the way, whatever the result kept:
-      // the step, and the events that did it.
-      ...(inf.lost?.length ? { lost: inf.lost } : {}),
+      // the step, and the events that did it - the first time, of every start.
+      ...(inf.lost?.length ? { lost: inf.lost.filter((l, n, all) => all.findIndex(o => o.id === l.id) === n) } : {}),
       broken: (inf.warnings || []).length,
       ...(inf.warnings?.length ? { brokenAt: inf.warnings.slice(0, 3).map(w => `turn ${w.turn}: ${w.expected} / ${w.actual}`) } : {}),
       seconds: Number(((Date.now() - started) / 1000).toFixed(1)),
