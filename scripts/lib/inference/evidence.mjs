@@ -239,9 +239,15 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
 
   const stream = new BattleStream({ keepAlive: true });
   const drain = (async () => { for await (const chunk of stream) { /* discard */ } })();
+  // The stream keeps what a hook throws to itself and leaves the battle
+  // stopped halfway through an action: thrown here instead, as what it is.
+  let thrown = null;
+  const pushError = stream.pushError;
+  stream.pushError = function (err, ...rest) { thrown ||= err; return pushError.call(this, err, ...rest); };
   let ctx = null;
   try {
     for (const line of lines) {
+      if (thrown) throw thrown;
       if (!ctx && /^>p[1-4] /.test(line)) {
         ctx = attachInference(stream.battle, { view, prefix, channel, knowledge, cache, record, exact });
       }
@@ -251,6 +257,7 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
       if (line.startsWith('>start')) install(stream.battle);
       if (ctx?.state.ended) break;
     }
+    if (thrown) throw thrown;
     if (!ctx) throw new Error('the input log makes no choices, so there is nothing to infer from');
     ctx.finish();
     if (exact) {
@@ -1027,7 +1034,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
               const tp = { pokemon: target, stats: {} };
               for (const r of hit.readers) {
                 const pokemon = r.who === 'source' ? source : target;
-                (r.who === 'source' ? sp : tp).stats[r.key] = depOf(byPokemon.get(pokemon), r.key).at(r.by === 'a' ? a : r.by === 'x' ? s[2] : d);
+                const dep = depOf(byPokemon.get(pokemon), r.key);
+                // The one more candidate has a value per source state; where its
+                // owner is left no spread at all there is none, and the stat is
+                // the scaffold's own.
+                (r.who === 'source' ? sp : tp).stats[r.key] = dep.at(r.by === 'a' ? a : r.by === 'x' ? (s ? s[2] : ownValue(dep)) : d);
               }
               if (t) { tp.maxhp = maxHp(T, t[0]); tp.hp = t[1]; }
               const patches = [sp, tp];
@@ -2875,15 +2886,20 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     if (state.ended) return origUpdate.call(this, eventid, target, ...rest);
     const ord = itemChecks++;
     const edge = new Map();
+    // The edge is found between 1 HP and the whole bar. A Pokemon knocked out
+    // is on neither side of it: what its item does at no HP is asked as well.
+    const out = new Map();
     for (const k of rec.chain ? rec.chain.keys() : rec.knKeys) {
       const M = maxHp(rec, KEY_HP[k]);
-      if (!edge.has(M)) edge.set(M, memo(`edge|${ord}|${rec.id}|${M}`, () => fireEdge(rec, M)));
+      if (edge.has(M)) continue;
+      edge.set(M, memo(`edge|${ord}|${rec.id}|${M}`, () => fireEdge(rec, M)));
+      out.set(M, memo(`edge0|${ord}|${rec.id}|${M}`, () => itemFires(rec, M, 0)));
     }
     // An edge of 0 or of the whole bar says nothing about HP.
     if ([...edge].every(([M, t]) => t === 0 || t === M)) return origUpdate.call(this, eventid, target, ...rest);
     const name = target.getItem().name;
     const gate = { same: true, gate: true, turn: battle.turn, what: `${name} on ${named(rec)}`, fired: null };
-    gate.allow = (M, h) => gate.fired === null || !edge.has(M) || (h <= edge.get(M)) === gate.fired;
+    gate.allow = (M, h) => gate.fired === null || !edge.has(M) || (h > 0 ? h <= edge.get(M) : out.get(M)) === gate.fired;
     rec.pending.push(gate);
     const held = target.item;
     try {
@@ -4098,6 +4114,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         // In the order they were applied: every HP event as the battle ran, then
         // the whole-path check, then speed order, which needs every turn's sort.
         orders: speedOrders.map(r => ({ fast: r.fast.id, slow: r.slow.id, tf: Array.from(r.tf), ts: Array.from(r.ts) })),
+        // The order the scaffold itself ran in: no evidence, only what a guess must keep for its dice to play again.
+        scaffoldOrders: speed.scaffold().map(r => ({ fast: r.fast.id, slow: r.slow.id, tf: Array.from(r.tf), ts: Array.from(r.ts) })),
         events: events.map(e => ({ ...e, ...unmark(e.what) })),
         checks: checks.map(c => ({ ...c, ...unmark(c.what) })),
         cutoff: prefix.cutoffAt === Infinity ? null : { turn: prefix.turn, observed: prefix.observedLine },
