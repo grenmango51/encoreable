@@ -489,6 +489,7 @@ export function attachSpeed(battle, {
     return { fast: byId.get(fx.owner), slow: byId.get(fy.owner), tf: fx.table, ts: fy.table, turn, what };
   };
 
+  let scaffoldOrders = [];
   function speedRules() {
     const upTo = Math.min(prefix.cutoffAt, battle.log.length);
     const firstAt = (at) => {
@@ -881,6 +882,37 @@ export function attachSpeed(battle, {
         break;
       }
     }
+    // The order the rebuild itself ran in, through the cutoff: every action and
+    // every handler that ran there against each one its sort had after it at
+    // the same order and priority, proved or not. Never evidence - an action
+    // nobody saw may have been another - but a guess that keeps these sorts
+    // the rebuild's dice and choices play the same way again (`scaffold`).
+    scaffoldOrders = [];
+    for (const ex of executed) {
+      const S = ex.sort;
+      if (!S || ex.end > upTo || !ex.pokemon) continue;
+      const at = S.list.findIndex(item => item.action === ex.action);
+      if (at < 0) continue;
+      const x = S.list[at];
+      for (const y of S.list.slice(at + 1)) {
+        if (!y.pokemon || y.pokemon === x.pokemon || y.order !== x.order || y.priority !== x.priority) continue;
+        const X = byPokemon.get(x.pokemon);
+        const Y = byPokemon.get(y.pokemon);
+        const rule = X && Y ? ruleOf(X, Y, S.speeds, S.turn, 'the rebuild ran them so') : null;
+        if (rule && rule.fast !== rule.slow) scaffoldOrders.push(rule);
+      }
+    }
+    for (const entry of eventSorts) {
+      if (!entry.items) continue;
+      for (const { span, item: x } of matched(entry)) {
+        if (span.end > upTo || !x.rec) continue;
+        for (const y of entry.items.slice(entry.items.indexOf(x) + 1)) {
+          if (!y.rec || y.rec === x.rec || y.order !== x.order || y.priority !== x.priority) continue;
+          const rule = ruleOf(x.rec, y.rec, entry.speeds, entry.turn, 'the rebuild ran them so');
+          if (rule && rule.fast !== rule.slow) scaffoldOrders.push(rule);
+        }
+      }
+    }
     return rules;
   }
 
@@ -935,5 +967,5 @@ export function attachSpeed(battle, {
     }
   }
 
-  return { rules: speedRules, apply: applySpeed };
+  return { rules: speedRules, apply: applySpeed, scaffold: () => scaffoldOrders };
 }

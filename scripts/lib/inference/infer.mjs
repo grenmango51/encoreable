@@ -343,7 +343,7 @@ export async function inferSpreads({
   // tables: applied in every settle after, the guess picker's too, so a pin
   // on one Speed moves the other.
   const orders = new Map();
-  const settle = async (inputLog, knowledge, cache, record = false, learn = false) => {
+  const settle = async (inputLog, knowledge, cache, record = false, learn = false, kept = []) => {
     const counts = () => new Map([...knowledge].map(([id, kn]) => [id, spreadsLeft(kn)]));
     const initial = record ? counts() : null;
     let first = null;
@@ -356,7 +356,7 @@ export async function inferSpreads({
       let moved = false;
       for (const r of pass.recs) moved = intersectKnowledge(knowledge.get(r.id), r.keys, r.flat, r.ties) || moved;
       if (learn) for (const o of pass.orders || []) orders.set(`${o.fast}|${o.slow}|${o.tf}|${o.ts}`, o);
-      moved = orderSpeeds(knowledge, [...orders.values()]) || moved;
+      moved = orderSpeeds(knowledge, [...orders.values(), ...kept]) || moved;
       for (const kn of knowledge.values()) moved = tighten(kn) || moved;
       if (!first) {
         first = pass;
@@ -369,6 +369,7 @@ export async function inferSpreads({
       events: first.events,
       checks: first.checks,
       cutoff: first.cutoff,
+      scaffoldOrders: first.scaffoldOrders || [],
       seen: new Set(first.recs.filter(r => r.seen).map(r => r.id)),
       lent: new Map(first.recs.map(r => [r.id, r.lent || []])),
       initial,
@@ -984,7 +985,7 @@ export async function inferSpreads({
     const evidenceStart = Date.now();
     const passesBefore = work.passes;
     evidenceTurn = Math.max(evidenceTurn, diff?.turn ?? 0);
-    const { seen, lent: lentNow, passes: read } = await settle(built.inputLog, knowledge, cache, false, true);
+    const { seen, lent: lentNow, passes: read, scaffoldOrders } = await settle(built.inputLog, knowledge, cache, false, true);
     lent = lentNow;
 
     // New guesses, chosen together. Each Pokemon is pinned before the next is
@@ -1037,7 +1038,7 @@ export async function inferSpreads({
         pinned.keys.fill(0);
         pinned.keys[keyOf(first.hp, first.def, first.spd)] = 1;
         tries--;
-        await settle(built.inputLog, keyed, cache);
+        await settle(built.inputLog, keyed, cache, false, false, keep);
         if (blocks(keyed, n)) continue;
         const pick = closestSpread(pinned, aim);
         if (!pick || tried.some(t => sameSpread(t, pick))) continue;
@@ -1046,7 +1047,7 @@ export async function inferSpreads({
         pinKnowledge(narrowed.get(id), pick);
         if (n < seq.length - 1) {
           tries--;
-          await settle(built.inputLog, narrowed, cache);
+          await settle(built.inputLog, narrowed, cache, false, false, keep);
           if (blocks(narrowed, n)) continue;
         }
         const found = await choose(n + 1, narrowed);
@@ -1054,7 +1055,22 @@ export async function inferSpreads({
       }
       return null;
     };
-    let proof = await choose(0, cloneKnowledge(knowledge));
+    // A guess that sorts every Pokemon as this rebuild did plays its turns
+    // again on the dice handed on; one that flips an order nobody proved - an
+    // action its Pokemon never showed - breaks the proof it is handed. So the
+    // guesses are chosen inside the rebuild's own orders, where those leave
+    // every Pokemon a spread: never evidence, only where the next guess looks.
+    let keep = scaffoldOrders;
+    const within = () => {
+      const cond = cloneKnowledge(knowledge);
+      if (keep.length) {
+        orderSpeeds(cond, keep);
+        for (const kn of cond.values()) tighten(kn);
+        if ([...cond.values()].some(emptied)) { keep = []; return cloneKnowledge(knowledge); }
+      }
+      return cond;
+    };
+    let proof = await choose(0, within());
     // Fail first: a Pokemon that pins before it kept leaving with nothing is
     // pinned first, and the search runs again - its pin then narrows the
     // others to what fits beside it, where their nearest spreads alone did
@@ -1069,7 +1085,7 @@ export async function inferSpreads({
       moved.add(key);
       blocked.clear();
       seq.unshift(...seq.splice(seq.findIndex(([s, i]) => `${s}:${i}` === key), 1));
-      proof = await choose(0, cloneKnowledge(knowledge));
+      proof = await choose(0, within());
     }
     exact = proof?.exact || null;
     pins = proof ? handOn(built, proof.rolls, proof.coupled) : null;
