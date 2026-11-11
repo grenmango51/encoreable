@@ -228,7 +228,7 @@ async function replayRaw(lines) {
  * Replay one input log and remove every spread the verified part of it rules
  * out. `knowledge` is read, never written; the caller intersects the result.
  */
-export async function evidencePass({ inputLog, observed, channel, knowledge, cache, record, exact = false }) {
+export async function evidencePass({ inputLog, observed, channel, knowledge, cache, record, exact = false, truth = null }) {
   const lines = (Array.isArray(inputLog) ? inputLog : String(inputLog).split('\n'))
     .map(l => String(l).trimEnd())
     .filter(l => l.startsWith('>'));
@@ -243,7 +243,7 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
   try {
     for (const line of lines) {
       if (!ctx && /^>p[1-4] /.test(line)) {
-        ctx = attachInference(stream.battle, { view, prefix, channel, knowledge, cache, record, exact });
+        ctx = attachInference(stream.battle, { view, prefix, channel, knowledge, cache, record, exact, truth });
       }
       await stream.write(line);
       // Draw ordinals count from installation, and `playThrough` installs right
@@ -414,7 +414,7 @@ function snapshot(battle, extra = []) {
   };
 }
 
-function attachInference(battle, { view, prefix, channel, knowledge, cache, record, exact = false }) {
+function attachInference(battle, { view, prefix, channel, knowledge, cache, record, exact = false, truth = null }) {
   const st = install(battle);
   const actions = battle.actions;
   // `coupled`: the first turn with a Pain Split between two Pokemon both shown
@@ -589,7 +589,15 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   const measure = (rec) => {
     const keys = rec.chain ? rec.chain.keys() : rec.knKeys;
     const { values, grids } = valuesOf(keys, rec.flat, rec.kn.spent, rec.ties);
-    return { count: countOf(rec), keyCount: rec.chain ? rec.chain.size : rec.knKeys.length, stats: rangesOfValues(values), grids };
+    return { count: countOf(rec), keyCount: rec.chain ? rec.chain.size : rec.knKeys.length, stats: rangesOfValues(values), grids, real: holdsReal(rec) };
+  };
+  // Whether a Pokemon's real spread, where a grader gave it (`truth`), is
+  // still among what the pass keeps for it - ties aside. Only ever reported.
+  const holdsReal = (rec) => {
+    const t = truth?.[rec.id];
+    if (!t) return null;
+    const k = (t.hp * SPAN + t.def) * SPAN + t.spd;
+    return (rec.chain ? rec.chain.has(k) : rec.knKeys.includes(k)) && ['atk', 'spa', 'spe'].every(x => !!rec.flat[x][t[x]]);
   };
   const sameRange = (a, b) => (a === null ? b === null : b !== null && a.min === b.min && a.max === b.max);
   const sameGrid = (a, b) => a.every((v, i) => v === b[i]);
@@ -605,6 +613,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       after: after.count,
       stats: after.stats,
       narrowed: STAT_IDS.filter(s => !sameRange(before.stats[s], after.stats[s])),
+      ...(before.real && !after.real ? { lostReal: true } : {}),
       ...(paired ? { grids: { def: packBits(after.grids.def), spd: packBits(after.grids.spd) } } : {}),
     };
   }
@@ -4102,7 +4111,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         })),
         // In the order they were applied: every HP event as the battle ran, then
         // the whole-path check, then speed order, which needs every turn's sort.
-        orders: speedOrders.map(r => ({ fast: r.fast.id, slow: r.slow.id, tf: Array.from(r.tf), ts: Array.from(r.ts) })),
+        orders: speedOrders.map(r => ({ fast: r.fast.id, slow: r.slow.id, tf: Array.from(r.tf), ts: Array.from(r.ts), turn: r.turn, what: r.what })),
         // The order the scaffold itself ran in: no evidence, only what a guess must keep for its dice to play again.
         scaffoldOrders: speed.scaffold().map(r => ({ fast: r.fast.id, slow: r.slow.id, tf: Array.from(r.tf), ts: Array.from(r.ts) })),
         events: events.map(e => ({ ...e, ...unmark(e.what) })),
