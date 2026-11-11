@@ -13,10 +13,11 @@
  *   npm run score -- --tier full --budget 10  every search limit ten times as wide: what the limits cost
  *   npm run score -- --only fuzz:220 --views p2@p1 --trace   every step of the search, on stderr: why a case gave up
  *   npm run score -- --mimic-dir <dir>      every game in <dir> as a mimic battle, not the benchmark (a corpus sweep)
+ *   npm run score -- --tier problem --mimic-dir <dir> [--why REMOVED,CRASH]   the sweep's problem games (`fixtures/problems.js`)
  *   npm run score -- --mimic-dir a,b,c --log <file>   one queue over several folders, in that order, each record
  *                                           added to <file> as it ends: run again to go on from where it stopped
  *
- * Flags: --tier quick|fast|full --timings <run.json> --only <id>[,<id>...] --views <v>[,<v>...] --threads <n> --budget <n>
+ * Flags: --tier quick|fast|full|problem --why <reason>[,<reason>...] --timings <run.json> --only <id>[,<id>...] --views <v>[,<v>...] --threads <n> --budget <n>
  *        --trace --mimic-dir <dir>[,<dir>...] --log <file> --hosts <a,b,...> --remote <command> --out <file> --merge <file>...
  *        --baseline <file> --accept
  *
@@ -76,6 +77,7 @@ const require = createRequire(import.meta.url);
 const { BattleStream, Dex, Teams } = require('pokemon-showdown');
 const { extractChannelMessages } = require('pokemon-showdown/dist/sim/battle.js');
 const { BATTLES } = require('./fixtures/benchmark.js');
+const { GAMES: PROBLEMS } = require('./fixtures/problems.js');
 
 const ROOT = process.cwd();
 const WORKER_ROLE = 'score-worker';
@@ -808,8 +810,13 @@ async function main() {
     run = { ...parts[0], shard: null, records: cases.map(c => have.get(keyOf(c)) || { ...c, result: 'CRASH', error: 'no share carried this case' }) };
   } else {
     const tier = opt('--tier', 'quick');
-    if (!['quick', 'fast', 'full'].includes(tier)) throw new Error('--tier quick|fast|full');
-    const only = opt('--only') ? opt('--only').split(',') : null;
+    if (!['quick', 'fast', 'full', 'problem'].includes(tier)) throw new Error('--tier quick|fast|full|problem');
+    // The problem tier: the sweep's problem games and its control, from the
+    // folder that holds them; `--why` keeps those listed for one of its reasons.
+    const why = opt('--why') ? opt('--why').split(',') : null;
+    if (tier === 'problem' && !opt('--mimic-dir')) throw new Error('--tier problem needs --mimic-dir <folder>: the games are not in the repo');
+    const listed = tier === 'problem' ? PROBLEMS.filter(([, w]) => !why || w.split(',').some(x => why.includes(x))).map(([id]) => `mimic:${id}`) : null;
+    const only = opt('--only') ? opt('--only').split(',') : listed;
     const views = opt('--views') ? [...new Set(opt('--views').split(','))] : Object.keys(VIEWS);
     for (const v of views) if (!VIEWS[v]) throw new Error(`no view ${v} - have ${Object.keys(VIEWS).join(', ')}`);
     const mimicDir = opt('--mimic-dir') ? opt('--mimic-dir').split(',').map(d => path.resolve(d)).join(',') : null;
