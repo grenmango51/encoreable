@@ -239,9 +239,15 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
 
   const stream = new BattleStream({ keepAlive: true });
   const drain = (async () => { for await (const chunk of stream) { /* discard */ } })();
+  // The stream keeps what a hook throws to itself and leaves the battle
+  // stopped halfway through an action: thrown here instead, as what it is.
+  let thrown = null;
+  const pushError = stream.pushError;
+  stream.pushError = function (err, ...rest) { thrown ||= err; return pushError.call(this, err, ...rest); };
   let ctx = null;
   try {
     for (const line of lines) {
+      if (thrown) throw thrown;
       if (!ctx && /^>p[1-4] /.test(line)) {
         ctx = attachInference(stream.battle, { view, prefix, channel, knowledge, cache, record, exact });
       }
@@ -251,6 +257,7 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
       if (line.startsWith('>start')) install(stream.battle);
       if (ctx?.state.ended) break;
     }
+    if (thrown) throw thrown;
     if (!ctx) throw new Error('the input log makes no choices, so there is nothing to infer from');
     ctx.finish();
     if (exact) {
@@ -1027,7 +1034,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
               const tp = { pokemon: target, stats: {} };
               for (const r of hit.readers) {
                 const pokemon = r.who === 'source' ? source : target;
-                (r.who === 'source' ? sp : tp).stats[r.key] = depOf(byPokemon.get(pokemon), r.key).at(r.by === 'a' ? a : r.by === 'x' ? s[2] : d);
+                const dep = depOf(byPokemon.get(pokemon), r.key);
+                // The one more candidate has a value per source state; where its
+                // owner is left no spread at all there is none, and the stat is
+                // the scaffold's own.
+                (r.who === 'source' ? sp : tp).stats[r.key] = dep.at(r.by === 'a' ? a : r.by === 'x' ? (s ? s[2] : ownValue(dep)) : d);
               }
               if (t) { tp.maxhp = maxHp(T, t[0]); tp.hp = t[1]; }
               const patches = [sp, tp];
