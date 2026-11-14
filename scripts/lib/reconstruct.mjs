@@ -249,8 +249,9 @@ function carriedInto(plans, t) {
 }
 
 /**
- * Note in `out` each turn (`at.k`) on which a move reads the set of a
- * Pokemon not on the field: what Beat Up reads of each Pokemon it calls on.
+ * Note in `out` each turn (`at.k`) on which a move or Illusion reads who stands
+ * in the back of the party: Beat Up's allies, or `BeforeSwitchIn` choosing an
+ * Illusion user's disguise from the last unfainted slot.
  */
 function watchParty(battle, at, out) {
   for (const side of battle.sides) {
@@ -267,6 +268,15 @@ function watchParty(battle, at, out) {
       });
     }
   }
+  const origRunEvent = battle.runEvent;
+  battle.runEvent = function (eventid, target, ...rest) {
+    const res = origRunEvent.call(this, eventid, target, ...rest);
+    if (eventid === 'BeforeSwitchIn' && at.k > 0
+      && (target?.ability === 'illusion' || target?.baseAbility === 'illusion') && !out.includes(at.k)) {
+      out.push(at.k);
+    }
+    return res;
+  };
 }
 
 /** Every way to take `k` of `items` (as many as there are, if fewer), the first ones first. */
@@ -485,10 +495,20 @@ function choiceFor(side, plan, state, notes) {
     const room = Math.max(0, state.sizes[sideId] - last.length - front.length);
     const pool = bench.map((_, i) => i).filter(i => !seen.includes(i) && !last.includes(i));
     const options = [];
+    const seenOrders = new Set();
+    const addOrder = (back, chosen, ends) => {
+      const key = [...back, ...ends].join(',');
+      if (seenOrders.has(key)) return;
+      seenOrders.add(key);
+      options.push({ back, chosen, ends });
+    };
     const lastOrders = permutations(last.slice().reverse());
     for (const chosen of combinations(pool, Math.max(0, room - known.length))) {
       for (const back of permutations([...known, ...chosen])) {
-        for (const ends of lastOrders) options.push({ back, chosen, ends });
+        for (const ends of lastOrders) addOrder(back, chosen, ends);
+      }
+      if (last.length) {
+        for (const full of permutations([...known, ...chosen, ...last])) addOrder(full, chosen, []);
       }
     }
     const { back, chosen, ends } = options.length > 1 ? options[state.nextVariantDigit(options.length, true)] : options[0];

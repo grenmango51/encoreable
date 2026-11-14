@@ -224,6 +224,7 @@ const SWEPT = [
   'mimic:gen9championsvgc2026regmc-2704181244', // 2026-10-25: a guess chosen outside scaffoldOrders ending the proof before the turn whose order it reversed
   'mimic:gen9championsvgc2026regmc-2707833650', // 2026-11-01: a Pokemon revived onto the bench by Revival Blessing and sent in later in the same turn
   'mimic:gen9championsvgc2026regmcbo3-2710347095', // 2026-11-07: an Encored Electro Shot carrying the hidden choice's target into the execution turn
+  'mimic:gen9championsvgc2026regmcbo3-2708420838', // 2026-11-03: Zoroark switching in for a lead that moves to the back slot Illusion copies
 ];
 
 const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));
