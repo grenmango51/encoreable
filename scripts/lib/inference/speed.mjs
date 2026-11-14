@@ -890,7 +890,7 @@ export function attachSpeed(battle, {
     scaffoldOrders = [];
     for (const ex of executed) {
       const S = ex.sort;
-      if (!S || ex.end > upTo || !ex.pokemon) continue;
+      if (!S || ex.start >= upTo || ex.end > upTo || !ex.pokemon) continue;
       const at = S.list.findIndex(item => item.action === ex.action);
       if (at < 0) continue;
       const x = S.list[at];
@@ -905,7 +905,7 @@ export function attachSpeed(battle, {
     for (const entry of eventSorts) {
       if (!entry.items) continue;
       for (const { span, item: x } of matched(entry)) {
-        if (span.end > upTo || !x.rec) continue;
+        if (span.start >= upTo || span.end > upTo || !x.rec) continue;
         for (const y of entry.items.slice(entry.items.indexOf(x) + 1)) {
           if (!y.rec || y.rec === x.rec || y.order !== x.order || y.priority !== x.priority) continue;
           const rule = ruleOf(x.rec, y.rec, entry.speeds, entry.turn, 'the rebuild ran them so');
