@@ -968,16 +968,24 @@ export function attachSpeed(battle, {
         // replay's line names; an each-Pokemon pass has one item per Pokemon
         // and no effect to name.
         const P = whose(prefix.observedLine);
-        const x = P && entry.items.find(it => it.rec === P
-          && (entry.kind === 'eachEvent'
-            || (it.effect && (it.effect === hit.item.effect || prefix.observedLine.includes(it.effect.name)))));
         // And the replay's line is that handler's: the one it wrote first in
-        // the rebuild too, on whatever HP. A line naming P that something
-        // before the sort wrote - a status its last move brought on, which the
-        // rebuild's dice did not - says nothing of the sort's order.
-        const mine = x && ms.find(m => m.item === x);
-        const first = mine ? firstAt(mine.span.start) : -1;
-        const wrote = mine && first < view.length && view[first].at < mine.span.end ? battleLines([view[first].line])[0] : null;
+        // the rebuild too, after the cutoff, on whatever HP. A Pokemon with
+        // both Grassy Terrain and Leftovers has two handlers in `Residual`, so
+        // match the span after the cutoff whose own first line agrees with
+        // `observedLine` rather than taking its first item in `entry.items`.
+        const wroteOf = (m) => {
+          const first = firstAt(m.span.start);
+          return first < view.length && view[first].at < m.span.end ? battleLines([view[first].line])[0] : null;
+        };
+        const mine = P && ms.find((m) => {
+          const it = m.item;
+          if (it.rec !== P || m.span.start <= prefix.cutoffAt) return false;
+          if (!(entry.kind === 'eachEvent'
+            || (it.effect && (it.effect === hit.item.effect || prefix.observedLine.includes(it.effect.name))))) return false;
+          const wrote = wroteOf(m);
+          return !!wrote && sameButHp(wrote, prefix.observedLine);
+        });
+        const x = mine?.item;
         // Q's line later in the replay: the rebuild's own but for the HP, or
         // one of the same kind that names Q first and Q's effect as its
         // source - what a handler prints can hang on a die, as which foe's
@@ -996,7 +1004,7 @@ export function attachSpeed(battle, {
           if (ACTION_START.has(line.split('|')[1])) break;
           if (fromQ(line)) { later = true; break; }
         }
-        if (x && mine && mine.span.start > prefix.cutoffAt && wrote && sameButHp(wrote, prefix.observedLine)) {
+        if (x) {
           if (later) eventRule(entry, x, hit.item);
           for (const m of ms.slice(0, ms.indexOf(hit))) {
             if (m.item.rec && shownIn(m.span)) eventRule(entry, m.item, x);

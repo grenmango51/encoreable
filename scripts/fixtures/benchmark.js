@@ -227,6 +227,7 @@ const SWEPT = [
   'mimic:gen9championsvgc2026regmcbo3-2708420838', // 2026-11-03: Zoroark switching in for a lead that moves to the back slot Illusion copies
   'mimic:gen9championsvgc2026regmcbo3-2705100409', // 2026-10-26: an earlier draw shifting a same-turn pin onto Sylveon's burn roll
   'mimic:gen9championsvgc2026regmcbo3-2696353204', // 2026-10-11: a flinched Indeedee-F whose unseen Trick Room needs probes left after Rock Slide's dice settle
+  'mimic:gen9championsvgc2026regmcbo3-2707163383', // 2026-10-31: Archaludon's Leftovers matched past its earlier Grassy Terrain heal at a Residual cutoff
 ];
 
 const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));
