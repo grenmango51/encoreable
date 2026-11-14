@@ -591,7 +591,12 @@ function forcedEnding(segment, sides) {
 
 /** The lines a raw log slice shows on one channel. */
 function onChannel(raw, channel) {
-  return extractChannelMessages(raw.join('\n'), [channel])[channel];
+  // A slice cut mid-way through a 3-line `|split|` triplet has not written
+  // that line yet; `extractChannelMessages` would emit the partial header.
+  const n = raw.length;
+  const end = /^\|split\|p[1-4]$/.test(raw[n - 1] || '') ? n - 1
+    : /^\|split\|p[1-4]$/.test(raw[n - 2] || '') ? n - 2 : n;
+  return extractChannelMessages(raw.slice(0, end).join('\n'), [channel])[channel];
 }
 
 // ------------------------------------------------- HP displays and dry runs

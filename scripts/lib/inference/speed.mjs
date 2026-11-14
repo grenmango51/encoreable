@@ -255,6 +255,7 @@ export function attachSpeed(battle, {
   let speedUpdates = 0;
   for (const rec of recs) {
     const p = rec.pokemon;
+    rec.cachedSpeed = memo(`init|${rec.id}`, () => speedsOf(rec, () => (p.isActive ? p.getActionSpeed() : p.storedStats.spe)));
     const setSpecies = p.setSpecies;
     override(p, 'setSpecies', function (...args) {
       const out = setSpecies.apply(this, args);
@@ -655,9 +656,19 @@ export function attachSpeed(battle, {
     // A sort a handler made, read off what the other order would have
     // printed. The run in the sort's own order must print what the handler
     // printed. Then, at the first line where the run with a pair swapped
-    // prints something else, the replay showing the handler's own line proves
-    // the pair's order, and the replay showing the swapped run's line there,
-    // at the cutoff, proves the other.
+    // prints something else - or where one ends and the other prints on - the
+    // replay showing the handler's own continuation proves the pair's order,
+    // and the replay showing the swapped run's at the cutoff proves the other.
+    const hardOf = (raw, base) => shownOf(raw, base)
+      .map(e => ({ line: battleLines([e.line])[0], at: e.at }))
+      .filter(e => e.line !== undefined && e.line.split('|')[1] !== 'player');
+    const nextAfter = (at) => {
+      for (let i = firstAt(at); i < view.length; i++) {
+        const line = battleLines([view[i].line])[0];
+        if (line !== undefined && line.split('|')[1] !== 'player') return { line, at: view[i].at };
+      }
+      return null;
+    };
     for (const read of handlerSorts) {
       const { frame, runs } = read;
       if (frame.logAt === undefined || frame.logEnd === undefined || frame.logAt > upTo) continue;
@@ -666,19 +677,34 @@ export function attachSpeed(battle, {
         note(`${read.name}'s order`, 'running the handler again did not print what it printed, so the order it sorted was not used');
         continue;
       }
-      const mine = shownOf(runs.sorted, frame.logAt);
+      const mine = hardOf(runs.sorted, frame.logAt);
+      const after = nextAfter(frame.logEnd);
       for (const [k, { X, Y }] of read.pairs.entries()) {
-        const theirs = runs.swapped[k] && shownOf(runs.swapped[k], frame.logAt);
+        const theirs = runs.swapped[k] && hardOf(runs.swapped[k], frame.logAt);
         if (!theirs) continue;
         let j = 0;
         while (j < mine.length && j < theirs.length && sameButHp(mine[j].line, theirs[j].line)) j++;
-        if (j >= mine.length || j >= theirs.length) continue;
+        if (j >= mine.length && j >= theirs.length) continue;
+        if (j > 0 && mine[j - 1].at >= upTo) continue;
         const what = (P, Q) => `${label(P)} came before ${label(Q)} in ${read.name}'s order`;
+        const replayed = line => !!prefix.observedLine && sameButHp(line, prefix.observedLine);
         let rule = null;
-        if (mine[j].at < upTo) rule = ruleOf(X, Y, read.speeds, read.turn, what(X, Y));
-        else if (mine[j].at === prefix.cutoffAt && prefix.observedLine) {
-          const replayed = line => sameButHp(battleLines([line])[0], prefix.observedLine);
-          if (replayed(theirs[j].line) && !replayed(mine[j].line)) rule = ruleOf(Y, X, read.speeds, read.turn, what(Y, X));
+        if (j < mine.length && j < theirs.length) {
+          if (mine[j].at < upTo) rule = ruleOf(X, Y, read.speeds, read.turn, what(X, Y));
+          else if (mine[j].at === prefix.cutoffAt && replayed(theirs[j].line) && !replayed(mine[j].line)) {
+            rule = ruleOf(Y, X, read.speeds, read.turn, what(Y, X));
+          }
+        } else if (j === mine.length) {
+          if (frame.logEnd < upTo && after && after.at < upTo && !sameButHp(theirs[j].line, after.line)) {
+            rule = ruleOf(X, Y, read.speeds, read.turn, what(X, Y));
+          } else if (frame.logEnd <= prefix.cutoffAt && (!after || after.at === prefix.cutoffAt)
+            && replayed(theirs[j].line) && !(after && replayed(after.line))) {
+            rule = ruleOf(Y, X, read.speeds, read.turn, what(Y, X));
+          }
+        } else if (mine[j].at < upTo) {
+          rule = ruleOf(X, Y, read.speeds, read.turn, what(X, Y));
+        } else if (mine[j].at === prefix.cutoffAt && after && replayed(after.line) && !replayed(mine[j].line)) {
+          rule = ruleOf(Y, X, read.speeds, read.turn, what(Y, X));
         }
         if (rule) rules.push(rule);
       }

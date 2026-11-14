@@ -1040,10 +1040,14 @@ export async function inferSpreads({
     // sample its way into a dead end there, along with the dice that rebuild
     // them, so it does not search them at all. A Pokemon the log never showed
     // keeps its guess: nothing about it can be wrong yet.
+    const ordered = new Set([...orders.values()].flatMap(o => [o.fast, o.slow]));
     const order = [];
     for (const [s, team] of sets.entries()) {
       if (known[s]) continue;
-      for (const i of team.keys()) if (seen.has(`p${s + 1}:${i}`)) order.push([s, i]);
+      for (const i of team.keys()) {
+        const id = `p${s + 1}:${i}`;
+        if (seen.has(id) || ordered.has(id) || !containsSpread(knowledge.get(id), picks[s][i])) order.push([s, i]);
+      }
     }
     let next = picks.map(team => team.map(e => ({ ...e })));
     const emptied = kn => !kn.keys.includes(1) || FLAT.some(x => !kn.dom[x].includes(1));
