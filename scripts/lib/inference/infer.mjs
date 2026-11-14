@@ -1102,33 +1102,49 @@ export async function inferSpreads({
     // again on the dice handed on; one that flips an order nobody proved - an
     // action its Pokemon never showed - breaks the proof it is handed. So the
     // guesses are chosen inside the rebuild's own orders, where those leave
-    // every Pokemon a spread: never evidence, only where the next guess looks.
+    // every Pokemon a spread and keep what the fallback held: never evidence,
+    // only where the next guess looks, and dropped once they trap the guess in
+    // place or leave no joint proof.
     let keep = scaffoldOrders;
     const within = () => {
       const cond = cloneKnowledge(knowledge);
       if (keep.length) {
         orderSpeeds(cond, keep);
         for (const kn of cond.values()) tighten(kn);
-        if ([...cond.values()].some(emptied)) { keep = []; return cloneKnowledge(knowledge); }
+        const losesHeld = [...held].some(([id, sp]) => cond.has(id) && !containsSpread(cond.get(id), sp));
+        if (losesHeld || [...cond.values()].some(emptied)) { keep = []; return cloneKnowledge(knowledge); }
       }
       return cond;
     };
-    let proof = await choose(0, within());
-    // Fail first: a Pokemon that pins before it kept leaving with nothing is
-    // pinned first, and the search runs again - its pin then narrows the
-    // others to what fits beside it, where their nearest spreads alone did
-    // not. A drain ties the attacker's HP to the damage its target took, and
-    // the target picked first can rule out every spread near the attacker's.
-    // Each Pokemon moves to the front once; the order changes which spreads
-    // are tried first, never which survive.
-    const moved = new Set();
-    while (!proof && tries > 0) {
-      const key = [...blocked].filter(([k]) => !moved.has(k)).sort((a, b) => b[1] - a[1])[0]?.[0];
-      if (key === undefined) break;
-      moved.add(key);
+    const pickGuesses = async () => {
+      let found = await choose(0, within());
+      // Fail first: a Pokemon that pins before it kept leaving with nothing is
+      // pinned first, and the search runs again - its pin then narrows the
+      // others to what fits beside it, where their nearest spreads alone did
+      // not. A drain ties the attacker's HP to the damage its target took, and
+      // the target picked first can rule out every spread near the attacker's.
+      // Each Pokemon moves to the front once; the order changes which spreads
+      // are tried first, never which survive.
+      const moved = new Set();
+      while (!found && tries > 0) {
+        const key = [...blocked].filter(([k]) => !moved.has(k)).sort((a, b) => b[1] - a[1])[0]?.[0];
+        if (key === undefined) break;
+        moved.add(key);
+        blocked.clear();
+        seq.unshift(...seq.splice(seq.findIndex(([s, i]) => `${s}:${i}` === key), 1));
+        found = await choose(0, within());
+      }
+      return found;
+    };
+    let proof = await pickGuesses();
+    const isUnchanged = () => next.every((team, s) => team.every((e, i) => sameSpread(e, picks[s][i])));
+    if (keep.length && (!proof || (isUnchanged() && (failed.has(markOf(diff)) || !built.report.limits.length)))) {
+      keep = [];
+      next = picks.map(team => team.map(e => ({ ...e })));
+      tries = 32 * S * W;
+      seq.splice(0, seq.length, ...order);
       blocked.clear();
-      seq.unshift(...seq.splice(seq.findIndex(([s, i]) => `${s}:${i}` === key), 1));
-      proof = await choose(0, within());
+      proof = await pickGuesses();
     }
     exact = proof?.exact || null;
     pins = proof ? handOn(built, proof.rolls, proof.coupled) : null;
