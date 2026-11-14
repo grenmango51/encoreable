@@ -1070,6 +1070,7 @@ export async function inferSpreads({
       const kn = cond.get(id);
       const evKn = knowledge.get(id);
       const tried = [];
+      const byKey = new Map();
       const fixed = held.has(id) ? [held.get(id)] : [];
       for (const aim of [...fixed, aimFor(evKn, picks[s][i]), picks[s][i], aimFor(evKn, picks[s][i], 0.25), aimFor(evKn, picks[s][i], 0.75)]) {
         if (tries <= 0) { limits.add('guessTries'); return null; }
@@ -1078,14 +1079,20 @@ export async function inferSpreads({
         // HP, Defence and Special Defence first, and the flat stats from what
         // survives beside them: one hit can tie the two together - Foul Play
         // reads the target's Attack against its own Defence.
-        const keyed = cloneKnowledge(cond);
-        const pinned = keyed.get(id);
-        pinned.keys.fill(0);
-        pinned.keys[keyOf(first.hp, first.def, first.spd)] = 1;
-        tries--;
-        await settle(built.inputLog, keyed, cache, false, false, keep);
-        if (blocks(keyed, n)) continue;
-        const pick = closestSpread(pinned, aim);
+        const k = keyOf(first.hp, first.def, first.spd);
+        let entry = byKey.get(k);
+        if (!entry) {
+          const keyed = cloneKnowledge(cond);
+          const pinned = keyed.get(id);
+          pinned.keys.fill(0);
+          pinned.keys[k] = 1;
+          tries--;
+          await settle(built.inputLog, keyed, cache, false, false, keep);
+          entry = { pinned, blocked: blocks(keyed, n) || emptied(pinned) };
+          byKey.set(k, entry);
+        }
+        if (entry.blocked) continue;
+        const pick = closestSpread(entry.pinned, aim);
         if (!pick || tried.some(t => sameSpread(t, pick))) continue;
         tried.push(pick);
         const narrowed = cloneKnowledge(cond);
