@@ -217,6 +217,8 @@ const SWEPT = [
   'mimic:gen9championsvgc2026regmcbo3-2697078591', // 2026-10-12: a verified Residual handler ordered before the handler the replay shows at the cutoff
   'mimic:gen9championsvgc2026regmcbo3-2697644605', // 2026-10-13: a Focus Sash the scaffold fired at the cutoff where the replay printed the hit's HP line directly
   'mimic:gen9championsvgc2026regmcbo3-2698749318', // 2026-10-15: Disguise changing Mimikyu's forme before dealing its eighth of max HP
+  'mimic:gen9championsvgc2026regmcbo3-2694740900', // 2026-10-08: a drain heal off a Substitute on a Pokemon whose own HP is shown exactly
+  'mimic:gen9championsvgc2026regmcbo3-2691851791', // 2026-10-02: Parabolic Charge's drain narrowed by later exact displays and passed back to its first target
 ];
 
 const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));
