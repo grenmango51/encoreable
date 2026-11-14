@@ -627,9 +627,17 @@ function forcedEnding(segment, sides) {
   return loser ? `>forcelose ${loser.id}` : null;
 }
 
-/** The lines a raw log slice shows on one channel. */
+/**
+ * The lines a raw log slice shows on one channel. A prefix slice cut inside an
+ * unfinished `|split|p[1-4]` triplet drops the incomplete split so
+ * `extractChannelMessages` never emits the raw `|split|` header or secret half.
+ */
 function onChannel(raw, channel) {
-  return extractChannelMessages(raw.join('\n'), [channel])[channel];
+  let end = raw.length;
+  if (end >= 1 && /^\|split\|p[1-4]$/.test(raw[end - 1])) end -= 1;
+  else if (end >= 2 && /^\|split\|p[1-4]$/.test(raw[end - 2])) end -= 2;
+  const slice = end === raw.length ? raw : raw.slice(0, end);
+  return extractChannelMessages(slice.join('\n'), [channel])[channel];
 }
 
 // ------------------------------------------------- HP displays and dry runs
