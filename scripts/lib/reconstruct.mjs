@@ -818,8 +818,10 @@ export const ACTION_START = new Set(['move', 'cant', 'switch', 'drag', 'replace'
  * (roll 0 is full damage), so the rolls that print the observed line are one
  * run of the sixteen, and a bisection finds its two ends.
  *
- * The crit die and each target's accuracy die are read the same way: the
- * observed turn shows a `|-crit|` or a `|-miss|` for the target or it does not.
+ * The crit die, each target's accuracy die and an unchosen move target's
+ * `getRandomTarget` die are read the same way: the observed turn shows a
+ * `|-crit|` or `|-miss|` for the target or it does not, and names the target
+ * `|move|` wrote.
  *
  * `out` maps a draw's ordinal to `{ reps, groups, wrong }`: the faces worth
  * probing, each standing for the faces that play out the same as it (`groups`),
@@ -831,6 +833,7 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
   const st = battle.__rng;
   const actions = battle.actions;
   let draws = null;
+  let frame = null;
   const origRandomizer = battle.randomizer;
   battle.randomizer = function (base) {
     if (draws && !st.dry) draws.push(st.draws);
@@ -869,12 +872,23 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
     const { wantHard, gotHard, exactUpTo } = compare(at.k, battle.log.slice(at.logAt));
     // The move in flight has not had its `[spread]`, `[miss]` or `[still]`
     // appended yet (`attrLastMove`), so its line is only a prefix of the one
-    // it will become.
+    // it will become. A spread move whose random display target has not been
+    // flipped yet differs only in that slot while it is in flight.
     let moving = -1;
     for (let i = gotHard.length - 1; i >= 0 && moving < 0; i--) if (gotHard[i].startsWith('|move|')) moving = i;
     for (let i = 0; i < gotHard.length; i++) {
       if (gotHard[i] === wantHard[i]) continue;
-      if (i === moving && String(wantHard[i]).startsWith(`${gotHard[i]}|`)) continue;
+      if (i === moving) {
+        let head = gotHard[i];
+        if (frame?.retarget && i === frame.retarget.at) {
+          const parts = head.split('|');
+          if (parts[4] === frame.retarget.from) {
+            parts[4] = frame.retarget.to;
+            head = parts.join('|');
+          }
+        }
+        if (head === wantHard[i] || String(wantHard[i]).startsWith(`${head}|`)) continue;
+      }
       return null;
     }
     let end = gotHard.length;
@@ -1089,9 +1103,13 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
   // target says which faces of that die print it. Loaded Dice throws another
   // die after a low count, so its holder's count is searched in full.
   let counting = null;
+  let samplingTarget = null;
   const origSample = battle.sample;
   battle.sample = function (items) {
     if (counting && !st.dry && counting.i === null) Object.assign(counting, { i: st.draws, faces: items });
+    if (samplingTarget && !st.dry && samplingTarget.i === null && Array.isArray(items) && items.length > 1) {
+      Object.assign(samplingTarget, { i: st.draws, items: items.slice() });
+    }
     return origSample.call(this, items);
   };
   const origRandom = battle.random;
@@ -1128,6 +1146,127 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
         out.set(count.i, { reps, groups, wrong: count.faces[face - count.off] !== want });
       }
     }
+  };
+
+  // A move with no chosen target - every spread move over foes, Outrage, a move
+  // Encore or Sleep Talk chose - draws one in `getRandomTarget` before `addMove`
+  // writes its `|move|` line. Each face of that `sample` is run dry through
+  // `getMoveTargets`: where they all write a plain `|move|` line and only one
+  // writes the target the observed line names, that face is the only one the
+  // replay allows. Where both faces also hit the same targets in the same order
+  // with the same move, the move in flight differs only in that display slot,
+  // so its accuracy and damage dice are read on the same pass too.
+  const sameList = (a, b) => a.length === b.length && a.every((x, idx) => x === b[idx]);
+  const modifiedMove = (pokemon, item) => dry(() => {
+    const snap = snapItems([pokemon, item]);
+    try {
+      const copy = cloneMove(frame.preMove);
+      battle.singleEvent('ModifyType', copy, null, pokemon, item, copy, copy);
+      battle.singleEvent('ModifyMove', copy, null, pokemon, item, copy, copy);
+      return `${copy.type}|${copy.category}|${copy.accuracy}|${copy.target}`;
+    } finally {
+      restoreItems(snap);
+    }
+  }, 0);
+  const sameModifiedMove = (pokemon, a, b) => !frame.preMove
+    || (!frame.preMove.onModifyType && !frame.preMove.onModifyMove)
+    || modifiedMove(pokemon, a) === modifiedMove(pokemon, b);
+
+  const origRunMove = actions.runMove;
+  actions.runMove = function (moveOrMoveName, pokemon, targetLoc, options) {
+    if (at.k !== turn || st.dry) return origRunMove.call(this, moveOrMoveName, pokemon, targetLoc, options);
+    const prev = frame;
+    frame = { emitted: false, draw: null, preMove: null, retarget: null };
+    try {
+      return origRunMove.call(this, moveOrMoveName, pokemon, targetLoc, options);
+    } finally {
+      frame = prev;
+    }
+  };
+
+  const origUseMoveInner = actions.useMoveInner;
+  actions.useMoveInner = function (moveOrMoveName, pokemon, options) {
+    if (at.k !== turn || st.dry) return origUseMoveInner.call(this, moveOrMoveName, pokemon, options);
+    const nested = !frame || frame.emitted;
+    const prev = frame;
+    if (nested) frame = { emitted: false, draw: null, preMove: null, retarget: null };
+    frame.preMove = cloneMove(this.dex.getActiveMove(moveOrMoveName));
+    try {
+      return origUseMoveInner.call(this, moveOrMoveName, pokemon, options);
+    } finally {
+      if (frame) frame.retarget = null;
+      frame = prev;
+    }
+  };
+
+  const origRandomTarget = battle.getRandomTarget;
+  battle.getRandomTarget = function (pokemon, move) {
+    if (at.k !== turn || st.dry || !frame || frame.emitted || samplingTarget) {
+      return origRandomTarget.call(this, pokemon, move);
+    }
+    const picked = { i: null, items: null };
+    samplingTarget = picked;
+    try {
+      const target = origRandomTarget.call(this, pokemon, move);
+      frame.draw = picked.i !== null && target ? { i: picked.i, pokemon, items: picked.items, target } : null;
+      return target;
+    } finally {
+      samplingTarget = null;
+    }
+  };
+
+  const origAddMove = battle.addMove;
+  battle.addMove = function (...args) {
+    if (args[0] !== 'move' || at.k !== turn || st.dry || !frame || frame.emitted) {
+      return origAddMove.apply(this, args);
+    }
+    frame.emitted = true;
+    const [, pokemon, movename, rest = ''] = args;
+    const drawn = frame.draw;
+    const move = battle.activeMove;
+    const gotTarget = String(rest).split('|')[0];
+    if (drawn && move && drawn.pokemon === pokemon && gotTarget === String(drawn.target)
+      && typeof move.smartTarget !== 'boolean' && !move.onModifyTarget) {
+      const now = standing();
+      const wantLine = now?.wantHard[now.from];
+      const wantParts = wantLine ? wantLine.split('|') : null;
+      const wantTarget = wantParts && wantParts[1] === 'move' && wantParts[2] === String(pokemon)
+        && wantParts[3] === String(movename) ? (wantParts[4] || '') : '';
+      const current = faceOf(drawn.i);
+      if (wantTarget && current !== undefined) {
+        try {
+          const tail = String(rest).slice(gotTarget.length);
+          const fits = [];
+          const plans = [];
+          let clean = true;
+          for (const [f, item] of drawn.items.entries()) {
+            if (!item || typeof item !== 'object') { clean = false; break; }
+            const logLen = battle.log.length;
+            const probed = dry(() => {
+              const copy = cloneMove(move);
+              origAddMove.call(battle, 'move', pokemon, movename, `${item}${tail}`);
+              const plan = pokemon.getMoveTargets(copy, item);
+              const added = battle.log.slice(logLen).filter(l => !l.startsWith('|debug|'));
+              return added.length === 1 ? { target: added[0].split('|')[4], plan } : null;
+            }, 0);
+            if (!probed) { clean = false; break; }
+            plans[f] = probed.plan;
+            if (probed.target === wantTarget) fits.push(f);
+          }
+          if (clean && fits.length === 1) {
+            const wantIdx = fits[0];
+            out.set(drawn.i, { reps: current === wantIdx ? [] : [wantIdx], groups: new Map(), wrong: current !== wantIdx });
+            if (current !== wantIdx && plans[current]?.targets.length
+              && sameList(plans[current].targets, plans[wantIdx].targets)
+              && sameList(plans[current].pressureTargets, plans[wantIdx].pressureTargets)
+              && sameModifiedMove(pokemon, drawn.items[current], drawn.items[wantIdx])) {
+              frame.retarget = { at: now.from, from: gotTarget, to: wantTarget };
+            }
+          }
+        } catch { /* leave unsteered */ }
+      }
+    }
+    return origAddMove.apply(this, args);
   };
 }
 
