@@ -44,7 +44,10 @@ const { Battle, BattleStream, Dex, Teams, toID } = require('pokemon-showdown');
 const { extractChannelMessages } = require('pokemon-showdown/dist/sim/battle.js');
 
 /** Move targets the chooser must name explicitly (sim/battle-actions.ts:3). */
-const CHOOSABLE_TARGETS = new Set(['normal', 'any', 'adjacentFoe', 'adjacentAlly', 'adjacentAllyOrSelf']);
+export const CHOOSABLE_TARGETS = new Set(['normal', 'any', 'adjacentFoe', 'adjacentAlly', 'adjacentAllyOrSelf']);
+
+/** Lines that start another action: a hit's own HP line always comes before them. */
+export const ACTION_START = new Set(['move', 'cant', 'switch', 'drag', 'replace', 'upkeep', 'turn']);
 
 /**
  * Pre-turn protocol lines allowed to differ without failing the reconstruction.
@@ -125,7 +128,9 @@ function planSegment(segment, dex) {
   // Revival Blessing asks its user's player which fainted Pokemon to bring
   // back, as a switch request for the user's slot; the heal line names the one
   // chosen. One revived into an empty active slot is switched in at once by
-  // the simulator itself, so only an immediate switch line answers no request.
+  // the simulator itself, before any next action or upkeep, so only that
+  // immediate switch answers no request; one revived on the bench and sent in
+  // later answers a request of its own.
   let reviver = null;
   let revived = null;
 
@@ -140,13 +145,14 @@ function planSegment(segment, dex) {
       reviver = null;
       continue;
     }
-    if (revived) {
-      const auto = kind === 'switch' && !tagsOf(line).from
-        && identSide(parts[2]) === revived.side && identName(parts[2]) === revived.name;
-      if (auto || ['move', 'cant', 'faint', 'upkeep', 'turn', 'switch', 'drag', 'replace'].includes(kind)) revived = null;
-      if (auto) continue;
+    if (kind === 'switch' && !tagsOf(line).from && revived && identSide(parts[2]) === revived.side && identName(parts[2]) === revived.name) {
+      revived = null;
+      continue;
     }
-    if (reviver && ['move', 'cant', 'upkeep', 'turn'].includes(kind)) reviver = null;
+    if (ACTION_START.has(kind) || kind === 'faint') {
+      reviver = null;
+      revived = null;
+    }
 
     if (kind === 'swap') {
       const side = identSide(parts[2]);
@@ -810,9 +816,6 @@ function compareTurn({ segments, exact, channel }, k, slice) {
   }
   return { wantHard, gotHard, exactUpTo, provedUpTo };
 }
-
-/** Lines that start another action: a hit's own HP line always comes before them. */
-export const ACTION_START = new Set(['move', 'cant', 'switch', 'drag', 'replace', 'upkeep', 'turn']);
 
 /**
  * Read the dice of every real hit on turn `turn` off the observed turn, as they
@@ -2440,10 +2443,24 @@ async function reconstructOnce({
     // Each is played once with the turn's dice as drawn, and the search walks
     // them furthest first: a flinched Pokemon's unseen move that sorts where
     // the replay has it gets further than one that does not.
+    // Every variant walked on a turn: up to `maxVariants`, and when unseen
+    // choices fill the low digits (`radices`), each visible target choice at
+    // `low = 0` (`h * unseen`) too, so unseen moves never starve a target.
+    const variantList = (all, unseen) => {
+      const w = Math.min(all, maxVariants);
+      const out = [...Array(w).keys()];
+      if (unseen > 1) {
+        for (let v = unseen; v < all && out.length < w + maxVariants; v += unseen) {
+          if (v >= w) out.push(v);
+        }
+      }
+      return out;
+    };
     const allVariants = run.widths?.[t] || 1;
-    const width = Math.min(allVariants, maxVariants);
+    const turnVariants = variantList(allVariants, common.radices[t] || 0);
     const ranked = [];
-    for (let v = 0; v < width && !solved; v++) {
+    for (const v of turnVariants) {
+      if (solved) break;
       if (v === entering) continue;
       variants[t] = v;
       forget(t);
@@ -2467,7 +2484,7 @@ async function reconstructOnce({
     const searchedVariants = new Set([entering]);
     let rewalkedFrom = null;
     const rewalk = async () => {
-      if (solved || !partial || width <= 1 || partial === rewalkedFrom) return;
+      if (solved || !partial || turnVariants.length <= 1 || partial === rewalkedFrom) return;
       rewalkedFrom = partial;
       const held = { subs: { ...partial.subs }, subTurn: { ...partial.subTurn } };
       const hold = () => {
@@ -2477,7 +2494,8 @@ async function reconstructOnce({
         Object.assign(subTurn, held.subTurn);
       };
       let better = null;
-      for (let v = 0; v < width && !solved; v++) {
+      for (const v of turnVariants) {
+        if (solved) break;
         if (v === partial.variant) continue;
         variants[t] = v;
         hold();
@@ -2544,14 +2562,15 @@ async function reconstructOnce({
       if ((run.party || []).includes(t) && !carriers.includes(0)) carriers.push(0);
       for (const k of carriers) {
         const keep = variants[k] || 0;
-        const width = Math.min(run.widths?.[k] || 1, maxVariants);
-        for (let v = 0; v < width && !carried; v++) {
+        const kVariants = variantList(run.widths?.[k] || 1, common.radices[k] || 0);
+        for (const v of kVariants) {
+          if (carried) break;
           if (v === keep || takenCarry.has(`${t}|${k}|${v}`)) continue;
           variants[k] = v;
           const probe = await runTo(common, subs, t);
           carried = probe.badTurn === null || probe.badTurn > t || (probe.badTurn === t && outranks(scoreOf(probe, t), from));
         }
-          if (carried) { takenCarry.add(`${t}|${k}|${variants[k]}`); break; }
+        if (carried) { takenCarry.add(`${t}|${k}|${variants[k]}`); break; }
         variants[k] = keep;
         if ((run.widths?.[k] || 1) > maxVariants) common.limits.add('variants');
       }

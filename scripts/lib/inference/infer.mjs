@@ -26,8 +26,8 @@ import { createRequire } from 'module';
 
 import { battleLines } from '../protocol.mjs';
 import {
-  ACTION_START, DIE_BACKTRACKS, MAX_VARIANTS, disguisableStays, identName, identSide, reconstruct, sampler, splitTurns,
-  unsettledDisguises,
+  ACTION_START, CHOOSABLE_TARGETS, DIE_BACKTRACKS, MAX_VARIANTS, disguisableStays, identName, identSide, reconstruct,
+  sampler, splitTurns, unsettledDisguises,
 } from '../reconstruct.mjs';
 import { sameSheet } from '../replay-source.mjs';
 import {
@@ -661,6 +661,50 @@ export async function inferSpreads({
       const at = base.report.diffs[0];
       onProgress(`  fallback on turn ${t}: the guess stops before the turn, at ${reach(base).join('.')}: wanted ${at?.expected}, got ${at?.actual}, ${clock()}`);
       return none();
+    }
+
+    // A choosable single-target move that already ran from the right Pokemon,
+    // naming another active slot with no competing redirection to sort by
+    // Speed, is a choice of target and not a Stat Point.
+    {
+      const exp = String(diff.expected || '').split('|');
+      const act = String(diff.actual || '').split('|');
+      const move = exp[1] === 'move' && act[1] === 'move' && exp[2] === act[2] && exp[3] && exp[3] === act[3]
+        && /^p[1-4][a-d]: /.test(exp[2] || '') && /^p[1-4][a-d]: /.test(exp[4] || '') && /^p[1-4][a-d]: /.test(act[4] || '')
+        && exp[4] !== act[4] && exp.slice(5).join('|') === act.slice(5).join('|') ? dex.moves.get(exp[3]) : null;
+      const sameStop = b => reach(b)[0] === t && reach(b)[1] === diff.index && b.report.diffs[0]?.actual === diff.actual;
+      const redirectAbility = ability => {
+        const a = dex.abilities.get(ability);
+        return !!(a.onAnyRedirectTarget || a.onFoeRedirectTarget || a.onRedirectTarget);
+      };
+      const redirectors = () => {
+        let abilityCount = 0;
+        for (const team of sets) {
+          for (const set of team) {
+            const mega = Object.values(dex.items.get(set.item).megaStone || {})[0];
+            const has = redirectAbility(set.ability) || (mega && Object.values(dex.species.get(mega).abilities).some(redirectAbility));
+            if (has) abilityCount++;
+          }
+        }
+        const upto = place.action?.[0] ? segment.indexOf(place.action[0]) : segment.length;
+        const prior = [...turns.slice(0, t).flat(), ...segment.slice(0, Math.max(0, upto))];
+        let count = abilityCount;
+        if (abilityCount >= 1 && prior.some(l => /^\|-(transform|ability)\|/.test(String(l)))) count++;
+        for (const l of segment.slice(0, Math.max(0, upto))) {
+          const [, k, , eff] = String(l).split('|');
+          if (k === '-singleturn' && /^move: /.test(eff || '')) {
+            const c = dex.moves.get(eff.slice(6)).condition;
+            if (c?.onFoeRedirectTarget || c?.onRedirectTarget || c?.onAnyRedirectTarget) count++;
+          }
+        }
+        return count;
+      };
+      if (move && CHOOSABLE_TARGETS.has(move.target) && !move.smartTarget
+        && sameStop(base) && sameStop(dice) && redirectors() < 2) {
+        gap(mark, { turn: t, what, reason: 'a single-target move aimed at another slot, which no Stat Point decides' });
+        onProgress(`  fallback on turn ${t}: ${diff.expected} - a single-target move aimed at another slot, ${clock()}`);
+        return none();
+      }
     }
 
     // A line the rebuild printed for another Pokemon, or another action in its
