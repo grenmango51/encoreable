@@ -260,6 +260,10 @@ export async function inferSpreads({
   widest = false,
   spend = { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() },
   parallel = null,
+  // The spreads the battle was really played with, by Pokemon (`p2:0`), where
+  // a grader knows them: nothing is decided by them. Each step that removes
+  // one is reported (`lost`).
+  truth = null,
 }) {
   const options = { ...arguments[0], spend };
   // `budgetScale` multiplies every search limit at once - probes, backtracks,
@@ -278,6 +282,10 @@ export async function inferSpreads({
   // work a round spends besides its rebuilds, counted as they are.
   const work = { rounds: 0, rebuilds: 0, probes: 0, fallback: 0, backtracks: 0, dieBacktracks: 0, passes: 0 };
   const warnings = [];
+  // Each real spread a step removed (`truth`): the Pokemon, the round and the
+  // start, the step - a pass's evidence, the speed orders, the budget - and
+  // the events or orders that did it. One entry per Pokemon and inference.
+  const lost = [];
   // Every limit that cut a search short, here or in a rebuild or an inference
   // this one ran: an answer reached past one is no proof that more would not
   // have found more.
@@ -302,6 +310,7 @@ export async function inferSpreads({
   const absorb = (res) => {
     for (const k of Object.keys(work)) work[k] += res.work[k];
     warnings.push(...res.warnings);
+    lost.push(...(res.lost || []));
     for (const l of res.limits) limits.add(l);
     return res;
   };
@@ -343,21 +352,54 @@ export async function inferSpreads({
   // tables: applied in every settle after, the guess picker's too, so a pin
   // on one Speed moves the other.
   const orders = new Map();
+  let watched = null;
   const settle = async (inputLog, knowledge, cache, record = false, learn = false, kept = []) => {
     const counts = () => new Map([...knowledge].map(([id, kn]) => [id, spreadsLeft(kn)]));
     const initial = record ? counts() : null;
     let first = null;
     let afterFirst = null;
     let passes = 0;
+    // The real spreads still possible, watched in what the rounds keep and in
+    // the final reading: a guess picker's knowledge is pinned to a guess.
+    const watch = truth && (knowledge === watched || record);
+    const gone = () => new Set([...knowledge].filter(([id, kn]) => truth[id] && !kn.known && !containsSpread(kn, truth[id])).map(([id]) => id));
+    let was = watch ? gone() : null;
+    const speedOf = (id, table, end) => (truth[id] ? table[fullEvs(truth[id]).spe] : end(...table.filter((_, v) => knowledge.get(id)?.dom.spe[v])));
+    const report = async (step, before) => {
+      const now = gone();
+      for (const id of now) {
+        if (was.has(id) || lost.some(l => l.id === id)) continue;
+        let by = [];
+        if (step === 'evidence') {
+          // The pass again from what it started with, recording what each event removed.
+          const again = await evidencePass({ inputLog, observed: lines, channel, knowledge: before, cache, record: true, truth: Object.fromEntries(Object.entries(truth).map(([k, v]) => [k, fullEvs(v)])) });
+          const cuts = (again.events || []).flatMap(e => e.cuts.filter(c => c.id === id).map(c => ({ turn: e.turn, what: e.what, narrowed: c.narrowed, real: !!c.lostReal })));
+          by = cuts.filter(c => c.real);
+          if (!by.length) by = cuts;
+          by = by.map(({ real, ...c }) => c);
+        } else if (step === 'orders') {
+          const named = [...orders.values()].filter(o => o.fast === id || o.slow === id);
+          by = named.filter(o => speedOf(o.fast, o.tf, Math.max) < speedOf(o.slow, o.ts, Math.min));
+          if (!by.length) by = named;
+          by = by.map(o => ({ turn: o.turn, what: o.what || `${o.fast} before ${o.slow}` }));
+        }
+        lost.push({ id, real: fullEvs(truth[id]), step, round: rounds, start: widest ? 'widest' : wide ? 'wide' : start, ...(forced?.length ? { reading: [...forced] } : {}), final: !!record, by: by.slice(0, 6) });
+      }
+      was = now;
+    };
     while (passes < 8 * S) {
+      const before = watch ? cloneKnowledge(knowledge) : null;
       const pass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, record: record && !first });
       passes++;
       work.passes++;
       let moved = false;
       for (const r of pass.recs) moved = intersectKnowledge(knowledge.get(r.id), r.keys, r.flat, r.ties) || moved;
+      if (watch) await report('evidence', before);
       if (learn) for (const o of pass.orders || []) orders.set(`${o.fast}|${o.slow}|${o.tf}|${o.ts}`, o);
       moved = orderSpeeds(knowledge, [...orders.values(), ...kept]) || moved;
+      if (watch) await report('orders');
       for (const kn of knowledge.values()) moved = tighten(kn) || moved;
+      if (watch) await report('budget');
       if (!first) {
         first = pass;
         if (record) afterFirst = counts();
@@ -379,6 +421,7 @@ export async function inferSpreads({
   };
 
   const knowledge = cloneKnowledge(blank);
+  watched = knowledge;
   let built = null;
   // Per Pokemon, the others whose Stat Points moved one of its stats, from the
   // last round's evidence.
@@ -1172,7 +1215,7 @@ export async function inferSpreads({
         Object.assign(p, summarise(other.knowledge.get(p.id)));
       }
       ahead?.cancel();
-      return spareDisguises(Object.assign(other, { work, warnings }));
+      return spareDisguises(Object.assign(other, { work, warnings, lost }));
     }
   }
 
@@ -1226,6 +1269,7 @@ export async function inferSpreads({
     knowledge: final,
     work,
     warnings,
+    lost,
     stop,
   });
 
@@ -1268,7 +1312,7 @@ export async function inferSpreads({
       Object.assign(p, summarise(kn), { contains: evs => containsSpread(kn, evs) });
     }
   }
-  return Object.assign(kept, { work, warnings, limits: [...limits].sort() });
+  return Object.assign(kept, { work, warnings, lost, limits: [...limits].sort() });
 
   /**
    * The starts a search that gives up runs next, in order, each run only while
