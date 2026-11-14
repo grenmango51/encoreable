@@ -444,8 +444,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   const state = { ended: false, dry: 0, hold: 0, coupled: Infinity };
   const events = [];
   const pendingHits = new Map();
-  // Hits on a fresh Substitute, until the line says whether it broke.
+  // Hits on a fresh Substitute, until the line says whether it broke, and the
+  // last one calculated for `applyRecoilDamage` inside `onTryPrimaryHit`.
   const subGates = new Map();
+  let subHit = null;
   const damageContext = new Map();
   const healContext = new Map();
   // Each foe hit recorded in `pokemon.attackedBy` -> the change that dealt it,
@@ -1722,6 +1724,116 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
   });
 
+  /**
+   * Recoil after hitting a fresh Substitute (`call.sub`). When the Substitute
+   * broke, it took `hold` (`sub[STORED].hp`), whatever the hit's stats or roll:
+   * a fixed amount when its maker's max HP is, the user's own when the user
+   * made it, and otherwise one amount per HP Stat Point of its maker. When it
+   * held, it took the hit's own unclamped damage below `hold`.
+   */
+  function subRecoilChange(T, call, what) {
+    const { hold, hit, broke, target } = call.sub;
+    const ord = changeOrdinal;
+    const recoilHp = (M, h, d) => memo(`subrcl|${ord}|${M}|${h}|${d}`,
+      () => dryHp(T, M, h, () => actions.applyRecoilDamage(d, call.move, T.pokemon)));
+    if (broke) {
+      if (call.total !== hold.start) {
+        note(what, 'what the Substitute took at its own Stat Points did not match what it held, so it was not used');
+        return null;
+      }
+      const O = hold.owner;
+      const unpinned = !hit;
+      if (!O) return { ...runChange(T, 'subrcl', () => actions.applyRecoilDamage(hold.start, call.move, T.pokemon), what), unpinned };
+      if (O === T) {
+        const table = new Map();
+        for (const [g, [hp, , h]] of groupsOf(T, null)) table.set(g, Int32Array.of(recoilHp(maxHp(T, hp), h, hold.at(hp))));
+        return { dim: null, table, via: null, unpinned, what };
+      }
+      const hps = [...new Set([...(O.chain ? O.chain.keys() : O.knKeys)].map(k => KEY_HP[k]))];
+      const table = new Map();
+      for (const [g, [hp, , h]] of groupsOf(T, null)) {
+        const M = maxHp(T, hp);
+        const pairs = [];
+        for (const v of hps) pairs.push(v * HP_BITS + recoilHp(M, h, hold.at(v)));
+        table.set(g, Int32Array.from(pairs));
+      }
+      return { dim: null, table, via: { rec: O, dim: 'hp' }, unpinned, what: `${what} from ${named(O)}'s Substitute` };
+    }
+    if (!hit) {
+      note(what, 'the hit the Substitute took was not read, so its recoil was not used');
+      return null;
+    }
+    const V = byPokemon.get(target);
+    if (!V || call.total !== Math.max(1, hit.real)) {
+      if (V) note(what, 'the damage the Substitute took did not match what the hit rolled, so its recoil was not used');
+      return null;
+    }
+    const O = hold.owner && hold.owner !== V ? hold.owner : null;
+    const oVals = O ? [...new Set([...(O.chain ? O.chain.keys() : O.knKeys)].map(k => KEY_HP[k]))] : null;
+    if (O && !oVals.length) return { dim: null, table: new Map(), via: { rec: O, dim: 'hp' }, unpinned: true, what };
+    const off = hit.A === T && !hit.offDim ? hit.off : null;
+    const perA = !T.kn.known && !!off;
+    const perD = !perA && !V.kn.known && !!hit.def;
+    const via = perA ? { rec: T, stat: off } : perD ? { rec: V, dim: hit.def } : null;
+    const bySi = Array.from({ length: hit.sStates.length }, () => new Map());
+    const amounts = [];
+    const index = new Map();
+    for (const [, [hpV, dV, hV]] of groupsOf(V, hit.def)) {
+      const maxHold = O ? Math.max(...oVals.map(v => hold.at(v))) : (hold.owner ? hold.at(hpV) : hold.start);
+      for (const a of hit.aVals) {
+        if (perA && !T.flat[off][a]) continue;
+        const v = perA ? a : perD ? dV : 0;
+        for (let si = 0; si < hit.sStates.length; si++) {
+          const row = hit.rows.get(rowKey(a, dV, hit.targetHp ? hpV : null, hit.targetHp ? hV : null, si));
+          if (!row) continue;
+          for (const value of row) {
+            const x = typeof value === 'number' ? Math.max(1, value) : null;
+            if (x === null || x <= 0 || x >= maxHold) continue;
+            if (!index.has(x)) { index.set(x, amounts.length); amounts.push(x); }
+            let set = bySi[si].get(v);
+            if (!set) { set = new Set(); bySi[si].set(v, set); }
+            set.add(x);
+          }
+        }
+      }
+    }
+    const table = new Map();
+    const matchSi = hit.sourceHp && hit.sStates[0]?.[0] !== null;
+    for (const [g, [hp, , h]] of groupsOf(T, null)) {
+      const M = maxHp(T, hp);
+      const sis = [];
+      for (let si = 0; si < hit.sStates.length; si++) {
+        if (!matchSi || (hit.sStates[si][0] === M && hit.sStates[si][1] === h)) sis.push(si);
+      }
+      const pairs = [];
+      const seen = new Set();
+      for (const si of sis) {
+        for (const [v, xs] of bySi[si]) {
+          for (const x of xs) {
+            const key = v * HP_BITS + index.get(x);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            pairs.push((v + SPAN * index.get(x)) * HP_BITS + recoilHp(M, h, x));
+          }
+        }
+      }
+      table.set(g, Int32Array.from(pairs));
+    }
+    const holder = hold.owner && hold.owner !== T ? hold.owner : null;
+    const after = holder ? (passed) => {
+      if (!passed.size) return;
+      let minX = Infinity;
+      for (const tag of passed) minX = Math.min(minX, amounts[Math.floor(tag / SPAN)]);
+      const before = record && holder !== via?.rec ? measure(holder) : null;
+      const ok = new Uint8Array(SPAN);
+      for (let v = 0; v < SPAN; v++) if (hold.at(v) > minX) ok[v] = 1;
+      narrowVia({ rec: holder, dim: 'hp' }, ok);
+      const cut = before ? cutOf(holder, before) : null;
+      if (cut) events.push({ turn: battle.turn, what, cuts: [cut] });
+    } : undefined;
+    return { dim: null, table, via, after, unpinned: true, what };
+  }
+
   const band = (dir, what) => ({ band: dir, what });
 
   /** The HP amounts an effect's handlers write as plain numbers, read off their source. */
@@ -1783,9 +1895,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       })), { dealtBy: U, move: ctx.effect, off: null });
     }
     note(what, 'its damage was carried over from an earlier hit, so it was not used');
-    // What it hands back follows from what the hit it answers dealt: the
-    // exact path proves it only where that hit kept the scaffold's own HP.
-    return Object.assign(band('down', what), { carriedFrom: sourceChange ?? 'unknown' });
+    return band('down', what);
   }
 
   /**
@@ -1883,12 +1993,18 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
     // Recoil is a share of everything the move dealt, over every hit and every
     // target, worked out from the total the simulator handed
-    // `applyRecoilDamage`. Recoil off a Substitute is worked out from what the
-    // Substitute took, which no line shows.
+    // `applyRecoilDamage`. Recoil off a fresh Substitute is worked out from
+    // `sub[STORED].hp` when it broke or the hit's unclamped damage when it
+    // held; recoil off an already-damaged Substitute shows no number.
     if (id === 'recoil') {
       const call = recoilCall?.pokemon === T.pokemon ? recoilCall : null;
-      if (!call) note(what, 'it was worked out from what a Substitute took, which no line shows, so it was not used');
-      const change = call && totalChange(T, call.total, what, 'rcl', t => actions.applyRecoilDamage(t, call.move, T.pokemon));
+      if (!call) {
+        note(what, 'it was worked out from what a Substitute took, which no line shows, so it was not used');
+        return band(dir, what);
+      }
+      const change = call.sub
+        ? subRecoilChange(T, call, what)
+        : totalChange(T, call.total, what, 'rcl', t => actions.applyRecoilDamage(t, call.move, T.pokemon));
       return change || band(dir, what);
     }
     // Leech Seed drains an eighth of the seeded Pokemon's HP, which scales like
@@ -2613,6 +2729,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const clone = cloneMove(move);
     const pre = snapItems([source, target]);
     const hpBefore = new Map([[source, source.hp], [target, target.hp]]);
+    subHit = null;
     const draws = [];
     rollDraws = draws;
     // Every die the real calculation throws, for the dry ones to throw alike.
@@ -2640,6 +2757,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         const fresh = T.sub !== sub && !!hold && sub.hp === hold.start;
         if (T.sub !== sub && !hold) note(`${named(T)}'s Substitute`, 'what it holds was not asked per candidate, so whether a hit broke it was not read');
         T.sub = sub;
+        if (fresh) subHit = { source, target, move, sub, hold, hit: hit.supported ? hit : null };
         if (fresh && hit.supported) {
           hit.hold = hold;
           subGates.set(target, hit);
@@ -2691,15 +2809,25 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   };
 
   // What the simulator hands `applyRecoilDamage`: everything the move dealt,
-  // over every hit and every target. A Substitute's own `onTryPrimaryHit`
-  // hands it only what the Substitute took, which no line shows, and is left
-  // unread.
+  // over every hit and every target, or inside a Substitute's `onTryPrimaryHit`
+  // what that fresh Substitute took (`subHit`).
   let recoilCall = null;
   const origRecoil = actions.applyRecoilDamage;
   actions.applyRecoilDamage = function (damageDealt, move, pokemon) {
     if (state.dry || state.ended) return origRecoil.call(this, damageDealt, move, pokemon);
     const was = recoilCall;
-    recoilCall = battle.effect?.id === 'substitute' ? null : { pokemon, move, total: damageDealt };
+    if (battle.effect?.id === 'substitute') {
+      const sub = subHit && subHit.source === pokemon && subHit.move === move ? subHit : null;
+      subHit = null;
+      recoilCall = sub ? {
+        pokemon,
+        move,
+        total: damageDealt,
+        sub: { ...sub, broke: sub.target.volatiles.substitute !== sub.sub || sub.sub.hp <= 0 },
+      } : null;
+    } else {
+      recoilCall = { pokemon, move, total: damageDealt, sub: null };
+    }
     try {
       return origRecoil.call(this, damageDealt, move, pokemon);
     } finally {
@@ -4174,28 +4302,21 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const finalSt = entries.length ? frames[entries.length - 1].stateAfter : empty;
     const coupled = finalSt.coupled;
     let cutAt = Infinity;
-    // Every change the path made deal another amount than the scaffold's did,
-    // and the HP the scaffold showed each Pokemon on last (null where its last
-    // change showed none).
-    const drifted = new Set();
-    const scaffoldWas = new Map();
     for (let s = 0; s < entries.length; s++) {
       const { rec, i, e } = entries[s];
       const f = frames[s];
-      const { h, own } = f;
       const h2 = f.list[f.idx];
-      // A change read only as a band hands on no roll: an HP the scaffold
-      // did not land on is one nothing handed on makes. It and what follows
-      // are still the HPs the display allows, handed on as what a rebuild
-      // must reach, but proved no further than the line before it.
-      const carriedOff = e.change.carriedFrom && (e.change.carriedFrom === 'unknown' || drifted.has(e.change.carriedFrom));
-      if (e.change.band && own !== null && (h2 !== own || carriedOff) && cutAt === Infinity) cutAt = secretAt.get(`${rec.id}|${i}`) ?? Infinity;
-      // What the scaffold's change dealt is known where its HP before and
-      // after were both shown; a change the path made deal anything else, or
-      // whose amount the scaffold did not show, drifted.
-      const was = scaffoldWas.get(rec);
-      if (own === null || was === undefined || was === null || h - h2 !== was - own) drifted.add(e.change);
-      scaffoldWas.set(rec, own);
+      // A change read only as a band, or off a Substitute without a pinned
+      // roll, has not verified that the scaffold's HP holds across other
+      // spreads: it and what follows are still the HPs the display allows,
+      // handed on as what a rebuild must reach, but proved no further than
+      // the line before it.
+      if ((e.change.band || e.change.unpinned) && cutAt === Infinity) {
+        for (let p = s; p < entries.length; p++) {
+          const at = secretAt.get(`${entries[p].rec.id}|${entries[p].i}`);
+          if (at !== undefined) { cutAt = at; break; }
+        }
+      }
       chosen.get(rec)[i] = h2;
       if (e.change.rollAt !== null && e.change.rollAt !== undefined && f.rollOf.has(h2)) rolls.set(e.change.rollAt, f.rollOf.get(h2));
     }
