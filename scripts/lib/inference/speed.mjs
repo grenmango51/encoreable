@@ -596,14 +596,14 @@ export function attachSpeed(battle, {
     // stood in.
     const visible = (ex) => {
       const rec = ex.pokemon && byPokemon.get(ex.pokemon);
-      if (!rec || ex.end > upTo) return false;
+      if (!rec || ex.start >= upTo) return false;
       const out = SWITCHES.has(ex.action?.choice) ? ex.sort?.list.find(item => item.action === ex.action) : null;
       if (SWITCHES.has(ex.action?.choice) && !(out?.slot >= 0)) return false;
       const me = out ? new RegExp(`^\\|switch\\|${out.side}${'abcd'[out.slot]}: `)
         : new RegExp(`(^|\\|| )${rec.side}[a-d]: ${rec.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\||$)`);
       const disguise = out ? null : disguiseOf(ex);
       const as = disguise && fieldOf(disguise.ident);
-      for (let i = firstAt(ex.start); i < view.length && view[i].at < ex.end; i++) {
+      for (let i = firstAt(ex.start); i < view.length && view[i].at < Math.min(ex.end, upTo); i++) {
         if (me.test(view[i].line)) return true;
         if (as && as.test(view[i].line) && settled(ex.pokemon, disguise.key, view[i].at)) return true;
       }
@@ -996,7 +996,12 @@ export function attachSpeed(battle, {
           if (ACTION_START.has(line.split('|')[1])) break;
           if (fromQ(line)) { later = true; break; }
         }
-        if (x && later && wrote && sameButHp(wrote, prefix.observedLine)) eventRule(entry, x, hit.item);
+        if (x && mine && mine.span.start > prefix.cutoffAt && wrote && sameButHp(wrote, prefix.observedLine)) {
+          if (later) eventRule(entry, x, hit.item);
+          for (const m of ms.slice(0, ms.indexOf(hit))) {
+            if (m.item.rec && shownIn(m.span)) eventRule(entry, m.item, x);
+          }
+        }
         break;
       }
     }
@@ -1008,7 +1013,8 @@ export function attachSpeed(battle, {
     scaffoldOrders = [];
     for (const ex of executed) {
       const S = ex.sort;
-      if (!S || ex.start >= upTo || ex.end > upTo || !ex.pokemon) continue;
+      if (!S || ex.start >= upTo || !ex.pokemon) continue;
+      if (ex.end > upTo && !(firstAt(ex.start) < view.length && view[firstAt(ex.start)].at < Math.min(ex.end, upTo))) continue;
       const at = S.list.findIndex(item => item.action === ex.action);
       if (at < 0) continue;
       const x = S.list[at];
@@ -1023,7 +1029,7 @@ export function attachSpeed(battle, {
     for (const entry of eventSorts) {
       if (!entry.items) continue;
       for (const { span, item: x } of matched(entry)) {
-        if (span.start >= upTo || span.end > upTo || !x.rec) continue;
+        if (span.start >= upTo || (span.end > upTo && !shownIn(span)) || !x.rec) continue;
         for (const y of entry.items.slice(entry.items.indexOf(x) + 1)) {
           if (!y.rec || y.rec === x.rec || y.order !== x.order || y.priority !== x.priority) continue;
           const strict = !!entry.strict?.(x, y);

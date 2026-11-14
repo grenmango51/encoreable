@@ -213,6 +213,8 @@ const SWEPT = [
   'mimic:gen9championsvgc2026regmcbo3-2698084073', // 2026-10-14: a hit on a Transformed Ditto when a pinned guess leaves the stat's owner no spread
   'mimic:gen9championsvgc2026regmcbo3-2696763978', // 2026-10-11: a three-way switch-in where Psychic Surge stayed silent before Grassy Surge and Intimidate
   'mimic:gen9championsvgc2026regmcbo3-2703274968', // 2026-10-23: Grassy Terrain and Leftovers at equal Residual order where subOrder breaks a Speed tie
+  'mimic:gen9championsvgc2026regmcbo3-2705400321', // 2026-10-28: an action that already opened before the cutoff, ordered against those behind it
+  'mimic:gen9championsvgc2026regmcbo3-2697078591', // 2026-10-12: a verified Residual handler ordered before the handler the replay shows at the cutoff
 ];
 
 const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));
