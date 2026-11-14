@@ -228,6 +228,7 @@ const SWEPT = [
   'mimic:gen9championsvgc2026regmcbo3-2705100409', // 2026-10-26: an earlier draw shifting a same-turn pin onto Sylveon's burn roll
   'mimic:gen9championsvgc2026regmcbo3-2696353204', // 2026-10-11: a flinched Indeedee-F whose unseen Trick Room needs probes left after Rock Slide's dice settle
   'mimic:gen9championsvgc2026regmcbo3-2707163383', // 2026-10-31: Archaludon's Leftovers matched past its earlier Grassy Terrain heal at a Residual cutoff
+  'mimic:gen9championsvgc2026regmcbo3-2695573428', // 2026-10-09: flipping Dire Claw's secondary off shifts Poison Touch past Flame Body onto a new ordinal
 ];
 
 const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));

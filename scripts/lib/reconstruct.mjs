@@ -1914,12 +1914,13 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
       score = scoreOf(check, t);
     }
   };
-  // A draw that only gets more of the line's fields right in place is held
-  // on trial: it stays when a later draw carries the turn further, and is
-  // taken back, with every draw committed after it, when none does - the
-  // turn then ends where it would have without it. What was taken back is
-  // handed on: a die an earlier turn threw may be what it was waiting for.
+  // A draw that only gets more of the line's fields right without advancing
+  // past it is held on trial: it stays when a later draw carries the turn
+  // further, and is taken back, with every draw committed after it, before
+  // pairs and brought run when none does. What was taken back is handed on if
+  // nothing else advances: a die an earlier turn threw may be what it needed.
   let onTrial = null;
+  let trialDoneAt = -1;
   let tried = null;
   const takeBack = () => {
     tried = {};
@@ -1956,8 +1957,8 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     // draws that were settled long before the line it spoils shows up.
     // A draw the steer has shown prints the wrong line is the likeliest fix,
     // so those go first; the rest keep the order they were thrown in.
-    const reach = canReach(common, run, t);
-    const all = drawsOf(run.trace, t);
+    let reach = canReach(common, run, t);
+    let all = drawsOf(run.trace, t);
     const wrong = d => !!run.steer?.get(d.i)?.wrong;
 
     // Every such draw set right at once, first. A spread move that missed one
@@ -1976,7 +1977,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
 
     // The probes this scan will ask for, in order, are known before it asks:
     // the workers start on them now.
-    const order = [...all.filter(wrong), ...all.filter(d => !wrong(d))];
+    let order = [...all.filter(wrong), ...all.filter(d => !wrong(d))];
     const planned = trial ? [trial] : [];
     for (const draw of order) {
       if (subs[draw.i] !== undefined || !reach(draw)) continue;
@@ -1997,6 +1998,8 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
         run = await runTo(common, subs, t, t);
         score = scoreOf(run, t);
         await dropShifted(prevLines);
+        if (score[0] > prevLines) tried = null;
+        if (onTrial && score[0] > onTrial.lines) onTrial = null;
         continue;
       }
     }
@@ -2046,10 +2049,21 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
       continue;
     }
     const inPlace = fallback && fallback.best[1] === score[1];
-    if (!committed && fallback && !(inPlace && onTrial)) {
-      if (inPlace) onTrial = { at: commits.length, lines: score[0] };
+    if (!committed && fallback && score[0] !== trialDoneAt && !(inPlace && onTrial?.inPlace)) {
+      if (!onTrial) onTrial = { at: commits.length, lines: score[0], inPlace: false };
+      if (inPlace) onTrial.inPlace = true;
       commit(fallback.i, fallback.value, fallback.shape);
       committed = true;
+    }
+    if (!committed && onTrial) {
+      ask.cancel();
+      trialDoneAt = onTrial.lines;
+      takeBack();
+      run = await runTo(common, subs, t, t);
+      score = scoreOf(run, t);
+      reach = canReach(common, run, t);
+      all = drawsOf(run.trace, t);
+      order = [...all.filter(wrong), ...all.filter(d => !wrong(d))];
     }
     // Last, two chances flipped together: a spread move's secondary that came
     // up on one target and not the other prints the wrong target's line under
@@ -2079,13 +2093,13 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
         }
       }
     }
-    // Then a chance with the die it throws when it comes up: a secondary that
-    // hits picks its status with a die of its own - Dire Claw's poison,
-    // paralysis or sleep - which the chance as drawn never threw, so no pair
-    // above holds it, and the pick it is first given can print a status no
-    // closer than the one an ability put on instead.
+    // Then a chance with the die it brings in or shifts onto a new ordinal:
+    // flipping Dire Claw's secondary on brings in its 3-way status pick, and
+    // flipping it off drops that pick and shifts contact abilities like Flame
+    // Body and Poison Touch down one ordinal where `pairs` never tested them.
     if (!committed) {
-      const before = new Map(all.map(d => [d.i, `${d.lo}-${d.hi}`]));
+      const before = new Map(all.map(d => [d.i, shapeOf(d)]));
+      const beforeAt = new Map(all.map(d => [d.i, d.at]));
       const chances = all.filter(d => (d.chance || d.hi - d.lo + 1 > 16) && subs[d.i] === undefined);
       brought: for (const a of chances) {
         if (!reach(a)) continue;
@@ -2093,17 +2107,25 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
           if (probes >= budget) { cut = 'probes'; break brought; }
           const flipped = await ask.get({ ...subs, [a.i]: va });
           probes++;
-          const b = drawsOf(flipped.trace, t).find(d => d.i > a.i);
-          if (!b || b.chance || b.hi - b.lo + 1 > 16 || before.get(b.i) === `${b.lo}-${b.hi}`) continue;
-          for (const vb of candidates(b)) {
-            if (probes >= budget) { cut = 'probes'; break brought; }
-            const probe = await ask.get({ ...subs, [a.i]: va, [b.i]: vb });
-            probes++;
-            if (scoreOf(probe, t)[0] > score[0]) {
-              commit(a.i, va, shapeOf(a));
-              commit(b.i, vb, shapeOf(b));
-              committed = true;
-              break brought;
+          const flippedReach = canReach(common, flipped, t);
+          let shifted = false;
+          for (const b of drawsOf(flipped.trace, t)) {
+            if (b.i <= a.i) continue;
+            if (before.get(b.i) !== shapeOf(b)
+              || (!shifted && !(b.chance || b.hi - b.lo + 1 > 16) && beforeAt.get(b.i) !== b.at)) shifted = true;
+            if (!shifted || subs[b.i] !== undefined || !flippedReach(b)) continue;
+            if (!b.chance && b.hi - b.lo + 1 === ROLLS) continue;
+            const faces = (b.chance || b.hi - b.lo + 1 > 16) ? [b.lo, b.hi].filter(v => v !== b.value) : candidates(b);
+            for (const vb of faces) {
+              if (probes >= budget) { cut = 'probes'; break brought; }
+              const probe = await ask.get({ ...subs, [a.i]: va, [b.i]: vb });
+              probes++;
+              if (scoreOf(probe, t)[0] > score[0]) {
+                commit(a.i, va, shapeOf(a));
+                commit(b.i, vb, shapeOf(b));
+                committed = true;
+                break brought;
+              }
             }
           }
         }
@@ -2145,6 +2167,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     run = await runTo(common, subs, t, t);
     score = scoreOf(run, t);
     await dropShifted(prevLines);
+    if (score[0] > prevLines) tried = null;
     if (onTrial && score[0] > onTrial.lines) onTrial = null;
   }
   // Why the search of this turn ended: the turn reproduces, the simulator
