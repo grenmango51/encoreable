@@ -1018,7 +1018,8 @@ export async function inferSpreads({
     const at = built.report.complete ? [Infinity, Infinity] : [diff?.turn ?? -1, diff?.index ?? -1];
     if (level > floor && !budgets[level].resample && reached && past(at, reached)) floor = level;
     reached = at;
-    if (!deepest || past(at, deepest)) deepest = at;
+    const advanced = !deepest || past(at, deepest);
+    if (advanced) deepest = at;
     else stalled++;
     onProgress(`round ${rounds}${level ? ` (search ${level + 1})` : ''}, ${((Date.now() - searchStart) / 1000).toFixed(1)}s: ${built.report.complete ? 'the whole log reproduces'
       : `reproduces through turn ${built.report.verifiedThroughTurn} - wanted ${diff?.expected}, got ${diff?.actual}`}`);
@@ -1067,23 +1068,33 @@ export async function inferSpreads({
       const [s, i] = seq[n];
       const id = `p${s + 1}:${i}`;
       const kn = cond.get(id);
+      const evKn = knowledge.get(id);
       const tried = [];
+      const byKey = new Map();
       const fixed = held.has(id) ? [held.get(id)] : [];
-      for (const aim of [...fixed, aimFor(kn, picks[s][i]), picks[s][i], aimFor(kn, picks[s][i], 0.25), aimFor(kn, picks[s][i], 0.75)]) {
+      const mid = aimFor(kn, picks[s][i]);
+      if (keep.length && !evKn.dom.spe.includes(0) && kn.dom.spe[picks[s][i].spe]) mid.spe = picks[s][i].spe;
+      for (const aim of [...fixed, mid, picks[s][i], aimFor(kn, picks[s][i], 0.25), aimFor(kn, picks[s][i], 0.75)]) {
         if (tries <= 0) { limits.add('guessTries'); return null; }
         const first = closestSpread(kn, aim);
         if (!first) continue;
         // HP, Defence and Special Defence first, and the flat stats from what
         // survives beside them: one hit can tie the two together - Foul Play
         // reads the target's Attack against its own Defence.
-        const keyed = cloneKnowledge(cond);
-        const pinned = keyed.get(id);
-        pinned.keys.fill(0);
-        pinned.keys[keyOf(first.hp, first.def, first.spd)] = 1;
-        tries--;
-        await settle(built.inputLog, keyed, cache, false, false, keep);
-        if (blocks(keyed, n)) continue;
-        const pick = closestSpread(pinned, aim);
+        const k = keyOf(first.hp, first.def, first.spd);
+        let entry = byKey.get(k);
+        if (!entry) {
+          const keyed = cloneKnowledge(cond);
+          const pinned = keyed.get(id);
+          pinned.keys.fill(0);
+          pinned.keys[k] = 1;
+          tries--;
+          await settle(built.inputLog, keyed, cache, false, false, keep);
+          entry = { pinned, blocked: blocks(keyed, n) || emptied(pinned) };
+          byKey.set(k, entry);
+        }
+        if (entry.blocked) continue;
+        const pick = closestSpread(entry.pinned, aim);
         if (!pick || tried.some(t => sameSpread(t, pick))) continue;
         tried.push(pick);
         const narrowed = cloneKnowledge(cond);
@@ -1101,11 +1112,12 @@ export async function inferSpreads({
     // A guess that sorts every Pokemon as this rebuild did plays its turns
     // again on the dice handed on; one that flips an order nobody proved - an
     // action its Pokemon never showed - breaks the proof it is handed. So the
-    // guesses are chosen inside the rebuild's own orders, where those leave
-    // every Pokemon a spread and keep what the fallback held: never evidence,
-    // only where the next guess looks, and dropped once they trap the guess in
-    // place or leave no joint proof.
-    let keep = scaffoldOrders;
+    // guesses are chosen inside the rebuild's own orders while the rounds
+    // advance, where those leave every Pokemon a spread and keep what the
+    // fallback held: never evidence, only where the next guess looks, and
+    // dropped once a round stalls, leaves no joint proof, or leaves the guess
+    // where it was.
+    let keep = advanced && !failed.has(markOf(diff)) ? scaffoldOrders : [];
     const within = () => {
       const cond = cloneKnowledge(knowledge);
       if (keep.length) {
@@ -1138,7 +1150,7 @@ export async function inferSpreads({
     };
     let proof = await pickGuesses();
     const isUnchanged = () => next.every((team, s) => team.every((e, i) => sameSpread(e, picks[s][i])));
-    if (keep.length && (!proof || (isUnchanged() && (failed.has(markOf(diff)) || !built.report.limits.length)))) {
+    if (keep.length && (!proof || isUnchanged())) {
       keep = [];
       next = picks.map(team => team.map(e => ({ ...e })));
       tries = 32 * S * W;

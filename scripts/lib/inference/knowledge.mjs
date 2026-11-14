@@ -803,7 +803,9 @@ export function aimFor(kn, prev, q = 0.5) {
   const aim = {};
   for (const s of STAT_IDS) {
     const values = aliveOf(FLAT.includes(s) ? kn.dom[s] : seen[s]);
-    aim[s] = values.length && values.length < SPAN ? values[Math.floor((values.length - 1) * q + 0.5)] : prev[s];
+    const at = (values.length - 1) * q;
+    const i = q < 0.5 ? Math.floor(at) : q > 0.5 ? Math.ceil(at) : Math.round(at);
+    aim[s] = values.length && values.length < SPAN ? values[i] : prev[s];
   }
   return aim;
 }
