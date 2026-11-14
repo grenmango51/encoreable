@@ -439,8 +439,11 @@ export async function inferSpreads({
   let pins = null;
   const started = Date.now();
   // One seed for every round, so the dice a round hands on land on the same
-  // generator: an ordinal nobody pinned draws the same value every time.
-  const seed = sampler(sampleSeed ^ 0x5eed).seed();
+  // generator: an ordinal nobody pinned draws the same value every time. A
+  // resampled search that gets further becomes the new generator.
+  let activeSample = sampleSeed;
+  let resamples = 0;
+  let seed = sampler(activeSample ^ 0x5eed).seed();
 
   // A wrong guess makes a turn that no die can repair, and a full search spends
   // its whole budget proving that. So a guess is first tried on a small budget,
@@ -543,7 +546,7 @@ export async function inferSpreads({
       spend.rebuilds--;
       return counted(await reconstruct({
         formatid, packedTeams: packOf(chosen), playerNames, observed: upTo, channel, exact: null, forced: built.forced,
-        seed, pins: given, sampleSeed, maxProbes: budget.maxProbes, maxBacktracks: budget.maxBacktracks, threads, deadline, ...searchLimits,
+        seed, pins: given, sampleSeed: activeSample, maxProbes: budget.maxProbes, maxBacktracks: budget.maxBacktracks, threads, deadline, ...searchLimits,
       }), true);
     };
     // Asked only where there is more to try, so a no names the limit that
@@ -643,20 +646,24 @@ export async function inferSpreads({
     }
 
     // Each rebuild gets the smallest budget that brings the guess itself to
-    // the failing turn, without backtracking: the dice of the turns before are
-    // handed on, and only the choices a replay leaves invisible are searched
-    // there again.
+    // the failing line, without backtracking unless nothing smaller reaches it:
+    // the dice of the turns before are handed on, and only the choices a replay
+    // leaves invisible are searched there again.
+    const target = [t, diff.index];
     let budget = budgets[0];
     let base = await rebuild(start, budget);
-    if (!base.report.complete && reach(base)[0] < t) {
+    if (!base.report.complete && further(target, reach(base))) {
       budget = { maxProbes: budgets[1].maxProbes, maxBacktracks: 0 };
       base = await rebuild(start, budget);
     }
-    if (base.report.complete) return stays(handed, budget === budgets[0] ? 0 : 1);
+    if (base.report.complete || further(reach(base), target)) return stays(handed, budget === budgets[0] ? 0 : 1);
     const dice = await rebuild(start, budgets[1]);
+    const dicePast = dice.report.complete || (further(reach(dice), reach(base)) && further(reach(dice), target));
     const guessed = cast.map(u => `${u.name} ${STAT_IDS.map(x => start[u.s][u.i][x]).join('/')}`).join(', ');
-    onProgress(`  fallback on turn ${t}: ${diff.expected} - the guess alone (${guessed}) ${dice.report.complete ? 'reproduces it under a bigger search' : 'does not'}, ${clock()}`);
-    if (dice.report.complete) return stays(handed, 1);
+    onProgress(`  fallback on turn ${t}: ${diff.expected} - the guess alone (${guessed}) ${dice.report.complete ? 'reproduces it under a bigger search'
+      : dicePast ? `gets past the line, stopping at ${reach(dice).join('.')}, under a bigger search` : 'does not'}, ${clock()}`);
+    if (dicePast) return stays(handed, 1);
+    if (further(target, reach(base)) && !further(target, reach(dice))) [budget, base] = [budgets[1], dice];
     if (reach(base)[0] < t) {
       const at = base.report.diffs[0];
       onProgress(`  fallback on turn ${t}: the guess stops before the turn, at ${reach(base).join('.')}: wanted ${at?.expected}, got ${at?.actual}, ${clock()}`);
@@ -745,14 +752,15 @@ export async function inferSpreads({
     let ahead = null;
     const judge = (changes, got, d = null) => {
       const r = reach(got.b);
+      const pastLine = further(r, baseReach) && further(r, target);
       if (d) {
         const { value } = changes[0];
         if (r[0] >= t && outcome(got.b) !== baseOutcome) d.moved = true;
-        if (further(r, baseReach)) d.passed = true;
+        if (pastLine) d.passed = true;
         if (!d.best || further(r, reach(d.best.b))) d.best = { value, b: got.b };
       }
       if (got.b.report.complete) found = { got, by: changes };
-      else if (further(r, baseReach) && (!ahead || further(r, reach(ahead.got.b)))) ahead = { got, by: changes };
+      else if (pastLine && (!ahead || further(r, reach(ahead.got.b)))) ahead = { got, by: changes };
     };
     // Where a value leaves the rebuild: stopping before the line, printing
     // what it printed, or something else.
@@ -895,7 +903,7 @@ export async function inferSpreads({
     // searched again, says whether it does.
     if ((found || ahead) && Object.keys(handed.subs).length) {
       const fresh = await rebuild(start, budgets[1], { given: null });
-      if (further(reach(fresh), baseReach)) {
+      if (fresh.report.complete || (further(reach(fresh), baseReach) && further(reach(fresh), target))) {
         onProgress(`  fallback on turn ${t}: the guess alone gets past the line with the dice before it searched again, ${clock()}`);
         return stays(null, 1);
       }
@@ -911,10 +919,10 @@ export async function inferSpreads({
         if (read) break;
         const b = counted(await reconstruct({
           formatid, packedTeams: packOf(chosen), playerNames, observed: through, channel, exact: ex, forced: built.forced,
-          seed, pins: given, sampleSeed, maxProbes: budgets[widest].maxProbes, maxBacktracks: budgets[widest].maxBacktracks, threads, deadline,
+          seed, pins: given, sampleSeed: activeSample, maxProbes: budgets[widest].maxProbes, maxBacktracks: budgets[widest].maxBacktracks, threads, deadline,
           ...searchLimits,
         }), true, ex);
-        read = b.report.complete || further(reach(b), [t, diff.index]);
+        read = b.report.complete || further(reach(b), target);
       }
       if (!read) gap(mark, { turn: t, what: text, who: whoIn(text, by), reason: 'no evidence hook reads this line, and the fallback found a spread that reproduces it' }, true);
       onProgress(`  fallback on turn ${t}: ${found ? 'reproduced' : `past the line, stopping at ${reach(ahead.got.b).join('.')}`} in ${spent} rebuilds, ${clock()}`);
@@ -1003,19 +1011,25 @@ export async function inferSpreads({
     const packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
     const searchStart = Date.now();
     const resample = budgets[level].resample || 0;
+    const trialSample = resample ? sampleSeed + (++resamples) : activeSample;
+    const roundExact = resample ? null : exact;
     built = counted(await reconstruct({
-      formatid, packedTeams, playerNames, observed, channel, exact, forced: built?.forced ?? forced,
+      formatid, packedTeams, playerNames, observed, channel, exact: roundExact, forced: built?.forced ?? forced,
       seed: resample ? null : seed,
       pins: resample ? null : pins,
-      sampleSeed: sampleSeed + resample,
+      sampleSeed: trialSample,
       maxProbes: budgets[level].maxProbes,
       maxBacktracks: budgets[level].maxBacktracks,
       threads,
       deadline,
       ...searchLimits,
-    }), false, exact);
+    }), false, roundExact);
     const diff = built.report.diffs[0];
     const at = built.report.complete ? [Infinity, Infinity] : [diff?.turn ?? -1, diff?.index ?? -1];
+    if (resample && reached && past(at, reached)) {
+      activeSample = trialSample;
+      seed = sampler(activeSample ^ 0x5eed).seed();
+    }
     if (level > floor && !budgets[level].resample && reached && past(at, reached)) floor = level;
     reached = at;
     const advanced = !deepest || past(at, deepest);
@@ -1190,6 +1204,8 @@ export async function inferSpreads({
     }
     if (unchanged) {
       if (++level >= budgets.length) { stop = 'searches'; break; }
+    } else if (again || read < 2) {
+      level = Math.min(level + 1, budgets.length - 1);
     } else {
       level = floor;
     }
