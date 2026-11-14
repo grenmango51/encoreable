@@ -219,6 +219,9 @@ const SWEPT = [
   'mimic:gen9championsvgc2026regmcbo3-2698749318', // 2026-10-15: Disguise changing Mimikyu's forme before dealing its eighth of max HP
   'mimic:gen9championsvgc2026regmcbo3-2694740900', // 2026-10-08: a drain heal off a Substitute on a Pokemon whose own HP is shown exactly
   'mimic:gen9championsvgc2026regmcbo3-2691851791', // 2026-10-02: Parabolic Charge's drain narrowed by later exact displays and passed back to its first target
+  'mimic:gen9championsvgc2026regmcbo3-2695828443', // 2026-10-09: Beat Up's bench hits read as bands, ending the proof even where the path kept the scaffold's HP
+  'mimic:gen9championsvgc2026regmcbo3-2706304976', // 2026-10-29: a second hit on a Shed Tail Substitute ending the proof before its unmodeled break check
+  'mimic:gen9championsvgc2026regmc-2704181244', // 2026-10-25: a guess chosen outside scaffoldOrders ending the proof before the turn whose order it reversed
 ];
 
 const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));

@@ -1970,12 +1970,14 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
       if (read.change) {
         const today = scaled();
-        return handOn(read.moves && within(read.change, today) ? read.change : union(read.change, today));
+        return handOn(read.moves && within(read.change, today) ? read.change : Object.assign(union(read.change, today), { uncertain: true }));
       }
       note(said, `${read.reason}, so it was not run again for each candidate`);
       if (k === undefined) return band(way, said);
     }
-    return handOn(scaled());
+    const out = scaled();
+    if (whole) out.uncertain = true;
+    return handOn(out);
   }
 
   /**
@@ -2086,6 +2088,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       change = effectChange(rec, 'sethp', info.d, null, null, false, null, null, null, info.before);
     }
     change.turn = battle.turn;
+    change.logAt = battle.log.length;
     changeOrdinal++;
     rec.pending.push(change);
   }
@@ -2592,6 +2595,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   // The ordinal of the draw a real hit's damage roll took, so the roll an
   // evidence path chose for it can be written back as a pin.
   let rollDraws = null;
+  let unprovedAt = Infinity;
   const origRandomizer = battle.randomizer;
   battle.randomizer = function (base) {
     if (rollDraws && !st.dry) rollDraws.push(st.draws);
@@ -2639,6 +2643,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           hit.hold = hold;
           subGates.set(target, hit);
         } else {
+          if (battle.log.length <= prefix.cutoffAt) unprovedAt = Math.min(unprovedAt, battle.log.length);
           subGates.delete(target);
         }
       } else {
@@ -3161,7 +3166,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     X.painSplit = change;
     // The exact one's HP is its own line; what it says of the other is read
     // through the other's change below.
-    Y.painSplit = band('either', change.what);
+    Y.painSplit = Object.assign(band('either', change.what), { proved: true });
     const start = battle.log.length;
     state.hold++;
     try {
@@ -4050,7 +4055,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     // it at, for the recoil or drain that follows it.
     const dealtBy = new Map();
     let coupled = Infinity;
-    let cutAt = Infinity;
+    let cutAt = unprovedAt;
     // Every change the path made deal another amount than the scaffold's did,
     // and the HP the scaffold showed each Pokemon on last (null where its last
     // change showed none).
@@ -4160,12 +4165,14 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
       const own = e.token !== null ? scaffoldHp(rec, i) : null;
       const h2 = options.includes(own) ? own : options[0];
-      // A change read only as a band hands on no roll: an HP the scaffold
-      // did not land on is one nothing handed on makes. It and what follows
-      // are still the HPs the display allows, handed on as what a rebuild
-      // must reach, but proved no further than the line before it.
-      const carriedOff = e.change.carriedFrom && (e.change.carriedFrom === 'unknown' || drifted.has(e.change.carriedFrom));
-      if (e.change.band && own !== null && (h2 !== own || carriedOff) && cutAt === Infinity) cutAt = secretAt.get(`${rec.id}|${i}`) ?? Infinity;
+      // A change read only as a band or with both roundings hands on no roll,
+      // and under a new guess can deal another amount even where its path kept
+      // the scaffold's own HP. It and what follows are still the HPs the
+      // display allows, handed on as what a rebuild must reach, but proved no
+      // further than the line before it.
+      if (((e.change.band && !e.change.proved) || e.change.uncertain)) {
+        cutAt = Math.min(cutAt, secretAt.get(`${rec.id}|${i}`) ?? e.change.logAt ?? Infinity);
+      }
       // What the scaffold's change dealt is known where its HP before and
       // after were both shown; a change the path made deal anything else, or
       // whose amount the scaffold did not show, drifted.
@@ -4230,7 +4237,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         // the whole-path check, then speed order, which needs every turn's sort.
         orders: speedOrders.map(r => ({ fast: r.fast.id, slow: r.slow.id, tf: Array.from(r.tf), ts: Array.from(r.ts), ...(r.strict ? { strict: true } : {}), turn: r.turn, what: r.what })),
         // The order the rebuild itself ran in: no evidence, only what a guess must keep for its dice to play again.
-        scaffoldOrders: speed.scaffold().map(r => ({ fast: r.fast.id, slow: r.slow.id, tf: Array.from(r.tf), ts: Array.from(r.ts), ...(r.strict ? { strict: true } : {}) })),
+        scaffoldOrders: speed.scaffold().map(r => ({ fast: r.fast.id, slow: r.slow.id, tf: Array.from(r.tf), ts: Array.from(r.ts), ...(r.strict ? { strict: true } : {}), turn: r.turn })),
         events: events.map(e => ({ ...e, ...unmark(e.what) })),
         checks: checks.map(c => ({ ...c, ...unmark(c.what) })),
         cutoff: prefix.cutoffAt === Infinity ? null : { turn: prefix.turn, observed: prefix.observedLine },

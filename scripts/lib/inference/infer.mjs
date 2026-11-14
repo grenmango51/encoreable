@@ -1161,7 +1161,24 @@ export async function inferSpreads({
       proof = await pickGuesses();
     }
     exact = proof?.exact || null;
-    pins = proof ? handOn(built, proof.rolls, proof.coupled) : null;
+    let coupledAt = proof?.coupled ?? Infinity;
+    if (proof && !keep.length && scaffoldOrders.length) {
+      const speOf = (id) => {
+        const [s, i] = id.slice(1).split(':').map(Number);
+        return next[s - 1][i].spe;
+      };
+      for (const o of scaffoldOrders) {
+        if (!(o.turn >= 0)) continue;
+        const vf = speOf(o.fast);
+        const vs = speOf(o.slow);
+        if (o.strict ? o.tf[vf] <= o.ts[vs] : o.tf[vf] < o.ts[vs]) coupledAt = Math.min(coupledAt, o.turn);
+      }
+      if (exact && coupledAt < Infinity) {
+        for (const k of [...exact.keys()]) if (k >= coupledAt) exact.delete(k);
+        if (!exact.size) exact = null;
+      }
+    }
+    pins = proof ? handOn(built, proof.rolls, coupledAt) : null;
     if (!exact) {
       for (const [s, i] of order) {
         const id = `p${s + 1}:${i}`;
