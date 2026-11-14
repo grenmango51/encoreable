@@ -118,7 +118,9 @@ function planSegment(segment, dex) {
   // it name the new slots; a choice belongs to the slot its Pokemon chose from.
   const startOf = { p1: [0, 1, 2], p2: [0, 1, 2] };
   // A Pokemon Encored before it moves uses the Encored move, not the one it
-  // chose, so its move line says nothing about its choice.
+  // chose, so its move line leaves its choice unseen - except a `[from]
+  // lockedmove` release, which carries out a choice stored earlier, and a
+  // charging move, whose target its release turn still names.
   const encored = new Set();
   // Revival Blessing asks its user's player which fainted Pokemon to bring
   // back, as a switch request for the user's slot; the heal line names the one
@@ -174,7 +176,6 @@ function planSegment(segment, dex) {
 
     if (kind === 'move') {
       if (toID(parts[3]) === 'revivalblessing') reviver = { slot: identSlot(parts[2]) };
-      if (encored.has(parts[2])) continue;
       const from = tagsOf(line).from;
       // A `[from]` move was executed by something other than a fresh choice -
       // Copycat, Instruct, Dancer, Magic Bounce, Sleep Talk. `lockedmove` is the
@@ -189,6 +190,7 @@ function planSegment(segment, dex) {
         moveid,
         target,
         needsTarget: CHOOSABLE_TARGETS.has(dex.moves.get(moveid).target),
+        encored: encored.has(parts[2]) && from !== 'lockedmove',
       };
     }
   }
@@ -522,20 +524,24 @@ function choiceFor(side, plan, state, notes) {
     const action = plan.actions[sideId][i];
     const mega = plan.megas.has(`${sideId}${'abc'[i]}`) && slot.canMegaEvo ? ' mega' : '';
 
-    if (!action) {
-      // Nothing executed for this slot: it fainted before acting, was flinched
-      // or fully paralysed, or the battle ended before its action ran. No PP
-      // moved and no state changed - but the target still perturbs the RNG
-      // stream, so which substitution we make is a search variable.
+    if (!action || action.encored) {
+      // Nothing executed for this slot - it fainted before acting, was flinched
+      // or fully paralysed, or the battle ended before its action ran - or
+      // Encore replaced what it chose before it moved. Which legal move and
+      // target was chosen is a search variable; when a charging move's target
+      // was recovered from its release turn, try that move and target first.
       notes.push(`${sideId} slot ${i + 1} made an invisible choice - substituted a legal move`);
       state.invisible = true;
+      const loc = action?.recovered && action.target ? targetLoc(sideId, i, action.target) : null;
+      const preferred = loc === null ? null : ` ${loc > 0 ? '+' : ''}${loc}`;
       const usable = slot.moves
         .map((m, j) => ({ ...m, j }))
         .filter(m => !m.disabled)
-        .sort(state.selfSwitchLast);
+        .sort((a, b) => (action?.recovered ? Number(b.id === action.moveid) - Number(a.id === action.moveid) : 0) || state.selfSwitchLast(a, b));
       const options = [];
       for (const m of usable) {
-        for (const suffix of targetOptions(side, i, m.target)) {
+        const pref = preferred && (!side.active[i] || side.battle.validTargetLoc(loc, side.active[i], m.target)) ? preferred : null;
+        for (const suffix of targetOptions(side, i, m.target, pref)) {
           options.push(`move ${m.j + 1}${suffix}${mega}`);
         }
       }
