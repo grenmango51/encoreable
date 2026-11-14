@@ -111,6 +111,7 @@ function planSegment(segment, dex) {
   const plan = {
     switches: { p1: [], p2: [] },   // [slotIndex] -> species name
     actions: { p1: [], p2: [] },    // [slotIndex] -> { moveid, target, mega }
+    encoredCharges: { p1: [], p2: [] }, // [slotIndex] -> { moveid, target }
     forced: { p1: [], p2: [] },     // in log order
     megas: new Set(),
   };
@@ -175,12 +176,22 @@ function planSegment(segment, dex) {
 
     if (kind === 'move') {
       if (toID(parts[3]) === 'revivalblessing') reviver = { slot: identSlot(parts[2]) };
-      if (encored.has(parts[2])) continue;
       const from = tagsOf(line).from;
       // A `[from]` move was executed by something other than a fresh choice -
       // Copycat, Instruct, Dancer, Magic Bounce, Sleep Talk. `lockedmove` is the
       // exception: a locked Pokemon still gets a request offering exactly one
-      // move (sim/pokemon.ts:1084), so it does need a choice line.
+      // move (sim/pokemon.ts:1084), so it does need a choice line, even if
+      // Encore landed on it earlier in the turn.
+      if (encored.has(parts[2]) && from !== 'lockedmove') {
+        const side = identSide(parts[2]);
+        const slot = startOf[side]?.[identSlot(parts[2])] ?? identSlot(parts[2]);
+        const moveid = toID(parts[3]);
+        const target = parts[4] && parts[4].includes(': ') ? parts[4] : null;
+        if (!target && CHOOSABLE_TARGETS.has(dex.moves.get(moveid).target)) {
+          plan.encoredCharges[side][slot] = { moveid, target: null };
+        }
+        continue;
+      }
       if (from && from !== 'lockedmove') continue;
       const side = identSide(parts[2]);
       const slot = startOf[side]?.[identSlot(parts[2])] ?? identSlot(parts[2]);
@@ -209,15 +220,17 @@ function planSegment(segment, dex) {
 function recoverChargeTargets(plans) {
   for (const [k, plan] of plans.entries()) {
     for (const side of ['p1', 'p2']) {
-      for (const [slot, action] of plan.actions[side].entries()) {
-        if (!action || action.target || !action.needsTarget) continue;
-        for (const later of plans.slice(k + 1)) {
-          const match = later.actions[side][slot];
-          if (match?.moveid === action.moveid && match.target) {
-            action.target = match.target;
-            action.recovered = true;
-            action.landsOn = plans.indexOf(later);
-            break;
+      for (const list of [plan.actions[side], plan.encoredCharges[side]]) {
+        for (const [slot, action] of list.entries()) {
+          if (!action || action.target || (list === plan.actions[side] && !action.needsTarget)) continue;
+          for (const later of plans.slice(k + 1)) {
+            const match = later.actions[side][slot];
+            if (match?.moveid === action.moveid && match.target) {
+              action.target = match.target;
+              action.recovered = true;
+              action.landsOn = plans.indexOf(later);
+              break;
+            }
           }
         }
       }
@@ -229,7 +242,8 @@ function recoverChargeTargets(plans) {
 function carriedInto(plans, t) {
   const out = [];
   for (let k = t - 1; k >= 0; k--) {
-    if (Object.values(plans[k]?.actions || {}).some(acts => (acts || []).some(a => a?.landsOn === t))) out.push(k);
+    const has = map => Object.values(map || {}).some(acts => (acts || []).some(a => a?.landsOn === t));
+    if (has(plans[k]?.actions) || has(plans[k]?.encoredCharges)) out.push(k);
   }
   return out;
 }
@@ -534,9 +548,12 @@ function choiceFor(side, plan, state, notes) {
         .map((m, j) => ({ ...m, j }))
         .filter(m => !m.disabled)
         .sort(state.selfSwitchLast);
+      const encoredTarget = plan.encoredCharges?.[sideId]?.[i]?.target;
+      const loc = encoredTarget ? targetLoc(sideId, i, encoredTarget) : null;
+      const preferred = loc === null ? null : ` ${loc > 0 ? '+' : ''}${loc}`;
       const options = [];
       for (const m of usable) {
-        for (const suffix of targetOptions(side, i, m.target)) {
+        for (const suffix of targetOptions(side, i, m.target, preferred)) {
           options.push(`move ${m.j + 1}${suffix}${mega}`);
         }
       }
