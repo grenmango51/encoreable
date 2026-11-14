@@ -546,7 +546,9 @@ function choiceFor(side, plan, state, notes) {
     const at = slot.moves.findIndex(m => m.id === action.moveid);
     // Imprison disables a foe's moves without telling its player: the request
     // still offers them, and choosing one makes the Pokemon Struggle.
-    if (at < 0 && action.moveid === 'struggle' && slot.moves.length) return `move 1${mega}`;
+    // The choice is read before it is turned into Struggle, so a move that
+    // takes a target is written with one.
+    if (at < 0 && action.moveid === 'struggle' && slot.moves.length) return `move 1${targetOptions(side, i, slot.moves[0].target)[0]}${mega}`;
     if (at < 0) {
       // The simulator is not offering the move the log says was used. That is a
       // real divergence, not something to paper over.

@@ -112,7 +112,15 @@ export async function declineConsent(page, ms = 10000) {
     const end = Date.now() + ${ms};
     (function poll() {
       const btn = [...document.querySelectorAll('button, a')].find(b => /^\\s*Do not consent\\s*$/i.test(b.textContent));
-      if (btn) { btn.click(); return setTimeout(() => res('declined'), 800); }
+      if (btn) {
+        btn.click();
+        return setTimeout(function dismissBubble(n = 0) {
+          const close = [...document.body.children].map(e => e.shadowRoot?.querySelector('.ft-reg-bubble-close')).find(Boolean);
+          if (close) { close.click(); return setTimeout(() => res('declined'), 300); }
+          if (n < 6) return setTimeout(() => dismissBubble(n + 1), 250);
+          res('declined');
+        }, 400);
+      }
       if (Date.now() > end) return res('no dialog');
       setTimeout(poll, 250);
     })();

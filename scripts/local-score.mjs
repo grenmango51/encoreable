@@ -13,10 +13,12 @@
  *   npm run score -- --tier full --budget 10  every search limit ten times as wide: what the limits cost
  *   npm run score -- --only fuzz:220 --views p2@p1 --trace   every step of the search, on stderr: why a case gave up
  *   npm run score -- --mimic-dir <dir>      every game in <dir> as a mimic battle, not the benchmark (a corpus sweep)
+ *   npm run score -- --tier problem --mimic-dir <dir> [--why REMOVED,CRASH]   the sweep's problem games (`fixtures/problems.js`)
+ *   npm run score -- --tier fast --certify 20   one case in 20 also rebuilt one Stat Point outside every range it kept
  *   npm run score -- --mimic-dir a,b,c --log <file>   one queue over several folders, in that order, each record
  *                                           added to <file> as it ends: run again to go on from where it stopped
  *
- * Flags: --tier quick|fast|full --timings <run.json> --only <id>[,<id>...] --views <v>[,<v>...] --threads <n> --budget <n>
+ * Flags: --tier quick|fast|full|problem --why <reason>[,<reason>...] --timings <run.json> --only <id>[,<id>...] --views <v>[,<v>...] --threads <n> --budget <n> --certify <n>
  *        --trace --mimic-dir <dir>[,<dir>...] --log <file> --hosts <a,b,...> --remote <command> --out <file> --merge <file>...
  *        --baseline <file> --accept
  *
@@ -66,7 +68,7 @@ import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 
 import { battleLines } from './lib/protocol.mjs';
 import { loadSource } from './lib/replay-source.mjs';
-import { inferSpreads } from './lib/inference/infer.mjs';
+import { certifyRanges, inferSpreads } from './lib/inference/infer.mjs';
 import { FUZZ_TURNS, fuzzRecipe, fuzzTeams, playFuzz } from './lib/fuzz.mjs';
 import { USAGE_FILE, mimicRecipe, playMimic, usageSpreads } from './lib/mimic.mjs';
 import { likelySpreads, usualSpreads } from './lib/inference/usage.mjs';
@@ -76,6 +78,7 @@ const require = createRequire(import.meta.url);
 const { BattleStream, Dex, Teams } = require('pokemon-showdown');
 const { extractChannelMessages } = require('pokemon-showdown/dist/sim/battle.js');
 const { BATTLES } = require('./fixtures/benchmark.js');
+const { GAMES: PROBLEMS } = require('./fixtures/problems.js');
 
 const ROOT = process.cwd();
 const WORKER_ROLE = 'score-worker';
@@ -201,7 +204,7 @@ function miscount(p, key) {
 }
 
 /** One battle from one view, graded. */
-async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, parallel = null } = {}) {
+async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, parallel = null, certify = 0 } = {}) {
   const started = Date.now();
   const base = { id, view };
   try {
@@ -228,8 +231,35 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
     const inf = await inferSpreads({
       formatid, sets, known, playerNames: players.map(p => p.name), observed: replayed.channels[channel], channel,
       sampleSeed: 1, threads: 1, budgetScale: budget, usage, parallel,
+      truth: Object.fromEntries(truth.flatMap((team, s) => (known[s] ? [] : team.map((set, i) => [`p${s + 1}:${i}`, set.evs || {}])))),
       ...(trace ? { onProgress: m => process.stderr.write(`[${id} ${view}] ${m}\n`) } : {}),
     });
+    // A cause with this battle's names taken out, so that cases with one cause
+    // count together: every Pokemon is X, and every move, item and ability
+    // either sheet has is named by its kind.
+    const all = truth.flat();
+    const esc = x => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const names = (list, as) => [...new Set(list.filter(Boolean))].sort((a, b) => b.length - a.length).map(n => [new RegExp(`(?<![A-Za-z])${esc(n)}(?![A-Za-z])`, 'g'), as]);
+    const swaps = [
+      ...names(all.flatMap(set => [set.name, set.species, dex.species.get(set.species).baseSpecies]), 'X'),
+      ...names(all.flatMap(set => set.moves.map(m => dex.moves.get(m).name)), 'a move'),
+      ...names(all.map(set => dex.items.get(set.item).name), 'an item'),
+      ...names(all.map(set => dex.abilities.get(set.ability).name), 'an ability'),
+    ];
+    const plain = text => swaps.reduce((t, [re, as]) => t.replace(re, as), String(text)).replace(/\bp[1-4][a-d]?: /g, '');
+    const lineKind = (l) => {
+      const parts = String(l || '').split('|');
+      const from = /\[from\] ([^|]+)/.exec(String(l || ''))?.[1];
+      return `${parts[1] || 'nothing'}${from ? ` from ${plain(from)}` : ''}`;
+    };
+    // A broken proof by the line it broke on: the same line on another HP,
+    // the same kind of line for another Pokemon, or another line altogether.
+    const brokenKind = (w) => {
+      const [e, a] = [String(w.expected || '').split('|'), String(w.actual || '').split('|')];
+      if (lineKind(w.expected) !== lineKind(w.actual)) return `${lineKind(w.expected)} where the rebuild has ${lineKind(w.actual)}`;
+      if (e[2] !== a[2]) return `${lineKind(w.expected)}: another Pokemon first`;
+      return `${lineKind(w.expected)}: ${HP_AT[e[1]] ? 'another amount' : `another ${e.findIndex((x, n) => x !== a[n]) === 4 && e[1] === 'move' ? 'target' : 'outcome'}`}`;
+    };
     const pokemon = [];
     for (const p of inf.pokemon) {
       if (p.known) continue;
@@ -260,23 +290,49 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
     if (missing.length || stray.length) {
       return { ...base, result: 'CRASH', error: `the inference graded ${graded.join(', ') || 'no Pokemon'}, expected ${expected.join(', ')}`, seconds: Number(((Date.now() - started) / 1000).toFixed(1)) };
     }
+    // The planted spread is one spread: a removal that misses it shows only
+    // when another spread it removed is tried. On a sample of the cases that
+    // rebuilt (`--certify <n>`, one in n by the case's name), each stat of
+    // each seen Pokemon is rebuilt one Stat Point outside its range, as
+    // `npm run reconstruct -- --certify --outside` does: one that reproduces
+    // the log is a spread the replay allows and the inference removed.
+    let certified = null;
+    const drawn = certify > 0 && Number.parseInt(crypto.createHash('sha256').update(`certify ${id} ${view}`).digest('hex').slice(0, 8), 16) % certify === 0;
+    if (drawn && inf.complete) {
+      const proof = await certifyRanges(inf, {
+        formatid, sets, playerNames: players.map(p => p.name), observed: replayed.channels[channel], channel, sampleSeed: 1, threads: 1, outside: true,
+      });
+      const ends = Object.values(proof).flatMap(stats => Object.values(stats).flatMap(c => [c.min, c.max]));
+      certified = {
+        ends: ends.length,
+        proved: ends.filter(Boolean).length,
+        outside: Object.entries(proof).flatMap(([pid, stats]) => Object.entries(stats).flatMap(([stat, c]) => (c.outside || []).map(value => `${pid} ${stat} ${value}`))),
+      };
+    }
     // Each check on its own, so one failing does not hide another; `result`
     // sums them up.
     const limits = inf.limits || [];
-    const sound = pokemon.every(p => p.kept) && (!inf.complete || pokemon.every(p => p.witness));
+    const sound = pokemon.every(p => p.kept) && (!inf.complete || pokemon.every(p => p.witness)) && !certified?.outside.length;
     const limitHit = limits.some(l => SEARCH_LIMITS.has(l));
     const wrongCount = pokemon.find(p => p.miscounted);
     const result = !sound ? 'REMOVED' : wrongCount ? 'CRASH' : inf.complete ? 'PASS' : limitHit ? 'GAVE UP' : 'NO MATCH';
     return {
       ...base, result, sound, complete: inf.complete, limitHit, asSaved, stop: inf.stop, limits, pokemon,
       ...(wrongCount ? { error: `${wrongCount.id} ${wrongCount.species}: ${wrongCount.miscounted}` } : {}),
+      ...(certified ? { certified } : {}),
+      ...(certified?.outside.length ? { error: `a spread outside what was kept rebuilds the log: ${certified.outside.join(', ')}` } : {}),
       work: { rounds: inf.work.rounds, rebuilds: inf.work.rebuilds, probes: inf.work.probes, passes: inf.work.passes ?? null },
       // Each proof a rebuild was handed that broke under its own dice and
       // choices: the evidence called a turn exact that the simulator plays
       // otherwise. It removes nothing, but it is a bug in what is handed on,
       // whatever the result.
+      // Each real spread a step removed on the way, whatever the result kept:
+      // the step, and the events that did it - the first time, of every start.
+      ...(inf.lost?.length ? { lost: inf.lost.filter((l, n, list) => list.findIndex(o => o.id === l.id) === n).map(l => ({ ...l, cause: l.by.length ? plain(l.by[0].what) : l.step })) } : {}),
       broken: (inf.warnings || []).length,
-      ...(inf.warnings?.length ? { brokenAt: inf.warnings.slice(0, 3).map(w => `turn ${w.turn}: ${w.expected} / ${w.actual}`) } : {}),
+      ...(inf.warnings?.length ? { brokenAt: inf.warnings.slice(0, 3).map(w => `turn ${w.turn}: ${w.expected} / ${w.actual}`), brokenKind: brokenKind(inf.warnings[0]) } : {}),
+      // The line the rebuild kept stopped on, where it did not reproduce the log.
+      ...(!inf.complete && inf.built?.report?.diffs?.[0] ? { stoppedOn: (d => ({ turn: d.turn, expected: d.expected, actual: d.actual ?? null, kind: brokenKind(d) }))(inf.built.report.diffs[0]) } : {}),
       seconds: Number(((Date.now() - started) / 1000).toFixed(1)),
     };
   } catch (err) {
@@ -580,13 +636,19 @@ function grade(records) {
     passes: records.reduce((t, x) => t + (x.work?.passes || 0), 0),
     broken: records.reduce((t, x) => t + (x.broken || 0), 0),
     brokenCases: records.filter(x => x.broken).length,
-    seconds: { median: median(seconds), p95: quantile(seconds, 0.95), max: seconds.length ? seconds.reduce((a, b) => Math.max(a, b)) : null },
+    seconds: { median: median(seconds), p95: quantile(seconds, 0.95), p99: quantile(seconds, 0.99), max: seconds.length ? seconds.reduce((a, b) => Math.max(a, b)) : null },
+    // Work per case, the same on every machine: what a change to the search moves.
+    perCase: Object.fromEntries(['probes', 'passes', 'rounds'].map((k) => {
+      const xs = records.map(x => x.work?.[k]).filter(x => typeof x === 'number');
+      return [k, { median: median(xs), p95: quantile(xs, 0.95), p99: quantile(xs, 0.99), max: xs.length ? xs.reduce((a, b) => Math.max(a, b)) : null }];
+    })),
     ranked: ranked.length,
     first: ranked.length ? ranked.filter(p => p.rank === 1).length / ranked.length : null,
     top3: ranked.length ? ranked.filter(p => p.rank && p.rank <= 3).length / ranked.length : null,
   };
 }
 
+const HP_AT = { '-damage': 3, '-heal': 3, '-sethp': 3 };
 const pct = x => (x === null ? '-' : `${(100 * x).toFixed(1)}%`);
 
 function printGrade(records, tier) {
@@ -602,6 +664,12 @@ function printGrade(records, tier) {
       ` ${pct(g.exactShare).padStart(12)} ${(g.medianLog10Spreads === null ? '-' : `10^${g.medianLog10Spreads.toFixed(2)}`).padStart(15)}` +
       ` ${String(g.probes).padStart(8)} ${String(g.passes).padStart(8)}   ${g.seconds.median}/${g.seconds.p95}/${g.seconds.max}`);
   }
+  const four = d => (d?.median === null || d === undefined ? '-' : `${d.median}/${d.p95}/${d.p99}/${d.max}`);
+  console.log('');
+  console.log('per case, median/p95/p99/max      probes                     passes                 rounds           seconds');
+  for (const [name, g] of rows) {
+    console.log(`${name.padEnd(16)} ${four(g.perCase.probes).padStart(28)} ${four(g.perCase.passes).padStart(22)} ${four(g.perCase.rounds).padStart(18)}   ${four(g.seconds)}`);
+  }
   const wide = views.filter(v => { const g = grade(records.filter(r => r.view === v)); return !g.removed && !g.results.CRASH; });
   console.log('');
   console.log(`accurate: ${grade(records).removed} real spread(s) removed, ${grade(records).witnessesRemoved} rebuilt spread(s) removed (both must be 0)`);
@@ -612,6 +680,25 @@ function printGrade(records, tier) {
   for (const r of records.filter(x => x.broken).sort((a, b) => b.broken - a.broken).slice(0, 20)) {
     console.log(`  BROKEN ${r.id} ${r.view}: ${r.broken}, first ${r.brokenAt?.[0] || '?'}`);
   }
+  // What went wrong, by cause: one fix each.
+  const tally = (title, pairs) => {
+    if (!pairs.length) return;
+    const by = new Map();
+    for (const [cause, r] of pairs) by.set(cause, [...(by.get(cause) || []), r]);
+    console.log(title);
+    for (const [cause, rs] of [...by].sort((a, b) => b[1].length - a[1].length).slice(0, 25)) {
+      const eg = rs.slice().sort((a, b) => (a.seconds || 0) - (b.seconds || 0))[0];
+      console.log(`  ${String(rs.length).padStart(5)}  ${cause}   (fastest: ${eg.id} ${eg.view}, ${eg.seconds}s)`);
+    }
+  };
+  const sampled = records.filter(r => r.certified);
+  if (sampled.length) {
+    const sum = k => sampled.reduce((t, r) => t + r.certified[k], 0);
+    console.log(`certified: ${sampled.length} case(s) rebuilt at every end of every range, ${sum('proved')} of ${sum('ends')} ends reproduce the log; ${sampled.reduce((t, r) => t + r.certified.outside.length, 0)} spread(s) outside a range do (must be 0)`);
+  }
+  tally('a real spread removed at some step, whatever the result kept - case(s) by the first cause:', records.filter(r => r.lost?.length).map(r => [r.lost[0].cause, r]));
+  tally('broken proofs - case(s) by the line the first one broke on:', records.filter(r => r.brokenKind).map(r => [r.brokenKind, r]));
+  tally('not rebuilt - case(s) by the line the rebuild stopped on:', records.filter(r => r.stoppedOn).map(r => [r.stoppedOn.kind, r]));
   console.log('closed team sheets: not graded yet');
   for (const r of records.filter(x => x.result === 'REMOVED' || x.result === 'CRASH')) {
     const lost = (r.pokemon || []).filter(p => !p.kept).map(p => `${p.id} ${p.species}`);
@@ -750,8 +837,13 @@ async function main() {
     run = { ...parts[0], shard: null, records: cases.map(c => have.get(keyOf(c)) || { ...c, result: 'CRASH', error: 'no share carried this case' }) };
   } else {
     const tier = opt('--tier', 'quick');
-    if (!['quick', 'fast', 'full'].includes(tier)) throw new Error('--tier quick|fast|full');
-    const only = opt('--only') ? opt('--only').split(',') : null;
+    if (!['quick', 'fast', 'full', 'problem'].includes(tier)) throw new Error('--tier quick|fast|full|problem');
+    // The problem tier: the sweep's problem games and its control, from the
+    // folder that holds them; `--why` keeps those listed for one of its reasons.
+    const why = opt('--why') ? opt('--why').split(',') : null;
+    if (tier === 'problem' && !opt('--mimic-dir')) throw new Error('--tier problem needs --mimic-dir <folder>: the games are not in the repo');
+    const listed = tier === 'problem' ? PROBLEMS.filter(([, w]) => !why || w.split(',').some(x => why.includes(x))).map(([id]) => `mimic:${id}`) : null;
+    const only = opt('--only') ? opt('--only').split(',') : listed;
     const views = opt('--views') ? [...new Set(opt('--views').split(','))] : Object.keys(VIEWS);
     for (const v of views) if (!VIEWS[v]) throw new Error(`no view ${v} - have ${Object.keys(VIEWS).join(', ')}`);
     const mimicDir = opt('--mimic-dir') ? opt('--mimic-dir').split(',').map(d => path.resolve(d)).join(',') : null;
@@ -760,7 +852,9 @@ async function main() {
     cases = longestFirst(cases, timings);
     const budget = Number(opt('--budget', '1'));
     if (!(Number.isInteger(budget) && budget >= 1)) throw new Error('--budget <n>: a whole number, at least 1');
-    const job = { budget, trace: flag('--trace'), mimicDir };
+    const certify = Number(opt('--certify', '0'));
+    if (!(Number.isInteger(certify) && certify >= 0)) throw new Error('--certify <n>: one case in n, a whole number');
+    const job = { budget, trace: flag('--trace'), mimicDir, certify };
     const hosts = opt('--hosts') ? opt('--hosts').split(/[\s,]+/).filter(Boolean) : null;
     if (hosts && !opt('--remote')) throw new Error('--hosts needs --remote <command>, {host} the machine');
     const logFile = opt('--log') ? path.resolve(opt('--log')) : null;

@@ -260,6 +260,10 @@ export async function inferSpreads({
   widest = false,
   spend = { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() },
   parallel = null,
+  // The spreads the battle was really played with, by Pokemon (`p2:0`), where
+  // a grader knows them: nothing is decided by them. Each step that removes
+  // one is reported (`lost`).
+  truth = null,
 }) {
   const options = { ...arguments[0], spend };
   // `budgetScale` multiplies every search limit at once - probes, backtracks,
@@ -278,6 +282,10 @@ export async function inferSpreads({
   // work a round spends besides its rebuilds, counted as they are.
   const work = { rounds: 0, rebuilds: 0, probes: 0, fallback: 0, backtracks: 0, dieBacktracks: 0, passes: 0 };
   const warnings = [];
+  // Each real spread a step removed (`truth`): the Pokemon, the round and the
+  // start, the step - a pass's evidence, the speed orders, the budget - and
+  // the events or orders that did it. One entry per Pokemon and inference.
+  const lost = [];
   // Every limit that cut a search short, here or in a rebuild or an inference
   // this one ran: an answer reached past one is no proof that more would not
   // have found more.
@@ -302,6 +310,7 @@ export async function inferSpreads({
   const absorb = (res) => {
     for (const k of Object.keys(work)) work[k] += res.work[k];
     warnings.push(...res.warnings);
+    lost.push(...(res.lost || []));
     for (const l of res.limits) limits.add(l);
     return res;
   };
@@ -343,21 +352,54 @@ export async function inferSpreads({
   // tables: applied in every settle after, the guess picker's too, so a pin
   // on one Speed moves the other.
   const orders = new Map();
-  const settle = async (inputLog, knowledge, cache, record = false, learn = false) => {
+  let watched = null;
+  const settle = async (inputLog, knowledge, cache, record = false, learn = false, kept = []) => {
     const counts = () => new Map([...knowledge].map(([id, kn]) => [id, spreadsLeft(kn)]));
     const initial = record ? counts() : null;
     let first = null;
     let afterFirst = null;
     let passes = 0;
+    // The real spreads still possible, watched in what the rounds keep and in
+    // the final reading: a guess picker's knowledge is pinned to a guess.
+    const watch = truth && (knowledge === watched || record);
+    const gone = () => new Set([...knowledge].filter(([id, kn]) => truth[id] && !kn.known && !containsSpread(kn, truth[id])).map(([id]) => id));
+    let was = watch ? gone() : null;
+    const speedOf = (id, table, end) => (truth[id] ? table[fullEvs(truth[id]).spe] : end(...table.filter((_, v) => knowledge.get(id)?.dom.spe[v])));
+    const report = async (step, before) => {
+      const now = gone();
+      for (const id of now) {
+        if (was.has(id) || lost.some(l => l.id === id)) continue;
+        let by = [];
+        if (step === 'evidence') {
+          // The pass again from what it started with, recording what each event removed.
+          const again = await evidencePass({ inputLog, observed: lines, channel, knowledge: before, cache, record: true, truth: Object.fromEntries(Object.entries(truth).map(([k, v]) => [k, fullEvs(v)])) });
+          const cuts = (again.events || []).flatMap(e => e.cuts.filter(c => c.id === id).map(c => ({ turn: e.turn, what: e.what, narrowed: c.narrowed, real: !!c.lostReal })));
+          by = cuts.filter(c => c.real);
+          if (!by.length) by = cuts;
+          by = by.map(({ real, ...c }) => c);
+        } else if (step === 'orders') {
+          const named = [...orders.values()].filter(o => o.fast === id || o.slow === id);
+          by = named.filter(o => speedOf(o.fast, o.tf, Math.max) < speedOf(o.slow, o.ts, Math.min));
+          if (!by.length) by = named;
+          by = by.map(o => ({ turn: o.turn, what: o.what || `${o.fast} before ${o.slow}` }));
+        }
+        lost.push({ id, real: fullEvs(truth[id]), step, round: rounds, start: widest ? 'widest' : wide ? 'wide' : start, ...(forced?.length ? { reading: [...forced] } : {}), final: !!record, by: by.slice(0, 6) });
+      }
+      was = now;
+    };
     while (passes < 8 * S) {
+      const before = watch ? cloneKnowledge(knowledge) : null;
       const pass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, record: record && !first });
       passes++;
       work.passes++;
       let moved = false;
       for (const r of pass.recs) moved = intersectKnowledge(knowledge.get(r.id), r.keys, r.flat, r.ties) || moved;
+      if (watch) await report('evidence', before);
       if (learn) for (const o of pass.orders || []) orders.set(`${o.fast}|${o.slow}|${o.tf}|${o.ts}`, o);
-      moved = orderSpeeds(knowledge, [...orders.values()]) || moved;
+      moved = orderSpeeds(knowledge, [...orders.values(), ...kept]) || moved;
+      if (watch) await report('orders');
       for (const kn of knowledge.values()) moved = tighten(kn) || moved;
+      if (watch) await report('budget');
       if (!first) {
         first = pass;
         if (record) afterFirst = counts();
@@ -369,6 +411,7 @@ export async function inferSpreads({
       events: first.events,
       checks: first.checks,
       cutoff: first.cutoff,
+      scaffoldOrders: first.scaffoldOrders || [],
       seen: new Set(first.recs.filter(r => r.seen).map(r => r.id)),
       lent: new Map(first.recs.map(r => [r.id, r.lent || []])),
       initial,
@@ -378,6 +421,7 @@ export async function inferSpreads({
   };
 
   const knowledge = cloneKnowledge(blank);
+  watched = knowledge;
   let built = null;
   // Per Pokemon, the others whose Stat Points moved one of its stats, from the
   // last round's evidence.
@@ -479,7 +523,7 @@ export async function inferSpreads({
     const diff = built.report.diffs[0];
     const t = diff?.turn;
     const mark = markOf(diff);
-    if (!diff || !(t >= 1) || !(diff.index >= 0) || (searched.get(mark) || 0) >= 2 || spend.fruitless.has(mark)) return null;
+    if (!diff || !(t >= 0) || !(diff.index >= 0) || (searched.get(mark) || 0) >= 2 || spend.fruitless.has(mark)) return null;
     searched.set(mark, (searched.get(mark) || 0) + 1);
     const none = () => { searched.set(mark, 2); spend.fruitless.add(mark); return null; };
     if (spend.rebuilds <= 0) { limits.add('fallbackTotal'); return null; }
@@ -488,7 +532,9 @@ export async function inferSpreads({
       const at = observed.findIndex(l => typeof l === 'string' && Number(/^\|turn\|(\d+)/.exec(l)?.[1]) === turn + 1);
       return at < 0 ? observed : observed.slice(0, at + 1);
     };
-    const through = cutAt(t);
+    // A line before the first turn - the order the leads' abilities came in -
+    // is rebuilt through turn 1: a rebuild needs a whole turn.
+    const through = cutAt(Math.max(t, 1));
     const handed = handOn(built, null);
     const began = Date.now();
     let spent = 0;
@@ -982,7 +1028,7 @@ export async function inferSpreads({
     const evidenceStart = Date.now();
     const passesBefore = work.passes;
     evidenceTurn = Math.max(evidenceTurn, diff?.turn ?? 0);
-    const { seen, lent: lentNow, passes: read } = await settle(built.inputLog, knowledge, cache, false, true);
+    const { seen, lent: lentNow, passes: read, scaffoldOrders } = await settle(built.inputLog, knowledge, cache, false, true);
     lent = lentNow;
 
     // New guesses, chosen together. Each Pokemon is pinned before the next is
@@ -1035,7 +1081,7 @@ export async function inferSpreads({
         pinned.keys.fill(0);
         pinned.keys[keyOf(first.hp, first.def, first.spd)] = 1;
         tries--;
-        await settle(built.inputLog, keyed, cache);
+        await settle(built.inputLog, keyed, cache, false, false, keep);
         if (blocks(keyed, n)) continue;
         const pick = closestSpread(pinned, aim);
         if (!pick || tried.some(t => sameSpread(t, pick))) continue;
@@ -1044,7 +1090,7 @@ export async function inferSpreads({
         pinKnowledge(narrowed.get(id), pick);
         if (n < seq.length - 1) {
           tries--;
-          await settle(built.inputLog, narrowed, cache);
+          await settle(built.inputLog, narrowed, cache, false, false, keep);
           if (blocks(narrowed, n)) continue;
         }
         const found = await choose(n + 1, narrowed);
@@ -1052,22 +1098,53 @@ export async function inferSpreads({
       }
       return null;
     };
-    let proof = await choose(0, cloneKnowledge(knowledge));
-    // Fail first: a Pokemon that pins before it kept leaving with nothing is
-    // pinned first, and the search runs again - its pin then narrows the
-    // others to what fits beside it, where their nearest spreads alone did
-    // not. A drain ties the attacker's HP to the damage its target took, and
-    // the target picked first can rule out every spread near the attacker's.
-    // Each Pokemon moves to the front once; the order changes which spreads
-    // are tried first, never which survive.
-    const moved = new Set();
-    while (!proof && tries > 0) {
-      const key = [...blocked].filter(([k]) => !moved.has(k)).sort((a, b) => b[1] - a[1])[0]?.[0];
-      if (key === undefined) break;
-      moved.add(key);
+    // A guess that sorts every Pokemon as this rebuild did plays its turns
+    // again on the dice handed on; one that flips an order nobody proved - an
+    // action its Pokemon never showed - breaks the proof it is handed. So the
+    // guesses are chosen inside the rebuild's own orders, where those leave
+    // every Pokemon a spread and keep what the fallback held: never evidence,
+    // only where the next guess looks, and dropped once they trap the guess in
+    // place or leave no joint proof.
+    let keep = scaffoldOrders;
+    const within = () => {
+      const cond = cloneKnowledge(knowledge);
+      if (keep.length) {
+        orderSpeeds(cond, keep);
+        for (const kn of cond.values()) tighten(kn);
+        const losesHeld = [...held].some(([id, sp]) => cond.has(id) && !containsSpread(cond.get(id), sp));
+        if (losesHeld || [...cond.values()].some(emptied)) { keep = []; return cloneKnowledge(knowledge); }
+      }
+      return cond;
+    };
+    const pickGuesses = async () => {
+      let found = await choose(0, within());
+      // Fail first: a Pokemon that pins before it kept leaving with nothing is
+      // pinned first, and the search runs again - its pin then narrows the
+      // others to what fits beside it, where their nearest spreads alone did
+      // not. A drain ties the attacker's HP to the damage its target took, and
+      // the target picked first can rule out every spread near the attacker's.
+      // Each Pokemon moves to the front once; the order changes which spreads
+      // are tried first, never which survive.
+      const moved = new Set();
+      while (!found && tries > 0) {
+        const key = [...blocked].filter(([k]) => !moved.has(k)).sort((a, b) => b[1] - a[1])[0]?.[0];
+        if (key === undefined) break;
+        moved.add(key);
+        blocked.clear();
+        seq.unshift(...seq.splice(seq.findIndex(([s, i]) => `${s}:${i}` === key), 1));
+        found = await choose(0, within());
+      }
+      return found;
+    };
+    let proof = await pickGuesses();
+    const isUnchanged = () => next.every((team, s) => team.every((e, i) => sameSpread(e, picks[s][i])));
+    if (keep.length && (!proof || (isUnchanged() && (failed.has(markOf(diff)) || !built.report.limits.length)))) {
+      keep = [];
+      next = picks.map(team => team.map(e => ({ ...e })));
+      tries = 32 * S * W;
+      seq.splice(0, seq.length, ...order);
       blocked.clear();
-      seq.unshift(...seq.splice(seq.findIndex(([s, i]) => `${s}:${i}` === key), 1));
-      proof = await choose(0, cloneKnowledge(knowledge));
+      proof = await pickGuesses();
     }
     exact = proof?.exact || null;
     pins = proof ? handOn(built, proof.rolls, proof.coupled) : null;
@@ -1154,7 +1231,7 @@ export async function inferSpreads({
         Object.assign(p, summarise(other.knowledge.get(p.id)));
       }
       ahead?.cancel();
-      return spareDisguises(Object.assign(other, { work, warnings }));
+      return spareDisguises(Object.assign(other, { work, warnings, lost }));
     }
   }
 
@@ -1208,6 +1285,7 @@ export async function inferSpreads({
     knowledge: final,
     work,
     warnings,
+    lost,
     stop,
   });
 
@@ -1250,7 +1328,7 @@ export async function inferSpreads({
       Object.assign(p, summarise(kn), { contains: evs => containsSpread(kn, evs) });
     }
   }
-  return Object.assign(kept, { work, warnings, limits: [...limits].sort() });
+  return Object.assign(kept, { work, warnings, lost, limits: [...limits].sort() });
 
   /**
    * The starts a search that gives up runs next, in order, each run only while
