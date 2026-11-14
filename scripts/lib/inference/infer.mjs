@@ -379,7 +379,9 @@ export async function inferSpreads({
           by = by.map(({ real, ...c }) => c);
         } else if (step === 'orders') {
           const named = [...orders.values()].filter(o => o.fast === id || o.slow === id);
-          by = named.filter(o => speedOf(o.fast, o.tf, Math.max) < speedOf(o.slow, o.ts, Math.min));
+          by = named.filter(o => (o.strict
+            ? speedOf(o.fast, o.tf, Math.max) <= speedOf(o.slow, o.ts, Math.min)
+            : speedOf(o.fast, o.tf, Math.max) < speedOf(o.slow, o.ts, Math.min)));
           if (!by.length) by = named;
           by = by.map(o => ({ turn: o.turn, what: o.what || `${o.fast} before ${o.slow}` }));
         }
@@ -395,7 +397,7 @@ export async function inferSpreads({
       let moved = false;
       for (const r of pass.recs) moved = intersectKnowledge(knowledge.get(r.id), r.keys, r.flat, r.ties) || moved;
       if (watch) await report('evidence', before);
-      if (learn) for (const o of pass.orders || []) orders.set(`${o.fast}|${o.slow}|${o.tf}|${o.ts}`, o);
+      if (learn) for (const o of pass.orders || []) orders.set(`${o.fast}|${o.slow}|${o.strict ? '>' : '>='}|${o.tf}|${o.ts}`, o);
       moved = orderSpeeds(knowledge, [...orders.values(), ...kept]) || moved;
       if (watch) await report('orders');
       for (const kn of knowledge.values()) moved = tighten(kn) || moved;

@@ -300,16 +300,23 @@ export function attachSpeed(battle, {
     const out = origSpeedSort.call(this, list, comparator);
     const top = open[open.length - 1];
     if (top && !top.entry.items && !state.dry) {
+      const atTie = item => Object.create(item, { speed: { value: 0 }, effectOrder: { value: 0 } });
+      const cmp = comparator || battle.comparePriority;
       top.entry.items = list.map((item) => {
         const holder = item.effectHolder !== undefined ? item.effectHolder : item;
+        const rec = byPokemon.get(holder) || null;
         return {
+          raw: item,
           holder,
           effect: item.effect || null,
           order: item.order || 4294967296,
           priority: item.priority || 0,
-          rec: byPokemon.get(holder) || null,
+          rec,
+          plain: !!(rec?.cachedSpeed && sortedBy(rec.cachedSpeed, item)),
         };
       });
+      top.entry.strict = top.entry.eventid === 'SwitchIn' ? () => false
+        : (x, y) => x.plain && y.plain && cmp.call(battle, atTie(x.raw), atTie(y.raw)) > 0;
       for (const it of top.entry.items) if (it.rec && it.rec.cachedSpeed) top.entry.speeds.set(it.rec, it.rec.cachedSpeed);
       if (frames && !queueSorting && !state.ended && top.entry.eventid === 'SwitchIn') readHandlerSort(list, comparator, true);
     } else if (frames && !queueSorting && !state.dry && !state.ended) {
@@ -562,11 +569,11 @@ export function attachSpeed(battle, {
    * each one's speed stands on - the two themselves, unless a Speed Swap
    * handed one the other's.
    */
-  const ruleOf = (X, Y, speeds, turn, what) => {
+  const ruleOf = (X, Y, speeds, turn, what, strict = false) => {
     const fx = speeds.get(X);
     const fy = speeds.get(Y);
     if (!fx || !fy) return null;
-    return { fast: byId.get(fx.owner), slow: byId.get(fy.owner), tf: fx.table, ts: fy.table, turn, what };
+    return { fast: byId.get(fx.owner), slow: byId.get(fy.owner), tf: fx.table, ts: fy.table, ...(strict ? { strict: true } : {}), turn, what };
   };
 
   let scaffoldOrders = [];
@@ -739,7 +746,8 @@ export function attachSpeed(battle, {
     const eventRule = (entry, x, y) => {
       if (!x.rec || !y.rec || x.rec === y.rec || x.order !== y.order || x.priority !== y.priority) return;
       const name = it => (entry.kind === 'eachEvent' ? entry.eventid : it.effect?.name || entry.eventid);
-      const rule = ruleOf(x.rec, y.rec, entry.speeds, entry.turn, `${label(x.rec)}'s ${name(x)} came before ${label(y.rec)}'s ${name(y)}`);
+      const strict = !!entry.strict?.(x, y);
+      const rule = ruleOf(x.rec, y.rec, entry.speeds, entry.turn, `${label(x.rec)}'s ${name(x)} came before ${label(y.rec)}'s ${name(y)}`, strict);
       if (rule) rules.push(rule);
     };
     for (const entry of eventSorts) {
@@ -1018,7 +1026,8 @@ export function attachSpeed(battle, {
         if (span.start >= upTo || span.end > upTo || !x.rec) continue;
         for (const y of entry.items.slice(entry.items.indexOf(x) + 1)) {
           if (!y.rec || y.rec === x.rec || y.order !== x.order || y.priority !== x.priority) continue;
-          const rule = ruleOf(x.rec, y.rec, entry.speeds, entry.turn, 'the rebuild ran them so');
+          const strict = !!entry.strict?.(x, y);
+          const rule = ruleOf(x.rec, y.rec, entry.speeds, entry.turn, 'the rebuild ran them so', strict);
           if (rule && rule.fast !== rule.slow) scaffoldOrders.push(rule);
         }
       }
@@ -1030,11 +1039,12 @@ export function attachSpeed(battle, {
    * One order as bounds on the two Speeds it compares, each narrowing the
    * other: no Speed of the faster one below the slower one's lowest
    * surviving speed, and no Speed of the slower one above the faster one's
-   * highest. A tie can go either way, so equal speeds stay. The tables are
-   * the simulator's speeds at that sort, so Trick Room's reversal, Tailwind,
+   * highest. A tie can go either way unless `strict` says the simulator's
+   * tie-break puts the slower one first at equal speed. The tables are the
+   * simulator's speeds at that sort, so Trick Room's reversal, Tailwind,
    * paralysis and boosts are already in them. Returns whether anything went.
    */
-  function bound({ fast, slow, tf, ts }) {
+  function bound({ fast, slow, tf, ts, strict }) {
     let maxFast = -Infinity;
     let minSlow = Infinity;
     for (let v = 0; v < SPAN; v++) {
@@ -1043,8 +1053,8 @@ export function attachSpeed(battle, {
     }
     let moved = false;
     for (let v = 0; v < SPAN; v++) {
-      if (fast.flat.spe[v] && tf[v] < minSlow) { fast.flat.spe[v] = 0; moved = true; }
-      if (slow.flat.spe[v] && ts[v] > maxFast) { slow.flat.spe[v] = 0; moved = true; }
+      if (fast.flat.spe[v] && (strict ? tf[v] <= minSlow : tf[v] < minSlow)) { fast.flat.spe[v] = 0; moved = true; }
+      if (slow.flat.spe[v] && (strict ? ts[v] >= maxFast : ts[v] > maxFast)) { slow.flat.spe[v] = 0; moved = true; }
     }
     return moved;
   }
