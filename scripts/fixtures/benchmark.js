@@ -211,6 +211,7 @@ const SWEPT = [
   'mimic:gen9championsvgc2026regmc-2702579306', // 2026-10-22: next guesses chosen inside the orders the rebuild itself ran in
   'mimic:gen9championsvgc2026regmc-2692932942', // 2026-10-05: a targeted move that Imprison turns into Struggle, written with a target
   'mimic:gen9championsvgc2026regmcbo3-2698084073', // 2026-10-14: a hit on a Transformed Ditto when a pinned guess leaves the stat's owner no spread
+  'mimic:gen9championsvgc2026regmcbo3-2696763978', // 2026-10-11: a three-way switch-in where Psychic Surge stayed silent before Grassy Surge and Intimidate
 ];
 
 const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));
