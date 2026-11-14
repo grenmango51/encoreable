@@ -1666,13 +1666,25 @@ function prober(common, t) {
  * a speed tie it lost, needs the tie and the flinch together, and the run that
  * has it moving where the replay has it flinch has its name right.
  */
+const OPENS_ACT = /^\|(move|cant)\||^\|-activate\|[^|]+\|confusion$|^\|-curestatus\|[^|]+\|(slp|frz)\|\[msg\]$/;
+
 function scoreOf(run, t) {
   if (run.badTurn === null || run.badTurn > t) return [Infinity, 0, 0];
   if (run.badTurn < t) return [-Infinity, 0, 0];
   const diff = run.diffs[0];
   if (!diff || diff.index < 0) return [-1, 0, 0];
-  const want = String(diff.expected ?? '').split('|');
-  const got = String(diff.actual ?? '').split('|');
+  const wantText = String(diff.expected ?? '');
+  const gotText = String(diff.actual ?? '');
+  const want = wantText.split('|');
+  const got = gotText.split('|');
+  if (OPENS_ACT.test(wantText) && OPENS_ACT.test(gotText)) {
+    if (want[2] !== got[2]) return [diff.index, 1, 1];
+    let fields = want[1] === got[1] ? 3 : 2;
+    if (fields === 3) while (fields < want.length && fields < got.length && want[fields] === got[fields]) fields++;
+    let shared = 0;
+    for (let i = 0; i < want.length && i < got.length; i++) if (want[i] === got[i]) shared++;
+    return [diff.index, fields, shared];
+  }
   let fields = 0;
   while (fields < want.length && fields < got.length && want[fields] === got[fields]) fields++;
   let shared = 0;

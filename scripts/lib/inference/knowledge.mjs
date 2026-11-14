@@ -419,22 +419,60 @@ export function tighten(kn) {
  * two lines that prove it. Returns whether anything went.
  */
 export function orderSpeeds(map, orders) {
+  const self = [];
+  const byPair = new Map();
+  for (const o of orders) {
+    if (!o.tf || !o.ts) continue;
+    if (o.fast === o.slow) { self.push(o); continue; }
+    const [a, b] = o.fast < o.slow ? [o.fast, o.slow] : [o.slow, o.fast];
+    let entry = byPair.get(`${a}|${b}`);
+    if (!entry) { entry = { a, b, rules: [] }; byPair.set(`${a}|${b}`, entry); }
+    entry.rules.push(o);
+  }
   let any = false;
+  for (const { fast, tf, ts } of self) {
+    const f = map.get(fast)?.dom.spe;
+    if (!f) continue;
+    for (let v = 0; v < SPAN; v++) if (f[v] && tf[v] < ts[v]) { f[v] = 0; any = true; }
+  }
   for (let moved = true; moved;) {
     moved = false;
-    for (const { fast, slow, tf, ts } of orders) {
-      const f = map.get(fast)?.dom.spe;
-      const w = map.get(slow)?.dom.spe;
-      if (!f || !w) continue;
-      let maxFast = -Infinity;
-      let minSlow = Infinity;
-      for (let v = 0; v < SPAN; v++) {
-        if (f[v]) maxFast = Math.max(maxFast, tf[v]);
-        if (w[v]) minSlow = Math.min(minSlow, ts[v]);
+    for (const { a, b, rules } of byPair.values()) {
+      const fa = map.get(a)?.dom.spe;
+      const fb = map.get(b)?.dom.spe;
+      if (!fa || !fb) continue;
+      if (rules.length === 1) {
+        const { fast, tf, ts } = rules[0];
+        const [f, w] = fast === a ? [fa, fb] : [fb, fa];
+        let maxFast = -Infinity;
+        let minSlow = Infinity;
+        for (let v = 0; v < SPAN; v++) {
+          if (f[v]) maxFast = Math.max(maxFast, tf[v]);
+          if (w[v]) minSlow = Math.min(minSlow, ts[v]);
+        }
+        for (let v = 0; v < SPAN; v++) {
+          if (f[v] && tf[v] < minSlow) { f[v] = 0; moved = true; }
+          if (w[v] && ts[v] > maxFast) { w[v] = 0; moved = true; }
+        }
+        continue;
+      }
+      const okA = new Uint8Array(SPAN);
+      const okB = new Uint8Array(SPAN);
+      for (let va = 0; va < SPAN; va++) {
+        if (!fa[va]) continue;
+        for (let vb = 0; vb < SPAN; vb++) {
+          if (!fb[vb]) continue;
+          let ok = true;
+          for (let r = 0; r < rules.length; r++) {
+            const o = rules[r];
+            if (o.fast === a ? o.tf[va] < o.ts[vb] : o.tf[vb] < o.ts[va]) { ok = false; break; }
+          }
+          if (ok) { okA[va] = 1; okB[vb] = 1; }
+        }
       }
       for (let v = 0; v < SPAN; v++) {
-        if (f[v] && tf[v] < minSlow) { f[v] = 0; moved = true; }
-        if (w[v] && ts[v] > maxFast) { w[v] = 0; moved = true; }
+        if (fa[v] && !okA[v]) { fa[v] = 0; moved = true; }
+        if (fb[v] && !okB[v]) { fb[v] = 0; moved = true; }
       }
     }
     any = any || moved;

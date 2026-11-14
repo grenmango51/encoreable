@@ -10,7 +10,7 @@
 
 import { battleLines } from '../protocol.mjs';
 import { ACTION_START, identName, identSide, override, tagsOf } from '../reconstruct.mjs';
-import { SPAN } from './knowledge.mjs';
+import { SPAN, orderSpeeds } from './knowledge.mjs';
 
 const OPENS_MOVE = /^\|(move|cant)\||^\|-activate\|[^|]+\|confusion$|^\|-curestatus\|[^|]+\|(slp|frz)\|\[msg\]$/;
 const MEGA = new Set(['megaEvo', 'megaEvoX', 'megaEvoY']);
@@ -35,7 +35,8 @@ function opens(line, next) {
   }
   if (parts[1] === '-formechange') {
     const after = String(next || '').split('|');
-    return after[1] === 'move' && after[2] === parts[2] && !after.slice(4).some(p => p.startsWith('[from]')) ? { kind: 'move', ident: parts[2] } : null;
+    const from = tagsOf(String(next || '')).from;
+    return after[1] === 'move' && after[2] === parts[2] && (!from || from === 'lockedmove') ? { kind: 'move', ident: parts[2] } : null;
   }
   if (parts[1] === 'switch' && !parts.slice(5).some(p => p.startsWith('[from]'))) return { kind: 'switch', ident: parts[2] };
   return null;
@@ -490,6 +491,7 @@ export function attachSpeed(battle, {
   };
 
   let scaffoldOrders = [];
+  let cutoffSpeeds = [];
   function speedRules() {
     const upTo = Math.min(prefix.cutoffAt, battle.log.length);
     const firstAt = (at) => {
@@ -713,7 +715,8 @@ export function attachSpeed(battle, {
       for (const line of [prefix.observedLine, ...(prefix.observedAfter || [])]) {
         const parts = String(line || '').split('|');
         if (parts[1] === 'turn' || encore(line, P)) return null;
-        if (parts[1] === 'move' && parts[2] === was.ident && !String(line).includes('[from]')) return String(parts[3]).toLowerCase().replace(/[^a-z0-9]/g, '');
+        const from = tagsOf(String(line)).from;
+        if (parts[1] === 'move' && parts[2] === was.ident && (!from || from === 'lockedmove')) return String(parts[3]).toLowerCase().replace(/[^a-z0-9]/g, '');
       }
       return null;
     };
@@ -913,6 +916,18 @@ export function attachSpeed(battle, {
         }
       }
     }
+    cutoffSpeeds = [];
+    if (prefix.cutoffAt < Infinity) {
+      const ev = eventSorts.find(entry => entry.items && matched(entry).some(m => m.span.start <= prefix.cutoffAt && prefix.cutoffAt < m.span.end));
+      const hs = handlerSorts.find(h => h.frame.logAt !== undefined && h.frame.logEnd !== undefined && h.frame.logAt <= prefix.cutoffAt && prefix.cutoffAt < h.frame.logEnd);
+      const ex = executed.find(e => e.start <= prefix.cutoffAt && prefix.cutoffAt < e.end);
+      const map = ev?.speeds || hs?.speeds || ex?.sort?.speeds || null;
+      if (map) {
+        for (const [rec, fx] of map) {
+          if (fx) cutoffSpeeds.push({ id: rec.id, owner: fx.owner, table: Array.from(fx.table) });
+        }
+      }
+    }
     return rules;
   }
 
@@ -956,16 +971,15 @@ export function attachSpeed(battle, {
     }
     const linked = [...new Set(rules.flatMap(rule => [rule.fast, rule.slow]))];
     const before = record ? new Map(linked.map(rec => [rec, measure(rec)])) : null;
-    let moved = true;
-    while (moved) {
-      moved = false;
-      for (const rule of rules) moved = bound(rule) || moved;
-    }
+    orderSpeeds(
+      new Map(linked.map(rec => [rec.id, { dom: rec.flat }])),
+      rules.map(r => ({ fast: r.fast.id, slow: r.slow.id, tf: r.tf, ts: r.ts })),
+    );
     if (before) {
       const cuts = linked.map(rec => cutOf(rec, before.get(rec))).filter(Boolean);
       if (cuts.length) events.push({ turn: battle.turn, what: 'every speed order at once, each bound passed on to the Pokemon ordered against it', cuts });
     }
   }
 
-  return { rules: speedRules, apply: applySpeed, scaffold: () => scaffoldOrders };
+  return { rules: speedRules, apply: applySpeed, scaffold: () => scaffoldOrders, cutoff: () => cutoffSpeeds };
 }
