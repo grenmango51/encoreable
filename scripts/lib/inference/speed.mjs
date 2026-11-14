@@ -144,12 +144,19 @@ export function attachSpeed(battle, {
   // simulator the way the queue asks it of the move it chose. Run dry, and
   // keyed by sort so it outlives the pass. Two sorts that give a Pokemon the
   // same list sorted it at the same priority whatever move it chose.
-  const movePriorities = (a) => memo(`pri|${sortOrdinal}|${a.pokemon.side.id}${a.pokemon.position}`, () => guarded(() => (
-    [...a.pokemon.moveSlots.map(slot => slot.id), 'struggle'].map((id) => {
-      const asked = { ...a, move: battle.dex.getActiveMove(id) };
-      battle.getActionSpeed(asked);
-      return asked.priority;
-    }))));
+  const movePriorities = (a) => memo(`pri|${sortOrdinal}|${a.pokemon.side.id}${a.pokemon.position}`, () => guarded(() => {
+    const off = override(battle, 'randomChance', () => false);
+    try {
+      return [...a.pokemon.moveSlots.map(slot => slot.id), 'struggle'].map((id) => {
+        const move = battle.dex.getActiveMove(id);
+        const asked = { ...a, move, fractionalPriority: battle.runEvent('FractionalPriority', a.pokemon, null, move, 0) };
+        battle.getActionSpeed(asked);
+        return asked.priority;
+      });
+    } finally {
+      off();
+    }
+  }));
 
   const queue = battle.queue;
   const origSort = queue.sort;
@@ -579,6 +586,23 @@ export function attachSpeed(battle, {
       }
       return false;
     };
+    // A queued move whose user fainted in that slot before the cutoff, without
+    // leaving it or acting, went after X when no move it has sorts below X's.
+    const faintedLater = (item, from) => {
+      if (item.action?.choice !== 'move' || !(item.slot >= 0)) return false;
+      const rec = item.pokemon && byPokemon.get(item.pokemon);
+      if (!rec) return false;
+      const slot = `${item.side}${'abcd'[item.slot]}`;
+      for (let j = firstAt(from); j < view.length && view[j].at < upTo; j++) {
+        const parts = view[j].line.split('|');
+        if (parts[1] === 'turn') return false;
+        if ((parts[1] === 'switch' || parts[1] === 'drag') && String(parts[2] || '').startsWith(`${slot}: `)) return false;
+        if (parts[1] === 'faint' && String(parts[2] || '').startsWith(`${slot}: `)) {
+          return identName(parts[2]) === rec.name || settled(item.pokemon, slot, view[j].at);
+        }
+      }
+      return false;
+    };
     const shown = new Map(executed.map((ex) => {
       const seen = visible(ex);
       return [ex.action, { ex, seen, on: seen && sorted(ex) }];
@@ -605,9 +629,10 @@ export function attachSpeed(battle, {
         // Or it went past the cutoff, and the replay shows it using, later in
         // the turn, the very move the rebuild queued for it.
         const shownLater = () => y.action?.choice === 'move' && S.turn === prefix.turn && realLater(byPokemon.get(y.pokemon), y.action.move?.id);
+        const knockedOut = () => y.lowest !== null && y.lowest >= x.priority && !movedAfter(y.action, S) && faintedLater(y, ex.start);
         // A rebuild stops at the cutoff, so one the replay shows only past it
         // may never have run.
-        if (later === undefined ? !shownLater() : later <= i || !(second?.on || (second?.seen && y.lowest !== null && y.lowest >= x.priority) || shownLater())) continue;
+        if (later === undefined ? !(shownLater() || knockedOut()) : later <= i || !(second?.on || (second?.seen && y.lowest !== null && y.lowest >= x.priority) || knockedOut() || shownLater())) continue;
         const X = byPokemon.get(x.pokemon);
         const Y = byPokemon.get(y.pokemon);
         const rule = ruleOf(X, Y, S.speeds, S.turn, `${label(X)} ${verbOf(x.action)} before ${label(Y)}`);
