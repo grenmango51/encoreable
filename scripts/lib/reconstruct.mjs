@@ -873,11 +873,23 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
     }
   };
 
+  // A target that hit where the observed turn missed it, or a multi-hit loop
+  // past the observed hit count, has not yet written the line that disagrees -
+  // `spreadDamage` and `-hitcount` come after `getDamage` - so the log alone
+  // still looks right while every draw after it is thrown for a hit that never
+  // happened, at an ordinal the real turn gave to a later draw.
+  let diverged = false;
+  let counting = null;
+
   /**
    * The observed lines still to come in this action, or null if the rebuilt
    * turn already disagrees with the observed one.
    */
   function standing() {
+    if (diverged || (counting?.want != null && battle.activeMove?.hit > counting.want)) {
+      diverged = true;
+      return null;
+    }
     const { wantHard, gotHard, exactUpTo } = compare(at.k, battle.log.slice(at.logAt));
     // The move in flight has not had its `[spread]`, `[miss]` or `[still]`
     // appended yet (`attrLastMove`), so its line is only a prefix of the one
@@ -1052,12 +1064,20 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
     } finally {
       aiming = null;
       if (now) {
+        const missed = (target) => {
+          const line = `|-miss|${pokemon}|${target}`;
+          for (let i = now.from; i < now.end; i++) if (now.wantHard[i] === line) return true;
+          return false;
+        };
         for (const roll of rolls) {
-          const missed = `|-miss|${pokemon}|${roll.target}`;
-          let shown = false;
-          for (let i = now.from; i < now.end && !shown; i++) shown = now.wantHard[i] === missed;
-          const entry = chanceEntry(roll, !shown);
+          const want = !missed(roll.target);
+          const entry = chanceEntry(roll, want);
           if (entry) out.set(roll.i, entry);
+          const face = faceOf(roll.i);
+          if (face !== undefined && (face < roll.n) !== want) diverged = true;
+        }
+        for (const target of targets) {
+          if (missed(target) && !rolls.some(r => r.target === target)) diverged = true;
         }
       }
     }
@@ -1100,7 +1120,6 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
   // first, before its first hit; the observed turn's `|-hitcount|` for its
   // target says which faces of that die print it. Loaded Dice throws another
   // die after a low count, so its holder's count is searched in full.
-  let counting = null;
   const origSample = battle.sample;
   battle.sample = function (items) {
     if (counting && !st.dry && counting.i === null) Object.assign(counting, { i: st.draws, faces: items });
@@ -1113,21 +1132,24 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
   };
   const origHitLoop = actions.hitStepMoveHitLoop;
   actions.hitStepMoveHitLoop = function (targets, pokemon, move) {
-    if (at.k !== turn || st.dry || !Array.isArray(move.multihit) || pokemon.hasItem('loadeddice')) return origHitLoop.call(this, targets, pokemon, move);
+    if (at.k !== turn || st.dry || !move.multihit || typeof move.smartTarget === 'boolean') {
+      return origHitLoop.call(this, targets, pokemon, move);
+    }
     const now = standing();
     let want = null;
     for (let i = now ? now.from : 0; now && i < now.end && want === null; i++) {
       const parts = now.wantHard[i].split('|');
       if (parts[1] === '-hitcount' && parts[2] === String(targets[0])) want = Number(parts[3]);
     }
-    counting = { i: null, faces: null, off: 0 };
+    const singleDie = Array.isArray(move.multihit) && !pokemon.hasItem('loadeddice');
+    counting = { i: singleDie ? null : false, faces: null, off: 0, want };
     let count;
     try {
       return origHitLoop.call(this, targets, pokemon, move);
     } finally {
       count = counting;
       counting = null;
-      const face = count.i === null ? undefined : faceOf(count.i);
+      const face = typeof count.i === 'number' ? faceOf(count.i) : undefined;
       if (want !== null && face !== undefined) {
         const reps = [];
         const groups = new Map();
@@ -1137,7 +1159,9 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
           if (!reps.length) { reps.push(v); groups.set(v, []); }
           groups.get(reps[0]).push(v);
         }
-        out.set(count.i, { reps, groups, wrong: count.faces[face - count.off] !== want });
+        const wrong = count.faces[face - count.off] !== want;
+        out.set(count.i, { reps, groups, wrong });
+        if (wrong) diverged = true;
       }
     }
   };
