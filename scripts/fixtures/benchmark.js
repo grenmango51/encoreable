@@ -222,6 +222,7 @@ const SWEPT = [
   'mimic:gen9championsvgc2026regmcbo3-2695828443', // 2026-10-09: Beat Up's bench hits read as bands, ending the proof even where the path kept the scaffold's HP
   'mimic:gen9championsvgc2026regmcbo3-2706304976', // 2026-10-29: a second hit on a Shed Tail Substitute ending the proof before its unmodeled break check
   'mimic:gen9championsvgc2026regmc-2704181244', // 2026-10-25: a guess chosen outside scaffoldOrders ending the proof before the turn whose order it reversed
+  'mimic:gen9championsvgc2026regmc-2707833650', // 2026-11-01: a Pokemon revived onto the bench by Revival Blessing and sent in later in the same turn
 ];
 
 const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));

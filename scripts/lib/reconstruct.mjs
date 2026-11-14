@@ -134,7 +134,7 @@ function planSegment(segment, dex) {
     if (kind === '-heal' && tagsOf(line).from === 'move: Revival Blessing' && reviver) {
       const side = identSide(parts[2]);
       plan.forced[side].push({ slot: reviver.slot, name: identName(parts[2]) });
-      revived = { side, name: identName(parts[2]) };
+      revived = identSlot(parts[2]) >= 0 ? { side, name: identName(parts[2]) } : null;
       reviver = null;
       continue;
     }
@@ -142,6 +142,7 @@ function planSegment(segment, dex) {
       revived = null;
       continue;
     }
+    if (revived && ACTION_START.has(kind)) revived = null;
 
     if (kind === 'swap') {
       const side = identSide(parts[2]);
