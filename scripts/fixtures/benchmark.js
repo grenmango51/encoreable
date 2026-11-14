@@ -204,6 +204,13 @@ const SWEPT = [
   'mimic:gen9championsvgc2026regmcbo3-2699035058', // 2026-10-15: a Giga Drain through the Substitute an Orthworm's Shed Tail made
   'mimic:gen9championsvgc2026regmcbo3-2708011359', // 2026-11-02: Eelevate's boost after a knockout names Mega Eelektross's highest stat
   'mimic:gen9championsvgc2026regmcbo3-2707900624', // 2026-11-02: a Speed that reorders an earlier turn moves the dice handed on from it
+  'mimic:gen9championsvgc2026regmcbo3-2700691516', // 2026-10-18: a Flame Body burn at the cutoff, not an end-of-turn handler's own line
+  'mimic:gen9championsvgc2026regmcbo3-2703448982', // 2026-10-23: a Sitrus Berry silent on a knocked-out Incineroar before Revival Blessing
+  'mimic:gen9championsvgc2026regmcbo3-2699273348', // 2026-10-16: a switch-in order past a Trace whose copied ability hangs on a die
+  'mimic:gen9championsvgc2026regmcbo3-2690914785', // 2026-10-01: the leads' ability order before turn 1, searched by the fallback through turn 1
+  'mimic:gen9championsvgc2026regmc-2702579306', // 2026-10-22: next guesses chosen inside the orders the rebuild itself ran in
+  'mimic:gen9championsvgc2026regmc-2692932942', // 2026-10-05: a targeted move that Imprison turns into Struggle, written with a target
+  'mimic:gen9championsvgc2026regmcbo3-2698084073', // 2026-10-14: a hit on a Transformed Ditto when a pinned guess leaves the stat's owner no spread
 ];
 
 const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));

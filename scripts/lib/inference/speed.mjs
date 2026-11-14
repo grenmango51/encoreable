@@ -144,12 +144,19 @@ export function attachSpeed(battle, {
   // simulator the way the queue asks it of the move it chose. Run dry, and
   // keyed by sort so it outlives the pass. Two sorts that give a Pokemon the
   // same list sorted it at the same priority whatever move it chose.
-  const movePriorities = (a) => memo(`pri|${sortOrdinal}|${a.pokemon.side.id}${a.pokemon.position}`, () => guarded(() => (
-    [...a.pokemon.moveSlots.map(slot => slot.id), 'struggle'].map((id) => {
-      const asked = { ...a, move: battle.dex.getActiveMove(id) };
-      battle.getActionSpeed(asked);
-      return asked.priority;
-    }))));
+  const movePriorities = (a) => memo(`pri|${sortOrdinal}|${a.pokemon.side.id}${a.pokemon.position}`, () => guarded(() => {
+    const off = override(battle, 'randomChance', () => false);
+    try {
+      return [...a.pokemon.moveSlots.map(slot => slot.id), 'struggle'].map((id) => {
+        const move = battle.dex.getActiveMove(id);
+        const asked = { ...a, move, fractionalPriority: battle.runEvent('FractionalPriority', a.pokemon, null, move, 0) };
+        battle.getActionSpeed(asked);
+        return asked.priority;
+      });
+    } finally {
+      off();
+    }
+  }));
 
   const queue = battle.queue;
   const origSort = queue.sort;
@@ -489,6 +496,7 @@ export function attachSpeed(battle, {
     return { fast: byId.get(fx.owner), slow: byId.get(fy.owner), tf: fx.table, ts: fy.table, turn, what };
   };
 
+  let scaffoldOrders = [];
   function speedRules() {
     const upTo = Math.min(prefix.cutoffAt, battle.log.length);
     const firstAt = (at) => {
@@ -578,6 +586,23 @@ export function attachSpeed(battle, {
       }
       return false;
     };
+    // A queued move whose user fainted in that slot before the cutoff, without
+    // leaving it or acting, went after X when no move it has sorts below X's.
+    const faintedLater = (item, from) => {
+      if (item.action?.choice !== 'move' || !(item.slot >= 0)) return false;
+      const rec = item.pokemon && byPokemon.get(item.pokemon);
+      if (!rec) return false;
+      const slot = `${item.side}${'abcd'[item.slot]}`;
+      for (let j = firstAt(from); j < view.length && view[j].at < upTo; j++) {
+        const parts = view[j].line.split('|');
+        if (parts[1] === 'turn') return false;
+        if ((parts[1] === 'switch' || parts[1] === 'drag') && String(parts[2] || '').startsWith(`${slot}: `)) return false;
+        if (parts[1] === 'faint' && String(parts[2] || '').startsWith(`${slot}: `)) {
+          return identName(parts[2]) === rec.name || settled(item.pokemon, slot, view[j].at);
+        }
+      }
+      return false;
+    };
     const shown = new Map(executed.map((ex) => {
       const seen = visible(ex);
       return [ex.action, { ex, seen, on: seen && sorted(ex) }];
@@ -604,9 +629,10 @@ export function attachSpeed(battle, {
         // Or it went past the cutoff, and the replay shows it using, later in
         // the turn, the very move the rebuild queued for it.
         const shownLater = () => y.action?.choice === 'move' && S.turn === prefix.turn && realLater(byPokemon.get(y.pokemon), y.action.move?.id);
+        const knockedOut = () => y.lowest !== null && y.lowest >= x.priority && !movedAfter(y.action, S) && faintedLater(y, ex.start);
         // A rebuild stops at the cutoff, so one the replay shows only past it
         // may never have run.
-        if (later === undefined ? !shownLater() : later <= i || !(second?.on || (second?.seen && y.lowest !== null && y.lowest >= x.priority) || shownLater())) continue;
+        if (later === undefined ? !(shownLater() || knockedOut()) : later <= i || !(second?.on || (second?.seen && y.lowest !== null && y.lowest >= x.priority) || knockedOut() || shownLater())) continue;
         const X = byPokemon.get(x.pokemon);
         const Y = byPokemon.get(y.pokemon);
         const rule = ruleOf(X, Y, S.speeds, S.turn, `${label(X)} ${verbOf(x.action)} before ${label(Y)}`);
@@ -841,7 +867,8 @@ export function attachSpeed(battle, {
     if (rebuilt && prefix.observedLine && !was) {
       for (const entry of eventSorts) {
         if (!entry.items) continue;
-        const hit = matched(entry).find(m => m.span.start <= prefix.cutoffAt && prefix.cutoffAt < m.span.end);
+        const ms = matched(entry);
+        const hit = ms.find(m => m.span.start <= prefix.cutoffAt && prefix.cutoffAt < m.span.end);
         if (!hit) continue;
         // P's handler is the one for the same effect as Q's - both Pokemon's
         // Perish Song counts, both Leftovers - or the one whose effect the
@@ -851,13 +878,64 @@ export function attachSpeed(battle, {
         const x = P && entry.items.find(it => it.rec === P
           && (entry.kind === 'eachEvent'
             || (it.effect && (it.effect === hit.item.effect || prefix.observedLine.includes(it.effect.name)))));
+        // And the replay's line is that handler's: the one it wrote first in
+        // the rebuild too, on whatever HP. A line naming P that something
+        // before the sort wrote - a status its last move brought on, which the
+        // rebuild's dice did not - says nothing of the sort's order.
+        const mine = x && ms.find(m => m.item === x);
+        const first = mine ? firstAt(mine.span.start) : -1;
+        const wrote = mine && first < view.length && view[first].at < mine.span.end ? battleLines([view[first].line])[0] : null;
+        // Q's line later in the replay: the rebuild's own but for the HP, or
+        // one of the same kind that names Q first and Q's effect as its
+        // source - what a handler prints can hang on a die, as which foe's
+        // ability Trace takes does.
+        const source = l => tagsOf(String(l)).from;
+        const fromQ = (line) => {
+          if (sameButHp(line, rebuilt)) return true;
+          const a = String(line).split('|');
+          const b = String(rebuilt).split('|');
+          const effect = hit.item.effect?.name;
+          return !!effect && a[1] === b[1] && a[2] === b[2] && /^p[1-4][a-d]?: /.test(a[2] || '')
+            && source(line) !== undefined && source(line) === source(rebuilt) && source(line).replace(/^\w+: /, '') === effect;
+        };
         let later = false;
         for (const line of prefix.observedAfter) {
           if (ACTION_START.has(line.split('|')[1])) break;
-          if (sameButHp(line, rebuilt)) { later = true; break; }
+          if (fromQ(line)) { later = true; break; }
         }
-        if (x && later) eventRule(entry, x, hit.item);
+        if (x && later && wrote && sameButHp(wrote, prefix.observedLine)) eventRule(entry, x, hit.item);
         break;
+      }
+    }
+    // The order the rebuild itself ran in, through the cutoff: every action and
+    // every handler that ran there against each one its sort had after it at
+    // the same order and priority, proved or not. Never evidence - an action
+    // nobody saw may have been another - but a guess that keeps these sorts
+    // the rebuild's dice and choices play the same way again (`scaffold`).
+    scaffoldOrders = [];
+    for (const ex of executed) {
+      const S = ex.sort;
+      if (!S || ex.start >= upTo || ex.end > upTo || !ex.pokemon) continue;
+      const at = S.list.findIndex(item => item.action === ex.action);
+      if (at < 0) continue;
+      const x = S.list[at];
+      for (const y of S.list.slice(at + 1)) {
+        if (!y.pokemon || y.pokemon === x.pokemon || y.order !== x.order || y.priority !== x.priority) continue;
+        const X = byPokemon.get(x.pokemon);
+        const Y = byPokemon.get(y.pokemon);
+        const rule = X && Y ? ruleOf(X, Y, S.speeds, S.turn, 'the rebuild ran them so') : null;
+        if (rule && rule.fast !== rule.slow) scaffoldOrders.push(rule);
+      }
+    }
+    for (const entry of eventSorts) {
+      if (!entry.items) continue;
+      for (const { span, item: x } of matched(entry)) {
+        if (span.start >= upTo || span.end > upTo || !x.rec) continue;
+        for (const y of entry.items.slice(entry.items.indexOf(x) + 1)) {
+          if (!y.rec || y.rec === x.rec || y.order !== x.order || y.priority !== x.priority) continue;
+          const rule = ruleOf(x.rec, y.rec, entry.speeds, entry.turn, 'the rebuild ran them so');
+          if (rule && rule.fast !== rule.slow) scaffoldOrders.push(rule);
+        }
       }
     }
     return rules;
@@ -914,5 +992,5 @@ export function attachSpeed(battle, {
     }
   }
 
-  return { rules: speedRules, apply: applySpeed };
+  return { rules: speedRules, apply: applySpeed, scaffold: () => scaffoldOrders };
 }

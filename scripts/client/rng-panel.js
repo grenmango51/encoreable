@@ -581,6 +581,7 @@
 			// whatever is underneath. Only boxes carrying controls do, which leaves
 			// every other tooltip behaving exactly as vanilla.
 			'#tooltipwrapper.rng-open { pointer-events: auto; }',
+			'#tooltipwrapper.rng-open .tooltip { z-index: 2147483647; }',
 			// The corridor between the box and the button it belongs to. Upstream
 			// anchors the box above the whole move menu, so once the menu wraps to a
 			// second row the straight-up path crosses other buttons.
