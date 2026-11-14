@@ -262,6 +262,7 @@ export function attachSpeed(battle, {
   let speedUpdates = 0;
   for (const rec of recs) {
     const p = rec.pokemon;
+    rec.cachedSpeed = memo(`init|${rec.id}`, () => speedsOf(rec, () => (p.isActive ? p.getActionSpeed() : p.storedStats.spe)));
     const setSpecies = p.setSpecies;
     override(p, 'setSpecies', function (...args) {
       const out = setSpecies.apply(this, args);
@@ -820,14 +821,21 @@ export function attachSpeed(battle, {
     // A sort a handler made, read off what every speed-realizable order would
     // have printed. The run in the sort's own order must print what the handler
     // printed. Each order whose lines agree with the verified replay - and with
-    // the replay's continuation at the cutoff when at least one does - stays
-    // possible; one Pokemon came before another when it precedes it in every
-    // surviving order.
+    // the replay's continuation where one ends or diverges at the cutoff, when
+    // at least one order does - stays possible; one Pokemon came before another
+    // when it precedes it in every surviving order.
     const hardLine = (rawLine, turnZero = false) => {
       const h = battleLines([rawLine])[0];
       if (h === undefined) return undefined;
       const kind = h.split('|')[1];
       return kind === 'player' || (turnZero && SOFT_PRETURN.has(kind)) ? undefined : h;
+    };
+    const nextAfter = (at, turnZero = false) => {
+      for (let i = firstAt(at); i < view.length; i++) {
+        const line = hardLine(view[i].line, turnZero);
+        if (line !== undefined) return { line, at: view[i].at };
+      }
+      return null;
     };
     for (const read of handlerSorts) {
       const { frame, entries, sortedAt, runs } = read;
@@ -838,10 +846,15 @@ export function attachSpeed(battle, {
         note(`${read.name}'s order`, 'running the handler again did not print what it printed, so the order it sorted was not used');
         continue;
       }
-      const hardOf = raw => shownOf(raw, frame.logAt).map(e => hardLine(e.line, read.turn === 0)).filter(l => l !== undefined);
-      const outputs = runs.map(hardOf);
+      const hardEntries = raw => shownOf(raw, frame.logAt)
+        .map(e => ({ line: hardLine(e.line, read.turn === 0), at: e.at }))
+        .filter(e => e.line !== undefined);
+      const mine = hardEntries(sortedRaw);
+      const outputs = runs.map((raw, m) => (m === sortedAt ? mine.map(e => e.line) : hardEntries(raw).map(e => e.line)));
       const maxLen = Math.max(0, ...outputs.map(o => o.length));
       if (!maxLen) continue;
+      const mineVerified = mine.filter(e => e.at < upTo).length;
+      const after = nextAfter(frame.logEnd, read.turn === 0 && !mine.some(e => /^\|turn\|\d+/.test(e.line)));
       const wantVerified = [];
       let turnZero = read.turn === 0;
       for (let i = firstAt(frame.logAt); i < view.length && view[i].at < upTo && wantVerified.length < maxLen; i++) {
@@ -851,17 +864,25 @@ export function attachSpeed(battle, {
           if (/^\|turn\|\d+/.test(h)) turnZero = false;
         }
       }
+      const atCutoff = prefix.observedLine !== null && (mine.length > mineVerified
+        ? mine[mineVerified].at === prefix.cutoffAt
+        : frame.logEnd <= prefix.cutoffAt && (!after || after.at === prefix.cutoffAt));
       const wantFull = wantVerified.slice();
-      if (wantFull.length < maxLen && prefix.observedLine !== null) {
+      if (atCutoff && wantFull.length < maxLen) {
         for (const l of [prefix.observedLine, ...(prefix.observedAfter || [])]) {
           if (wantFull.length >= maxLen) break;
           wantFull.push(l);
         }
       }
-      const matches = (lines, want) => lines.every((line, j) => j >= want.length || sameButHp(line, want[j]));
-      const verifiedSurvivors = entries.filter((_, m) => matches(outputs[m], wantVerified));
+      const matchesVerified = lines => lines.length >= mineVerified
+        && lines.every((line, j) => j >= wantVerified.length || sameButHp(line, wantVerified[j]));
+      const matchesFull = (lines) => {
+        if (lines.length === mineVerified) return Boolean(after && sameButHp(after.line, wantFull[mineVerified]));
+        return lines.every((line, j) => j >= wantFull.length || sameButHp(line, wantFull[j]));
+      };
+      const verifiedSurvivors = entries.filter((_, m) => matchesVerified(outputs[m]));
       const fullSurvivors = wantFull.length > wantVerified.length
-        ? verifiedSurvivors.filter(e => matches(outputs[entries.indexOf(e)], wantFull))
+        ? verifiedSurvivors.filter(e => matchesFull(outputs[entries.indexOf(e)]))
         : verifiedSurvivors;
       const surviving = fullSurvivors.length ? fullSurvivors : verifiedSurvivors;
       if (!surviving.length) continue;
@@ -1082,6 +1103,7 @@ export function attachSpeed(battle, {
     // nobody saw may have been another - but a guess that keeps these sorts
     // the rebuild's dice and choices play the same way again (`scaffold`).
     scaffoldOrders = [];
+    const contradicted = rule => rules.some(r => r.fast === rule.slow && r.slow === rule.fast && r.turn === rule.turn);
     for (const ex of executed) {
       const S = ex.sort;
       if (!S || ex.start >= upTo || ex.end > upTo || !ex.pokemon) continue;
@@ -1093,7 +1115,7 @@ export function attachSpeed(battle, {
         const X = byPokemon.get(x.pokemon);
         const Y = byPokemon.get(y.pokemon);
         const rule = X && Y ? ruleOf(X, Y, S.speeds, S.turn, 'the rebuild ran them so') : null;
-        if (rule && rule.fast !== rule.slow) scaffoldOrders.push(rule);
+        if (rule && rule.fast !== rule.slow && !contradicted(rule)) scaffoldOrders.push(rule);
       }
     }
     for (const entry of eventSorts) {
@@ -1103,7 +1125,7 @@ export function attachSpeed(battle, {
         for (const y of entry.items.slice(entry.items.indexOf(x) + 1)) {
           if (!y.rec || y.rec === x.rec || y.order !== x.order || y.priority !== x.priority) continue;
           const rule = ruleOf(x.rec, y.rec, entry.speeds, entry.turn, 'the rebuild ran them so');
-          if (rule && rule.fast !== rule.slow) scaffoldOrders.push(rule);
+          if (rule && rule.fast !== rule.slow && !contradicted(rule)) scaffoldOrders.push(rule);
         }
       }
     }
