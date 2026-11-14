@@ -681,15 +681,24 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   function patchAll(patches) {
     const undo = [];
     for (const { pokemon, stats, hp, maxhp } of patches) {
-      const saved = { stored: { ...pokemon.storedStats }, hp: pokemon.hp, maxhp: pokemon.maxhp, baseMaxhp: pokemon.baseMaxhp };
+      const hasEvs = pokemon.set?.evs && typeof pokemon.set.evs.hp === 'number';
+      const saved = {
+        stored: { ...pokemon.storedStats }, hp: pokemon.hp, maxhp: pokemon.maxhp, baseMaxhp: pokemon.baseMaxhp,
+        hpEv: hasEvs ? pokemon.set.evs.hp : null,
+      };
       for (const [s, v] of Object.entries(stats || {})) pokemon.storedStats[s] = v;
-      if (maxhp !== undefined) { pokemon.maxhp = maxhp; pokemon.baseMaxhp = maxhp; }
+      if (maxhp !== undefined) {
+        if (hasEvs) pokemon.set.evs.hp = saved.hpEv + maxhp - saved.baseMaxhp;
+        pokemon.maxhp = maxhp;
+        pokemon.baseMaxhp = maxhp;
+      }
       if (hp !== undefined) pokemon.hp = hp;
       undo.push(() => {
         Object.assign(pokemon.storedStats, saved.stored);
         pokemon.hp = saved.hp;
         pokemon.maxhp = saved.maxhp;
         pokemon.baseMaxhp = saved.baseMaxhp;
+        if (hasEvs) pokemon.set.evs.hp = saved.hpEv;
       });
     }
     return () => { for (const u of undo.reverse()) u(); };
@@ -2689,11 +2698,27 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
    * back what `fn` returned, pushes no frame, and is called only inside
    * `guarded`.
    */
+  const snapForme = p => ({
+    species: p.species, baseSpecies: p.baseSpecies, details: p.details,
+    types: p.types.slice(), formeRegression: p.formeRegression, ability: p.ability,
+  });
+  const restoreForme = (p, f) => {
+    p.species = f.species;
+    p.baseSpecies = f.baseSpecies;
+    p.details = f.details;
+    p.types = f.types.slice();
+    p.formeRegression = f.formeRegression;
+    p.ability = f.ability;
+  };
   const frames = [];
   function framed(frame, run) {
+    const holder = byPokemon.has(frame.holder) ? frame.holder : null;
     const entered = {
       effect: battle.effect, state: battle.effectState, event: battle.event ? { ...battle.event } : battle.event, depth: battle.eventDepth,
       queue: frame.kind === 'action' ? battle.queue.list.slice() : null,
+      stateSnap: battle.effectState && isPlain(battle.effectState) ? keep(battle.effectState, 2) : null,
+      holder,
+      forme: holder ? snapForme(holder) : null,
     };
     const ran = frame.kind === 'handler' || frame.kind === 'event';
     frame.state = ran ? entered.state : null;
@@ -2746,6 +2771,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const held = [...new Set([battle.activeMove, entered.state, ...frame.args])]
       .filter(x => x && typeof x === 'object' && !Object.isFrozen(x) && (isPlain(x) || x.effectType === 'Move'))
       .map(x => keep(x, 2));
+    const formeNow = entered.holder ? snapForme(entered.holder) : null;
+    if (entered.holder) restoreForme(entered.holder, entered.forme);
+    if (entered.stateSnap) putBack(entered.stateSnap);
     battle.effect = entered.effect;
     battle.effectState = entered.state;
     battle.event = entered.event ? { ...entered.event } : entered.event;
@@ -2761,6 +2789,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     } finally {
       st.dry = dry;
       [battle.effect, battle.effectState, battle.event, battle.eventDepth] = saved;
+      if (formeNow) restoreForme(entered.holder, formeNow);
       for (const k of held) putBack(k);
     }
   }
