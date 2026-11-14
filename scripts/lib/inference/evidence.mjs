@@ -596,10 +596,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   const byId = new Map(recs.map(rec => [rec.id, rec]));
 
   /**
-   * What one stored stat of a Pokemon is, as a function of one candidate value:
-   * `{ owner, stat, at(v) }`, the stored stat when `owner`'s `stat` Stat Points
-   * are v; `CONSTANT` when it is the same whatever the spread - a known
-   * Pokemon's, or one copied from it; or null when no one candidate value says.
+   * What one stored stat of a Pokemon is, as a function of at most two
+   * candidate values: `{ owner, stat, at(v) }` for one, `{ owner: null,
+   * deps: [d1, d2], at(v1, v2) }` for a pair, `CONSTANT` when it is the same
+   * whatever the spread - a known Pokemon's, or one copied from it - or null
+   * when nothing of that shape says.
    */
   const CONSTANT = { owner: null };
   function depOf(rec, stat) {
@@ -611,7 +612,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const forme = rec.pokemon.species;
     return { owner: rec, stat, at: v => rec.stat(stat, v, forme) };
   }
+  const depVars = dep => (dep.deps || (dep.owner ? [dep] : []));
   const ownValue = dep => fullEvs(dep.owner.pokemon.set.evs)[dep.stat];
+  const ownAt = dep => (dep.deps ? dep.at(ownValue(dep.deps[0]), ownValue(dep.deps[1])) : dep.at(ownValue(dep)));
   /** Whether a stored stat is still the one the Pokemon's own Stat Points give. */
   const plain = (rec, stat) => !rec.unmapped.has(stat) && !rec.deps[stat];
   // A Pokemon by the species it is, not one it has transformed into.
@@ -850,7 +853,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     };
     const varOf = (stat) => {
       const dep = depOf(T, stat);
-      if (!dep) return undefined;
+      if (!dep || dep.deps) return undefined;
       if (!dep.owner) return null;
       return dep.owner === T && dep.stat === stat ? dep : undefined;
     };
@@ -958,32 +961,35 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       // one defence is read from the other (`calculateStat`), so the Stat Points
       // that matter are the other defence's.
       //
-      // Each stat read stands on one candidate value at most (`depOf`): the
-      // Pokemon's own Stat Points, or after Power Split the average's other
-      // side, or none once Transform copied a known Pokemon's. A hit's rows
-      // vary two of them: the target's defence, a dimension of its joint key,
-      // and one more - the attacking stat as a flat domain, or for Body Press a
-      // dimension of the attacker's key. The target's Speed, which Gyro Ball and
-      // Electro Ball read, is that one more when no hidden attacking stat is.
+      // Each stat read stands on at most two candidate values (`depOf`): the
+      // Pokemon's own Stat Points, or after Power Split or Guard Split both
+      // sides of the average, or none once Transform copied a known Pokemon's.
+      // A hit's rows vary the target's defence, a dimension of its joint key,
+      // and up to two more - the attacking stat as a flat domain or key
+      // dimension, and one carried source state.
       const physical = clone.category === 'Physical';
       const wantDef = clone.overrideDefensiveStat || (physical ? 'def' : 'spd');
       const shaped = source !== target && clone.overrideDefensivePokemon !== 'source';
       const vars = new Map();
+      const readList = [];
       const unmapped = new Set();
       for (const [p, s] of reads) {
         const rec = byPokemon.get(p);
         const key = roomStat(s);
         const dep = depOf(rec, key);
         if (!dep) { unmapped.add(label(rec)); continue; }
-        if (!dep.owner) continue;
-        const v = `${dep.owner.id}|${dep.stat}`;
-        if (!vars.has(v)) vars.set(v, { owner: dep.owner.id, stat: dep.stat, readers: [] });
-        const reader = { who: p === source ? 'source' : 'target', key };
-        if (!vars.get(v).readers.some(r => r.who === reader.who && r.key === reader.key)) vars.get(v).readers.push(reader);
+        const ds = depVars(dep);
+        if (!ds.length) continue;
+        for (const d of ds) {
+          const v = `${d.owner.id}|${d.stat}`;
+          if (!vars.has(v)) vars.set(v, { owner: d.owner.id, stat: d.stat });
+        }
+        const who = p === source ? 'source' : 'target';
+        if (!readList.some(r => r.who === who && r.key === key)) readList.push({ who, key, ds });
       }
       // One more candidate value can come beside those two, of any Pokemon: a
       // hidden user of Gyro Ball brings its Speed beside its Attack; after Guard
-      // Split your Defence stands on the hidden attacker's, and after your
+      // Split your Defence stands on the hidden partner's too, and after your
       // Imposter copied the opponent's other Pokemon, on that one's. It is
       // carried like the attacker's HP, as a source state the victim's line
       // narrows.
@@ -996,7 +1002,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         && (!offVar || FLAT.includes(offVar.stat) || offVar.owner !== T.id);
       const def = dims[0]?.stat || roomStat(wantDef);
       const off = offVar ? offVar.stat : null;
-      const readers = [...vars.values()].flatMap(x => x.readers.map(r => ({ ...r, by: x === offVar ? 'a' : x === extraVar ? 'x' : 'd' })));
+      const byOf = (d) => {
+        const x = vars.get(`${d.owner.id}|${d.stat}`);
+        return x === offVar ? 'a' : x === extraVar ? 'x' : 'd';
+      };
+      const readers = readList.map(r => ({ who: r.who, key: r.key, bys: r.ds.map(byOf) }));
 
       // HP matters to Water Spout, Multiscale, Brine, pinch abilities, and max
       // HP to a one-hit knockout. Ask rather than list: the row either moves
@@ -1067,22 +1077,33 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     hit.sStates = sStates.length ? sStates : [null];
 
     hit.rows = new Map();
+    const posts = new Map();
+    const readerDeps = hit.readers.map(r => depOf(byPokemon.get(r.who === 'source' ? source : target), r.key));
+    const readerVars = readerDeps.map(depVars);
     for (const t of targetStates) {
       for (const [si, s] of hit.sStates.entries()) {
-        const hpKey = `${t ? t.join(':') : '-'}|${s ? s.join(':') : '-'}`;
-        const post = new Map();
+        const hpKey = `${t ? t.join(':') : '-'}|${s && s[0] !== null ? `${s[0]}:${s[1]}` : '-'}`;
+        let post = posts.get(hpKey);
+        if (!post) { post = new Map(); posts.set(hpKey, post); }
         for (const a of hit.aVals) {
           for (const d of dVals) {
-            const row = memo(`row|${ord}|${a}|${d}|${hpKey}`, () => {
+            // The one more candidate has a value per source state; where its
+            // owner is left no spread at all there is none, and the stat is
+            // the scaffold's own. Rows with the same patched stats and HP
+            // share one dry calculation: an average of two stats has at most
+            // one row per integer value it takes, not one per pair.
+            const statVals = hit.readers.map((r, i) => {
+              const dep = readerDeps[i];
+              const ds = readerVars[i];
+              const val = (by, j) => (by === 'a' ? a : by === 'x' ? (s ? s[2] : ownValue(ds[j])) : d);
+              return r.bys.length === 2 ? dep.at(val(r.bys[0], 0), val(r.bys[1], 1)) : dep.at(val(r.bys[0], 0));
+            });
+            const row = memo(`row|${ord}|${statVals.join(':')}|${hpKey}`, () => {
               const sp = { pokemon: source, stats: {} };
               const tp = { pokemon: target, stats: {} };
-              for (const r of hit.readers) {
-                const pokemon = r.who === 'source' ? source : target;
-                const dep = depOf(byPokemon.get(pokemon), r.key);
-                // The one more candidate has a value per source state; where its
-                // owner is left no spread at all there is none, and the stat is
-                // the scaffold's own.
-                (r.who === 'source' ? sp : tp).stats[r.key] = dep.at(r.by === 'a' ? a : r.by === 'x' ? (s ? s[2] : ownValue(dep)) : d);
+              for (let i = 0; i < hit.readers.length; i++) {
+                const r = hit.readers[i];
+                (r.who === 'source' ? sp : tp).stats[r.key] = statVals[i];
               }
               if (t) { tp.maxhp = maxHp(T, t[0]); tp.hp = t[1]; }
               const patches = [sp, tp];
@@ -1449,7 +1470,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         for (const [q, s] of own.reads) {
           const r = byPokemon.get(q);
           const dep = r && depOf(r, s);
-          if (!dep || dep.owner) return { reason: 'the code that moved it read a stat that stands on a spread' };
+          if (!dep || dep.owner || dep.deps) return { reason: 'the code that moved it read a stat that stands on a spread' };
         }
         for (const side of battle.sides) {
           for (const q of side.active) {
@@ -3307,10 +3328,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
 
   // A handler that writes stored stats - Power Split's and Guard Split's
   // `onHit`, Speed Swap's, Power Trick's volatile starting and ending - is
-  // asked before it runs, the way Pain Split is: run dry once per value of each
-  // candidate value its Pokemon's stats stand on, and each stat it writes is
-  // read off as a function of the one value that moved it (`deps`). One that
-  // moves with two - a split between two hidden Pokemon - stays unmapped.
+  // asked before it runs, the way Pain Split is: run dry over the candidate
+  // values its Pokemon's stats stand on, and each stat it writes is read off
+  // as a function of the one or two values that moved it (`deps`). One that
+  // moves with three or more stays unmapped.
   const MOVABLE = ['atk', 'def', 'spa', 'spd', 'spe'];
   const writer = new Map();
   const writesStats = (effect, eventid) => {
@@ -3321,33 +3342,64 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   };
   let writeOrdinal = 0;
   function askWrites(involved, run) {
+    const runRaw = patches => guarded(() => {
+      const undo = patchAll(patches);
+      try {
+        run();
+        return involved.map(rec => MOVABLE.map(s => rec.pokemon.storedStats[s]));
+      } finally {
+        undo();
+      }
+    });
+    const runAt = (picked) => {
+      const valOf = d => picked.get(`${d.owner.id}|${d.stat}`) ?? ownValue(d);
+      return runRaw(involved.map((rec) => {
+        const stats = {};
+        for (const s of MOVABLE) {
+          const dep = depOf(rec, s);
+          if (!dep) continue;
+          const ds = depVars(dep);
+          if (ds.some(d => picked.has(`${d.owner.id}|${d.stat}`))) {
+            stats[s] = dep.deps ? dep.at(valOf(ds[0]), valOf(ds[1])) : dep.at(valOf(ds[0]));
+          }
+        }
+        return { pokemon: rec.pokemon, stats };
+      }));
+    };
+    const base = runRaw([]);
     const vars = new Map();
     for (const rec of involved) {
       for (const s of MOVABLE) {
         const dep = depOf(rec, s);
-        if (!dep) return null;
-        if (dep.owner) vars.set(`${dep.owner.id}|${dep.stat}`, dep);
+        if (!dep) continue;
+        for (const d of depVars(dep)) vars.set(`${d.owner.id}|${d.stat}`, { owner: d.owner, stat: d.stat });
+      }
+    }
+    const slotMovers = new Map();
+    const tainted = new Set();
+    for (const recIn of involved) {
+      for (const sIn of MOVABLE) {
+        const cur = recIn.pokemon.storedStats[sIn];
+        const depIn = depOf(recIn, sIn);
+        for (const probe of [1, cur + 1, cur + 100]) {
+          if (probe === cur) continue;
+          const after = runRaw([{ pokemon: recIn.pokemon, stats: { [sIn]: probe } }]);
+          for (const [i, recOut] of involved.entries()) {
+            for (const [j, sOut] of MOVABLE.entries()) {
+              if (after[i][j] === base[i][j]) continue;
+              const at = `${recOut.id}|${sOut}`;
+              if (!depIn) { tainted.add(at); continue; }
+              if (!slotMovers.has(at)) slotMovers.set(at, new Set());
+              for (const d of depVars(depIn)) slotMovers.get(at).add(`${d.owner.id}|${d.stat}`);
+            }
+          }
+        }
       }
     }
     const tables = new Map();
-    for (const [key, variable] of vars) {
+    for (const key of vars.keys()) {
       for (let v = 0; v < SPAN; v++) {
-        const after = guarded(() => {
-          const undo = patchAll(involved.map((rec) => {
-            const stats = {};
-            for (const s of MOVABLE) {
-              const dep = depOf(rec, s);
-              if (dep.owner === variable.owner && dep.stat === variable.stat) stats[s] = dep.at(v);
-            }
-            return { pokemon: rec.pokemon, stats };
-          }));
-          try {
-            run();
-            return involved.map(rec => MOVABLE.map(s => rec.pokemon.storedStats[s]));
-          } finally {
-            undo();
-          }
-        });
+        const after = runAt(new Map([[key, v]]));
         for (const [i, rec] of involved.entries()) {
           for (const [j, s] of MOVABLE.entries()) {
             const at = `${rec.id}|${s}`;
@@ -3358,30 +3410,89 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         }
       }
     }
-    return { vars: [...vars.keys()], tables };
+    const pairGrids = new Map();
+    const gridFor = (k0, k1) => {
+      const pk = `${k0},${k1}`;
+      if (!pairGrids.has(pk)) {
+        const grids = new Map();
+        for (const rec of involved) for (const s of MOVABLE) grids.set(`${rec.id}|${s}`, new Int32Array(SPAN * SPAN));
+        for (let v0 = 0; v0 < SPAN; v0++) {
+          for (let v1 = 0; v1 < SPAN; v1++) {
+            const after = runAt(new Map([[k0, v0], [k1, v1]]));
+            for (const [i, rec] of involved.entries()) {
+              for (const [j, s] of MOVABLE.entries()) {
+                grids.get(`${rec.id}|${s}`)[v0 * SPAN + v1] = after[i][j];
+              }
+            }
+          }
+        }
+        pairGrids.set(pk, grids);
+      }
+      return pairGrids.get(pk);
+    };
+    const out = new Map();
+    for (const [i, rec] of involved.entries()) {
+      for (const [j, s] of MOVABLE.entries()) {
+        const at = `${rec.id}|${s}`;
+        if (tainted.has(at)) { out.set(at, null); continue; }
+        const candSet = new Set(slotMovers.get(at) || []);
+        const byVar = tables.get(at);
+        if (byVar) {
+          for (const [key, t] of byVar) if (t.some(x => x !== t[0])) candSet.add(key);
+        }
+        const cand = [...candSet].sort();
+        if (cand.length === 0) {
+          out.set(at, { moving: [], base: base[i][j] });
+        } else if (cand.length === 1) {
+          const [k0] = cand;
+          const t = byVar.get(k0);
+          out.set(at, t.some(x => x !== t[0]) ? { moving: [k0], values: t } : { moving: [], base: t[0] });
+        } else if (cand.length === 2) {
+          const [k0, k1] = cand;
+          const grid = gridFor(k0, k1).get(at);
+          let moves0 = false;
+          let moves1 = false;
+          for (let v0 = 0; v0 < SPAN; v0++) {
+            for (let v1 = 0; v1 < SPAN; v1++) {
+              if (grid[v0 * SPAN + v1] !== grid[v1]) moves0 = true;
+              if (grid[v0 * SPAN + v1] !== grid[v0 * SPAN]) moves1 = true;
+            }
+          }
+          if (!moves0 && !moves1) out.set(at, { moving: [], base: grid[0] });
+          else if (moves0 && !moves1) out.set(at, { moving: [k0], values: Int32Array.from({ length: SPAN }, (_, v0) => grid[v0 * SPAN]) });
+          else if (!moves0 && moves1) out.set(at, { moving: [k1], values: grid.slice(0, SPAN) });
+          else out.set(at, { moving: [k0, k1], grid });
+        } else {
+          out.set(at, { moving: cand });
+        }
+      }
+    }
+    return out;
   }
 
   /** Settle what each written stat now depends on, checked at the replay's own Stat Points. */
   function settleWrites(written, asked, what) {
     for (const [rec, s] of written) {
       const actual = rec.pokemon.storedStats[s];
-      const byVar = asked?.tables.get(`${rec.id}|${s}`);
-      const moving = asked && (byVar || !asked.vars.length)
-        ? asked.vars.filter(key => { const t = byVar.get(key); return t.some(x => x !== t[0]); }) : null;
+      const entry = asked?.get(`${rec.id}|${s}`) ?? null;
+      const moving = entry?.moving ?? null;
       // Where what moved the stat could not be asked, every other Pokemon the
       // same event wrote a stat of, beside whoever moved it before.
       if (moving) rec.lent[s] = new Set(moving.map(key => key.split('|')[0]).filter(id => id !== rec.id));
       else rec.lent[s] = new Set([...(rec.lent[s] || []), ...written.map(([r]) => r.id)].filter(id => id !== rec.id));
       let dep = null;
-      if (moving && moving.length === 0) dep = CONSTANT;
-      if (moving && moving.length === 1) {
+      if (moving && moving.length === 0 && entry.base === actual) dep = CONSTANT;
+      if (moving && moving.length === 1 && entry.values) {
         const [ownerId, stat] = moving[0].split('|');
-        const values = byVar.get(moving[0]);
-        dep = { owner: byId.get(ownerId), stat, at: v => values[v] };
+        const d = { owner: byId.get(ownerId), stat, at: v => entry.values[v] };
+        if (ownAt(d) === actual) dep = d;
       }
-      const fits = dep && (dep.owner ? dep.at(ownValue(dep)) === actual
-        : !asked.vars.length || asked.vars.every(key => byVar.get(key)[0] === actual));
-      if (fits) {
+      if (moving && moving.length === 2 && entry.grid) {
+        const ds = moving.map((k) => { const [ownerId, stat] = k.split('|'); return { owner: byId.get(ownerId), stat }; });
+        const d = { owner: null, deps: ds, at: (v0, v1) => entry.grid[v0 * SPAN + v1] };
+        if (ownAt(d) === actual) dep = d;
+      }
+      if (dep) {
         rec.deps[s] = dep;
         rec.unmapped.delete(s);
       } else {
@@ -3472,7 +3583,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     for (const [q, s] of reads) {
       const r = byPokemon.get(q);
       const dep = r && depOf(r, s);
-      if (!dep || dep.owner) return null;
+      if (!dep || dep.owner || dep.deps) return null;
     }
     const moved = new Set();
     const probe = (patch) => {
@@ -3602,8 +3713,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         note(what, 'its category read a stat no candidate value says, so it was not read');
         return;
       }
-      if (!dep.owner) continue;
-      if (dep.owner !== rec || dep.stat !== s || !(FLAT.includes(s) || KEY_DIM[s])) {
+      if (!dep.owner && !dep.deps) continue;
+      if (dep.deps || dep.owner !== rec || dep.stat !== s || !(FLAT.includes(s) || KEY_DIM[s])) {
         note(what, 'its category read a stat that does not stand on its own Pokemon\'s Stat Points, so it was not read');
         return;
       }
@@ -3754,11 +3865,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             // What the original's stat stood on, the original among it: an
             // average it took part in is its own Stat Points' too.
             const lent = new Set([...(from.lent[s] || []), from.id]);
-            if (copied[s]?.owner) lent.add(copied[s].owner.id);
+            for (const d of dep ? depVars(dep) : []) lent.add(d.owner.id);
             lent.delete(r.id);
             r.lent[s] = lent;
           }
-          if (dep && (!dep.owner || dep.at(ownValue(dep)) === r.pokemon.storedStats[s])) {
+          if (dep && (!depVars(dep).length || ownAt(dep) === r.pokemon.storedStats[s])) {
             r.deps[s] = dep;
             r.unmapped.delete(s);
           } else {
