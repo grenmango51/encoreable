@@ -2411,6 +2411,10 @@ async function reconstructOnce({
   const state0 = { reveal: revealOrder(unmasked.lines), sizes: teamSizes(lines), disguises: unmasked.disguises };
   const reseeds = new Array(segments.length).fill(null);
   const variants = new Array(segments.length).fill(0);
+  for (const [k, v] of Object.entries(pins?.variants || {})) {
+    const idx = Number(k);
+    if (idx >= 0 && idx < variants.length && v >= 0) variants[idx] = v;
+  }
   const spent = new Array(segments.length).fill(0);
   const subs = {};
   const subTurn = {};
@@ -2451,11 +2455,13 @@ async function reconstructOnce({
   // A handed-in pin is only as good as the turn it rebuilds: a spread that
   // throws a different sequence of dice there moves every ordinal after it. On
   // a turn proved only in part, the pins stand as long as that part holds.
-  if (run.badTurn !== null && Object.keys(subs).some(i => subTurn[i] >= run.badTurn)) {
+  if (run.badTurn !== null && (Object.keys(subs).some(i => subTurn[i] >= run.badTurn) || variants.slice(run.badTurn).some(Boolean))) {
     const t = run.badTurn;
     const known = exact?.get(t);
     const held = known?.partial && run.diffs[0]?.index >= compareTurn(common, t, []).exactUpTo;
-    forget(held ? t + 1 : t);
+    const clearFrom = held ? t + 1 : t;
+    forget(clearFrom);
+    for (let k = clearFrom; k < variants.length; k++) variants[k] = 0;
     run = await playThrough({ ...common, subs });
   }
 
@@ -2517,27 +2523,23 @@ async function reconstructOnce({
       }
     };
 
-    // A rejected choice is a legality problem, not an RNG one - no die can make
-    // the simulator accept a choice it refused - so that case goes straight to
-    // the substitutions.
-    if (run.diffs[0]?.index !== -1) {
-      const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
-      spent[t] += got.probes;
-      forcedDraws += got.forced;
-      solved = got.solved;
-      walked[0].searched = got.score;
-      if (!solved) consider(got.score, entering, got.tried);
-    }
-
-    // Then the choices this turn left invisible. A mon that fainted before
-    // acting emits no line either way, so its move is a free variable; walking
-    // those is cheaper than anything and may well recover the real choice.
-    // Each is played once with the turn's dice as drawn, and the search walks
-    // them furthest first: a flinched Pokemon's unseen move that sorts where
-    // the replay has it gets further than one that does not.
+    // Walk every unseen choice once under the turn's dice as drawn before
+    // spending probes on one: a flinched or fainted Pokemon's real move that
+    // sorts where the replay has it gets further right away. With more than one
+    // unseen choice, the first search holds half the probe budget back so
+    // `rewalk` has probes left when another choice jumps past the line the
+    // first stopped on; if nothing beats the first choice, it gets the rest.
+    const enteringSubs = { ...subs };
+    const enteringSubTurn = { ...subTurn };
+    const restoreEntering = () => {
+      for (const k of Object.keys(subs)) delete subs[k];
+      for (const k of Object.keys(subTurn)) delete subTurn[k];
+      Object.assign(subs, enteringSubs);
+      Object.assign(subTurn, enteringSubTurn);
+    };
     const allVariants = run.widths?.[t] || 1;
     const width = Math.min(allVariants, maxVariants);
-    const ranked = [];
+    const ranked = [{ v: entering, score: walked[0].score, rejected: run.diffs[0]?.index === -1 }];
     for (let v = 0; v < width && !solved; v++) {
       if (v === entering) continue;
       variants[t] = v;
@@ -2545,24 +2547,50 @@ async function reconstructOnce({
       const probe = await runTo(common, subs, t);
       const score = scoreOf(probe, t);
       walked.push({ variant: v, choices: choicesOn(probe, t), score, searched: null });
-      if (probe.badTurn === null) { solved = true; break; }
-      ranked.push({ v, score });
+      if (probe.badTurn === null || probe.badTurn > t) { solved = true; break; }
+      ranked.push({ v, score, rejected: probe.diffs[0]?.index === -1 });
     }
-    ranked.sort((a, b) => (outranks(b.score, a.score) ? 1 : outranks(a.score, b.score) ? -1 : a.v - b.v));
+    ranked.sort((a, b) => (outranks(b.score, a.score) ? 1 : outranks(a.score, b.score) ? -1
+      : (a.v === entering ? -1 : b.v === entering ? 1 : a.v - b.v)));
+
+    const searchedVariants = new Set();
+    const cappedVariants = new Set();
+    const shareOf = () => {
+      const left = ranked.filter(r => !r.rejected && !searchedVariants.has(r.v)).length;
+      return left > 1 ? Math.ceil((maxProbes - spent[t]) / 2) : maxProbes - spent[t];
+    };
+    if (!solved && ranked.length) {
+      const first = ranked[0];
+      const cap = shareOf();
+      searchedVariants.add(first.v);
+      variants[t] = first.v;
+      if (first.v === entering) restoreEntering();
+      else forget(t);
+      // A rejected choice is a legality problem, not an RNG one - no die can
+      // make the simulator accept a choice it refused.
+      if (!first.rejected) {
+        const got = await resolveTurn(t, common, subs, subTurn, sample, cap);
+        spent[t] += got.probes;
+        forcedDraws += got.forced;
+        const w = walked.findLast(x => x.variant === first.v);
+        if (w) w.searched = got.score;
+        if (got.solved) solved = true;
+        else {
+          consider(got.score, first.v, got.tried);
+          if (got.ended === 'probes') cappedVariants.add(first.v);
+        }
+      }
+    }
 
     // The dice the search settled under one hidden choice can be the ones
     // another needs: the damage roll found under a substituted move is the roll
-    // a Follow Me needs too, and under the dice as first drawn every choice
-    // stopped at that roll alike, so the order put the Follow Me last. So the
-    // choices are walked again under the furthest attempt's dice, and one that
-    // gets further is searched on with what the turn's budget has left - first
-    // as soon as the choice the turn came with has been searched, before the
-    // budget goes on choices that only tied under the dice as drawn, and again
-    // at the end if a later search got further.
-    const searchedVariants = new Set([entering]);
+    // a Follow Me or Trick Room needs too, and under the dice as first drawn
+    // every choice stopped at that roll alike. So the choices are walked again
+    // under the furthest attempt's dice, and one that gets past the line it
+    // stopped on is searched on with its share of what the turn's budget has left.
     let rewalkedFrom = null;
     const rewalk = async () => {
-      if (solved || !partial || width <= 1 || partial === rewalkedFrom) return;
+      if (solved || !partial || width <= 1 || partial === rewalkedFrom) return false;
       rewalkedFrom = partial;
       const held = { subs: { ...partial.subs }, subTurn: { ...partial.subTurn } };
       const hold = () => {
@@ -2579,39 +2607,66 @@ async function reconstructOnce({
         const probe = await runTo(common, subs, t);
         if (probe.badTurn === null || probe.badTurn > t) { solved = true; break; }
         const score = scoreOf(probe, t);
-        if (outranks(score, better ? better.score : partial.at.slice(1))) better = { v, score };
+        if (score[0] > partial.at[1] && (!better || outranks(score, better.score))) better = { v, score };
       }
       if (!solved && better) {
+        const cap = shareOf();
         variants[t] = better.v;
         hold();
         searchedVariants.add(better.v);
-        const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
+        const got = await resolveTurn(t, common, subs, subTurn, sample, cap);
         spent[t] += got.probes;
         forcedDraws += got.forced;
         const w = walked.findLast(x => x.variant === better.v);
         if (w) w.searched = got.score;
         if (got.solved) solved = true;
-        else consider(got.score, better.v, got.tried);
+        else {
+          consider(got.score, better.v, got.tried);
+          if (got.ended === 'probes') cappedVariants.add(better.v);
+        }
+        return true;
       }
+      return false;
     };
-    await rewalk();
+    while (await rewalk()) { /* keep advancing while rewalk finds a better variant */ }
 
-    for (const { v } of ranked) {
+    for (const { v, rejected } of ranked) {
       if (solved) break;
-      if (searchedVariants.has(v)) continue;
+      if (searchedVariants.has(v) || rejected) continue;
+      const cap = shareOf();
       searchedVariants.add(v);
       variants[t] = v;
-      forget(t);
-      const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
+      if (v === entering) restoreEntering();
+      else forget(t);
+      const got = await resolveTurn(t, common, subs, subTurn, sample, cap);
       spent[t] += got.probes;
       forcedDraws += got.forced;
       walked.findLast(w => w.variant === v).searched = got.score;
       if (got.solved) solved = true;
-      else consider(got.score, v, got.tried);
+      else {
+        consider(got.score, v, got.tried);
+        if (got.ended === 'probes') cappedVariants.add(v);
+      }
     }
     if (!solved && allVariants > maxVariants) common.limits.add('variants');
 
-    await rewalk();
+    while (await rewalk()) { /* re-check if a later variant settled dice another needs */ }
+
+    if (!solved && partial && cappedVariants.has(partial.variant) && spent[t] < maxProbes) {
+      variants[t] = partial.variant;
+      for (const k of Object.keys(subs)) delete subs[k];
+      for (const k of Object.keys(subTurn)) delete subTurn[k];
+      Object.assign(subs, partial.subs);
+      Object.assign(subTurn, partial.subTurn);
+      const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
+      spent[t] += got.probes;
+      forcedDraws += got.forced;
+      const w = walked.findLast(x => x.variant === partial.variant);
+      if (w) w.searched = got.score;
+      if (got.solved) solved = true;
+      else consider(got.score, partial.variant, got.tried);
+      while (await rewalk()) { /* re-check under the full search's dice */ }
+    }
 
     if (!solved) {
       variants[t] = partial ? partial.variant : 0;
@@ -2737,7 +2792,7 @@ async function reconstructOnce({
     rawLog: run.rawLog,
     starts: run.starts,
     seed: startSeed,
-    pins: { subs: { ...subs }, turns: Object.fromEntries(run.trace.map(r => [r.i, r.mark])) },
+    pins: { subs: { ...subs }, turns: Object.fromEntries(run.trace.map(r => [r.i, r.mark])), variants: [...variants] },
     dice: run.trace.map(({ i, from, to, value, mark, chance, at }) => ({ i, from, to, value, mark, chance, at })),
     choices: run.choices.map(({ turn, side, choice, at }) => ({ turn, side, choice, at })),
     variantsTried: complete ? null : { turn: run.diffs[0]?.turn ?? null, variants: variantsAt.get(run.diffs[0]?.turn) || [] },

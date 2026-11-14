@@ -226,6 +226,7 @@ const SWEPT = [
   'mimic:gen9championsvgc2026regmcbo3-2710347095', // 2026-11-07: an Encored Electro Shot carrying the hidden choice's target into the execution turn
   'mimic:gen9championsvgc2026regmcbo3-2708420838', // 2026-11-03: Zoroark switching in for a lead that moves to the back slot Illusion copies
   'mimic:gen9championsvgc2026regmcbo3-2705100409', // 2026-10-26: an earlier draw shifting a same-turn pin onto Sylveon's burn roll
+  'mimic:gen9championsvgc2026regmcbo3-2696353204', // 2026-10-11: a flinched Indeedee-F whose unseen Trick Room needs probes left after Rock Slide's dice settle
 ];
 
 const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));

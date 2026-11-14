@@ -163,16 +163,20 @@ async function replayWith(inputLog, packedTeams, turn, channel) {
  */
 function handOn(built, rolls, coupled = Infinity) {
   const failed = built.report.diffs[0]?.turn ?? Infinity;
-  const { subs, turns } = built.pins;
-  const out = { subs: {}, turns: {} };
+  const { subs, turns, variants } = built.pins;
+  const out = { subs: {}, turns: {}, variants: {} };
   const put = (i, v, upTo) => {
     if (!(turns[i] <= upTo)) return;
     out.subs[i] = v;
     out.turns[i] = turns[i];
   };
-  for (const [i, v] of Object.entries(subs)) put(i, v, failed - 1);
+  const upToTurn = Math.min(failed, coupled) - 1;
+  for (const [i, v] of Object.entries(subs)) put(i, v, upToTurn);
   // A roll an evidence path chose past a joint Pain Split is no proof.
   for (const [i, r] of rolls || []) put(i, r, Math.min(failed, coupled - 1));
+  if (variants) {
+    for (let k = 0; k < variants.length && k <= upToTurn; k++) if (variants[k]) out.variants[k] = variants[k];
+  }
   const dice = {};
   for (const d of built.dice) if (d.mark <= failed) dice[d.i] = { ...d, value: d.i in out.subs ? out.subs[d.i] : d.value };
   out.proof = { dice, choices: built.choices, starts: built.starts, rawLog: built.rawLog };
