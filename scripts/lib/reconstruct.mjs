@@ -124,8 +124,8 @@ function planSegment(segment, dex) {
   const encored = new Set();
   // Revival Blessing asks its user's player which fainted Pokemon to bring
   // back, as a switch request for the user's slot; the heal line names the one
-  // chosen. One revived into an empty active slot is switched in by the
-  // simulator itself, so its switch line answers no request.
+  // chosen. One revived into an empty active slot is switched in at once by
+  // the simulator itself, so only an immediate switch line answers no request.
   let reviver = null;
   let revived = null;
 
@@ -140,10 +140,13 @@ function planSegment(segment, dex) {
       reviver = null;
       continue;
     }
-    if (kind === 'switch' && revived && identSide(parts[2]) === revived.side && identName(parts[2]) === revived.name) {
-      revived = null;
-      continue;
+    if (revived) {
+      const auto = kind === 'switch' && !tagsOf(line).from
+        && identSide(parts[2]) === revived.side && identName(parts[2]) === revived.name;
+      if (auto || ['move', 'cant', 'faint', 'upkeep', 'turn', 'switch', 'drag', 'replace'].includes(kind)) revived = null;
+      if (auto) continue;
     }
+    if (reviver && ['move', 'cant', 'upkeep', 'turn'].includes(kind)) reviver = null;
 
     if (kind === 'swap') {
       const side = identSide(parts[2]);
@@ -1417,7 +1420,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
     const finished = !found && k === segments.length - 1;
     // `cap` marks a turn our own guard gave up on, which no refusal decided.
     const diff = state.unsatisfied && !finished
-      ? (early || { index: -1, expected: state.unsatisfied, actual: '', ...(state.cap ? { cap: state.cap } : {}) }) : found;
+      ? (early || { index: -1, prefix: gotHard.length, expected: state.unsatisfied, actual: '', ...(state.cap ? { cap: state.cap } : {}) }) : found;
 
     if (diff) {
       diffs.push({ turn: k, ...diff });
@@ -1662,9 +1665,10 @@ function prober(common, t) {
  * How well a run agreed with turn `t`, as `[lines, fields, shared]`.
  *
  * `lines` is how far the turn got before disagreeing - `Infinity` for a turn
- * that matched outright, `-1` for a choice the simulator refused, which no die
- * can repair. `fields` counts how much of the disagreeing line is nevertheless
- * right, and it is what keeps the search off a local minimum: one line can need
+ * that matched outright. `fields` counts how much of the disagreeing line is
+ * nevertheless right (`-1` for a choice the simulator refused after `lines`
+ * agreed, which no die can repair), and it is what keeps the search off a
+ * local minimum: one line can need
  * two draws to change together, and a move line that has found its target but
  * not yet its damage is genuinely closer than one that has neither. `shared`
  * counts the fields right in place anywhere in the line, which ranks lines
@@ -1676,7 +1680,8 @@ function scoreOf(run, t) {
   if (run.badTurn === null || run.badTurn > t) return [Infinity, 0, 0];
   if (run.badTurn < t) return [-Infinity, 0, 0];
   const diff = run.diffs[0];
-  if (!diff || diff.index < 0) return [-1, 0, 0];
+  if (!diff) return [-1, 0, 0];
+  if (diff.index < 0) return [diff.prefix ?? 0, -1, 0];
   const want = String(diff.expected ?? '').split('|');
   const got = String(diff.actual ?? '').split('|');
   let fields = 0;
@@ -1815,7 +1820,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     const { start, lines } = rec;
     const end = start + lines.length;
     let idx = rec.score[0];
-    if (!Number.isFinite(idx) || idx < 0) return (rec.fail = end);
+    if (!Number.isFinite(idx) || idx < 0 || rec.score[1] === -1) return (rec.fail = end);
     const count = p => compareTurn(common, t, lines.slice(0, p - start)).gotHard.length;
     const { gotHard } = compareTurn(common, t, lines);
     if (/^\|(move|-anim)\|/.test(gotHard[idx] || '')) {
@@ -1863,7 +1868,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
   let wide = false;
   // The limit that left a candidate untried, if one did.
   let cut = null;
-  while (score[0] !== Infinity && score[0] !== -1) {
+  while (score[0] !== Infinity && score[0] !== -1 && score[1] !== -1) {
     if (probes >= budget) { cut = 'probes'; break; }
     if (Date.now() >= common.deadline) { cut = 'deadline'; break; }
     let committed = false;
@@ -2041,7 +2046,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
   // refused a choice, a limit left a candidate untried, or every candidate was
   // tried and no die and no pair of them carried the turn further. Only the
   // first two are answers; the rest prove nothing about the guess.
-  const ended = score[0] === Infinity ? 'solved' : score[0] === -1 ? 'refused' : cut || 'stuck';
+  const ended = score[0] === Infinity ? 'solved' : (score[0] === -1 || score[1] === -1) ? 'refused' : cut || 'stuck';
   if (ended === cut) common.limits.add(cut);
   if (onTrial) {
     takeBack();
@@ -2049,7 +2054,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     score = scoreOf(run, t);
   }
 
-  return { solved: score[0] === Infinity, rejected: score[0] === -1, ended, forced, probes, score, tried };
+  return { solved: score[0] === Infinity, rejected: score[0] === -1 || score[1] === -1, ended, forced, probes, score, tried };
 }
 
 /**
@@ -2425,6 +2430,8 @@ async function reconstructOnce({
       solved = got.solved;
       walked[0].searched = got.score;
       if (!solved) consider(got.score, entering, got.tried);
+    } else {
+      consider(walked[0].score, entering, null);
     }
 
     // Then the choices this turn left invisible. A mon that fainted before
