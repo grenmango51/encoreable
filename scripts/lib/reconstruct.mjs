@@ -1798,6 +1798,9 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     const start = probe.starts?.[t] ?? 0;
     return {
       score: scoreOf(probe, t),
+      diffs: probe.diffs,
+      starts: probe.starts,
+      rawLog: probe.rawLog,
       since: commits.length,
       start,
       lines: probe.rawLog.slice(start),
@@ -1846,8 +1849,9 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
   // handed on: a die an earlier turn threw may be what it was waiting for.
   let onTrial = null;
   let tried = null;
+  const deadTrials = new Set();
   const takeBack = () => {
-    tried = {};
+    tried = { ...tried };
     for (const i of commits.splice(onTrial.at)) { tried[i] = subs[i]; delete subs[i]; delete subTurn[i]; forced--; }
     onTrial = null;
   };
@@ -1907,12 +1911,37 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     if (trial) {
       const probe = await ask.get(trial);
       probes++;
-      if (outranks(scoreOf(probe, t), score)) {
+      const after = drawsOf(probe.trace, t);
+      let shiftAt = Infinity;
+      for (let k = 0; k < Math.min(all.length, after.length); k++) {
+        const x = all[k];
+        const y = after[k];
+        if (x.i !== y.i || x.lo !== y.lo || x.hi !== y.hi || x.chance !== y.chance || x.at !== y.at) {
+          shiftAt = Math.min(x.i, y.i);
+          break;
+        }
+      }
+      if (shiftAt === Infinity && after.length < all.length) shiftAt = all[after.length].i;
+      const kept = fixes.filter(d => d.i < shiftAt);
+      if (kept.length === fixes.length && outranks(scoreOf(probe, t), score)) {
         ask.cancel();
         for (const d of fixes) commit(d.i, trial[d.i]);
         run = await runTo(common, subs, t, t);
         score = scoreOf(run, t);
         continue;
+      }
+      if (kept.length > 0 && kept.length < fixes.length && probes < budget) {
+        const subTrial = { ...subs };
+        for (const d of kept) subTrial[d.i] = trial[d.i];
+        const subProbe = await ask.get(subTrial);
+        probes++;
+        if (outranks(scoreOf(subProbe, t), score)) {
+          ask.cancel();
+          for (const d of kept) commit(d.i, subTrial[d.i]);
+          run = await runTo(common, subs, t, t);
+          score = scoreOf(run, t);
+          continue;
+        }
       }
     }
 
@@ -1954,79 +1983,184 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     }
 
     // Before settling for a draw that only gets more of the line right, the
-    // wide dice are tried between their ends.
+    // wide dice are tried between their ends, and pairs of decision dice are
+    // tried for a real advance past the line.
+    ask.cancel();
     if (!committed && !wide) {
-      ask.cancel();
       wide = true;
       continue;
     }
-    const inPlace = fallback && fallback.best[1] === score[1];
-    if (!committed && fallback && !(inPlace && onTrial)) {
-      if (inPlace) onTrial = { at: commits.length, lines: score[0] };
-      commit(fallback.i, fallback.value);
-      committed = true;
-    }
-    // Last, two chances flipped together: a spread move's secondary that came
-    // up on one target and not the other prints the wrong target's line under
-    // either die alone. A chance is any die wider than a damage roll - an
-    // accuracy, a crit, a secondary's `random(100)` - tried at its ends. The
-    // second die can be thrown after the line the turn disagrees on: the
-    // first one moves that line.
+    // Two decision dice flipped together: a spread move's secondary that came
+    // up on one target and not the other, a speed tie or random target paired
+    // with a flinch, or a chance together with a die flipping it exposes or
+    // shifts into place (Dire Claw's status pick, Poison Touch or Flame Body
+    // behind it, Quick Claw behind Quick Draw, full paralysis behind a flinch).
+    // Any non-damage-roll die is in scope: binary/small choices in full, wide
+    // and chance dice at their ends. A pair that moves past the line wins
+    // outright over any same-line fallback; otherwise the best field/shared
+    // advance (1-die preferred on ties) is held so the next pass can steer
+    // what the cleared blocker uncovered.
     if (!committed) {
-      const chances = all.filter(d => (d.chance || d.hi - d.lo + 1 > 16) && subs[d.i] === undefined);
-      pairs: for (const a of chances) {
-        if (!reach(a)) continue;
-        for (const b of chances) {
+      const isDecision = d => d.chance || d.hi - d.lo + 1 !== ROLLS;
+      const endsOf = (d, steer = null) => {
+        const fits = steer?.get(d.i);
+        if (fits) return fits.reps;
+        return d.chance || d.hi - d.lo + 1 > ROLLS
+          ? [d.lo, d.hi].filter(v => v !== d.value)
+          : candidates(d);
+      };
+      const sigOf = d => `${d.lo}-${d.hi}-${d.chance ? 1 : 0}`;
+      const before = new Map(all.map(d => [d.i, sigOf(d)]));
+      const beforeAt = new Map(all.map(d => [d.i, d.at]));
+      const chances = all.filter(d => isDecision(d) && subs[d.i] === undefined);
+      const inPlace = fallback && fallback.best[1] === score[1];
+      const trialKey = fallback && `${commits.length}|${fallback.i}=${fallback.value}`;
+      let comboFallback = fallback && !(inPlace && (onTrial || deadTrials.has(trialKey)))
+        ? { entries: [[fallback.i, fallback.value]], best: fallback.best, key: trialKey }
+        : null;
+      const considerCombo = (entries, probeScore) => {
+        if (probeScore[0] > score[0]) {
+          for (const [i, v] of entries) commit(i, v);
+          committed = true;
+          return true;
+        }
+        if (outranks(probeScore, score)) {
+          const comboInPlace = probeScore[1] === score[1];
+          const comboKey = `${commits.length}|${entries.map(([i, v]) => `${i}=${v}`).join(',')}`;
+          if (!(comboInPlace && (onTrial || deadTrials.has(comboKey))) && (!comboFallback || outranks(probeScore, comboFallback.best))) {
+            comboFallback = { entries, best: probeScore, key: comboKey };
+          }
+        }
+        return false;
+      };
+      const splitAfter = (a, rec) => {
+        const reachFlip = canReach(common, rec, t);
+        const same = [];
+        const brought = [];
+        let shifted = false;
+        let movedAt = false;
+        for (const b of drawsOf(rec.trace, t)) {
           if (b.i <= a.i) continue;
-          for (const va of candidates(a, run.steer)) {
-            for (const vb of candidates(b, run.steer)) {
+          if (before.get(b.i) !== sigOf(b)) shifted = true;
+          if (beforeAt.get(b.i) !== b.at) movedAt = true;
+          if (subs[b.i] !== undefined || !isDecision(b) || !reachFlip(b)) continue;
+          const vs = endsOf(b, shifted || movedAt ? null : run.steer);
+          if (!vs.length) continue;
+          (shifted ? brought : same).push({ b, vs });
+        }
+        return { reachFlip, same, brought };
+      };
+
+      const flips = [];
+      for (const a of chances) {
+        if (!reach(a)) continue;
+        for (const va of endsOf(a, run.steer)) {
+          const key = `${a.i}|${va}`;
+          let rec = found.get(key);
+          if (!rec || !holds(rec)) {
+            if (probes >= budget) { cut = 'probes'; break; }
+            const flipped = await ask.get({ ...subs, [a.i]: va });
+            probes++;
+            rec = remember(flipped);
+            found.set(key, rec);
+          }
+          flips.push({ a, va, rec, ...splitAfter(a, rec) });
+        }
+        if (cut) break;
+      }
+
+      if (!cut) {
+        const pairPlan = [];
+        for (const { a, va, same } of flips) {
+          for (const { b, vs } of same) {
+            for (const vb of vs) pairPlan.push({ ...subs, [a.i]: va, [b.i]: vb });
+          }
+        }
+        for (const { a, va, brought } of flips) {
+          for (const { b, vs } of brought) {
+            for (const vb of vs) pairPlan.push({ ...subs, [a.i]: va, [b.i]: vb });
+          }
+        }
+        ask.ahead(pairPlan.slice(0, budget - probes));
+
+        const uncovered = [];
+        const collectUncovered = (a, va, rec, reachFlip, b, vb, probe) => {
+          const recReachSigs = new Map(drawsOf(rec.trace, t).filter(d => d.i > b.i && reachFlip(d)).map(d => [d.i, sigOf(d)]));
+          const probeReach = canReach(common, probe, t);
+          for (const c of drawsOf(probe.trace, t)) {
+            if (c.i <= b.i || subs[c.i] !== undefined || !isDecision(c) || !probeReach(c)) continue;
+            if (recReachSigs.get(c.i) === sigOf(c)) continue;
+            const vcs = endsOf(c);
+            if (vcs.length) uncovered.push({ a, va, b, vb, c, vcs });
+          }
+        };
+
+        pairs: for (const { a, va, rec, reachFlip, same } of flips) {
+          for (const { b, vs } of same) {
+            for (const vb of vs) {
               if (probes >= budget) { cut = 'probes'; break pairs; }
               const probe = await ask.get({ ...subs, [a.i]: va, [b.i]: vb });
               probes++;
-              if (scoreOf(probe, t)[0] > score[0]) {
-                commit(a.i, va);
-                commit(b.i, vb);
-                committed = true;
-                break pairs;
+              if (considerCombo([[a.i, va], [b.i, vb]], scoreOf(probe, t))) break pairs;
+              collectUncovered(a, va, rec, reachFlip, b, vb, probe);
+            }
+          }
+        }
+
+        if (!committed && !cut) {
+          brought: for (const { a, va, rec, reachFlip, brought } of flips) {
+            for (const { b, vs } of brought) {
+              for (const vb of vs) {
+                if (probes >= budget) { cut = 'probes'; break brought; }
+                const probe = await ask.get({ ...subs, [a.i]: va, [b.i]: vb });
+                probes++;
+                if (considerCombo([[a.i, va], [b.i, vb]], scoreOf(probe, t))) break brought;
+                collectUncovered(a, va, rec, reachFlip, b, vb, probe);
               }
             }
           }
         }
-      }
-    }
-    // Then a chance with the die it throws when it comes up: a secondary that
-    // hits picks its status with a die of its own - Dire Claw's poison,
-    // paralysis or sleep - which the chance as drawn never threw, so no pair
-    // above holds it, and the pick it is first given can print a status no
-    // closer than the one an ability put on instead.
-    if (!committed) {
-      const before = new Map(all.map(d => [d.i, `${d.lo}-${d.hi}`]));
-      const chances = all.filter(d => (d.chance || d.hi - d.lo + 1 > 16) && subs[d.i] === undefined);
-      brought: for (const a of chances) {
-        if (!reach(a)) continue;
-        for (const va of candidates(a, run.steer)) {
-          if (probes >= budget) { cut = 'probes'; break brought; }
-          const flipped = await ask.get({ ...subs, [a.i]: va });
-          probes++;
-          const b = drawsOf(flipped.trace, t).find(d => d.i > a.i);
-          if (!b || b.chance || b.hi - b.lo + 1 > 16 || before.get(b.i) === `${b.lo}-${b.hi}`) continue;
-          for (const vb of candidates(b)) {
-            if (probes >= budget) { cut = 'probes'; break brought; }
-            const probe = await ask.get({ ...subs, [a.i]: va, [b.i]: vb });
-            probes++;
-            if (scoreOf(probe, t)[0] > score[0]) {
-              commit(a.i, va);
-              commit(b.i, vb);
-              committed = true;
-              break brought;
+        ask.cancel();
+
+        // A pair that clears both a masking proc and a second blocker between
+        // it and the real line (Dire Claw + Flame Body before Poison Touch, or
+        // two flinches before full paralysis) only brings the third die into
+        // reach once both earlier dice are flipped.
+        if (!committed && !cut && !comboFallback && uncovered.length) {
+          const triplePlan = [];
+          for (const { a, va, b, vb, c, vcs } of uncovered) {
+            for (const vc of vcs) triplePlan.push({ ...subs, [a.i]: va, [b.i]: vb, [c.i]: vc });
+          }
+          ask.ahead(triplePlan.slice(0, budget - probes));
+          triples: for (const { a, va, b, vb, c, vcs } of uncovered) {
+            for (const vc of vcs) {
+              if (probes >= budget) { cut = 'probes'; break triples; }
+              const probe = await ask.get({ ...subs, [a.i]: va, [b.i]: vb, [c.i]: vc });
+              probes++;
+              if (considerCombo([[a.i, va], [b.i, vb], [c.i, vc]], scoreOf(probe, t))) break triples;
             }
           }
+          ask.cancel();
         }
+      }
+
+      if (!committed && comboFallback) {
+        if (comboFallback.best[1] === score[1]) onTrial = { at: commits.length, lines: score[0], key: comboFallback.key };
+        for (const [i, v] of comboFallback.entries) commit(i, v);
+        committed = true;
       }
     }
 
-    ask.cancel();
-    if (!committed) break;
+    if (!committed) {
+      if (onTrial && !cut) {
+        deadTrials.add(onTrial.key);
+        takeBack();
+        run = await runTo(common, subs, t, t);
+        score = scoreOf(run, t);
+        continue;
+      }
+      break;
+    }
     run = await runTo(common, subs, t, t);
     score = scoreOf(run, t);
     if (onTrial && score[0] > onTrial.lines) onTrial = null;
