@@ -1827,17 +1827,18 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
   };
   const holds = (rec) => {
     if (!rec.at) rec.at = new Map(rec.trace.map(row => [row.i, row.at]));
-    for (const c of commits.slice(rec.since)) {
+    for (const { i: c } of commits.slice(rec.since)) {
       const thrown = rec.at.get(Number(c));
       if (thrown !== undefined && thrown < failAt(rec)) return false;
     }
     return true;
   };
   const commit = (i, value) => {
+    const prev = subs[i];
     subs[i] = value;
     subTurn[i] = t;
-    commits.push(i);
-    forced++;
+    commits.push({ i, prev });
+    if (prev === undefined) forced++;
   };
   // A draw that only gets more of the line's fields right in place is held
   // on trial: it stays when a later draw carries the turn further, and is
@@ -1848,7 +1849,10 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
   let tried = null;
   const takeBack = () => {
     tried = {};
-    for (const i of commits.splice(onTrial.at)) { tried[i] = subs[i]; delete subs[i]; delete subTurn[i]; forced--; }
+    for (const { i, prev } of commits.splice(onTrial.at).reverse()) {
+      if (prev === undefined) { tried[i] = subs[i]; delete subs[i]; delete subTurn[i]; forced--; }
+      else subs[i] = prev;
+    }
     onTrial = null;
   };
 
@@ -2019,6 +2023,70 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
               commit(b.i, vb);
               committed = true;
               break brought;
+            }
+          }
+        }
+      }
+    }
+    // An earlier hit in this turn on a Pokemon shown as a percentage settled
+    // one of the rolls that print that percentage before a later line in the
+    // same turn read the exact HP or damage it left - Counter, Mirror Coat or
+    // Metal Burst, a recoil or drain, or a second hit on it. Try its other
+    // rolls that print the same line, alone and with a later settled draw.
+    if (!committed) {
+      const settled = new Set(commits.map(c => c.i));
+      const same = (steer, i, v) => steer?.get(i)?.groups.get(v) || [v];
+      const revisable = all.filter(d => settled.has(d.i) && reach(d) && !wrong(d) && run.steer?.get(d.i)?.reps.length);
+      for (const d of revisable.slice().reverse()) {
+        let best = score;
+        const winners = [];
+        for (const v of run.steer.get(d.i).reps) {
+          if (probes >= budget) { cut = 'probes'; break; }
+          const probe = await ask.get({ ...subs, [d.i]: v });
+          probes++;
+          const s = scoreOf(probe, t);
+          if (s[0] > best[0] || (s[0] > score[0] && outranks(s, best))) {
+            best = s;
+            winners.length = 0;
+            winners.push(...same(run.steer, d.i, v));
+          } else if (s[0] > score[0] && ties(s, best)) {
+            winners.push(...same(run.steer, d.i, v));
+          }
+        }
+        if (winners.length) {
+          commit(d.i, winners[sample.pick(winners.length)]);
+          committed = true;
+          break;
+        }
+        if (cut) break;
+      }
+      if (!committed && !cut && revisable.length) {
+        paired: for (const a of revisable) {
+          for (const va of run.steer.get(a.i).reps) {
+            if (probes >= budget) { cut = 'probes'; break paired; }
+            const flipped = await runTo(common, { ...subs, [a.i]: va }, t, t);
+            probes++;
+            if (scoreOf(flipped, t)[0] > score[0]) {
+              const faces = same(run.steer, a.i, va);
+              commit(a.i, faces[sample.pick(faces.length)]);
+              committed = true;
+              break paired;
+            }
+            const later = drawsOf(flipped.trace, t).filter(b => b.i > a.i && settled.has(b.i) && flipped.steer?.get(b.i)?.reps.length);
+            for (const b of later) {
+              for (const vb of flipped.steer.get(b.i).reps) {
+                if (probes >= budget) { cut = 'probes'; break paired; }
+                const probe = await ask.get({ ...subs, [a.i]: va, [b.i]: vb });
+                probes++;
+                if (scoreOf(probe, t)[0] > score[0]) {
+                  const fa = same(run.steer, a.i, va);
+                  const fb = same(flipped.steer, b.i, vb);
+                  commit(a.i, fa[sample.pick(fa.length)]);
+                  commit(b.i, fb[sample.pick(fb.length)]);
+                  committed = true;
+                  break paired;
+                }
+              }
             }
           }
         }
@@ -2325,8 +2393,9 @@ async function reconstructOnce({
   for (const { turn, seed: at } of seedPlan || []) {
     if (turn >= 1 && turn < reseeds.length) reseeds[turn] = at;
   }
+  const localExact = exact ? new Map(exact) : null;
   const common = {
-    header, segments, plans, reseeds, variants, channel, exact, state0, dex, formatid, deadline,
+    header, segments, plans, reseeds, variants, channel, exact: localExact, state0, dex, formatid, deadline,
     id: ++contextCount, snaps: new Map(), pool: probePool(threads, formatid), tally: { plays: 0 }, radices: {}, maxVariants,
     // Every limit that cut a search short somewhere in this rebuild, even one
     // that later got past the turn some other way (`report.limits`).
@@ -2345,7 +2414,7 @@ async function reconstructOnce({
   // a turn proved only in part, the pins stand as long as that part holds.
   if (run.badTurn !== null && Object.keys(subs).some(i => subTurn[i] >= run.badTurn)) {
     const t = run.badTurn;
-    const known = exact?.get(t);
+    const known = localExact?.get(t);
     const held = known?.partial && run.diffs[0]?.index >= compareTurn(common, t, []).exactUpTo;
     forget(held ? t + 1 : t);
     run = await playThrough({ ...common, subs });
@@ -2551,6 +2620,21 @@ async function reconstructOnce({
     }
 
     if (solved) {
+      run = await playThrough({ ...common, subs });
+      remember();
+      continue;
+    }
+
+    // A partial exact prefix on this turn chose one HP among those its first
+    // half allowed before its second half had been reached; when the second
+    // half needs another, search the whole turn against what the replay shows.
+    if (localExact?.get(t)?.partial && run.diffs[0]?.index !== -1) {
+      localExact.delete(t);
+      common.id = ++contextCount;
+      common.snaps.clear();
+      variants[t] = entering;
+      spent[t] = 0;
+      forget(t);
       run = await playThrough({ ...common, subs });
       remember();
       continue;
