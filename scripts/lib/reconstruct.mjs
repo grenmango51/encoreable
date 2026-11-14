@@ -191,6 +191,17 @@ function planSegment(segment, dex) {
         needsTarget: CHOOSABLE_TARGETS.has(dex.moves.get(moveid).target),
       };
     }
+
+    if (kind === '-anim') {
+      const side = identSide(parts[2]);
+      const slot = startOf[side]?.[identSlot(parts[2])] ?? identSlot(parts[2]);
+      const action = plan.actions[side]?.[slot];
+      const target = parts[4] && parts[4].includes(': ') ? parts[4] : null;
+      if (action && !action.target && action.needsTarget && action.moveid === toID(parts[3]) && target) {
+        action.target = target;
+        action.recovered = true;
+      }
+    }
   }
   return plan;
 }
@@ -871,7 +882,7 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
     // appended yet (`attrLastMove`), so its line is only a prefix of the one
     // it will become.
     let moving = -1;
-    for (let i = gotHard.length - 1; i >= 0 && moving < 0; i--) if (gotHard[i].startsWith('|move|')) moving = i;
+    for (let i = gotHard.length - 1; i >= 0 && moving < 0; i--) if (/^\|(move|-anim)\|/.test(gotHard[i])) moving = i;
     for (let i = 0; i < gotHard.length; i++) {
       if (gotHard[i] === wantHard[i]) continue;
       if (i === moving && String(wantHard[i]).startsWith(`${gotHard[i]}|`)) continue;
@@ -1045,7 +1056,7 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
           let shown = false;
           for (let i = now.from; i < now.end && !shown; i++) shown = now.wantHard[i] === missed;
           const entry = chanceEntry(roll, !shown);
-          if (entry) out.set(roll.i, entry);
+          if (entry) out.set(roll.i, { ...entry, accuracy: true, shifts: entry.wrong });
         }
       }
     }
@@ -1125,7 +1136,8 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
           if (!reps.length) { reps.push(v); groups.set(v, []); }
           groups.get(reps[0]).push(v);
         }
-        out.set(count.i, { reps, groups, wrong: count.faces[face - count.off] !== want });
+        const wrongCount = count.faces[face - count.off] !== want;
+        out.set(count.i, { reps, groups, wrong: wrongCount, shifts: wrongCount });
       }
     }
   };
@@ -1766,6 +1778,26 @@ function brokenProof(common, run, proof) {
 const outranks = (a, b) => (a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] > b[2]);
 const ties = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
 
+/** Raw log index on turn `t` at which hard line `idx` ends (extended across `|move|`/`|-anim|` when `extendMove` is set). */
+function turnFailLogAt(common, t, start, lines, idx, extendMove = true) {
+  const end = start + lines.length;
+  if (!Number.isFinite(idx) || idx < 0) return end;
+  const count = p => compareTurn(common, t, lines.slice(0, p - start)).gotHard.length;
+  const { gotHard } = compareTurn(common, t, lines);
+  if (extendMove && /^\|(move|-anim)\|/.test(gotHard[idx] || '')) {
+    let next = Infinity;
+    for (let j = idx + 1; j < gotHard.length && next === Infinity; j++) {
+      if (ACTION_START.has(gotHard[j].split('|')[1])) next = j;
+    }
+    idx = next;
+  }
+  if (idx >= gotHard.length) return end;
+  let lo = start;
+  let hi = end;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (count(mid) > idx) hi = mid; else lo = mid + 1; }
+  return lo;
+}
+
 /**
  * Settle one turn's random draws against the observed lines.
  *
@@ -1806,24 +1838,25 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
   };
   const failAt = (rec) => {
     if (rec.fail !== undefined) return rec.fail;
-    const { start, lines } = rec;
-    const end = start + lines.length;
-    let idx = rec.score[0];
-    if (!Number.isFinite(idx) || idx < 0) return (rec.fail = end);
-    const count = p => compareTurn(common, t, lines.slice(0, p - start)).gotHard.length;
-    const { gotHard } = compareTurn(common, t, lines);
-    if (/^\|(move|-anim)\|/.test(gotHard[idx] || '')) {
-      let next = Infinity;
-      for (let j = idx + 1; j < gotHard.length && next === Infinity; j++) {
-        if (ACTION_START.has(gotHard[j].split('|')[1])) next = j;
+    return (rec.fail = turnFailLogAt(common, t, rec.start, rec.lines, rec.score[0], true));
+  };
+  // Only the prefix of commits that strictly advanced `score[0]` before the
+  // turn's stall line is carried into `rewalk`; speculative `fallback` commits
+  // at a stall never mask another choice variant.
+  let clean = { score, subs: { ...subs }, subTurn: { ...subTurn }, trace: drawsOf(run.trace, t) };
+  const noteClean = () => {
+    if (score[0] > clean.score[0]) {
+      const stopLog = failAt(remember(run));
+      const atMap = new Map(drawsOf(run.trace, t).map(d => [d.i, d.at]));
+      const cSubs = {};
+      const cSubTurn = {};
+      for (const [k, v] of Object.entries(subs)) {
+        if (subTurn[k] === t && (atMap.get(Number(k)) ?? 0) >= stopLog) continue;
+        cSubs[k] = v;
+        cSubTurn[k] = subTurn[k];
       }
-      idx = next;
+      clean = { score, subs: cSubs, subTurn: cSubTurn, trace: drawsOf(run.trace, t) };
     }
-    if (idx >= gotHard.length) return (rec.fail = end);
-    let lo = start;
-    let hi = end;
-    while (lo < hi) { const mid = (lo + hi) >> 1; if (count(mid) > idx) hi = mid; else lo = mid + 1; }
-    return (rec.fail = lo);
   };
   const holds = (rec) => {
     if (!rec.at) rec.at = new Map(rec.trace.map(row => [row.i, row.at]));
@@ -1879,8 +1912,13 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
 
     // Every such draw set right at once, first. A spread move that missed one
     // target and hit the other needs both accuracy dice moved, and neither
-    // alone brings the line any closer.
-    const fixes = all.filter(d => subs[d.i] === undefined && reach(d) && wrong(d) && run.steer.get(d.i).reps.length);
+    // alone brings the line any closer. Flipping an accuracy or hit-count die
+    // adds or drops the damage rolls after it, so those wait for the next pass.
+    const rawFixes = all.filter(d => subs[d.i] === undefined && reach(d) && wrong(d) && run.steer.get(d.i).reps.length);
+    const shiftFix = rawFixes.find(d => run.steer.get(d.i).shifts);
+    const fixes = shiftFix
+      ? rawFixes.filter(d => d.i <= shiftFix.i || (run.steer.get(shiftFix.i).accuracy && run.steer.get(d.i).accuracy))
+      : rawFixes;
     let trial = null;
     if (fixes.length > 1 && probes < budget) {
       trial = { ...subs };
@@ -1912,6 +1950,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
         for (const d of fixes) commit(d.i, trial[d.i]);
         run = await runTo(common, subs, t, t);
         score = scoreOf(run, t);
+        noteClean();
         continue;
       }
     }
@@ -2029,6 +2068,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     if (!committed) break;
     run = await runTo(common, subs, t, t);
     score = scoreOf(run, t);
+    noteClean();
     if (onTrial && score[0] > onTrial.lines) onTrial = null;
   }
   // Why the search of this turn ended: the turn reproduces, the simulator
@@ -2043,7 +2083,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     score = scoreOf(run, t);
   }
 
-  return { solved: score[0] === Infinity, rejected: score[0] === -1, ended, forced, probes, score, tried };
+  return { solved: score[0] === Infinity, rejected: score[0] === -1, ended, forced, probes, score, tried, clean };
 }
 
 /**
@@ -2402,10 +2442,17 @@ async function reconstructOnce({
     // trying the next variant means clearing it. So the furthest attempt is held
     // aside and put back if nothing better turns up.
     let partial = null;
-    const consider = (score, variant, tried) => {
+    const consider = (score, variant, tried, clean = null) => {
       const at = [t, ...score];
       if (!partial || ahead(at, partial.at)) {
-        partial = { at, variant, subs: { ...subs }, subTurn: { ...subTurn }, tried };
+        partial = {
+          at,
+          variant,
+          subs: { ...subs },
+          subTurn: { ...subTurn },
+          tried,
+          clean: clean || { score, subs: { ...subs }, subTurn: { ...subTurn }, trace: [] },
+        };
       }
     };
 
@@ -2418,7 +2465,7 @@ async function reconstructOnce({
       forcedDraws += got.forced;
       solved = got.solved;
       walked[0].searched = got.score;
-      if (!solved) consider(got.score, entering, got.tried);
+      if (!solved) consider(got.score, entering, got.tried, got.clean);
     }
 
     // Then the choices this turn left invisible. A mon that fainted before
@@ -2456,26 +2503,68 @@ async function reconstructOnce({
     const rewalk = async () => {
       if (solved || !partial || width <= 1 || partial === rewalkedFrom) return;
       rewalkedFrom = partial;
-      const held = { subs: { ...partial.subs }, subTurn: { ...partial.subTurn } };
-      const hold = () => {
+      const base = partial.clean;
+      const cleanDraws = new Map((base.trace || []).map(d => [d.i, d]));
+      const holdFrom = (srcSubs, srcSubTurn) => {
         for (const k of Object.keys(subs)) delete subs[k];
         for (const k of Object.keys(subTurn)) delete subTurn[k];
-        Object.assign(subs, held.subs);
-        Object.assign(subTurn, held.subTurn);
+        Object.assign(subs, srcSubs);
+        Object.assign(subTurn, srcSubTurn);
       };
       let better = null;
       for (let v = 0; v < width && !solved; v++) {
         if (v === partial.variant) continue;
         variants[t] = v;
-        hold();
-        const probe = await runTo(common, subs, t);
+        holdFrom(base.subs, base.subTurn);
+        let probe = await runTo(common, subs, t);
         if (probe.badTurn === null || probe.badTurn > t) { solved = true; break; }
-        const score = scoreOf(probe, t);
-        if (outranks(score, better ? better.score : partial.at.slice(1))) better = { v, score };
+        let score = scoreOf(probe, t);
+        let heldSubs = base.subs;
+        let heldSubTurn = base.subTurn;
+        if (probe.badTurn === t && score[0] < base.score[0] && cleanDraws.size) {
+          // A variant that changes an earlier action on turn `t` can shift the
+          // ordinals after it or stop before them; drop turn-`t` pins from
+          // there on so `partial`'s dice never mask `v`.
+          const start = probe.starts?.[t] ?? 0;
+          const stopLog = turnFailLogAt(common, t, start, probe.rawLog.slice(start), score[0], false);
+          let cutOrd = Infinity;
+          for (const d of drawsOf(probe.trace, t)) {
+            const was = cleanDraws.get(d.i);
+            if (was && (d.lo !== was.lo || d.hi !== was.hi || d.chance !== was.chance)) {
+              cutOrd = Math.min(cutOrd, d.i);
+              break;
+            }
+            if (base.subTurn[d.i] === t && (d.at ?? 0) >= stopLog) {
+              cutOrd = Math.min(cutOrd, d.i);
+            }
+          }
+          if (cutOrd < Infinity) {
+            const prunedSubs = {};
+            const prunedSubTurn = {};
+            for (const [k, val] of Object.entries(base.subs)) {
+              if (base.subTurn[k] === t && Number(k) >= cutOrd) continue;
+              prunedSubs[k] = val;
+              prunedSubTurn[k] = base.subTurn[k];
+            }
+            holdFrom(prunedSubs, prunedSubTurn);
+            const retry = await runTo(common, subs, t);
+            if (retry.badTurn === null || retry.badTurn > t) { solved = true; break; }
+            const retryScore = scoreOf(retry, t);
+            if (outranks(retryScore, score)) {
+              probe = retry;
+              score = retryScore;
+              heldSubs = prunedSubs;
+              heldSubTurn = prunedSubTurn;
+            }
+          }
+        }
+        if (outranks(score, better ? better.score : base.score)) {
+          better = { v, score, subs: heldSubs, subTurn: heldSubTurn };
+        }
       }
       if (!solved && better) {
         variants[t] = better.v;
-        hold();
+        holdFrom(better.subs, better.subTurn);
         searchedVariants.add(better.v);
         const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
         spent[t] += got.probes;
@@ -2483,10 +2572,10 @@ async function reconstructOnce({
         const w = walked.findLast(x => x.variant === better.v);
         if (w) w.searched = got.score;
         if (got.solved) solved = true;
-        else consider(got.score, better.v, got.tried);
+        else consider(got.score, better.v, got.tried, got.clean);
       }
     };
-    await rewalk();
+    while (!solved && partial && partial !== rewalkedFrom) await rewalk();
 
     for (const { v } of ranked) {
       if (solved) break;
@@ -2499,11 +2588,11 @@ async function reconstructOnce({
       forcedDraws += got.forced;
       walked.findLast(w => w.variant === v).searched = got.score;
       if (got.solved) solved = true;
-      else consider(got.score, v, got.tried);
+      else consider(got.score, v, got.tried, got.clean);
     }
     if (!solved && allVariants > maxVariants) common.limits.add('variants');
 
-    await rewalk();
+    while (!solved && partial && partial !== rewalkedFrom) await rewalk();
 
     if (!solved) {
       variants[t] = partial ? partial.variant : 0;
