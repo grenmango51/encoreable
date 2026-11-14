@@ -3538,6 +3538,127 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     return result;
   };
 
+  // A move whose `onTryHit` refuses a user on too little HP with `[weak]` -
+  // Substitute's quarter, Shed Tail's half - is asked the same way a pinch
+  // Berry is: `onTryHit` run dry per surviving max HP, with a bisection for
+  // the highest HP at which it prints `[weak]`. Whether the replay printed
+  // that line - verified, or at the cutoff where the scaffold's move went
+  // through instead, or the other way round - keeps only the HP on that side
+  // of the edge, and `wholePaths` carries that back to the hits that left the
+  // user there.
+  const weakTry = new Map();
+  const checksWeak = (effect) => {
+    const fn = effect?.effectType === 'Move' ? effect.onTryHit : null;
+    if (typeof fn !== 'function') return false;
+    if (!weakTry.has(fn)) weakTry.set(fn, /\[weak\]/.test(String(fn)));
+    return weakTry.get(fn);
+  };
+  let weakOrdinal = 0;
+  const trySingle = battle.singleEvent;
+  battle.singleEvent = function (eventid, effect, effectState, target, source, ...rest) {
+    const rec = eventid === 'TryHit' && !state.dry && !state.ended && checksWeak(effect) && target && target === source
+      ? byPokemon.get(target) : null;
+    if (!rec || rec.exact) return trySingle.call(this, eventid, effect, effectState, target, source, ...rest);
+    sync();
+    if (state.ended) return trySingle.call(this, eventid, effect, effectState, target, source, ...rest);
+    const ord = weakOrdinal++;
+    const from = battle.log.length;
+    const M0 = target.maxhp;
+    const hpBefore = target.hp;
+    const runTry = (M, h, watch = false) => guarded(() => {
+      const undo = patchAll([{ pokemon: target, maxhp: M, hp: h }]);
+      const reads = [];
+      const unwatch = watch ? watchStats(reads) : () => {};
+      let thrown = false;
+      const chance = battle.randomChance;
+      const random = battle.random;
+      const offChance = watch ? override(battle, 'randomChance', function (...a) { thrown = true; return chance.apply(this, a); }) : null;
+      const offRandom = watch ? override(battle, 'random', function (...a) { thrown = true; return random.apply(this, a); }) : null;
+      const at = battle.log.length;
+      try {
+        trySingle.call(battle, eventid, effect, {}, target, source, ...rest);
+        const lines = battleLines(shownLines(battle.log.slice(at)));
+        const weak = lines.length === 1 && /^\|-fail\|.*\|\[weak\](\||$)/.test(lines[0]) ? lines[0] : null;
+        return { weak, bad: thrown || reads.length > 0 };
+      } finally {
+        offRandom?.();
+        offChance?.();
+        unwatch();
+        undo();
+      }
+    });
+    const edgeOf = M => memo(`weak|${ord}|${M}`, () => {
+      const first = runTry(M, 1);
+      if (!first.weak) return { edge: 0, line: null };
+      if (runTry(M, M).weak) return { edge: M, line: first.weak };
+      let lo = 1;
+      let hi = M;
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (runTry(M, mid).weak) lo = mid; else hi = mid;
+      }
+      return { edge: lo, line: first.weak };
+    });
+    const bad = memo(`weakchk|${ord}`, () => runTry(M0, 1, true).bad);
+    const own = bad ? null : edgeOf(M0);
+    const edge = new Map();
+    let weakLine = own?.line ?? null;
+    if (!bad) {
+      for (const k of rec.chain ? rec.chain.keys() : rec.knKeys) {
+        const M = maxHp(rec, KEY_HP[k]);
+        if (edge.has(M)) continue;
+        const got = edgeOf(M);
+        edge.set(M, got.edge);
+        weakLine ||= got.line;
+      }
+    }
+    let vi = viewPos;
+    while (vi < view.length && (view[vi].at < from || battleLines([view[vi].line])[0] === undefined)) vi++;
+    const next = view[vi] || null;
+    const pass = !bad && own && hpBefore <= own.edge && next?.at === prefix.cutoffAt && prefix.observedLine
+      ? memo(`weakpass|${ord}`, () => guarded(() => {
+        const undo = patchAll([{ pokemon: target, maxhp: M0, hp: M0 }]);
+        const at = battle.log.length;
+        const c = cloneMove(effect);
+        try {
+          actions.spreadMoveHit([target], source, c, c);
+          return battleLines(shownLines(battle.log.slice(at)))[0] ?? null;
+        } finally {
+          undo();
+        }
+      })) : null;
+    const result = trySingle.call(this, eventid, effect, effectState, target, source, ...rest);
+    if (bad) {
+      note(`${effect.name} on ${named(rec)}`, 'its HP check read a stat or threw a die, so it was not read');
+      return result;
+    }
+    const realLines = battleLines(shownLines(battle.log.slice(from)));
+    const realWeak = realLines.length === 1 && /^\|-fail\|.*\|\[weak\](\||$)/.test(realLines[0]);
+    if ((hpBefore <= own.edge) !== realWeak) {
+      note(`${effect.name} on ${named(rec)}`, 'asking its HP check again at its own Stat Points did not match the real run, so it was not read');
+      return result;
+    }
+    if (!weakLine || [...edge.values()].every(t => t === 0) || [...edge].every(([M, t]) => t === M)) return result;
+    let wantWeak = null;
+    if (realWeak) {
+      if (next && next.at < prefix.cutoffAt) wantWeak = true;
+      else if (pass && sameButHp(pass, prefix.observedLine)) wantWeak = false;
+    } else if (prefix.cutoffAt === Infinity || (next && next.at < prefix.cutoffAt)) {
+      wantWeak = false;
+    } else if ((next ? next.at : Infinity) === prefix.cutoffAt && prefix.observedLine === weakLine) {
+      wantWeak = true;
+    }
+    if (wantWeak === null) return result;
+    if (!rec.chain) initChain(rec);
+    for (const change of rec.pending.splice(0)) apply(rec, change, null);
+    apply(rec, {
+      same: true, gate: true, turn: battle.turn,
+      what: `${named(rec)} had ${wantWeak ? 'too little' : 'the'} HP for ${effect.name}`,
+      allow: (M, h) => !edge.has(M) || (h > 0 && (h <= edge.get(M)) === wantWeak),
+    }, null);
+    return result;
+  };
+
   // Transform and Imposter copy the other Pokemon's stats in `transformInto`,
   // so each copied stat stands on whatever the original stood on: nothing, for
   // one of the known side, and the hidden one's own Stat Points when the known
