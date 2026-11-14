@@ -616,9 +616,9 @@ export async function inferSpreads({
         }
       }
     }
-    // Then the Pokemon whose Stat Points moved a stat of one of those - a
-    // Guard Split's partner, the one a Transform copied - which the turn need
-    // not name: it can have fainted.
+    // Then the Pokemon whose Stat Points moved a stat or HP of one of those -
+    // a Guard Split's partner, the one a Transform copied, the target a recoil
+    // or drain came off - which the turn need not name: it can have fainted.
     const near = [names([diff.expected, diff.actual, ...leaving]), names(place.action)];
     const lender = new Set([...near[0], ...near[1]].flatMap(id => lent.get(id) || []));
     const tiers = [...near, lender, names(started), names([...segment, ...stood.values()])];
@@ -1054,9 +1054,10 @@ export async function inferSpreads({
     const seq = order.slice();
     const blocked = new Map();
     const blocks = (map, n) => {
-      const out = seq.slice(n + 1).filter(([s2, i2]) => emptied(map.get(`p${s2 + 1}:${i2}`)));
-      for (const [s2, i2] of out) blocked.set(`${s2}:${i2}`, (blocked.get(`${s2}:${i2}`) || 0) + 1);
-      return out.length > 0;
+      for (const [s2, i2] of seq.slice(n > 0 ? n : 1)) {
+        if (emptied(map.get(`p${s2 + 1}:${i2}`))) blocked.set(`${s2}:${i2}`, (blocked.get(`${s2}:${i2}`) || 0) + 1);
+      }
+      return seq.some(([s2, i2]) => emptied(map.get(`p${s2 + 1}:${i2}`)));
     };
     const choose = async (n, cond) => {
       if (n === seq.length) {
