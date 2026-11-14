@@ -1072,7 +1072,9 @@ export async function inferSpreads({
       const tried = [];
       const byKey = new Map();
       const fixed = held.has(id) ? [held.get(id)] : [];
-      for (const aim of [...fixed, aimFor(evKn, picks[s][i]), picks[s][i], aimFor(evKn, picks[s][i], 0.25), aimFor(evKn, picks[s][i], 0.75)]) {
+      const mid = aimFor(kn, picks[s][i]);
+      if (keep.length && !evKn.dom.spe.includes(0) && kn.dom.spe[picks[s][i].spe]) mid.spe = picks[s][i].spe;
+      for (const aim of [...fixed, mid, picks[s][i], aimFor(kn, picks[s][i], 0.25), aimFor(kn, picks[s][i], 0.75)]) {
         if (tries <= 0) { limits.add('guessTries'); return null; }
         const first = closestSpread(kn, aim);
         if (!first) continue;
