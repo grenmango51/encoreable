@@ -525,7 +525,15 @@ export async function inferSpreads({
     const mark = markOf(diff);
     if (!diff || !(t >= 0) || !(diff.index >= 0) || (searched.get(mark) || 0) >= 2 || spend.fruitless.has(mark)) return null;
     searched.set(mark, (searched.get(mark) || 0) + 1);
-    const none = () => { searched.set(mark, 2); spend.fruitless.add(mark); return null; };
+    const budgetCut = (...runs) => runs.some(b => b && (b.report.hidden || []).includes(t)
+      && b.report.limits.some(l => l === 'probes' || l === 'variants'));
+    const none = (exhausted = false) => {
+      if (!exhausted) {
+        searched.set(mark, 2);
+        spend.fruitless.add(mark);
+      }
+      return null;
+    };
     if (spend.rebuilds <= 0) { limits.add('fallbackTotal'); return null; }
     // The replay through the line that opens the turn after `turn`.
     const cutAt = (turn) => {
@@ -660,15 +668,28 @@ export async function inferSpreads({
     if (reach(base)[0] < t) {
       const at = base.report.diffs[0];
       onProgress(`  fallback on turn ${t}: the guess stops before the turn, at ${reach(base).join('.')}: wanted ${at?.expected}, got ${at?.actual}, ${clock()}`);
-      return none();
+      return none(budgetCut(built, base, dice));
     }
 
     // A line the rebuild printed for another Pokemon, or another action in its
-    // place, is an order, and an order is Speed's first.
+    // place, is an order, and an order is Speed's first - unless an unseen
+    // choice put two moves of different priority brackets against each other.
     const kind = l => String(l || '').split('|')[1];
-    const who = l => (/^p[1-4][a-d]?: /.test(String(l || '').split('|')[2] || '') ? String(l).split('|')[2] : null);
-    const order = (who(diff.actual) && who(diff.expected) && who(diff.actual) !== who(diff.expected))
-      || (kind(diff.actual) !== kind(diff.expected) && ACTION_START.has(kind(diff.actual)) && ACTION_START.has(kind(diff.expected)));
+    const who = l => (/^p[1-4][a-d]?: /.test(String(l || '').split('|')[2] || '') ? String(l || '').split('|')[2] : null);
+    const priorityShifter = sets.some(team => team.some((set) => {
+      if (dex.abilities.get(set.ability).onModifyPriority) return true;
+      const megaStone = dex.items.get(set.item).megaStone;
+      const megaSpecies = megaStone && Object.values(megaStone)[0];
+      return !!(megaSpecies && dex.abilities.get(dex.species.get(megaSpecies).abilities?.[0]).onModifyPriority);
+    }));
+    const crossPriority = (() => {
+      if (!(built.report.hidden || []).includes(t) || kind(diff.actual) !== 'move' || kind(diff.expected) !== 'move') return false;
+      const ma = dex.moves.get(String(diff.actual).split('|')[3]);
+      const me = dex.moves.get(String(diff.expected).split('|')[3]);
+      return ma.exists && me.exists && ma.priority !== me.priority && !ma.onModifyPriority && !me.onModifyPriority && !priorityShifter;
+    })();
+    const order = !crossPriority && ((who(diff.actual) && who(diff.expected) && who(diff.actual) !== who(diff.expected))
+      || (kind(diff.actual) !== kind(diff.expected) && ACTION_START.has(kind(diff.actual)) && ACTION_START.has(kind(diff.expected))));
     const dims = [];
     for (const u of cast) {
       const kn = knowledge.get(u.id);
@@ -956,7 +977,7 @@ export async function inferSpreads({
       });
     }
     onProgress(`  fallback on turn ${t}: nothing gets past the line in ${spent} rebuilds, ${clock()}`);
-    return none();
+    return none(budgetCut(built, base, dice));
   };
 
   const past = (a, b) => (a[0] !== b[0] ? a[0] > b[0] : a[1] > b[1]);

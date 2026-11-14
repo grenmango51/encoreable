@@ -113,10 +113,13 @@ function planSegment(segment, dex) {
     actions: { p1: [], p2: [] },    // [slotIndex] -> { moveid, target, mega }
     forced: { p1: [], p2: [] },     // in log order
     megas: new Set(),
+    order: [],                      // start-of-turn slot actions in execution order
+    reordered: [],                  // `${side}:${slot}` moved by Quash / After You
   };
   // Ally Switch moves two Pokemon between slots mid-turn, and the lines after
   // it name the new slots; a choice belongs to the slot its Pokemon chose from.
   const startOf = { p1: [0, 1, 2], p2: [0, 1, 2] };
+  const left = { p1: new Set(), p2: new Set() };
   // A Pokemon Encored before it moves uses the Encored move, not the one it
   // chose, so its move line says nothing about its choice.
   const encored = new Set();
@@ -158,12 +161,43 @@ function planSegment(segment, dex) {
       continue;
     }
 
+    if (kind === '-activate' && /^move: (Quash|After You)$/.test(parts[3] || '')) {
+      const side = identSide(parts[2]);
+      const orig = startOf[side]?.[identSlot(parts[2])] ?? -1;
+      if (orig >= 0) plan.reordered.push(`${side}:${orig}`);
+      continue;
+    }
+
+    if (kind === 'drag' || kind === 'faint') {
+      const side = identSide(parts[2]);
+      const orig = startOf[side]?.[identSlot(parts[2])] ?? identSlot(parts[2]);
+      if (left[side] && orig >= 0 && !left[side].has(orig)) {
+        if (!plan.actions[side][orig]) plan.order.push({ side, slot: orig, kind: 'faint' });
+        left[side].add(orig);
+      }
+      continue;
+    }
+
+    if (kind === 'cant') {
+      const side = identSide(parts[2]);
+      const orig = startOf[side]?.[identSlot(parts[2])] ?? identSlot(parts[2]);
+      if (left[side] && orig >= 0 && !left[side].has(orig)) plan.order.push({ side, slot: orig, kind: 'cant' });
+      continue;
+    }
+
     if (kind === 'switch') {
       const side = identSide(parts[2]);
       const slot = identSlot(parts[2]);
       const name = identName(parts[2]);
+      const orig = startOf[side]?.[slot] ?? slot;
       if (i < cutoff && !tagsOf(line).from) plan.switches[side][slot] = name;
-      else plan.forced[side].push({ slot, name });
+      else {
+        if (left[side] && orig >= 0 && !left[side].has(orig) && !plan.actions[side][orig]) {
+          plan.order.push({ side, slot: orig, kind: 'faint' });
+        }
+        plan.forced[side].push({ slot, name });
+      }
+      if (left[side] && orig >= 0) left[side].add(orig);
       continue;
     }
 
@@ -174,7 +208,6 @@ function planSegment(segment, dex) {
 
     if (kind === 'move') {
       if (toID(parts[3]) === 'revivalblessing') reviver = { slot: identSlot(parts[2]) };
-      if (encored.has(parts[2])) continue;
       const from = tagsOf(line).from;
       // A `[from]` move was executed by something other than a fresh choice -
       // Copycat, Instruct, Dancer, Magic Bounce, Sleep Talk. `lockedmove` is the
@@ -183,7 +216,12 @@ function planSegment(segment, dex) {
       if (from && from !== 'lockedmove') continue;
       const side = identSide(parts[2]);
       const slot = startOf[side]?.[identSlot(parts[2])] ?? identSlot(parts[2]);
+      if (encored.has(parts[2])) {
+        if (left[side] && slot >= 0 && !left[side].has(slot)) plan.order.push({ side, slot, kind: 'cant' });
+        continue;
+      }
       const moveid = toID(parts[3]);
+      if (left[side] && slot >= 0 && !left[side].has(slot)) plan.order.push({ side, slot, kind: 'move', moveid });
       const target = parts[4] && parts[4].includes(': ') ? parts[4] : null;
       plan.actions[side][slot] = {
         moveid,
@@ -434,6 +472,51 @@ function selfSwitchLast(dex) {
 }
 
 /**
+ * The priority `battle` gives `pokemon` using `moveid` (`sim/battle.ts:2169`),
+ * asked dry so no draw, item or log line moves.
+ */
+function movePriority(battle, pokemon, moveid) {
+  const dex = battle.dex;
+  let priority = dex.moves.get(moveid).priority;
+  if (!pokemon) return priority;
+  const st = battle.__rng;
+  const prevDry = st?.dry;
+  if (st) st.dry = prevDry || { roll: 0, draws: null };
+  const savedLog = saveLog(battle);
+  const savedItems = snapItems(battle.getAllActive());
+  try {
+    const move = dex.getActiveMove(moveid);
+    priority = battle.singleEvent('ModifyPriority', move, null, pokemon, null, null, priority);
+    priority = battle.runEvent('ModifyPriority', pokemon, null, move, priority);
+    return priority;
+  } finally {
+    restoreItems(savedItems);
+    savedLog();
+    if (st) st.dry = prevDry;
+  }
+}
+
+/** Conservative `[lo, hi]` priority interval for a move on `plan`'s turn. */
+function priorityRange(battle, sideId, slotIndex, moveid, plan) {
+  const sideObj = battle.sides[sideId === 'p1' ? 0 : 1];
+  const pokemon = sideObj?.active[slotIndex] || null;
+  const dex = battle.dex;
+  const base = dex.moves.get(moveid).priority;
+  const now = movePriority(battle, pokemon, moveid);
+  const lo = Math.min(base, now);
+  let hi = Math.max(base, now);
+  const fieldMayShift = plan.megas.size > 0 || plan.switches.p1.some(Boolean) || plan.switches.p2.some(Boolean);
+  if (fieldMayShift && dex.moves.get(moveid).onModifyPriority) hi = Math.max(hi, base + 1);
+  if (pokemon && plan.megas.has(`${sideId}${'abc'[slotIndex]}`)) {
+    const megaStone = dex.items.get(pokemon.item).megaStone;
+    const megaSpecies = megaStone && Object.values(megaStone)[0];
+    const megaAbility = megaSpecies ? dex.species.get(megaSpecies).abilities?.[0] : null;
+    if (megaAbility && dex.abilities.get(megaAbility).onModifyPriority) hi = Math.max(hi, base + 3);
+  }
+  return [lo, hi, now];
+}
+
+/**
  * The choice string for one side's current request.
  *
  * Everything legal is read off the live request. Nothing is read off the set's
@@ -529,18 +612,45 @@ function choiceFor(side, plan, state, notes) {
       // stream, so which substitution we make is a search variable.
       notes.push(`${sideId} slot ${i + 1} made an invisible choice - substituted a legal move`);
       state.invisible = true;
+      const battle = side.battle;
+      const order = plan.order || [];
+      const reordered = new Set(plan.reordered || []);
+      const ownKey = `${sideId}:${i}`;
+      const at = order.findIndex(e => e.side === sideId && e.slot === i);
+      const pos = at < 0 ? order.length : at;
+      let minPrio = -Infinity;
+      let maxPrio = Infinity;
+      if (!reordered.has(ownKey)) {
+        for (const e of order.slice(0, pos)) {
+          if (e.kind !== 'move' || reordered.has(`${e.side}:${e.slot}`)) continue;
+          maxPrio = Math.min(maxPrio, priorityRange(battle, e.side, e.slot, e.moveid, plan)[1]);
+        }
+        if (order[pos]?.kind === 'cant') {
+          for (const e of order.slice(pos + 1)) {
+            if (e.kind !== 'move' || reordered.has(`${e.side}:${e.slot}`)) continue;
+            minPrio = Math.max(minPrio, priorityRange(battle, e.side, e.slot, e.moveid, plan)[0]);
+          }
+        }
+        if (minPrio > maxPrio) { minPrio = -Infinity; maxPrio = Infinity; }
+      }
       const usable = slot.moves
-        .map((m, j) => ({ ...m, j }))
+        .map((m, j) => {
+          const [lo, hi, prio] = priorityRange(battle, sideId, i, m.id, plan);
+          const miss = hi < minPrio ? minPrio - hi : lo > maxPrio ? lo - maxPrio : 0;
+          return { ...m, j, prio, miss };
+        })
         .filter(m => !m.disabled)
-        .sort(state.selfSwitchLast);
+        .sort((a, b) => a.miss - b.miss || Math.abs(a.prio) - Math.abs(b.prio) || state.selfSwitchLast(a, b) || a.j - b.j);
       const options = [];
       for (const m of usable) {
         for (const suffix of targetOptions(side, i, m.target)) {
-          options.push(`move ${m.j + 1}${suffix}${mega}`);
+          options.push({ str: `move ${m.j + 1}${suffix}${mega}`, prio: m.prio, miss: m.miss });
         }
       }
       if (!options.length) return 'pass';
-      return options[state.nextVariantDigit(options.length, true)];
+      const picked = options[state.nextVariantDigit(options.length, true)];
+      state.invisiblePrios.push({ key: ownKey, prio: picked.prio, miss: picked.miss });
+      return picked.str;
     }
 
     const at = slot.moves.findIndex(m => m.id === action.moveid);
@@ -1297,6 +1407,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
   const diffs = [];
   const widths = from ? from.widths.slice() : [];
   const starts = from ? from.starts.slice() : [];
+  const invisiblePrios = [];
   let badTurn = null;
   let logAt = from ? from.logAt : 0;
 
@@ -1331,6 +1442,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
       forced: { p1: [...plans[k].forced.p1], p2: [...plans[k].forced.p2] },
       unsatisfied: null,
       selfSwitchLast: selfSwitchLast(dex),
+      invisiblePrios: [],
       variantWidth: 1,
       unseenWidth: 1,
       nextVariantDigit(radix, hidden = false) {
@@ -1391,6 +1503,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
     }
 
     widths[k] = state.variantWidth;
+    invisiblePrios[k] = state.invisiblePrios;
     // Only a turn with more variants than the search walks needs the unseen
     // choices first; every variant of any other turn is walked anyway.
     if (radices && !radices[k] && state.unseenWidth > 1 && state.variantWidth > maxVariants) radices[k] = state.unseenWidth;
@@ -1425,6 +1538,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
     badTurn,
     diffs,
     widths,
+    invisiblePrios,
     starts,
     notes,
     hidden,
@@ -1675,10 +1789,20 @@ function scoreOf(run, t) {
   const got = String(diff.actual ?? '').split('|');
   let fields = 0;
   while (fields < want.length && fields < got.length && want[fields] === got[fields]) fields++;
+  const crossActorMove = want[1] === 'move' && got[1] === 'move' && want[2] !== got[2];
   let shared = 0;
-  for (let i = 0; i < want.length && i < got.length; i++) if (want[i] === got[i]) shared++;
+  for (let i = 0; i < want.length && i < got.length; i++) {
+    if (crossActorMove && i === 4) continue;
+    if (want[i] === got[i]) shared++;
+  }
   return [diff.index, fields, shared];
 }
+
+const sameMoveHead = (a, b) => {
+  const pa = String(a || '').split('|');
+  const pb = String(b || '').split('|');
+  return pa[1] === 'move' && pb[1] === 'move' && pa[2] === pb[2] && pa[3] === pb[3];
+};
 
 /**
  * Which of turn `t`'s draws could change the line the turn disagrees on. A die
@@ -1686,12 +1810,13 @@ function scoreOf(run, t) {
  * is amended after the fact (`[miss]`, `[still]`, a retarget - `attrLastMove`,
  * `retargetLastMove`), so a move line stays open until the next action starts.
  */
-function canReach(common, run, t) {
+function canReach(common, run, t, { strictMove = false } = {}) {
   const diff = run.diffs[0];
   if (!diff || diff.turn !== t || diff.index < 0 || run.starts?.[t] === undefined) return () => true;
-  const { gotHard } = compareTurn(common, t, run.rawLog.slice(run.starts[t]));
+  const { wantHard, gotHard } = compareTurn(common, t, run.rawLog.slice(run.starts[t]));
   let limit = diff.index;
-  if (/^\|(move|-anim)\|/.test(gotHard[limit] || '')) {
+  const line = gotHard[limit] || '';
+  if (line.startsWith('|-anim|') || (line.startsWith('|move|') && (!strictMove || sameMoveHead(line, wantHard[limit])))) {
     limit = Infinity;
     for (let j = diff.index + 1; j < gotHard.length; j++) {
       if (ACTION_START.has(gotHard[j].split('|')[1])) { limit = j; break; }
@@ -1703,7 +1828,11 @@ function canReach(common, run, t) {
     if (draw.at === undefined) return true;
     let reach = reachOf.get(draw.at);
     if (reach === undefined) {
-      reach = compareTurn(common, t, run.rawLog.slice(run.starts[t], draw.at)).gotHard.length;
+      const sub = run.rawLog.slice(run.starts[t], draw.at);
+      let n = sub.length;
+      if (n >= 1 && String(sub[n - 1]).startsWith('|split|')) n -= 1;
+      else if (n >= 2 && String(sub[n - 2]).startsWith('|split|')) n -= 2;
+      reach = compareTurn(common, t, sub.slice(0, n)).gotHard.length;
       reachOf.set(draw.at, reach);
     }
     return reach <= limit;
@@ -1785,7 +1914,7 @@ const ties = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
  * `subs` is mutated: it is the accumulated answer, keyed by the draw's position
  * in the battle, and it is what the emitted `>rng at` line carries.
  */
-async function resolveTurn(t, common, subs, subTurn, sample, budget) {
+async function resolveTurn(t, common, subs, subTurn, sample, budget, { deferProbeLimit = false } = {}) {
   let run = await runTo(common, subs, t, t);
   let score = scoreOf(run, t);
   let forced = 0;
@@ -1810,9 +1939,15 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     const end = start + lines.length;
     let idx = rec.score[0];
     if (!Number.isFinite(idx) || idx < 0) return (rec.fail = end);
-    const count = p => compareTurn(common, t, lines.slice(0, p - start)).gotHard.length;
-    const { gotHard } = compareTurn(common, t, lines);
-    if (/^\|(move|-anim)\|/.test(gotHard[idx] || '')) {
+    const count = (p) => {
+      let n = p - start;
+      if (n >= 1 && String(lines[n - 1]).startsWith('|split|')) n -= 1;
+      else if (n >= 2 && String(lines[n - 2]).startsWith('|split|')) n -= 2;
+      return compareTurn(common, t, lines.slice(0, n)).gotHard.length;
+    };
+    const { wantHard, gotHard } = compareTurn(common, t, lines);
+    const line = gotHard[idx] || '';
+    if (line.startsWith('|-anim|') || (line.startsWith('|move|') && sameMoveHead(line, wantHard[idx]))) {
       let next = Infinity;
       for (let j = idx + 1; j < gotHard.length && next === Infinity; j++) {
         if (ACTION_START.has(gotHard[j].split('|')[1])) next = j;
@@ -1873,7 +2008,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     // draws that were settled long before the line it spoils shows up.
     // A draw the steer has shown prints the wrong line is the likeliest fix,
     // so those go first; the rest keep the order they were thrown in.
-    const reach = canReach(common, run, t);
+    const reach = canReach(common, run, t, { strictMove: true });
     const all = drawsOf(run.trace, t);
     const wrong = d => !!run.steer?.get(d.i)?.wrong;
 
@@ -2036,14 +2171,14 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
   // tried and no die and no pair of them carried the turn further. Only the
   // first two are answers; the rest prove nothing about the guess.
   const ended = score[0] === Infinity ? 'solved' : score[0] === -1 ? 'refused' : cut || 'stuck';
-  if (ended === cut) common.limits.add(cut);
+  if (ended === cut && !(deferProbeLimit && cut === 'probes')) common.limits.add(cut);
   if (onTrial) {
     takeBack();
     run = await runTo(common, subs, t, t);
     score = scoreOf(run, t);
   }
 
-  return { solved: score[0] === Infinity, rejected: score[0] === -1, ended, forced, probes, score, tried };
+  return { solved: score[0] === Infinity, rejected: score[0] === -1, ended, forced, probes, score, tried, diff: run.diffs[0] || null };
 }
 
 /**
@@ -2409,14 +2544,34 @@ async function reconstructOnce({
       }
     };
 
+    const allVariants = run.widths?.[t] || 1;
+    const width = Math.min(allVariants, maxVariants);
+    const hasHidden = (run.hidden || []).includes(t) && width > 1;
+    let hitProbes = false;
+    const cutByProbes = new Set();
+    const searchVariant = async (v, cap) => {
+      const rem = maxProbes - spent[t];
+      const slice = cap === undefined ? rem : Math.min(rem, cap);
+      const deferProbeLimit = slice < rem;
+      const got = await resolveTurn(t, common, subs, subTurn, sample, slice, { deferProbeLimit });
+      spent[t] += got.probes;
+      forcedDraws += got.forced;
+      if (got.ended === 'probes') { hitProbes = true; cutByProbes.add(v); }
+      else cutByProbes.delete(v);
+      return got;
+    };
+
+    const enteringPrios = run.invisiblePrios?.[t] || [];
+    let enteringStopDiff = run.diffs[0] || null;
     // A rejected choice is a legality problem, not an RNG one - no die can make
     // the simulator accept a choice it refused - so that case goes straight to
     // the substitutions.
     if (run.diffs[0]?.index !== -1) {
-      const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
-      spent[t] += got.probes;
-      forcedDraws += got.forced;
+      const rem = maxProbes - spent[t];
+      const cap = hasHidden ? Math.max(24, Math.floor((rem * 2) / 3)) : rem;
+      const got = await searchVariant(entering, cap);
       solved = got.solved;
+      enteringStopDiff = got.diff;
       walked[0].searched = got.score;
       if (!solved) consider(got.score, entering, got.tried);
     }
@@ -2427,8 +2582,6 @@ async function reconstructOnce({
     // Each is played once with the turn's dice as drawn, and the search walks
     // them furthest first: a flinched Pokemon's unseen move that sorts where
     // the replay has it gets further than one that does not.
-    const allVariants = run.widths?.[t] || 1;
-    const width = Math.min(allVariants, maxVariants);
     const ranked = [];
     for (let v = 0; v < width && !solved; v++) {
       if (v === entering) continue;
@@ -2436,11 +2589,63 @@ async function reconstructOnce({
       forget(t);
       const probe = await runTo(common, subs, t);
       const score = scoreOf(probe, t);
+      const actual = probe.diffs[0]?.actual ?? '';
+      const prios = probe.invisiblePrios?.[t] || [];
       walked.push({ variant: v, choices: choicesOn(probe, t), score, searched: null });
       if (probe.badTurn === null) { solved = true; break; }
-      ranked.push({ v, score });
+      ranked.push({ v, score, actual, prios });
     }
     ranked.sort((a, b) => (outranks(b.score, a.score) ? 1 : outranks(a.score, b.score) ? -1 : a.v - b.v));
+    let orderedRanked = ranked;
+    const repSet = new Set();
+    if (hasHidden && ranked.length > 1) {
+      const prioSig = list => (list || []).map(p => `${p.key}:${p.prio}`).join(',');
+      const basePrio = new Map(enteringPrios.map(p => [p.key, p.prio]));
+      const prioDir = new Map();
+      if (enteringStopDiff) {
+        const slotKeyOf = (line) => {
+          const ident = String(line || '').split('|')[2] || '';
+          const s = identSide(ident);
+          const idx = identSlot(ident);
+          return (s === 'p1' || s === 'p2') && idx >= 0 ? `${s}:${idx}` : null;
+        };
+        const expParts = String(enteringStopDiff.expected || '').split('|');
+        const actParts = String(enteringStopDiff.actual || '').split('|');
+        if (actParts[1] === 'move' && expParts[2] && actParts[2] !== expParts[2]) {
+          const sk = slotKeyOf(enteringStopDiff.actual);
+          if (sk && basePrio.has(sk)) prioDir.set(sk, -1);
+        } else if (expParts[1] === 'cant' && actParts[1] === 'move' && actParts[2] !== expParts[2]) {
+          const sk = slotKeyOf(enteringStopDiff.expected);
+          if (sk && basePrio.has(sk)) prioDir.set(sk, 1);
+        }
+      }
+      const seenOutcomes = new Set([`${prioSig(enteringPrios)}|${walked[0].score.join(',')}|${run.diffs[0]?.actual ?? ''}`]);
+      const firstPass = [];
+      const secondPass = [];
+      for (const item of ranked) {
+        const key = `${prioSig(item.prios)}|${item.score.join(',')}|${item.actual}`;
+        if (!seenOutcomes.has(key)) {
+          seenOutcomes.add(key);
+          repSet.add(item.v);
+          firstPass.push(item);
+        } else {
+          secondPass.push(item);
+        }
+      }
+      if (prioDir.size) {
+        const dirRank = (item) => {
+          for (const p of item.prios || []) {
+            const dir = prioDir.get(p.key);
+            const bp = basePrio.get(p.key);
+            if (!dir || bp === undefined || p.miss > 0) continue;
+            if ((dir > 0 && p.prio > bp) || (dir < 0 && p.prio < bp)) return 0;
+          }
+          return 1;
+        };
+        firstPass.sort((a, b) => dirRank(a) - dirRank(b) || (outranks(b.score, a.score) ? 1 : outranks(a.score, b.score) ? -1 : a.v - b.v));
+      }
+      orderedRanked = [...firstPass, ...secondPass];
+    }
 
     // The dice the search settled under one hidden choice can be the ones
     // another needs: the damage roll found under a substituted move is the roll
@@ -2477,9 +2682,9 @@ async function reconstructOnce({
         variants[t] = better.v;
         hold();
         searchedVariants.add(better.v);
-        const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
-        spent[t] += got.probes;
-        forcedDraws += got.forced;
+        const rem = maxProbes - spent[t];
+        const cap = hasHidden ? Math.max(24, Math.ceil((rem * 2) / 3)) : rem;
+        const got = await searchVariant(better.v, cap);
         const w = walked.findLast(x => x.variant === better.v);
         if (w) w.searched = got.score;
         if (got.solved) solved = true;
@@ -2488,15 +2693,19 @@ async function reconstructOnce({
     };
     await rewalk();
 
-    for (const { v } of ranked) {
+    for (const { v } of orderedRanked) {
       if (solved) break;
       if (searchedVariants.has(v)) continue;
       searchedVariants.add(v);
       variants[t] = v;
       forget(t);
-      const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
-      spent[t] += got.probes;
-      forcedDraws += got.forced;
+      const rem = maxProbes - spent[t];
+      let cap = rem;
+      if (hasHidden && repSet.has(v)) {
+        const leftReps = orderedRanked.filter(x => repSet.has(x.v) && !searchedVariants.has(x.v)).length + 1;
+        if (leftReps > 1) cap = Math.max(16, Math.ceil(rem / Math.min(leftReps, 4)));
+      }
+      const got = await searchVariant(v, cap);
       walked.findLast(w => w.variant === v).searched = got.score;
       if (got.solved) solved = true;
       else consider(got.score, v, got.tried);
@@ -2504,6 +2713,19 @@ async function reconstructOnce({
     if (!solved && allVariants > maxVariants) common.limits.add('variants');
 
     await rewalk();
+
+    if (!solved && hasHidden && partial && cutByProbes.has(partial.variant) && maxProbes - spent[t] > 0) {
+      variants[t] = partial.variant;
+      forget(t);
+      Object.assign(subs, partial.subs);
+      Object.assign(subTurn, partial.subTurn);
+      const got = await searchVariant(partial.variant, maxProbes - spent[t]);
+      const w = walked.findLast(x => x.variant === partial.variant);
+      if (w) w.searched = got.score;
+      if (got.solved) solved = true;
+      else consider(got.score, partial.variant, got.tried);
+    }
+    if (!solved && hitProbes) common.limits.add('probes');
 
     if (!solved) {
       variants[t] = partial ? partial.variant : 0;
