@@ -1115,17 +1115,36 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }));
   }
 
+  // Only the announcement itself, which ends the line: a Traced Sturdy names
+  // Sturdy too, and says nothing about a hit.
+  const SURVIVAL = /^\|(-enditem|-ability|-activate)\|(p[1-4])[a-d]: ([^|]+)\|(Focus Sash|item: Focus Band|Sturdy|ability: Sturdy|move: Endure)$/;
+  const survivor = (line) => {
+    const m = SURVIVAL.exec(String(line || ''));
+    return m ? `${m[2]}:${m[3]}` : null;
+  };
+
   /**
    * What a real `Damage` event printed, where the replay shows exactly that:
    * every line of it is verified, and so is the line after it, the hit's own
    * HP line - or that line is the cutoff, and the replay prints the same
-   * Pokemon's HP line in its place. Null otherwise: a replay that shows an
-   * announcement where the scaffold printed its HP line printed more.
+   * Pokemon's HP line in its place; or the event's own survival announcement
+   * (with no die thrown) is the cutoff, followed straight by its HP line, and
+   * the replay prints that HP line directly, proving the event stayed silent.
+   * Null otherwise: a replay that shows an announcement where the scaffold
+   * printed its HP line printed more.
    */
-  function provenLines(seen) {
+  function provenLines(seen, dice) {
     if (!seen) return null;
     let i = view.findIndex(e => e.at >= seen.from);
     if (i < 0) return null;
+    if (view[i].at === prefix.cutoffAt && !dice?.length && survivor(view[i].line)) {
+      const after = view[i + 1];
+      const mine = after && after.at >= seen.to && hpLine(after.line);
+      const want = hpLine(prefix.observedLine);
+      if (mine && want && mine.kind === '-damage' && want.kind === '-damage'
+        && want.side === mine.side && want.name === mine.name
+        && survivor(view[i].line) === `${mine.side}:${mine.name}`) return [];
+    }
     for (; i < view.length && view[i].at < seen.to; i++) if (view[i].at >= prefix.cutoffAt) return null;
     const next = view[i];
     const mine = next && hpLine(next.line);
@@ -1152,9 +1171,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const modified = clamp(hit.real) !== clamp(dealt);
     const table = new Map();
     const rolls = new Map();
-    let shown = provenLines(ctx.lines);
+    let shown = provenLines(ctx.lines, ctx.dice);
     if (shown && typeof ctx.before === 'number'
-      && !sameLines(damageEvent(hit, ctx, T, T.pokemon.maxhp, ctx.before, clamp(hit.real)).lines, shown)) {
+      && !sameLines(damageEvent(hit, ctx, T, T.pokemon.maxhp, ctx.before, clamp(hit.real)).lines, ctx.lines.lines)) {
       note(hit.what || `${named(hit.S)}'s ${hit.clone.name} hit ${named(T)}`,
         'its Damage event run again at its own Stat Points did not print what the real one did, so what it printed was not read');
       shown = null;
@@ -2447,19 +2466,6 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   };
 
   /**
-   * The Pokemon a line announces survived a lethal hit - a Focus Sash, Focus
-   * Band, Sturdy, Endure - as `side:name`, or null. Its next HP line is that hit's, and the
-   * simulator's own `Damage` event decides per candidate whether it survives.
-   */
-  // Only the announcement itself, which ends the line: a Traced Sturdy names
-  // Sturdy too, and says nothing about a hit.
-  const SURVIVAL = /^\|(-enditem|-ability|-activate)\|(p[1-4])[a-d]: ([^|]+)\|(Focus Sash|item: Focus Band|Sturdy|ability: Sturdy|move: Endure)$/;
-  const survivor = (line) => {
-    const m = SURVIVAL.exec(String(line || ''));
-    return m ? `${m[2]}:${m[3]}` : null;
-  };
-
-  /**
    * The replay's HP line for the Pokemon the rebuild's cutoff line is about,
    * when the replay first announces that it survived a lethal hit and the
    * rebuild's hit left it standing without one. Nothing else may stand between.
@@ -2486,7 +2492,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       if (entry.at > prefix.cutoffAt) {
         const mine = hpLine(entry.line);
         const want = awaited && hpLine(prefix.observedLine);
-        if (mine && want && `${mine.side}:${mine.name}` === awaited && want.kind === mine.kind) observe(mine, want.token, entry.at);
+        if (mine && want && `${mine.side}:${mine.name}` === awaited && want.kind === mine.kind) observe(mine, want.token, entry.at, true);
         state.ended = true;
         break;
       }

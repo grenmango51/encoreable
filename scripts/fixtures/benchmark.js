@@ -215,6 +215,7 @@ const SWEPT = [
   'mimic:gen9championsvgc2026regmcbo3-2703274968', // 2026-10-23: Grassy Terrain and Leftovers at equal Residual order where subOrder breaks a Speed tie
   'mimic:gen9championsvgc2026regmcbo3-2705400321', // 2026-10-28: an action that already opened before the cutoff, ordered against those behind it
   'mimic:gen9championsvgc2026regmcbo3-2697078591', // 2026-10-12: a verified Residual handler ordered before the handler the replay shows at the cutoff
+  'mimic:gen9championsvgc2026regmcbo3-2697644605', // 2026-10-13: a Focus Sash the scaffold fired at the cutoff where the replay printed the hit's HP line directly
 ];
 
 const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));
