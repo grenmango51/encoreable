@@ -225,6 +225,7 @@ const SWEPT = [
   'mimic:gen9championsvgc2026regmc-2707833650', // 2026-11-01: a Pokemon revived onto the bench by Revival Blessing and sent in later in the same turn
   'mimic:gen9championsvgc2026regmcbo3-2710347095', // 2026-11-07: an Encored Electro Shot carrying the hidden choice's target into the execution turn
   'mimic:gen9championsvgc2026regmcbo3-2708420838', // 2026-11-03: Zoroark switching in for a lead that moves to the back slot Illusion copies
+  'mimic:gen9championsvgc2026regmcbo3-2705100409', // 2026-10-26: an earlier draw shifting a same-turn pin onto Sylveon's burn roll
 ];
 
 const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));

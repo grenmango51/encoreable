@@ -1831,12 +1831,16 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
 
   const found = new Map();
   const commits = [];
+  const moved = [];
+  const ownShape = new Map();
+  let minCommitted = null;
+  const shapeOf = d => (d ? `${d.lo}|${d.hi}|${d.chance}` : null);
   const ask = prober(common, t);
   const remember = (probe) => {
     const start = probe.starts?.[t] ?? 0;
     return {
       score: scoreOf(probe, t),
-      since: commits.length,
+      since: moved.length,
       start,
       lines: probe.rawLog.slice(start),
       trace: probe.trace.filter(row => row.mark === t),
@@ -1865,17 +1869,42 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
   };
   const holds = (rec) => {
     if (!rec.at) rec.at = new Map(rec.trace.map(row => [row.i, row.at]));
-    for (const c of commits.slice(rec.since)) {
+    for (const c of moved.slice(rec.since)) {
       const thrown = rec.at.get(Number(c));
       if (thrown !== undefined && thrown < failAt(rec)) return false;
     }
     return true;
   };
-  const commit = (i, value) => {
+  const commit = (i, value, shape = null) => {
+    if (subs[i] === undefined) forced++;
     subs[i] = value;
     subTurn[i] = t;
     commits.push(i);
-    forced++;
+    moved.push(i);
+    if (shape) ownShape.set(i, shape);
+    minCommitted = minCommitted === null ? i : Math.min(minCommitted, i);
+  };
+  const dropShifted = async (prevLines) => {
+    if (minCommitted === null || !(score[0] > prevLines)) { minCommitted = null; return; }
+    const from = minCommitted;
+    minCommitted = null;
+    const now = new Map(drawsOf(run.trace, t).map(d => [d.i, shapeOf(d)]));
+    const stale = [...ownShape].filter(([k, sh]) => k > from && now.get(k) !== sh).map(([k]) => k);
+    if (!stale.length) return;
+    const cleaned = { ...subs };
+    for (const k of stale) delete cleaned[k];
+    const check = await runTo(common, cleaned, t, t);
+    if (scoreOf(check, t)[0] > prevLines) {
+      for (const k of stale) {
+        delete subs[k];
+        delete subTurn[k];
+        ownShape.delete(k);
+        moved.push(k);
+        forced--;
+      }
+      run = check;
+      score = scoreOf(check, t);
+    }
   };
   // A draw that only gets more of the line's fields right in place is held
   // on trial: it stays when a later draw carries the turn further, and is
@@ -1886,7 +1915,15 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
   let tried = null;
   const takeBack = () => {
     tried = {};
-    for (const i of commits.splice(onTrial.at)) { tried[i] = subs[i]; delete subs[i]; delete subTurn[i]; forced--; }
+    for (const i of commits.splice(onTrial.at)) {
+      if (subs[i] === undefined) continue;
+      tried[i] = subs[i];
+      delete subs[i];
+      delete subTurn[i];
+      ownShape.delete(i);
+      moved.push(i);
+      forced--;
+    }
     onTrial = null;
   };
 
@@ -1947,9 +1984,11 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
       probes++;
       if (outranks(scoreOf(probe, t), score)) {
         ask.cancel();
-        for (const d of fixes) commit(d.i, trial[d.i]);
+        const prevLines = score[0];
+        for (const d of fixes) commit(d.i, trial[d.i], shapeOf(d));
         run = await runTo(common, subs, t, t);
         score = scoreOf(run, t);
+        await dropShifted(prevLines);
         continue;
       }
     }
@@ -1981,12 +2020,12 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
       // uniformly among them - this is where the opponent's exact HP is sampled.
       // A draw that matched on its own needs no such treatment: the generator
       // had already picked it uniformly, and it survived the comparison.
-      const pick = { i: draw.i, value: winners[sample.pick(winners.length)], best };
+      const pick = { i: draw.i, value: winners[sample.pick(winners.length)], best, shape: shapeOf(draw) };
       if (best[0] === score[0]) {
         if (!fallback || outranks(best, fallback.best)) fallback = pick;
         continue;
       }
-      commit(pick.i, pick.value);
+      commit(pick.i, pick.value, pick.shape);
       committed = true;
       break;
     }
@@ -2001,7 +2040,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     const inPlace = fallback && fallback.best[1] === score[1];
     if (!committed && fallback && !(inPlace && onTrial)) {
       if (inPlace) onTrial = { at: commits.length, lines: score[0] };
-      commit(fallback.i, fallback.value);
+      commit(fallback.i, fallback.value, fallback.shape);
       committed = true;
     }
     // Last, two chances flipped together: a spread move's secondary that came
@@ -2022,8 +2061,8 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
               const probe = await ask.get({ ...subs, [a.i]: va, [b.i]: vb });
               probes++;
               if (scoreOf(probe, t)[0] > score[0]) {
-                commit(a.i, va);
-                commit(b.i, vb);
+                commit(a.i, va, shapeOf(a));
+                commit(b.i, vb, shapeOf(b));
                 committed = true;
                 break pairs;
               }
@@ -2053,8 +2092,8 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
             const probe = await ask.get({ ...subs, [a.i]: va, [b.i]: vb });
             probes++;
             if (scoreOf(probe, t)[0] > score[0]) {
-              commit(a.i, va);
-              commit(b.i, vb);
+              commit(a.i, va, shapeOf(a));
+              commit(b.i, vb, shapeOf(b));
               committed = true;
               break brought;
             }
@@ -2062,11 +2101,42 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
         }
       }
     }
+    // A draw committed earlier in this turn's scan can shift onto a later roll
+    // of the same shape once an earlier draw before it changes, or pick a face
+    // within a percentage band that blocks a later line in the same turn.
+    if (!committed && ownShape.size) {
+      reprobe: for (const d of order) {
+        if (!ownShape.has(d.i) || !reach(d)) continue;
+        const next = { ...subs };
+        delete next[d.i];
+        const faces = [undefined, ...candidates(d, run.steer, true).filter(v => v !== subs[d.i])];
+        for (const v of faces) {
+          if (probes >= budget) { cut = 'probes'; break reprobe; }
+          const probe = await ask.get(v === undefined ? next : { ...next, [d.i]: v });
+          probes++;
+          if (scoreOf(probe, t)[0] > score[0]) {
+            if (v === undefined) {
+              delete subs[d.i];
+              delete subTurn[d.i];
+              ownShape.delete(d.i);
+              moved.push(d.i);
+              forced--;
+            } else {
+              commit(d.i, v, shapeOf(d));
+            }
+            committed = true;
+            break reprobe;
+          }
+        }
+      }
+    }
 
     ask.cancel();
     if (!committed) break;
+    const prevLines = score[0];
     run = await runTo(common, subs, t, t);
     score = scoreOf(run, t);
+    await dropShifted(prevLines);
     if (onTrial && score[0] > onTrial.lines) onTrial = null;
   }
   // Why the search of this turn ended: the turn reproduces, the simulator
