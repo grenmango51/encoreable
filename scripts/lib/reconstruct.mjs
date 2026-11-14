@@ -2213,10 +2213,10 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
  *                     the omniscient channel instead. Stat Point inference supplies
  *                     it: where the evidence has proved which exact HP a percentage
  *                     hid, sampling it again can only pick wrong.
- * @param pins         `{ subs, turns, proof }`: draws already settled, by ordinal, and the turn
- *                     each belongs to. Stat Point inference supplies the dice that
- *                     rebuild its proved turns, so only the turn after them is
- *                     searched. A pin on a turn that fails is dropped and searched.
+ * @param pins         `{ subs, turns, variants, proof }`: draws and unseen-choice variants already
+ *                     settled, and the turn each draw belongs to. Stat Point inference supplies the
+ *                     dice and unseen choices that rebuild its proved turns, so only the turn after
+ *                     them is searched. A pin on a turn that fails is dropped and searched.
  *                     `proof`, the dice and choices the proof was read under, only
  *                     says whether the first run broke it (`brokenProof`).
  * @param threads      how many threads the dice search may use, this one included;
@@ -2302,7 +2302,7 @@ async function reconstructOnce({
 
   const state0 = { reveal: revealOrder(unmasked.lines), sizes: teamSizes(lines), disguises: unmasked.disguises };
   const reseeds = new Array(segments.length).fill(null);
-  const variants = new Array(segments.length).fill(0);
+  const variants = Array.from({ length: segments.length }, (_, k) => pins?.variants?.[k] || 0);
   const spent = new Array(segments.length).fill(0);
   const subs = {};
   const subTurn = {};
@@ -2339,6 +2339,35 @@ async function reconstructOnce({
   let forcedDraws = 0;
 
   let run = await playThrough({ ...common, subs });
+  // Before judging or dropping handed-in pins on a turn with unseen choices,
+  // try its other variants: a choice the replay never showed - a fainted or
+  // flinched Pokemon's move - can need another slot once a Speed moves, while
+  // every die settled on and after that turn still stands.
+  if (pins) {
+    const recovered = new Set();
+    while (run.badTurn !== null && !recovered.has(run.badTurn) && Date.now() < deadline) {
+      const t = run.badTurn;
+      recovered.add(t);
+      const known = exact?.get(t);
+      if (known?.partial && run.diffs[0]?.index >= compareTurn(common, t, []).exactUpTo) break;
+      const hasDownstreamPins = Object.keys(subs).some(i => subTurn[i] >= t);
+      if (!hasDownstreamPins && !pins.proof) break;
+      const keep = variants[t] || 0;
+      const width = Math.min(run.widths?.[t] || 1, maxVariants);
+      let advanced = false;
+      for (let v = 0; v < width && !advanced && Date.now() < deadline; v++) {
+        if (v === keep) continue;
+        variants[t] = v;
+        const probe = await runTo(common, subs, t);
+        advanced = probe.badTurn === null || probe.badTurn > t;
+      }
+      if (!advanced) {
+        variants[t] = keep;
+        break;
+      }
+      run = await playThrough({ ...common, subs });
+    }
+  }
   const broken = brokenProof(common, run, pins?.proof);
   // A handed-in pin is only as good as the turn it rebuilds: a spread that
   // throws a different sequence of dice there moves every ordinal after it. On
@@ -2629,7 +2658,7 @@ async function reconstructOnce({
     rawLog: run.rawLog,
     starts: run.starts,
     seed: startSeed,
-    pins: { subs: { ...subs }, turns: Object.fromEntries(run.trace.map(r => [r.i, r.mark])) },
+    pins: { subs: { ...subs }, turns: Object.fromEntries(run.trace.map(r => [r.i, r.mark])), variants: variants.slice() },
     dice: run.trace.map(({ i, from, to, value, mark, chance, at }) => ({ i, from, to, value, mark, chance, at })),
     choices: run.choices.map(({ turn, side, choice, at }) => ({ turn, side, choice, at })),
     variantsTried: complete ? null : { turn: run.diffs[0]?.turn ?? null, variants: variantsAt.get(run.diffs[0]?.turn) || [] },
