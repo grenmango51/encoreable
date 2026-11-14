@@ -831,9 +831,9 @@ export async function inferSpreads({
       }
     }
     // Which stats move the line: each stat at its ends. One whose ends stop
-    // the rebuild before the line at one and leave it as it was at the other
-    // has the line's values between them, as an order between two speeds
-    // does, and is halved until a value gets past the line or the halves stop
+    // the rebuild before the line at one and reach it at the other - printing
+    // what it printed, or another outcome on it - has the boundary between
+    // them, and is halved until a value gets past the line or the halves stop
     // telling the two apart. Then every stat at its middle.
     // On an order the Speed whose ends straddle it is halved at once: the
     // order's value lies between them. On any other line every stat's ends
@@ -842,13 +842,15 @@ export async function inferSpreads({
     // leaves none for the one whose stat decides the line - the Orthworm whose
     // Shed Tail made the Substitute a drain was taken off.
     const halve = [];
+    const reachedEnd = s => s === 'same' || s === 'other';
     const halving = async ({ d, ends }) => {
       let [i, j] = [0, d.alive.length - 1];
+      const earlyFirst = ends[0] === 'early';
       while (j - i > 1 && !found && !ahead && affordable()) {
         const m = (i + j) >> 1;
         const side = await tryValue(d, d.alive[m], { escorted: false });
-        if (side === ends[0]) i = m;
-        else if (side === ends[1]) j = m;
+        if (side === 'early') { if (earlyFirst) i = m; else j = m; }
+        else if (reachedEnd(side)) { if (earlyFirst) j = m; else i = m; }
         else break;
       }
     };
@@ -856,7 +858,7 @@ export async function inferSpreads({
       const n = d.alive.length;
       if (!n || found || ahead || !affordable()) continue;
       const ends = [await tryValue(d, d.alive[0]), found || ahead || !affordable() ? null : await tryValue(d, d.alive[n - 1])];
-      if (!ends.includes('early') || !ends.includes('same')) continue;
+      if (!ends.includes('early') || !ends.some(reachedEnd)) continue;
       if (order) await halving({ d, ends });
       else halve.push({ d, ends });
     }
