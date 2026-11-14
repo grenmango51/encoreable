@@ -663,12 +663,15 @@ export async function inferSpreads({
       return none();
     }
 
-    // A line the rebuild printed for another Pokemon, or another action in its
-    // place, is an order, and an order is Speed's first.
+    // A line the rebuild printed for another Pokemon at the same step - another
+    // action at an action start, or another Pokemon's simultaneous effect
+    // between them - is an order, and an order is Speed's first. A secondary or
+    // sub-event on a target before the next action, or a flinch or paralysis on
+    // the same Pokemon's own turn to move, is not.
     const kind = l => String(l || '').split('|')[1];
     const who = l => (/^p[1-4][a-d]?: /.test(String(l || '').split('|')[2] || '') ? String(l).split('|')[2] : null);
-    const order = (who(diff.actual) && who(diff.expected) && who(diff.actual) !== who(diff.expected))
-      || (kind(diff.actual) !== kind(diff.expected) && ACTION_START.has(kind(diff.actual)) && ACTION_START.has(kind(diff.expected)));
+    const isOrder = (a, b) => Boolean(who(a) && who(b) && who(a) !== who(b) && ACTION_START.has(kind(a)) === ACTION_START.has(kind(b)));
+    const order = isOrder(diff.actual, diff.expected);
     const dims = [];
     for (const u of cast) {
       const kn = knowledge.get(u.id);
@@ -771,7 +774,7 @@ export async function inferSpreads({
     // Pokemon of the earlier order is moved beside them.
     const escort = async (moves, got) => {
       const stop = got.b?.report.diffs[0];
-      if (moves.some(c => c.stat !== 'spe') || !stop || !(stop.turn < t) || !who(stop.actual) || !who(stop.expected) || who(stop.actual) === who(stop.expected)) return;
+      if (moves.some(c => c.stat !== 'spe') || !stop || !(stop.turn < t) || !isOrder(stop.actual, stop.expected)) return;
       for (const id of namedIn(`|${who(stop.expected)}|${who(stop.actual)}`)) {
         if (moves.some(c => c.id === id)) continue;
         const o = dimOf(unknown.find(u => u.id === id), 'spe');
