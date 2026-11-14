@@ -644,6 +644,63 @@ export function defaultSpread(dex, set, hp) {
   return evs;
 }
 
+const STEP = 1_000_000;
+
+/**
+ * Per-stat step cost for `closestSpread`: one `STEP` per Stat Point moved, plus
+ * a tie-breaker so equal-distance moves shed unconstrained offensive stats
+ * (`atk`, `spa`) before defences or Speed, and `hp` last.
+ */
+function statWeights(kn) {
+  const pairs = pairsOf(kn.ties);
+  const flatWidth = (s) => {
+    let n = 0;
+    for (let v = 0; v < SPAN; v++) n += kn.dom[s][v];
+    const tied = Boolean(kn.ties?.[s]) || pairs.some(p => p.a === s || p.b === s);
+    return tied && n === SPAN ? SPAN - 1 : n;
+  };
+  const seenHp = new Uint8Array(SPAN);
+  const seenDef = new Uint8Array(SPAN);
+  const seenSpd = new Uint8Array(SPAN);
+  let floorHp = false;
+  let floorDef = false;
+  let floorSpd = false;
+  for (let k = 0; k < KEYS; k++) {
+    if (!kn.keys[k]) continue;
+    const hp = KEY_HP[k];
+    const def = KEY_DEF[k];
+    const spd = KEY_SPD[k];
+    seenHp[hp] = 1;
+    seenDef[def] = 1;
+    seenSpd[spd] = 1;
+    if (!kn.spent) {
+      if (!floorHp && hp > 0 && !kn.keys[k - SPAN * SPAN]) floorHp = true;
+      if (!floorDef && def > 0 && !kn.keys[k - SPAN]) floorDef = true;
+      if (!floorSpd && spd > 0 && !kn.keys[k - 1]) floorSpd = true;
+    }
+  }
+  const count = (arr) => { let n = 0; for (let v = 0; v < SPAN; v++) n += arr[v]; return n; };
+  const wAtk = flatWidth('atk');
+  const wSpa = flatWidth('spa');
+  const wSpe = flatWidth('spe');
+  const wHp = count(seenHp);
+  const wDef = count(seenDef);
+  const wSpd = count(seenSpd);
+  if (kn.spent) {
+    floorHp = wHp < SPAN;
+    floorDef = wDef < SPAN;
+    floorSpd = wSpd < SPAN;
+  }
+  return {
+    atk: STEP + (wAtk < SPAN ? 10 + (SPAN - wAtk) * 2 : 2),
+    spa: STEP + (wSpa < SPAN ? 11 + (SPAN - wSpa) * 2 : 3),
+    def: STEP + (floorDef ? 300 + (SPAN - wDef) * 2 : 100),
+    spd: STEP + (floorSpd ? 301 + (SPAN - wSpd) * 2 : 101),
+    spe: STEP + (wSpe < SPAN ? 210 + (SPAN - wSpe) * 2 : 200),
+    hp: STEP + (floorHp ? 500 + (SPAN - wHp) * 2 : 400),
+  };
+}
+
 /** The surviving spread nearest `prev`, counting Stat Points moved. */
 export function closestSpread(kn, prev) {
   if (pairsOf(kn.ties).length) return closestPaired(kn, prev);
@@ -652,11 +709,14 @@ export function closestSpread(kn, prev) {
   const S = aliveOf(kn.dom.spa);
   const E = aliveOf(kn.dom.spe);
   if (!A.length || !S.length || !E.length) return null;
+  const w = statWeights(kn);
   const best = new Array(3 * (SPAN - 1) + 1).fill(null);
   for (const a of A) {
+    const ca = Math.abs(a - prev.atk) * w.atk;
     for (const s of S) {
+      const cas = ca + Math.abs(s - prev.spa) * w.spa;
       for (const e of E) {
-        const cost = Math.abs(a - prev.atk) + Math.abs(s - prev.spa) + Math.abs(e - prev.spe);
+        const cost = cas + Math.abs(e - prev.spe) * w.spe;
         const sum = a + s + e;
         if (!best[sum] || cost < best[sum].cost) best[sum] = { cost, a, s, e };
       }
@@ -675,8 +735,8 @@ export function closestSpread(kn, prev) {
     if (room < 0) continue;
     const f = kn.spent ? best[room] : upTo[Math.min(room, upTo.length - 1)];
     if (!f) continue;
-    const cost = Math.abs(KEY_HP[k] - prev.hp) + Math.abs(KEY_DEF[k] - prev.def) + Math.abs(KEY_SPD[k] - prev.spd) + f.cost;
-    if (!win || cost < win.cost) win = { cost, k, f };
+    const cost = Math.abs(KEY_HP[k] - prev.hp) * w.hp + Math.abs(KEY_DEF[k] - prev.def) * w.def + Math.abs(KEY_SPD[k] - prev.spd) * w.spd + f.cost;
+    if (!win || cost < win.cost || (cost === win.cost && k > win.k)) win = { cost, k, f };
   }
   if (!win) return null;
   return { hp: KEY_HP[win.k], atk: win.f.a, def: KEY_DEF[win.k], spa: win.f.s, spd: KEY_SPD[win.k], spe: win.f.e };
@@ -684,6 +744,7 @@ export function closestSpread(kn, prev) {
 
 /** `closestSpread` where a tie lets each key keep its own values of a stat. */
 function closestTied(kn, prev) {
+  const w = statWeights(kn);
   const tied = FLAT.filter(s => kn.ties[s]);
   const free = FLAT.filter(s => !tied.includes(s));
   // The cheapest values of the untied stats for each exact total, and for each
@@ -696,7 +757,7 @@ function closestTied(kn, prev) {
     best.forEach((b, t) => {
       if (!b) return;
       for (const v of values) {
-        const cost = b.cost + Math.abs(v - prev[s]);
+        const cost = b.cost + Math.abs(v - prev[s]) * w[s];
         if (!next[t + v] || cost < next[t + v].cost) next[t + v] = { cost, vals: { ...b.vals, [s]: v } };
       }
     });
@@ -714,8 +775,8 @@ function closestTied(kn, prev) {
     if (!kn.keys[k]) continue;
     const room = BUDGET - KEY_SUM[k];
     if (room < 0) continue;
-    const keyCost = Math.abs(KEY_HP[k] - prev.hp) + Math.abs(KEY_DEF[k] - prev.def) + Math.abs(KEY_SPD[k] - prev.spd);
-    if (win && keyCost >= win.cost) continue;
+    const keyCost = Math.abs(KEY_HP[k] - prev.hp) * w.hp + Math.abs(KEY_DEF[k] - prev.def) * w.def + Math.abs(KEY_SPD[k] - prev.spd) * w.spd;
+    if (win && keyCost > win.cost) continue;
     const lists = tied.map((s, j) => wordValues((kn.ties[s][2 * k] & words[j][0]) >>> 0, kn.ties[s][2 * k + 1] & words[j][1]));
     if (lists.some(l => !l.length)) continue;
     const pick = (j, sum, cost, vals) => {
@@ -725,10 +786,10 @@ function closestTied(kn, prev) {
         const f = kn.spent ? best[r] : upTo[Math.min(r, upTo.length - 1)];
         if (!f) return;
         const total = keyCost + cost + f.cost;
-        if (!win || total < win.cost) win = { cost: total, k, vals: { ...vals, ...f.vals } };
+        if (!win || total < win.cost || (total === win.cost && k > win.k)) win = { cost: total, k, vals: { ...vals, ...f.vals } };
         return;
       }
-      for (const v of lists[j]) pick(j + 1, sum + v, cost + Math.abs(v - prev[tied[j]]), { ...vals, [tied[j]]: v });
+      for (const v of lists[j]) pick(j + 1, sum + v, cost + Math.abs(v - prev[tied[j]]) * w[tied[j]], { ...vals, [tied[j]]: v });
     };
     pick(0, 0, 0, {});
   }
@@ -738,6 +799,7 @@ function closestTied(kn, prev) {
 
 /** `closestSpread` with a pair tie: the cheapest whole choice of flat values per total, per key. */
 function closestPaired(kn, prev) {
+  const w = statWeights(kn);
   const pairs = pairsOf(kn.ties);
   const words = FLAT.map(s => maskWords(kn.dom[s]));
   const memo = new Map();
@@ -746,8 +808,8 @@ function closestPaired(kn, prev) {
     if (!kn.keys[k]) continue;
     const room = BUDGET - KEY_SUM[k];
     if (room < 0) continue;
-    const keyCost = Math.abs(KEY_HP[k] - prev.hp) + Math.abs(KEY_DEF[k] - prev.def) + Math.abs(KEY_SPD[k] - prev.spd);
-    if (win && keyCost >= win.cost) continue;
+    const keyCost = Math.abs(KEY_HP[k] - prev.hp) * w.hp + Math.abs(KEY_DEF[k] - prev.def) * w.def + Math.abs(KEY_SPD[k] - prev.spd) * w.spd;
+    if (win && keyCost > win.cost) continue;
     const { lists, sig } = listsFor(k, kn.dom, kn.ties, words);
     let best = memo.get(sig);
     if (!best) {
@@ -756,12 +818,14 @@ function closestPaired(kn, prev) {
       const v = {};
       for (const x of vals[0]) {
         v.atk = x;
+        const cx = Math.abs(x - prev.atk) * w.atk;
         for (const y of vals[1]) {
           v.spa = y;
+          const cxy = cx + Math.abs(y - prev.spa) * w.spa;
           for (const z of vals[2]) {
             v.spe = z;
             if (!pairsAllow(pairs, v)) continue;
-            const cost = Math.abs(x - prev.atk) + Math.abs(y - prev.spa) + Math.abs(z - prev.spe);
+            const cost = cxy + Math.abs(z - prev.spe) * w.spe;
             if (!at[x + y + z] || cost < at[x + y + z].cost) at[x + y + z] = { cost, vals: { ...v } };
           }
         }
@@ -777,7 +841,8 @@ function closestPaired(kn, prev) {
     }
     const f = kn.spent ? best.at[room] : best.upTo[Math.min(room, best.upTo.length - 1)];
     if (!f) continue;
-    if (!win || keyCost + f.cost < win.cost) win = { cost: keyCost + f.cost, k, vals: f.vals };
+    const total = keyCost + f.cost;
+    if (!win || total < win.cost || (total === win.cost && k > win.k)) win = { cost: total, k, vals: f.vals };
   }
   if (!win) return null;
   return { hp: KEY_HP[win.k], atk: win.vals.atk, def: KEY_DEF[win.k], spa: win.vals.spa, spd: KEY_SPD[win.k], spe: win.vals.spe };
@@ -790,7 +855,9 @@ export const sameSpread = (a, b) => STAT_IDS.every(s => a[s] === b[s]);
  * Where to aim the next guess. The nearest survivor to a guess the evidence
  * just removed sits on the edge of what survives, where the next observation
  * is most likely to cut again - so a stat the evidence has narrowed aims at the
- * middle of its range, and a stat nothing has touched keeps the old value.
+ * middle of its range, except a zero stat where zero still survives (whose top
+ * end the 66-point budget alone can trim), and a stat nothing has touched keeps
+ * the old value.
  */
 export function aimFor(kn, prev, q = 0.5) {
   const seen = { hp: new Uint8Array(SPAN), def: new Uint8Array(SPAN), spd: new Uint8Array(SPAN) };
@@ -802,8 +869,11 @@ export function aimFor(kn, prev, q = 0.5) {
   }
   const aim = {};
   for (const s of STAT_IDS) {
-    const values = aliveOf(FLAT.includes(s) ? kn.dom[s] : seen[s]);
-    aim[s] = values.length && values.length < SPAN ? values[Math.floor((values.length - 1) * q + 0.5)] : prev[s];
+    const mask = FLAT.includes(s) ? kn.dom[s] : seen[s];
+    const values = aliveOf(mask);
+    const keepZero = prev[s] === 0 && mask[0] === 1 && q === 0.5;
+    aim[s] = values.length && values.length < SPAN && !keepZero
+      ? values[Math.floor((values.length - 1) * q + 0.5)] : prev[s];
   }
   return aim;
 }

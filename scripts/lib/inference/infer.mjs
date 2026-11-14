@@ -715,11 +715,15 @@ export async function inferSpreads({
     const plain = await replayWith(built.inputLog, packOf(start), t, channel);
     const actorOf = l => [...namedIn(`|x|${(/^p[1-4][a-d]?: /.test(String(l || '').split('|')[2] || '') ? String(l).split('|')[2] : '')}`)][0];
     const disputed = (built.report.hidden || []).includes(t) ? new Set([actorOf(diff.expected), actorOf(diff.actual)].filter(Boolean)) : new Set();
-    const done = new Set([signature(start)]);
+    const done = new Map([[signature(start), null]]);
     const probe = async (changes, from = knowledge) => {
       const chosen = build(changes, from);
-      if (!chosen || done.has(signature(chosen))) return null;
-      done.add(signature(chosen));
+      if (!chosen) return null;
+      const sig = signature(chosen);
+      if (done.has(sig)) {
+        const hit = done.get(sig);
+        return hit ? { ...hit, cached: true } : null;
+      }
       const same = !!plain && !changes.some(c => disputed.has(c.id))
         && JSON.stringify(await replayWith(built.inputLog, packOf(chosen), t, channel)) === JSON.stringify(plain);
       let b = same ? null : await rebuild(chosen, budget);
@@ -736,7 +740,9 @@ export async function inferSpreads({
       const stop = b && b.report.diffs[0];
       onProgress(`  fallback on turn ${t}: ${changes.map(c => `${c.name} ${c.stat} ${c.value}`).join(', ')} - ${same ? 'plays out the same'
         : b.report.complete ? 'reproduces it' : `stops at ${reach(b).join('.')}: wanted ${stop?.expected}, got ${stop?.actual}`}${fresh ? ' with the dice before it searched again' : ''}, ${clock()}`);
-      return { chosen, b, same, fresh };
+      const res = { chosen, b, same, fresh };
+      done.set(sig, res);
+      return res;
     };
 
     const baseReach = reach(base);
@@ -761,7 +767,8 @@ export async function inferSpreads({
     // this Pokemon and another inferred one, can be right with that one's Speed
     // moved too: two hidden Speeds that one turn puts in one order and this turn
     // needs further apart. Only the two the order is between, not a target the
-    // line names; the other's far end first, then its near one.
+    // line names; when one of the moved Speeds is in that order, the other only
+    // moves the same way.
     const dimOf = (u, stat) => dims.find(x => x.id === u.id && x.stat === stat) || (() => {
       const kn = knowledge.get(u.id);
       const values = valuesOf(maskKeys(kn.keys), kn.dom, kn.spent, kn.ties).values;
@@ -772,16 +779,20 @@ export async function inferSpreads({
     const escort = async (moves, got) => {
       const stop = got.b?.report.diffs[0];
       if (moves.some(c => c.stat !== 'spe') || !stop || !(stop.turn < t) || !who(stop.actual) || !who(stop.expected) || who(stop.actual) === who(stop.expected)) return;
-      for (const id of namedIn(`|${who(stop.expected)}|${who(stop.actual)}`)) {
+      const named = namedIn(`|${who(stop.expected)}|${who(stop.actual)}`);
+      const movers = moves.filter(c => named.has(c.id));
+      const dir = movers.length === 1 ? Math.sign(movers[0].value - movers[0].now) : 0;
+      for (const id of named) {
         if (moves.some(c => c.id === id)) continue;
         const o = dimOf(unknown.find(u => u.id === id), 'spe');
-        const ends = [...new Set([o.alive[0], o.alive[o.alive.length - 1]])].filter(v => v !== undefined && v !== o.now)
+        const ends = [...new Set([o.alive[0], o.alive[o.alive.length - 1]])]
+          .filter(v => v !== undefined && v !== o.now && (!dir || Math.sign(v - o.now) === dir))
           .sort((x, y) => Math.abs(y - o.now) - Math.abs(x - o.now));
         for (const ov of ends) {
           if (found || ahead || !affordable()) return;
           const changes = [...moves, { ...o, value: ov }];
           const pair = await probe(changes);
-          if (pair?.b) judge(changes, pair);
+          if (pair?.b && !pair.cached) judge(changes, pair);
         }
       }
     };
@@ -793,18 +804,11 @@ export async function inferSpreads({
       if (!got) return null;
       if (got.b) judge(changes, got, d);
       d.sides.set(value, sideOf(got));
-      if (escorted && d.sides.get(value) === 'early' && !found && !ahead) await escort([{ ...d, value }], got);
+      if (!got.cached && escorted && d.sides.get(value) === 'early' && !found && !ahead) await escort([{ ...d, value }], got);
       return d.sides.get(value);
     };
-    // An order between two inferred Pokemon on a turn with an unseen choice:
-    // their Speeds pushed apart, each way round, before either moves alone -
-    // one alone is blocked by the other's guess, as a Rillaboom guessed slow is
-    // by a Glalie guessed fast whose put-in Protect prints the same either way.
-    // The line the rebuild printed can be the put-in choice itself - a Protect
-    // that goes first at any Speed - and then the order the turn disputes is
-    // with whoever acts next in the rebuild: under Trick Room, a Hippowdon
-    // guessed slower than the Kingambit the replay has first.
-    if (order && disputed.size) {
+    const orderPairs = (() => {
+      if (!order) return [];
       const actor = l => [...namedIn(`|x|${who(l) || ''}`)][0];
       const turnLines = (() => {
         const from = (plain || []).indexOf(`|turn|${t}`);
@@ -815,35 +819,51 @@ export async function inferSpreads({
         && who(l) && who(l) !== who(diff.actual) && who(l) !== who(diff.expected));
       const spe = id => dims.find(d => d.id === id && d.stat === 'spe');
       const da = spe(actor(diff.expected));
-      for (const db of [spe(actor(diff.actual)), next ? spe(actor(next)) : null]) {
-        if (!da || !db || da.id === db.id || !da.alive.length || !db.alive.length) continue;
+      return [spe(actor(diff.actual)), next ? spe(actor(next)) : null]
+        .filter(db => da && db && da.id !== db.id && da.alive.length && db.alive.length)
+        .map(db => [da, db]);
+    })();
+    // An order between two inferred Pokemon on a turn with an unseen choice:
+    // their Speeds pushed apart, each way round, before either moves alone -
+    // one alone is blocked by the other's guess, as a Rillaboom guessed slow is
+    // by a Glalie guessed fast whose put-in Protect prints the same either way.
+    // The line the rebuild printed can be the put-in choice itself - a Protect
+    // that goes first at any Speed - and then the order the turn disputes is
+    // with whoever acts next in the rebuild: under Trick Room, a Hippowdon
+    // guessed slower than the Kingambit the replay has first.
+    if (orderPairs.length && disputed.size) {
+      for (const [da, db] of orderPairs) {
         const top = d => d.alive[d.alive.length - 1];
         for (const [va, vb] of [[top(da), db.alive[0]], [da.alive[0], top(db)]]) {
           if (found || ahead || !affordable()) break;
           const changes = [{ ...da, value: va }, { ...db, value: vb }];
           const got = await probe(changes);
-          if (got?.b) judge(changes, got);
-          // Pushed apart, they break an earlier turn's order with a third
-          // Pokemon, whose guessed Speed held it: that one is moved too, as
-          // for one Speed alone.
-          if (got?.b && !found && !ahead && sideOf(got) === 'early') await escort(changes, got);
+          if (got && !got.cached) {
+            if (got.b) judge(changes, got);
+            // Pushed apart, they break an earlier turn's order with a third
+            // Pokemon, whose guessed Speed held it: that one is moved too, as
+            // for one Speed alone.
+            if (got.b && !found && !ahead && sideOf(got) === 'early') await escort(changes, got);
+          }
         }
       }
     }
-    // Which stats move the line: each stat at its ends. One whose ends stop
-    // the rebuild before the line at one and leave it as it was at the other
-    // has the line's values between them, as an order between two speeds
-    // does, and is halved until a value gets past the line or the halves stop
-    // telling the two apart. Then every stat at its middle.
-    // On an order the Speed whose ends straddle it is halved at once: the
-    // order's value lies between them. On any other line every stat's ends
-    // come first, across the whole cast, and only then the halving: a halving
-    // spends a rebuild per step, and spent on the first Pokemon's stats it
-    // leaves none for the one whose stat decides the line - the Orthworm whose
-    // Shed Tail made the Substitute a drain was taken off.
+    // Which stats move the line: each stat at its ends. One where `d.now`
+    // (`'same'`) and an end (`'early'`) straddle an earlier failure has the
+    // corridor's values between them, even when both ends fail early, and is
+    // halved from `d.now` toward each early end until a value gets past the
+    // line or the halves stop telling the two apart. Then every stat at its
+    // middle.
+    // On an order the Speed whose span straddles it is halved at once, and once
+    // both Pokemon of an ordered pair have mapped their safe Speed bounds,
+    // their safe opposite bounds are tried together. On any other line every
+    // stat's ends come first, across the whole cast, and only then the halving:
+    // a halving spends a rebuild per step, and spent on the first Pokemon's
+    // stats it leaves none for the one whose stat decides the line - the
+    // Orthworm whose Shed Tail made the Substitute a drain was taken off.
     const halve = [];
-    const halving = async ({ d, ends }) => {
-      let [i, j] = [0, d.alive.length - 1];
+    const halving = async ({ d, i: lo, j: hi, ends }) => {
+      let [i, j] = [lo, hi];
       while (j - i > 1 && !found && !ahead && affordable()) {
         const m = (i + j) >> 1;
         const side = await tryValue(d, d.alive[m], { escorted: false });
@@ -852,13 +872,45 @@ export async function inferSpreads({
         else break;
       }
     };
+    const spansOf = (d, ends) => {
+      const n = d.alive.length;
+      const at = d.alive.indexOf(d.now);
+      if (at < 0) return ends.includes('early') && ends.includes('same') ? [{ d, i: 0, j: n - 1, ends }] : [];
+      const out = [];
+      if (n - 1 - at > 1 && ends[1] === 'early') out.push({ d, i: at, j: n - 1, ends: ['same', 'early'] });
+      if (at > 1 && ends[0] === 'early') out.push({ d, i: 0, j: at, ends: ['early', 'same'] });
+      return out;
+    };
+    const safeHi = d => d.alive.findLast(v => v >= d.now && (v === d.now || d.sides.get(v) === 'same')) ?? d.now;
+    const safeLo = d => d.alive.find(v => v <= d.now && (v === d.now || d.sides.get(v) === 'same')) ?? d.now;
+    const walked = new Set();
+    const paired = new Set();
     for (const d of dims) {
       const n = d.alive.length;
       if (!n || found || ahead || !affordable()) continue;
       const ends = [await tryValue(d, d.alive[0]), found || ahead || !affordable() ? null : await tryValue(d, d.alive[n - 1])];
-      if (!ends.includes('early') || !ends.includes('same')) continue;
-      if (order) await halving({ d, ends });
-      else halve.push({ d, ends });
+      for (const span of spansOf(d, ends)) {
+        if (order && d.stat === 'spe') await halving(span);
+        else halve.push(span);
+      }
+      walked.add(d);
+      if (order && d.stat === 'spe' && !found && !ahead && affordable()) {
+        for (const [da, db] of orderPairs) {
+          const key = `${da.id}|${db.id}`;
+          if (paired.has(key) || !walked.has(da) || !walked.has(db)) continue;
+          paired.add(key);
+          const top = x => x.alive[x.alive.length - 1];
+          for (const [va, vb] of [[safeHi(da), safeLo(db)], [safeLo(da), safeHi(db)], [top(da), db.alive[0]], [da.alive[0], top(db)]]) {
+            if (found || ahead || !affordable()) break;
+            const changes = [{ ...da, value: va }, { ...db, value: vb }];
+            const got = await probe(changes);
+            if (got && !got.cached) {
+              if (got.b) judge(changes, got);
+              if (got.b && !found && !ahead && sideOf(got) === 'early') await escort(changes, got);
+            }
+          }
+        }
+      }
     }
     for (const h of halve) await halving(h);
     for (const d of dims) {
@@ -884,7 +936,7 @@ export async function inferSpreads({
             if (found || ahead || !affordable()) break;
             const changes = [{ ...a, value: va }, { ...b, value: vb }];
             const got = await probe(changes);
-            if (got?.b) judge(changes, got);
+            if (got?.b && !got.cached) judge(changes, got);
           }
         }
       }
@@ -1068,8 +1120,11 @@ export async function inferSpreads({
       const id = `p${s + 1}:${i}`;
       const kn = cond.get(id);
       const tried = [];
+      const triedAims = [];
       const fixed = held.has(id) ? [held.get(id)] : [];
       for (const aim of [...fixed, aimFor(kn, picks[s][i]), picks[s][i], aimFor(kn, picks[s][i], 0.25), aimFor(kn, picks[s][i], 0.75)]) {
+        if (triedAims.some(a => sameSpread(a, aim))) continue;
+        triedAims.push(aim);
         if (tries <= 0) { limits.add('guessTries'); return null; }
         const first = closestSpread(kn, aim);
         if (!first) continue;
