@@ -467,9 +467,9 @@ async function runOne({
       for (const line of report.lines) say(line);
       setReports.push(report);
     }
-    inferSets = sets;
+    inferSets = inference.sets || sets;
     built = inference.built;
-    packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: inference.picks[s][i] }))));
+    packedTeams = inferSets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: inference.picks[s][i] }))));
   } else {
     built = await reconstruct({
       formatid: source.formatid,

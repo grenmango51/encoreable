@@ -24,12 +24,13 @@
 
 import { createRequire } from 'module';
 
-import { battleLines } from '../protocol.mjs';
+import { battleLines, unmaskIllusion } from '../protocol.mjs';
+import { install } from '../rng-control.mjs';
 import {
   ACTION_START, DIE_BACKTRACKS, MAX_VARIANTS, disguisableStays, identName, identSide, reconstruct, sampler, splitTurns,
   unsettledDisguises,
 } from '../reconstruct.mjs';
-import { sameSheet } from '../replay-source.mjs';
+import { sameSheet, setsFromLog } from '../replay-source.mjs';
 import {
   BUDGET, FLAT, SPAN, STAT_IDS, aimFor, aliveOf, cloneKnowledge, closestSpread, containsSpread, defaultSpread, freshKnowledge, fullEvs,
   intersectKnowledge, keyOf, maskKeys, packKnowledge, pinKnowledge, restrictKnowledge, sameSpread, spreadAt, spreadsLeft, summarise,
@@ -39,7 +40,7 @@ import { usualSpreads } from './usage.mjs';
 import { evidencePass } from './evidence.mjs';
 
 const require = createRequire(import.meta.url);
-const { BattleStream, Dex, Teams, toID } = require('pokemon-showdown');
+const { BattleStream, Dex, TeamValidator, Teams, toID } = require('pokemon-showdown');
 const { extractChannelMessages } = require('pokemon-showdown/dist/sim/battle.js');
 
 // What the fallback may spend: rebuilds of a failing turn, per line and per
@@ -183,6 +184,679 @@ function handOn(built, rolls, coupled = Infinity) {
   return out;
 }
 
+// ------------------------------------------------------ closed-sheet hypotheses
+
+const SILENT_ITEM_CACHE = new Map();
+const ITEM_MOD_HOOK = /^on(?:Modify(?:Atk|Def|SpA|SpD|Spe|Damage)|BasePower|TryHeal|Effectiveness)/;
+const ITEM_SELF_ANNOUNCE = /\b(?:useItem|eatItem)\s*\(|\bthis\.add\s*\(/;
+const PASSIVE_ABILITY_EVENTS = new Set(['Start', 'SwitchIn', 'AnySwitchIn', 'Update', 'Residual', 'End', 'Weather']);
+
+function cloneSetWithBoxes(set, patch = {}) {
+  const moves = set?.boxes && !set.moves?.length && set.boxes.fallbackMove ? [set.boxes.fallbackMove] : [...(set.moves || [])];
+  const next = { ...set, moves, ...patch };
+  if (set?.boxes) Object.defineProperty(next, 'boxes', { value: set.boxes });
+  return next;
+}
+
+function cloneTeamsWithBoxes(sets, mut = null) {
+  return sets.map((team, s) => team.map((set, i) => cloneSetWithBoxes(set, mut?.(s, i, set) || {})));
+}
+
+function setsForForced(baseSets, known, lines, formatid, forcedAts) {
+  if (!forcedAts?.length || !baseSets.some((team, s) => !known?.[s] && team.some(x => x?.boxes))) return baseSets;
+  const dex = Dex.forFormat(formatid);
+  const baseOf = sp => toID(dex.species.get(String(sp || '').replace(/-\*$/, '')).baseSpecies || sp);
+  const sheets = {};
+  for (const [s, team] of baseSets.entries()) {
+    sheets[`p${s + 1}`] = {
+      exact: false,
+      members: team.map(m => ({
+        name: m.name || m.species,
+        moves: new Set((m.moves || []).map(toID)),
+        maxhp: 0,
+        illusion: toID(m.ability) === 'illusion',
+      })),
+    };
+  }
+  const unmasked = unmaskIllusion(lines, sheets, new Set(forcedAts));
+  const patched = unmasked.lines.slice();
+  for (const [s, team] of baseSets.entries()) {
+    if (known?.[s] || !team.some(x => x?.boxes)) continue;
+    const side = `p${s + 1}`;
+    const zoro = team.find(m => toID(m.ability) === 'illusion');
+    if (!zoro) continue;
+    const pokeLine = lines.find((l) => {
+      const p = l.split('|');
+      return p[1] === 'poke' && p[2] === side && baseOf(p[3].split(',')[0]) === baseOf(zoro.species);
+    });
+    const details = pokeLine ? pokeLine.split('|')[3] : `${zoro.species}, L${zoro.level || 50}${zoro.gender ? `, ${zoro.gender}` : ''}`;
+    for (const at of forcedAts) {
+      const p = String(patched[at] || '').split('|');
+      if ((p[1] === 'switch' || p[1] === 'drag') && String(p[2] || '').startsWith(side) && identName(p[2]) === (zoro.name || zoro.species)) {
+        p[3] = details;
+        patched[at] = p.join('|');
+      }
+    }
+  }
+  return baseSets.map((team, s) => {
+    if (known?.[s] || !team.some(x => x?.boxes)) return team;
+    const ruledOut = {};
+    for (const m of team) {
+      if (m?.boxes?.ruledOut?.length) ruledOut[m.name || m.species] = m.boxes.ruledOut;
+    }
+    return setsFromLog(patched, `p${s + 1}`, formatid, { ruledOut, standIn: true }).sets;
+  });
+}
+
+function silentItemsForFormat(formatid) {
+  if (SILENT_ITEM_CACHE.has(formatid)) return SILENT_ITEM_CACHE.get(formatid);
+  const dex = Dex.forFormat(formatid);
+  const validator = new TeamValidator(formatid);
+  const ruleTable = dex.formats.getRuleTable(dex.formats.get(formatid));
+  const itemClause = ruleTable.has('itemclause') || Boolean(ruleTable.valueRules?.has('itemclause'));
+  const blankSet = (s, item = '') => ({
+    name: s.name, species: s.name, item, ability: s.abilities[0] || '', moves: [], nature: 'Serious', evs: {}, ivs: {}, level: 50,
+  });
+  const legalSpecies = dex.species.all().filter(s => s.exists && !s.battleOnly && !validator.checkSpecies(blankSet(s), s, s, {}));
+  const modifiers = [];
+  let inert = null;
+  for (const item of dex.items.all()) {
+    if (!item.exists || item.megaStone || item.isBerry) continue;
+    if (!legalSpecies.some(s => !validator.checkItem(blankSet(s, item.name), item, {}))) continue;
+    const fns = [
+      ...Object.entries(item).filter(([, v]) => typeof v === 'function'),
+      ...Object.entries(item.condition || {}).filter(([, v]) => typeof v === 'function'),
+    ];
+    if (!fns.length) {
+      if (!inert && !item.itemUser?.length) inert = item;
+      continue;
+    }
+    const src = fns.map(([, fn]) => fn.toString()).join('\n');
+    if (ITEM_SELF_ANNOUNCE.test(src)) continue;
+    if (fns.some(([k]) => ITEM_MOD_HOOK.test(k))) modifiers.push(item);
+  }
+  if (inert) modifiers.push(inert);
+  const out = { modifiers, validator, itemClause };
+  SILENT_ITEM_CACHE.set(formatid, out);
+  return out;
+}
+
+function choiceLockViolated(lines, sideIdx, monName, species, hasIllusion) {
+  if (hasIllusion) return false;
+  if (Object.values(species.abilities || {}).some(a => toID(a) === 'klutz')) return false;
+  const side = `p${sideIdx + 1}`;
+  for (const line of lines) {
+    if (/Magic Room|Trick|Switcheroo|Symbiosis|Skill Swap|Entrainment|Role Play|Doodle|Worry Seed|Simple Beam|Gastro Acid|Neutralizing Gas/.test(line)) return false;
+    if (line.startsWith(`|-enditem|${side}`) || line.startsWith(`|-item|${side}`) || line.startsWith(`|-transform|${side}`) || line.startsWith(`|-ability|${side}`)) return false;
+  }
+  const locked = new Map();
+  for (const line of lines) {
+    const p = line.split('|');
+    const slot = String(p[2] || '').split(':')[0];
+    if (!slot.startsWith(side)) continue;
+    const name = identName(p[2]);
+    if (['switch', 'drag', 'replace', 'faint'].includes(p[1])) {
+      locked.delete(slot);
+      continue;
+    }
+    if (p[1] === 'move' && name === monName) {
+      if (line.includes('[from]') && !line.includes('[from] lockedmove')) continue;
+      const move = p[3];
+      if (!move || toID(move) === 'struggle') continue;
+      const prev = locked.get(slot);
+      if (prev && prev !== move) return true;
+      locked.set(slot, move);
+    }
+  }
+  return false;
+}
+
+function tagsOfLine(line) {
+  return Object.fromEntries(String(line || '').split('|').slice(2)
+    .map(f => /^\[([a-z]+)\]\s*(.*)$/.exec(f.trim())).filter(Boolean).map(m => [m[1], m[2]]));
+}
+
+function announcedAbilityOf(diff, candSets, observed, formatid) {
+  const line = String(diff?.actual || '');
+  if (!line.startsWith('|')) return null;
+  const dex = Dex.forFormat(formatid);
+  const p = line.split('|');
+  const tags = tagsOfLine(line);
+  let who = null;
+  let ability = null;
+  let field = null;
+  if (p[1] === '-ability' && !tags.from) { who = p[2]; ability = p[3]; }
+  else if (/^ability: /.test(tags.from || '') && ['-weather', '-fieldstart', '-item'].includes(p[1])) {
+    who = tags.of;
+    ability = tags.from.slice(9);
+    if (p[1] !== '-item') field = `|${p[1]}|${p[2]}`;
+  }
+  const m = /^(p[12])[a-d]?: (.+)$/.exec(String(who || ''));
+  if (!m || !ability) return null;
+  const s = Number(m[1][1]) - 1;
+  const team = candSets[s];
+  const i = team ? team.findIndex(x => (x.name || x.species) === m[2]) : -1;
+  if (i < 0 || team[i].boxes?.ability !== 'assumed' || toID(team[i].ability) !== toID(ability)) return null;
+  const handler = dex.abilities.get(ability);
+  if (!handler.onStart && !handler.onSwitchIn) return null;
+  const turn = splitTurns(observed.filter(l => typeof l === 'string'))[diff.turn] || [];
+  if (turn.includes(line)) return null;
+  if (field && turn.some(l => l.startsWith(`${field}|`) && !l.includes('[upkeep]'))) return null;
+  return {
+    side: s,
+    index: i,
+    name: m[2],
+    ability: handler.name,
+    why: `the rebuild announces it on turn ${diff.turn} (${line}) and the replay does not`,
+  };
+}
+
+function snapPlain(o) {
+  let out = '';
+  for (const k of Object.keys(o)) {
+    const v = o[k];
+    const t = typeof v;
+    if (t === 'string' || t === 'number' || t === 'boolean' || v === null || v === undefined) out += `${k}:${v};`;
+    else if (Array.isArray(v)) out += `${k}:[${v.length}];`;
+  }
+  return out;
+}
+
+async function probeCandidate(formatid, baseBuilt, baseBattleLines, candSets, observed, channel, sideIdx, monIdx, patch) {
+  const dex = Dex.forFormat(formatid);
+  const isAbility = patch.ability !== undefined;
+  const effectObj = isAbility ? dex.abilities.get(patch.ability) : dex.items.get(patch.item);
+  const events = new Set();
+  const allyQueries = [];
+  let acted = false;
+  let calledRelevant = false;
+  let patchedTeam = null;
+
+  const isOurs = ef => Boolean(ef && (
+    (ef.id === effectObj.id && (ef.effectType === effectObj.effectType || ef.effectType === 'Condition'))
+    || (effectObj.isChoice && ef.id === 'choicelock')
+  ));
+
+  const stream = new BattleStream({ keepAlive: true });
+  const chunks = [];
+  const drain = (async () => { for await (const c of stream) chunks.push(c); })();
+  let hookedMons = false;
+  try {
+    const rawInput = Array.isArray(baseBuilt.inputLog) ? baseBuilt.inputLog : String(baseBuilt.inputLog).split('\n');
+    for (const raw of rawInput) {
+      let line = String(raw).trimEnd();
+      if (!line.startsWith('>')) continue;
+      const pm = /^>player (p([1-4])) (.*)$/.exec(line);
+      if (pm && Number(pm[2]) - 1 === sideIdx) {
+        const meta = JSON.parse(pm[3]);
+        patchedTeam = Teams.unpack(meta.team);
+        if (patchedTeam?.[monIdx]) patchedTeam[monIdx] = { ...patchedTeam[monIdx], ...patch };
+        line = `>player ${pm[1]} ${JSON.stringify({ ...meta, team: Teams.pack(patchedTeam) })}`;
+      }
+      await stream.write(line);
+      if (line.startsWith('>start')) {
+        const battle = stream.battle;
+        install(battle);
+        const origFind = battle.findEventHandlers;
+        battle.findEventHandlers = function (...fArgs) {
+          const list = origFind.apply(this, fArgs);
+          const evName = fArgs[1];
+          if (evName === 'TakeItem') return list;
+          for (const h of list) {
+            if (!isOurs(h.effect) || h.__probeWrapped) continue;
+            h.__probeWrapped = true;
+            if (typeof h.callback !== 'function') {
+              acted = true;
+              calledRelevant = true;
+              events.add(evName);
+              continue;
+            }
+            const origCb = h.callback;
+            h.callback = function (...callArgs) {
+              if (isAbility && !PASSIVE_ABILITY_EVENTS.has(evName)) calledRelevant = true;
+              const modBefore = battle.event?.modifier;
+              const logBefore = battle.log.length;
+              const snaps = callArgs.map(a => (a && typeof a === 'object' && !a.sides && !a.side && !a.pokemon ? snapPlain(a) : null));
+              const ret = origCb.apply(this, callArgs);
+              if (battle.event?.modifier !== modBefore || battle.log.length !== logBefore) {
+                acted = true;
+                events.add(evName);
+              } else if (ret !== undefined && (typeof ret === 'boolean' || ret === null || !callArgs.length || ret !== callArgs[0])) {
+                acted = true;
+                events.add(evName);
+              } else if (snaps.some((s, idx) => s !== null && snapPlain(callArgs[idx]) !== s)) {
+                acted = true;
+                events.add(evName);
+              }
+              return ret;
+            };
+          }
+          return list;
+        };
+        const origSingle = battle.singleEvent;
+        battle.singleEvent = function (eventid, effect, ...rest) {
+          if (!isOurs(effect) || eventid === 'TakeItem') return origSingle.call(this, eventid, effect, ...rest);
+          if (isAbility && !PASSIVE_ABILITY_EVENTS.has(eventid)) calledRelevant = true;
+          const modBefore = battle.event?.modifier;
+          const logBefore = battle.log.length;
+          const ret = origSingle.call(this, eventid, effect, ...rest);
+          if (battle.event?.modifier !== modBefore || battle.log.length !== logBefore
+            || (ret !== undefined && (typeof ret === 'boolean' || ret === null || ret !== rest[4]))) {
+            acted = true;
+            events.add(eventid);
+          }
+          return ret;
+        };
+      }
+      if (!hookedMons && stream.battle?.sides?.[sideIdx]?.pokemon?.length) {
+        hookedMons = true;
+        const battle = stream.battle;
+        const sideMons = battle.sides[sideIdx].pokemon;
+        const mon = sideMons[monIdx];
+        if (mon) {
+          for (const [idx, p] of sideMons.entries()) {
+            const origHas = p.hasAbility;
+            p.hasAbility = function (ability) {
+              const ids = Array.isArray(ability) ? ability.map(toID) : [toID(ability)];
+              if (p === mon && isAbility && ids.includes(effectObj.id)) {
+                acted = true;
+                calledRelevant = true;
+                events.add('hasAbility');
+              } else if (p !== mon && isAbility) {
+                for (const qid of ids) allyQueries.push({ allyIndex: idx, abilityId: qid });
+              }
+              return origHas.call(this, ability);
+            };
+          }
+          if (!isAbility) {
+            const origGrounded = mon.isGrounded;
+            mon.isGrounded = function (negateImmunity = false) {
+              const withItem = origGrounded.call(this, negateImmunity);
+              const saved = this.item;
+              this.item = '';
+              const withoutItem = origGrounded.call(this, negateImmunity);
+              this.item = saved;
+              if (withItem !== withoutItem) {
+                acted = true;
+                events.add('isGrounded');
+              }
+              return withItem;
+            };
+          }
+        }
+      }
+    }
+    if (!baseBuilt.report.complete && !acted && !isAbility && stream.battle?.sides?.[sideIdx]?.pokemon?.[monIdx]) {
+      const battle = stream.battle;
+      const mon = battle.sides[sideIdx].pokemon[monIdx];
+      const foes = battle.sides[1 - sideIdx]?.pokemon || [];
+      for (const moveName of candSets[sideIdx][monIdx].moves || []) {
+        const activeMove = dex.getActiveMove(moveName);
+        if (!activeMove.exists) continue;
+        if (typeof effectObj.onTryHeal === 'function' && (activeMove.drain || activeMove.flags?.heal)) {
+          const prev = battle.event;
+          battle.event = { id: 'TryHeal', modifier: 1 };
+          const r = effectObj.onTryHeal.call(battle, 10, mon, mon, dex.conditions.get('drain'));
+          if (battle.event.modifier !== 1 || r === false) { acted = true; events.add('TryHeal'); }
+          battle.event = prev;
+        }
+        if (activeMove.category === 'Status') continue;
+        for (const foe of foes) {
+          for (const [ev, fn] of [['BasePower', effectObj.onBasePower], ['ModifyAtk', effectObj.onModifyAtk], ['ModifySpA', effectObj.onModifySpA]]) {
+            if (typeof fn !== 'function') continue;
+            const prev = battle.event;
+            battle.event = { id: ev, modifier: 1 };
+            const r = fn.call(battle, activeMove.basePower || 100, mon, foe, activeMove);
+            if (battle.event.modifier !== 1 || (r !== undefined && r !== (activeMove.basePower || 100))) { acted = true; events.add(ev); }
+            battle.event = prev;
+          }
+          if (typeof effectObj.onModifyDamage === 'function' && dex.getImmunity(activeMove.type, foe.types) && dex.getEffectiveness(activeMove.type, foe.types) > 0) {
+            acted = true;
+            events.add('ModifyDamage');
+          }
+        }
+      }
+    }
+    await stream.writeEnd();
+    await drain;
+  } catch {
+    stream.destroy?.();
+  }
+  const rawLog = stream.battle?.log || [];
+  const candLines = battleLines(rawLog);
+  const logChanged = candLines.length !== baseBattleLines.length || candLines.some((l, k) => l !== baseBattleLines[k]);
+  if (logChanged) {
+    acted = true;
+    events.add('log');
+  }
+  let impossible = false;
+  if (isAbility && (effectObj.onStart || effectObj.onSwitchIn) && rawLog.length) {
+    const view = extractChannelMessages(rawLog.join('\n'), [channel])[channel] || [];
+    const wantTurns = splitTurns(observed.filter(l => typeof l === 'string'));
+    const gotTurns = splitTurns(view.map(l => (l.startsWith('|t:|') ? '|t:|' : l)));
+    for (let t = 0; t < Math.min(wantTurns.length, gotTurns.length); t++) {
+      const a = battleLines(wantTurns[t]).filter(l => l.split('|')[1] !== 'player');
+      const b = battleLines(gotTurns[t]).filter(l => l.split('|')[1] !== 'player');
+      let diffIdx = -1;
+      for (let k = 0; k < Math.max(a.length, b.length); k++) {
+        if (a[k] !== b[k]) { diffIdx = k; break; }
+      }
+      if (diffIdx >= 0) {
+        const testSets = cloneTeamsWithBoxes(candSets, (s, i) => (s === sideIdx && i === monIdx ? patch : {}));
+        if (announcedAbilityOf({ turn: t, expected: a[diffIdx], actual: b[diffIdx] }, testSets, observed, formatid)) {
+          impossible = true;
+        }
+        break;
+      }
+    }
+  }
+  return { acted: acted || calledRelevant, logChanged, events, allyQueries, impossible };
+}
+
+function speOnlyRedundant(best, probe) {
+  if (!best.complete) return false;
+  if (probe.logChanged || probe.events.size !== 1 || !probe.events.has('ModifySpe')) return false;
+  for (const [, kn] of best.knowledge) {
+    if (kn.known) continue;
+    if (!kn.dom.spe.every(v => v === 1)) return false;
+    if (Object.keys(kn.ties || {}).some(k => k === 'spe' || k.includes('spe'))) return false;
+  }
+  return true;
+}
+
+async function inferClosed(options, { absorb, work, warnings, lost, limits, blank }) {
+  const { formatid, known, observed, channel = 1, budgetScale = 1, deadline = Infinity, wide = false, start = 'default' } = options;
+  const dex = Dex.forFormat(formatid);
+  const lines = observed.filter(l => typeof l === 'string');
+  const { modifiers: silentItems, validator, itemClause } = silentItemsForFormat(formatid);
+  const baseOf = sp => toID(dex.species.get(String(sp || '').replace(/-\*$/, '')).baseSpecies || sp);
+
+  let currentSets = cloneTeamsWithBoxes(options.sets);
+  const fielded = [];
+  const ruled = new Map();
+  for (const [s, team] of currentSets.entries()) {
+    if (known?.[s] || !team.some(x => x?.boxes)) continue;
+    const side = `p${s + 1}`;
+    for (const [i, set] of team.entries()) {
+      if (!set?.boxes) continue;
+      const key = `${s}:${i}`;
+      const rSet = new Set((set.boxes.ruledOut || []).map(r => toID(r.ability)));
+      ruled.set(key, rSet);
+      const entered = toID(set.ability) === 'illusion' || lines.some((l) => {
+        const p = l.split('|');
+        return ['switch', 'drag', 'replace'].includes(p[1]) && identSide(p[2]) === side
+          && (identName(p[2]) === (set.name || set.species) || baseOf(p[3]?.split(',')[0]) === baseOf(set.species));
+      });
+      if (entered) fielded.push({ s, i, key });
+    }
+  }
+
+  const legalAbilities = (s, i) => {
+    const set = currentSets[s][i];
+    if (set.boxes?.ability !== 'assumed') return [set.ability];
+    const sp = dex.species.get(set.species);
+    const rSet = ruled.get(`${s}:${i}`) || new Set();
+    const list = [...new Set(Object.values(sp.abilities || {}).filter(Boolean))].filter(a => !rSet.has(toID(a)));
+    return list.length ? list : [set.ability];
+  };
+
+  const candidateItems = (s, i) => {
+    const set = currentSets[s][i];
+    if (set.boxes?.item !== 'assumed') return [set.item || ''];
+    const sp = dex.species.get(set.species);
+    const hasIllusion = currentSets[s].some(m => toID(m.ability) === 'illusion');
+    const taken = new Set(itemClause
+      ? currentSets[s].filter((m, j) => j !== i && m.boxes?.item === 'read' && m.item).map(m => toID(m.item))
+      : []);
+    const blankMon = item => ({
+      name: sp.name, species: sp.name, item, ability: set.ability || sp.abilities[0] || '', moves: [], nature: 'Serious', evs: {}, ivs: {}, level: set.level || 50,
+    });
+    const out = [''];
+    for (const item of silentItems) {
+      if (taken.has(item.id)) continue;
+      if (item.itemUser?.length && !item.itemUser.some(u => toID(u) === sp.id || toID(u) === toID(sp.baseSpecies))) continue;
+      if (validator.checkItem(blankMon(item.name), item, {})) continue;
+      if (item.isChoice && choiceLockViolated(lines, s, set.name || set.species, sp, hasIllusion)) continue;
+      out.push(item.name);
+    }
+    return out;
+  };
+
+  const setsSig = candSets => fielded.map(({ s, i }) => `${s}:${i}:${toID(candSets[s][i].ability)}:${toID(candSets[s][i].item)}`).join('|');
+  const cache = new Map();
+  const runHypothesis = async (candSets, extra = {}) => {
+    const sig = `${setsSig(candSets)}${extra.noRestarts === false ? '|full' : ''}`;
+    if (cache.has(sig)) return cache.get(sig);
+    const freshSpend = { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() };
+    const res = absorb(await inferSpreads({
+      ...options,
+      sets: candSets,
+      hypotheses: false,
+      parallel: null,
+      noRestarts: extra.noRestarts ?? true,
+      spend: freshSpend,
+      ...(extra.initialPins ? { initialPins: extra.initialPins } : {}),
+    }));
+    const out = !res.complete && announcedAbilityOf(res.built.report.diffs[0], candSets, observed, formatid);
+    if (out) {
+      ruled.get(`${out.side}:${out.index}`)?.add(toID(out.ability));
+      const box = candSets[out.side][out.index].boxes;
+      if (box && !box.ruledOut?.some(r => toID(r.ability) === toID(out.ability))) {
+        box.ruledOut = [...(box.ruledOut || []), { ability: out.ability, why: out.why }];
+      }
+      res.ruledOutAbility = out;
+    }
+    cache.set(sig, res);
+    return res;
+  };
+
+  const furtherReach = (a, b) => {
+    if (a.complete !== b.complete) return a.complete;
+    const ra = [a.built.report.diffs[0]?.turn ?? -1, a.built.report.diffs[0]?.index ?? -1];
+    const rb = [b.built.report.diffs[0]?.turn ?? -1, b.built.report.diffs[0]?.index ?? -1];
+    return ra[0] !== rb[0] ? ra[0] > rb[0] : ra[1] > rb[1];
+  };
+
+  // Phase A: run baseline, stepping past any entry-announced abilities that the
+  // replay did not print, then hill-climbing active hypotheses if incomplete.
+  let bestSets = currentSets;
+  let best;
+  for (;;) {
+    bestSets = cloneTeamsWithBoxes(bestSets, (s, i, set) => {
+      if (known?.[s] || set.boxes?.ability !== 'assumed') return {};
+      const abils = legalAbilities(s, i);
+      return abils.some(a => toID(a) === toID(set.ability)) ? {} : { ability: abils[0] };
+    });
+    currentSets = bestSets;
+    best = await runHypothesis(bestSets);
+    if (!best.ruledOutAbility || Date.now() >= deadline) break;
+    const { side, index } = best.ruledOutAbility;
+    if (legalAbilities(side, index).every(a => toID(a) === toID(bestSets[side][index].ability))) break;
+  }
+
+  for (let step = 0; !best.complete && step < 4 && Date.now() < deadline; step++) {
+    const baseLines = battleLines(best.built.rawLog || []);
+    const candidates = [];
+    const coupled = [];
+    const activeAbilsBySlot = new Map();
+    const activeItemsBySlot = new Map();
+    for (const { s, i, key } of fielded) {
+      const abils = legalAbilities(s, i);
+      const actA = [bestSets[s][i].ability];
+      for (const a of abils) {
+        if (toID(a) === toID(bestSets[s][i].ability)) continue;
+        const pr = await probeCandidate(formatid, best.built, baseLines, bestSets, observed, channel, s, i, { ability: a });
+        if (pr.impossible) { ruled.get(key)?.add(toID(a)); continue; }
+        actA.push(a);
+        candidates.push(cloneTeamsWithBoxes(bestSets, (cs, ci) => (cs === s && ci === i ? { ability: a } : {})));
+        for (const q of pr.allyQueries) {
+          const allyAbils = legalAbilities(s, q.allyIndex);
+          const match = allyAbils.find(x => toID(x) === q.abilityId);
+          if (match && toID(match) !== toID(bestSets[s][q.allyIndex].ability)) {
+            coupled.push(cloneTeamsWithBoxes(bestSets, (cs, ci) => (
+              cs === s && ci === i ? { ability: a } : cs === s && ci === q.allyIndex ? { ability: match } : {}
+            )));
+          }
+        }
+      }
+      activeAbilsBySlot.set(key, actA);
+      const actI = [bestSets[s][i].item || ''];
+      for (const item of candidateItems(s, i)) {
+        if (toID(item) === toID(bestSets[s][i].item)) continue;
+        const pr = await probeCandidate(formatid, best.built, baseLines, bestSets, observed, channel, s, i, { item });
+        if (!pr.impossible && pr.acted) {
+          actI.push(item);
+          candidates.push(cloneTeamsWithBoxes(bestSets, (cs, ci) => (cs === s && ci === i ? { item } : {})));
+        }
+      }
+      activeItemsBySlot.set(key, actI);
+    }
+    candidates.push(...coupled);
+    for (const { s, i, key } of fielded) {
+      const actA = activeAbilsBySlot.get(key) || [];
+      const actI = activeItemsBySlot.get(key) || [];
+      if (actA.length > 1 && actI.length > 1) {
+        for (const a of actA.slice(1)) {
+          for (const item of actI.slice(1)) {
+            candidates.push(cloneTeamsWithBoxes(bestSets, (cs, ci) => (cs === s && ci === i ? { ability: a, item } : {})));
+          }
+        }
+      }
+    }
+    let nextBest = null;
+    let nextSets = null;
+    for (const cand of candidates) {
+      if (Date.now() >= deadline) break;
+      const tried = await runHypothesis(cand);
+      if (tried.ruledOutAbility) continue;
+      if (tried.complete) { nextBest = tried; nextSets = cand; break; }
+      if (furtherReach(tried, nextBest || best)) { nextBest = tried; nextSets = cand; }
+    }
+    if (!nextBest) break;
+    best = nextBest;
+    bestSets = nextSets;
+    currentSets = bestSets;
+  }
+
+  if (!best.complete && !wide && start === 'default' && Date.now() < deadline) {
+    const full = await runHypothesis(bestSets, { noRestarts: false });
+    if (furtherReach(full, best)) best = full;
+  }
+
+  // Phase B: probe active abilities and items on the best scaffold, then union
+  // surviving spreads across all consistent hypotheses.
+  const baseLines = battleLines(best.built.rawLog || []);
+  const queue = [];
+  const seenQueue = new Set([setsSig(bestSets)]);
+  const enqueue = (cand) => {
+    const sig = setsSig(cand);
+    if (seenQueue.has(sig)) return;
+    seenQueue.add(sig);
+    queue.push(cand);
+  };
+
+  for (const { s, i, key } of fielded) {
+    const actA = [bestSets[s][i].ability];
+    for (const a of legalAbilities(s, i)) {
+      if (toID(a) === toID(bestSets[s][i].ability)) continue;
+      const pr = await probeCandidate(formatid, best.built, baseLines, bestSets, observed, channel, s, i, { ability: a });
+      if (pr.impossible) { ruled.get(key)?.add(toID(a)); continue; }
+      for (const q of pr.allyQueries) {
+        const match = legalAbilities(s, q.allyIndex).find(x => toID(x) === q.abilityId);
+        if (match) {
+          enqueue(cloneTeamsWithBoxes(bestSets, (cs, ci) => (
+            cs === s && ci === i ? { ability: a } : cs === s && ci === q.allyIndex ? { ability: match } : {}
+          )));
+        }
+      }
+      if (pr.acted && !speOnlyRedundant(best, pr)) actA.push(a);
+    }
+    const actI = [bestSets[s][i].item || ''];
+    for (const item of candidateItems(s, i)) {
+      if (toID(item) === toID(bestSets[s][i].item)) continue;
+      if (item === '') { actI.push(''); continue; }
+      const pr = await probeCandidate(formatid, best.built, baseLines, bestSets, observed, channel, s, i, { item });
+      if (!pr.impossible && pr.acted && !speOnlyRedundant(best, pr)) actI.push(item);
+    }
+    const crossAll = actA.length * actI.length <= 8;
+    for (const a of actA) {
+      for (const item of actI) {
+        if (!crossAll && toID(a) !== toID(bestSets[s][i].ability) && toID(item) !== toID(bestSets[s][i].item)) continue;
+        enqueue(cloneTeamsWithBoxes(bestSets, (cs, ci) => (cs === s && ci === i ? { ability: a, item } : {})));
+      }
+    }
+  }
+
+  const sharedPins = best.complete && best.built?.pins ? {
+    subs: { ...best.built.pins.subs },
+    turns: { ...best.built.pins.turns },
+    variants: [...(best.built.pins.variants || [])],
+  } : null;
+
+  const uniteIntoBest = (fromKn) => {
+    for (const [s, team] of bestSets.entries()) {
+      if (known?.[s]) continue;
+      for (let i = 0; i < team.length; i++) {
+        const id = `p${s + 1}:${i}`;
+        const kn = best.knowledge.get(id);
+        const other = fromKn.get(id);
+        if (!kn || !other) continue;
+        uniteKnowledge(kn, other);
+        tighten(kn);
+      }
+    }
+  };
+
+  for (const cand of queue) {
+    if (Date.now() >= deadline) {
+      limits.add('deadline');
+      uniteIntoBest(blank);
+      break;
+    }
+    const variant = await runHypothesis(cand, sharedPins ? { initialPins: sharedPins } : {});
+    if (variant.ruledOutAbility) continue;
+    if (variant.complete) {
+      if (!best.complete) {
+        uniteKnowledgeMap(variant.knowledge, best.knowledge, known, bestSets);
+        best = variant;
+        bestSets = cand;
+      } else {
+        uniteIntoBest(variant.knowledge);
+      }
+    } else if (!best.complete) {
+      uniteIntoBest(variant.knowledge);
+    }
+  }
+
+  for (const p of best.pokemon) {
+    if (p.known) continue;
+    const kn = best.knowledge.get(p.id);
+    if (kn) Object.assign(p, summarise(kn), { contains: evs => containsSpread(kn, evs) });
+  }
+
+  return Object.assign(best, {
+    sets: best.sets || bestSets,
+    work,
+    warnings,
+    lost,
+    limits: [...limits].sort(),
+  });
+}
+
+function uniteKnowledgeMap(targetMap, otherMap, known, sets) {
+  for (const [s, team] of sets.entries()) {
+    if (known?.[s]) continue;
+    for (let i = 0; i < team.length; i++) {
+      const id = `p${s + 1}:${i}`;
+      const kn = targetMap.get(id);
+      const other = otherMap.get(id);
+      if (!kn || !other) continue;
+      uniteKnowledge(kn, other);
+      tighten(kn);
+    }
+  }
+}
+
 /**
  * Infer the Stat Points of every side marked unknown from a replay.
  *
@@ -262,6 +936,9 @@ export async function inferSpreads({
   start = 'default',
   wide = false,
   widest = false,
+  noRestarts = false,
+  hypotheses = true,
+  initialPins = null,
   spend = { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() },
   parallel = null,
   // The spreads the battle was really played with, by Pokemon (`p2:0`), where
@@ -337,6 +1014,9 @@ export async function inferSpreads({
   const blank = new Map();
   for (const [s, team] of sets.entries()) {
     for (const [i, set] of team.entries()) blank.set(`p${s + 1}:${i}`, freshKnowledge(set, known[s], allSpent));
+  }
+  if (hypotheses && sets.some((team, s) => !known?.[s] && team.some(set => set?.boxes))) {
+    return inferClosed(options, { absorb, work, warnings, lost, limits, blank });
   }
   // Each unknown set's first guess, from either start: bulk and the stat its
   // nature boosts, or (`start: 'usage'`) the spread people run most with its
@@ -456,7 +1136,11 @@ export async function inferSpreads({
   let floor = 0;
   let reached = null;
   let exact = null;
-  let pins = null;
+  let pins = initialPins ? {
+    subs: { ...initialPins.subs },
+    turns: { ...initialPins.turns },
+    variants: [...(initialPins.variants || [])],
+  } : null;
   const started = Date.now();
   // One seed for every round, so the dice a round hands on land on the same
   // generator: an ordinal nobody pinned draws the same value every time.
@@ -1308,13 +1992,14 @@ export async function inferSpreads({
     for (const { at, turn } of disguisableStays(formatid, packed, channel, observed, guessed)) {
       if (turn > failing || (built.forced || []).includes(at)) continue;
       onProgress(`reading the switch-in at line ${at} as the Illusion user`);
-      const other = absorb(await inferSpreads({ ...options, forced: [at], readings: false }));
+      const forcedSets = setsForForced(sets, known, lines, formatid, [at]);
+      const other = absorb(await inferSpreads({ ...options, sets: forcedSets, forced: [at], readings: false }));
       if (!other.complete) continue;
       for (const p of other.pokemon) {
         if (p.known) continue;
         uniteKnowledge(other.knowledge.get(p.id), knowledge.get(p.id));
         tighten(other.knowledge.get(p.id));
-        Object.assign(p, summarise(other.knowledge.get(p.id)));
+        Object.assign(p, summarise(other.knowledge.get(p.id)), { contains: evs => containsSpread(other.knowledge.get(p.id), evs) });
       }
       ahead?.cancel();
       return spareDisguises(Object.assign(other, { work, warnings, lost }));
@@ -1358,6 +2043,7 @@ export async function inferSpreads({
     rounds,
     seconds: Number(((Date.now() - started) / 1000).toFixed(1)),
     built,
+    sets,
     picks,
     pokemon,
     events: result.events,
@@ -1390,7 +2076,7 @@ export async function inferSpreads({
   // runs the three once more with every limit `WIDE` times wider (`widest`),
   // as `--budget` widens them, and no wider after that: a battle any earlier
   // start rebuilds never gets there.
-  if (plain.complete || wide || start !== 'default' || Date.now() >= deadline) {
+  if (plain.complete || noRestarts || wide || start !== 'default' || Date.now() >= deadline) {
     ahead?.cancel();
     return plain;
   }
@@ -1494,7 +2180,11 @@ export async function inferSpreads({
     if (!open.length) return done();
     const text = observed.filter(l => typeof l === 'string');
     const sideOf = at => Number(/^\|\w+\|p([1-4])/.exec(String(text[at] || ''))?.[1] || 0) - 1;
-    const read = async ats => absorb(await inferSpreads({ ...options, forced: [...given, ...ats], readings: false, fixedReadings: true }));
+    const read = async ats => {
+      const forcedAts = [...given, ...ats];
+      const forcedSets = setsForForced(sets, known, lines, formatid, forcedAts);
+      return absorb(await inferSpreads({ ...options, sets: forcedSets, forced: forcedAts, readings: false, fixedReadings: true }));
+    };
     const has = new Set(base);
     if (open.length <= MAX_READINGS) {
       onProgress(`reading ${open.length} switch-in(s) each way, as the Pokemon shown and as the Illusion user`);
@@ -1509,7 +2199,7 @@ export async function inferSpreads({
         // and the rebuilds try none on their own. What every reading leaves is
         // kept all the same, the rebuilt spreads inside it.
         if (other?.complete && !res.complete) {
-          Object.assign(res, { complete: true, built: other.built, picks: other.picks, stop: other.stop });
+          Object.assign(res, { complete: true, built: other.built, sets: other.sets, picks: other.picks, stop: other.stop });
           for (const p of res.pokemon) p.used = other.pokemon.find(q => q.id === p.id)?.used ?? p.used;
         }
       }
@@ -1673,10 +2363,11 @@ export async function certifyRanges(inf, {
   const tried = new Map();
   const signature = picks => JSON.stringify(picks.map(team => team.map(e => STAT_IDS.map(s => e[s]))));
   if (inf.complete) tried.set(signature(inf.picks), true);
+  const baseSets = inf.sets || sets;
   const witness = async (picks) => {
     const sig = signature(picks);
     if (!tried.has(sig)) {
-      const packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
+      const packedTeams = baseSets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
       const built = await reconstruct({
         formatid, packedTeams, playerNames, observed, channel, forced: inf.built.forced, seed, sampleSeed, maxProbes, maxBacktracks: 2, threads,
       });

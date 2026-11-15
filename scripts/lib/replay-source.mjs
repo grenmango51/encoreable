@@ -638,12 +638,13 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
     if (mon.item === null) notes.push('no item');
     notes.push('a neutral nature');
     if (mon.moves.length < 4) notes.push(`${mon.moves.length} move${mon.moves.length === 1 ? '' : 's'} seen`);
-    const moves = mon.moves.length || !standIn ? mon.moves : [standInMove(dex, species)].filter(Boolean);
+    const fallbackMove = !mon.moves.length ? standInMove(dex, species) : null;
+    const moves = mon.moves.length || !standIn ? mon.moves : [fallbackMove].filter(Boolean);
     if (!mon.moves.length && moves.length) {
       boxes[boxes.length - 1].standIn = moves[0];
       notes.push(`${moves[0]}, which it never used`);
     }
-    sets.push({
+    const set = {
       name,
       species: species.name,
       item: mon.item || '',
@@ -654,7 +655,11 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
       shiny: mon.shiny,
       level: mon.level || 50,
       evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+    };
+    Object.defineProperty(set, 'boxes', {
+      value: { ...boxes[boxes.length - 1], fallbackMove },
     });
+    sets.push(set);
     assumed.push({ name, notes });
   }
   return { sets, assumed, boxes };
