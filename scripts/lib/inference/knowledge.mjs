@@ -525,7 +525,6 @@ export const maskKeys = (mask) => {
   return out;
 };
 
-/** The whole spreads left for one Pokemon, counted the way it is assumed to spend. */
 /** Signature shared by two keys whose ties allow the same flat values. */
 function sigFor(k, ties, words) {
   let sig = '';
@@ -603,6 +602,7 @@ function pairedCount(keys, dom, ties) {
   return { total, spent };
 }
 
+/** The whole spreads left for one Pokemon, counted the way it is assumed to spend. */
 export function spreadsLeft(kn, keys = maskKeys(kn.keys), dom = kn.dom) {
   const count = spreadCount(keys, dom, kn.ties);
   return kn.spent ? count.spent : count.total;

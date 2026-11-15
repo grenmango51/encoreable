@@ -1039,6 +1039,7 @@ export async function inferSpreads({
       const diceLimits = dice.cost?.limits || dice.report.limits || [];
       const diceCapped = diceLimits.some(l => ['probes', 'redrawProbes', 'backtracks'].includes(l));
       const diceHitProbes = diceLimits.some(l => ['probes', 'redrawProbes', 'variants'].includes(l));
+      const diceHitProbeCap = diceLimits.some(l => ['probes', 'redrawProbes'].includes(l));
       const read = further(reach(dice), [t, diff.index]);
       if (!read) {
         const forcedNow = built.forced;
@@ -1052,16 +1053,17 @@ export async function inferSpreads({
             }), true, ex);
             return b.report.complete || further(reach(b), [t, diff.index]);
           };
-          if (proven && (!sameTeam(proven.picks, start) || proven.exact)) {
-            if (await runCheck(proven.picks, proven.pins ?? handed, proven.exact || null, budget.maxProbes, 0)) return true;
+          if (proven?.exact) {
+            if (await runCheck(proven.picks, proven.pins ?? handed, proven.exact, budget.maxProbes, 0)) return true;
             const capP = t <= 3 ? Math.min(maxProbes, 4000) : Math.min(maxProbes, 1200);
             const capB = t <= 3 ? 6 : 2;
-            if (await runCheck(proven.picks, proven.pins ?? handed, proven.exact || null, capP, capB)) return true;
+            if (await runCheck(proven.picks, proven.pins ?? handed, proven.exact, capP, capB)) return true;
           }
           if (diceCapped) {
             const capP = t <= 3 ? Math.min(maxProbes, 4000) : Math.min(maxProbes, 1200);
             const capB = t <= 3 ? 6 : preSame && !diceHitProbes ? 1 : 2;
-            if (await runCheck(start, handed, null, capP, capB)) return true;
+            const alreadyCovered = capB <= budgets[1].maxBacktracks && (capP <= budgets[1].maxProbes || !diceHitProbeCap);
+            if (!alreadyCovered && await runCheck(start, handed, null, capP, capB)) return true;
           }
           return false;
         });
@@ -1360,7 +1362,7 @@ export async function inferSpreads({
     failed.add(markOf(diff));
     if (unchanged || again || read < 2) {
       const start = picks.map((team, s) => team.map((e, i) => (containsSpread(knowledge.get(`p${s + 1}:${i}`), e) ? e : next[s][i])));
-      const found = await fallback(seen, start, exact || !sameTeam(next, start) ? { picks: next, exact, pins } : null);
+      const found = await fallback(seen, start, exact ? { picks: next, exact, pins } : null);
       if (found) {
         for (const [id, spread] of found.held) held.set(id, spread);
         for (const [id, st, val] of found.heldCoords || []) {
@@ -1511,9 +1513,25 @@ export async function inferSpreads({
     stop,
   });
 
+  // Where the search starts decides, more than anything, whether a hard battle
+  // rebuilds: the same battle can give up from one start and rebuild from
+  // another. So a search that gave up starts once more, from the spreads people
+  // run (`usage`), with a budget of its own; and one that gave up from both
+  // once more from the first guess, with the fallback and the joint guesses
+  // `WIDE` times wider (`wide`). More of either is no better everywhere - the
+  // fallback can hold a guess that gets past one line and leads nowhere - so
+  // it is a start of its own, after the two, not a wider first one: a battle
+  // either rebuilds takes the path it always took. Every spread any of them
+  // removed was removed by evidence, so each Pokemon keeps only what all
+  // left, and the rebuild is the one that reproduced the log, if one did:
+  // never worse than the first search alone. One that gave up from all three
+  // runs `default` and `usage` once more with every limit `WIDE` times wider
+  // (`widest`), as `--budget` widens them, and no wider after that: a battle
+  // any earlier start rebuilds never gets there.
   if (plain.complete || wide || start !== 'default' || Date.now() >= deadline) {
     ahead?.cancel();
-    return resolvePlainChecks(plain);
+    if (plain.complete || (!wide && start === 'default' && readings)) await resolvePlainChecks(plain);
+    return plain;
   }
   const starts = [plain];
   for (const next of restarts()) {
