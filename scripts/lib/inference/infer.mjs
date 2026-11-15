@@ -26,8 +26,8 @@ import { createRequire } from 'module';
 
 import { battleLines } from '../protocol.mjs';
 import {
-  ACTION_START, DIE_BACKTRACKS, MAX_VARIANTS, disguisableStays, identName, identSide, reconstruct, sampler, splitTurns,
-  unsettledDisguises,
+  ACTION_START, CHOOSABLE_TARGETS, DIE_BACKTRACKS, MAX_VARIANTS, disguisableStays, identName, identSide, reconstruct,
+  sampler, splitTurns, unsettledDisguises,
 } from '../reconstruct.mjs';
 import { sameSheet } from '../replay-source.mjs';
 import {
@@ -80,6 +80,7 @@ function locate(segment, diff) {
   let from = '';
   let line = diff.expected;
   let action = [diff.expected];
+  let at = -1;
   if (hard[diff.index] !== undefined && head(hard[diff.index]) === head(diff.expected)) {
     line = hard[diff.index];
     // An action opens with its own line; the simulator prints an empty line
@@ -87,6 +88,7 @@ function locate(segment, diff) {
     let r = raw[diff.index];
     while (r > 0 && segment[r - 1] !== '|' && !ACTION_START.has(String(segment[r]).split('|')[1])) r--;
     const a = hard.findIndex((l, n) => raw[n] >= r);
+    at = r;
     action = hard.slice(a, diff.index + 1);
     if (a < diff.index && hard[a].startsWith('|move|')) {
       let hits = 0;
@@ -107,7 +109,7 @@ function locate(segment, diff) {
     const by = cause(diff.expected).replace(/^(item|ability|move): /, '');
     order = ` - in the replay ${by ? `${by} reached ` : ''}${who(diff.expected)} before ${who(diff.actual)}`;
   }
-  return { what: `${line}${from}; the rebuild printed ${diff.actual ?? 'nothing'}${order}`, action };
+  return { what: `${line}${from}; the rebuild printed ${diff.actual ?? 'nothing'}${order}`, action, at };
 }
 
 /** Every Pokemon some protocol lines name, as `p2: Gengar`, in the order they name them. */
@@ -531,7 +533,15 @@ export async function inferSpreads({
     const mark = markOf(diff);
     if (!diff || !(t >= 0) || !(diff.index >= 0) || (searched.get(mark) || 0) >= 2 || spend.fruitless.has(mark)) return null;
     searched.set(mark, (searched.get(mark) || 0) + 1);
-    const none = () => { searched.set(mark, 2); spend.fruitless.add(mark); return null; };
+    const budgetCut = (...runs) => runs.some(b => b && (b.report.hidden || []).includes(t)
+      && b.report.limits.some(l => l === 'probes' || l === 'variants'));
+    const none = (exhausted = false) => {
+      if (!exhausted) {
+        searched.set(mark, 2);
+        spend.fruitless.add(mark);
+      }
+      return null;
+    };
     if (spend.rebuilds <= 0) { limits.add('fallbackTotal'); return null; }
     // The replay through the line that opens the turn after `turn`.
     const cutAt = (turn) => {
@@ -599,13 +609,38 @@ export async function inferSpreads({
     }
     const leaving = [diff.expected, diff.actual].filter(l => ['switch', 'drag'].includes(String(l || '').split('|')[1]))
       .map(l => stood.get(String(l).split('|')[2].slice(0, 3)));
+    const cut = place.at >= 0 ? place.at : Math.max(0, segment.indexOf(place.action?.[0]));
+    // A `|cant|` line (a flinch, a status) can owe both its condition and the
+    // bracket its unseen move ran in to an earlier move of the turn, which the
+    // line itself does not name: a Fake Out before `|cant|...|flinch`.
+    const inflicted = [];
+    const earlier = [];
+    {
+      const m = /^\|cant\|(p[1-4])[a-d]?: ([^|]+)\|/.exec(String(diff.expected || ''));
+      if (m) {
+        const [, vSide, vName] = m;
+        const prior = segment.slice(0, cut);
+        const hitsVictim = (line, skipActor) => String(line || '').split('|').slice(skipActor ? 3 : 2).some((part) => {
+          const hit = /^(?:\[\w+\]\s*)?(p[1-4])[a-d]?: (.+)$/.exec(part.trim());
+          return hit && hit[1] === vSide && hit[2] === vName;
+        });
+        for (let i = 0; i < prior.length; i++) {
+          const parts = String(prior[i]).split('|');
+          if (parts[1] !== 'move' || !/^p[1-4][a-d]?: /.test(parts[2] || '')) continue;
+          let j = i + 1;
+          while (j < prior.length && !ACTION_START.has(String(prior[j]).split('|')[1])) j++;
+          const touched = hitsVictim(prior[i], true) || prior.slice(i + 1, j).some(l => hitsVictim(l, false));
+          (touched ? inflicted : earlier).push(`|move|${parts[2]}`);
+        }
+      }
+    }
     // A condition the action ends was started by someone the turn need not
     // name: the Substitute a Giga Drain breaks is a quarter of the HP of the
     // Orthworm whose Shed Tail made it a turn before. So the Pokemon named where
     // it started, and the one whose move started it, come next.
     const started = [];
     {
-      const before = [...turns.slice(0, t).flat(), ...segment.slice(0, Math.max(0, segment.indexOf(place.action?.[0])))];
+      const before = [...turns.slice(0, t).flat(), ...segment.slice(0, cut)];
       const effect = x => String(x || '').replace(/^move: /, '');
       const pair = { '-end': '-start', '-sideend': '-sidestart', '-fieldend': '-fieldstart' };
       for (const l of place.action || []) {
@@ -625,9 +660,9 @@ export async function inferSpreads({
     // Then the Pokemon whose Stat Points moved a stat of one of those - a
     // Guard Split's partner, the one a Transform copied - which the turn need
     // not name: it can have fainted.
-    const near = [names([diff.expected, diff.actual, ...leaving]), names(place.action)];
+    const near = [names([diff.expected, diff.actual, ...leaving]), names([...place.action, ...inflicted])];
     const lender = new Set([...near[0], ...near[1]].flatMap(id => lent.get(id) || []));
-    const tiers = [...near, lender, names(started), names([...segment, ...stood.values()])];
+    const tiers = [...near, lender, names(earlier), names(started), names([...segment, ...stood.values()])];
     const rank = u => tiers.findIndex(tier => tier.has(u.id));
     const cast = unknown.filter(u => rank(u) >= 0 && (seen.has(u.id) || rank(u) === 0)).sort((a, b) => rank(a) - rank(b));
 
@@ -666,15 +701,77 @@ export async function inferSpreads({
     if (reach(base)[0] < t) {
       const at = base.report.diffs[0];
       onProgress(`  fallback on turn ${t}: the guess stops before the turn, at ${reach(base).join('.')}: wanted ${at?.expected}, got ${at?.actual}, ${clock()}`);
-      return none();
+      return none(budgetCut(built, base, dice));
     }
 
-    // A line the rebuild printed for another Pokemon, or another action in its
-    // place, is an order, and an order is Speed's first.
+    // A choosable single-target move that already ran from the right Pokemon,
+    // naming another active slot with no competing redirection to sort by
+    // Speed, is a choice of target and not a Stat Point.
+    {
+      const exp = String(diff.expected || '').split('|');
+      const act = String(diff.actual || '').split('|');
+      const move = exp[1] === 'move' && act[1] === 'move' && exp[2] === act[2] && exp[3] && exp[3] === act[3]
+        && /^p[1-4][a-d]: /.test(exp[2] || '') && /^p[1-4][a-d]: /.test(exp[4] || '') && /^p[1-4][a-d]: /.test(act[4] || '')
+        && exp[4] !== act[4] && exp.slice(5).join('|') === act.slice(5).join('|') ? dex.moves.get(exp[3]) : null;
+      const sameStop = b => reach(b)[0] === t && reach(b)[1] === diff.index && b.report.diffs[0]?.actual === diff.actual;
+      const redirectAbility = ability => {
+        const a = dex.abilities.get(ability);
+        return !!(a.onAnyRedirectTarget || a.onFoeRedirectTarget || a.onRedirectTarget);
+      };
+      const redirectors = () => {
+        let abilityCount = 0;
+        for (const team of sets) {
+          for (const set of team) {
+            const mega = Object.values(dex.items.get(set.item).megaStone || {})[0];
+            const has = redirectAbility(set.ability) || (mega && Object.values(dex.species.get(mega).abilities).some(redirectAbility));
+            if (has) abilityCount++;
+          }
+        }
+        const upto = place.at >= 0 ? place.at : (place.action?.[0] ? segment.indexOf(place.action[0]) : segment.length);
+        const prior = [...turns.slice(0, t).flat(), ...segment.slice(0, Math.max(0, upto))];
+        let count = abilityCount;
+        if (abilityCount >= 1 && prior.some(l => /^\|-(transform|ability)\|/.test(String(l)))) count++;
+        for (const l of segment.slice(0, Math.max(0, upto))) {
+          const [, k, , eff] = String(l).split('|');
+          if (k === '-singleturn' && /^move: /.test(eff || '')) {
+            const c = dex.moves.get(eff.slice(6)).condition;
+            if (c?.onFoeRedirectTarget || c?.onRedirectTarget || c?.onAnyRedirectTarget) count++;
+          }
+        }
+        return count;
+      };
+      if (move && CHOOSABLE_TARGETS.has(move.target) && !move.smartTarget
+        && sameStop(base) && sameStop(dice) && redirectors() < 2) {
+        gap(mark, { turn: t, what, reason: 'a single-target move aimed at another slot, which no Stat Point decides' });
+        onProgress(`  fallback on turn ${t}: ${diff.expected} - a single-target move aimed at another slot, ${clock()}`);
+        return none();
+      }
+    }
+
+    // A line the rebuild printed for another Pokemon at the same step - another
+    // action at an action start, or another Pokemon's simultaneous effect
+    // between them - is an order, and an order is Speed's first, unless an
+    // unseen choice put two moves of different priority brackets against each
+    // other. A secondary or sub-event on a target before the next action, or a
+    // flinch or paralysis on the same Pokemon's own turn to move, is not.
     const kind = l => String(l || '').split('|')[1];
-    const who = l => (/^p[1-4][a-d]?: /.test(String(l || '').split('|')[2] || '') ? String(l).split('|')[2] : null);
-    const order = (who(diff.actual) && who(diff.expected) && who(diff.actual) !== who(diff.expected))
-      || (kind(diff.actual) !== kind(diff.expected) && ACTION_START.has(kind(diff.actual)) && ACTION_START.has(kind(diff.expected)));
+    const who = l => (/^p[1-4][a-d]?: /.test(String(l || '').split('|')[2] || '') ? String(l || '').split('|')[2] : null);
+    const opensAction = l => ACTION_START.has(kind(l))
+      || /^\|-activate\|[^|]+\|confusion$|^\|-curestatus\|[^|]+\|(slp|frz)\|\[msg\]$|^\|detailschange\|/.test(String(l || ''));
+    const isOrder = (a, b) => Boolean(who(a) && who(b) && who(a) !== who(b) && opensAction(a) === opensAction(b));
+    const priorityShifter = sets.some(team => team.some((set) => {
+      if (dex.abilities.get(set.ability).onModifyPriority) return true;
+      const megaStone = dex.items.get(set.item).megaStone;
+      const megaSpecies = megaStone && Object.values(megaStone)[0];
+      return !!(megaSpecies && Object.values(dex.species.get(megaSpecies).abilities || {}).some(a => dex.abilities.get(a).onModifyPriority));
+    }));
+    const crossPriority = (() => {
+      if (!(built.report.hidden || []).includes(t) || kind(diff.actual) !== 'move' || kind(diff.expected) !== 'move') return false;
+      const ma = dex.moves.get(String(diff.actual).split('|')[3]);
+      const me = dex.moves.get(String(diff.expected).split('|')[3]);
+      return ma.exists && me.exists && ma.priority !== me.priority && !ma.onModifyPriority && !me.onModifyPriority && !priorityShifter;
+    })();
+    const order = !crossPriority && isOrder(diff.actual, diff.expected);
     const dims = [];
     for (const u of cast) {
       const kn = knowledge.get(u.id);
@@ -720,13 +817,15 @@ export async function inferSpreads({
     // that goes first at any Speed.
     const plain = await replayWith(built.inputLog, packOf(start), t, channel);
     const actorOf = l => [...namedIn(`|x|${(/^p[1-4][a-d]?: /.test(String(l || '').split('|')[2] || '') ? String(l).split('|')[2] : '')}`)][0];
-    const disputed = (built.report.hidden || []).includes(t) ? new Set([actorOf(diff.expected), actorOf(diff.actual)].filter(Boolean)) : new Set();
-    const done = new Set([signature(start)]);
+    const hiddenTurn = (built.report.hidden || []).includes(t);
+    const disputed = hiddenTurn ? new Set([actorOf(diff.expected), actorOf(diff.actual)].filter(Boolean)) : new Set();
+    const done = new Map([[signature(start), null]]);
     const probe = async (changes, from = knowledge) => {
       const chosen = build(changes, from);
-      if (!chosen || done.has(signature(chosen))) return null;
-      done.add(signature(chosen));
-      const same = !!plain && !changes.some(c => disputed.has(c.id))
+      if (!chosen) return null;
+      const sig = signature(chosen);
+      if (done.has(sig)) return done.get(sig);
+      const same = !!plain && !changes.some(c => disputed.has(c.id) || (hiddenTurn && c.stat === 'spe'))
         && JSON.stringify(await replayWith(built.inputLog, packOf(chosen), t, channel)) === JSON.stringify(plain);
       let b = same ? null : await rebuild(chosen, budget);
       // Stopped on a turn the guess gets through, under the dice handed on
@@ -742,7 +841,9 @@ export async function inferSpreads({
       const stop = b && b.report.diffs[0];
       onProgress(`  fallback on turn ${t}: ${changes.map(c => `${c.name} ${c.stat} ${c.value}`).join(', ')} - ${same ? 'plays out the same'
         : b.report.complete ? 'reproduces it' : `stops at ${reach(b).join('.')}: wanted ${stop?.expected}, got ${stop?.actual}`}${fresh ? ' with the dice before it searched again' : ''}, ${clock()}`);
-      return { chosen, b, same, fresh };
+      const res = { chosen, b, same, fresh };
+      done.set(sig, res);
+      return res;
     };
 
     const baseReach = reach(base);
@@ -777,7 +878,7 @@ export async function inferSpreads({
     // Pokemon of the earlier order is moved beside them.
     const escort = async (moves, got) => {
       const stop = got.b?.report.diffs[0];
-      if (moves.some(c => c.stat !== 'spe') || !stop || !(stop.turn < t) || !who(stop.actual) || !who(stop.expected) || who(stop.actual) === who(stop.expected)) return;
+      if (moves.some(c => c.stat !== 'spe') || !stop || !(stop.turn < t) || !isOrder(stop.actual, stop.expected)) return;
       for (const id of namedIn(`|${who(stop.expected)}|${who(stop.actual)}`)) {
         if (moves.some(c => c.id === id)) continue;
         const o = dimOf(unknown.find(u => u.id === id), 'spe');
@@ -962,7 +1063,7 @@ export async function inferSpreads({
       });
     }
     onProgress(`  fallback on turn ${t}: nothing gets past the line in ${spent} rebuilds, ${clock()}`);
-    return none();
+    return none(budgetCut(built, base, dice));
   };
 
   const past = (a, b) => (a[0] !== b[0] ? a[0] > b[0] : a[1] > b[1]);
