@@ -23,10 +23,10 @@ import fs from 'fs';
 
 import { createRequire } from 'module';
 
-import { unmaskIllusion } from './protocol.mjs';
+import { unmaskIllusion, unsettledStays } from './protocol.mjs';
 
 const require = createRequire(import.meta.url);
-const { Dex, Teams, toID } = require('pokemon-showdown');
+const { Battle, Dex, Teams, toID } = require('pokemon-showdown');
 
 /** Pull the protocol log out of a saved replay page. */
 function logFromReplayHtml(html) {
@@ -336,6 +336,81 @@ function standInMove(dex, species) {
 }
 
 /**
+ * Per-side Illusion sheets built from team preview and switch-in lines alone,
+ * for replays with no published team sheet: populated on a side whose preview
+ * has a single Pokemon capable of `Illusion` (not ruled out), with the
+ * simulator's level-matched `[minHp, maxHp]` span for each previewed species.
+ */
+export function illusionSheetsFromLog(lines, formatid, ruledOutBySide = {}) {
+  const dex = Dex.forFormat(formatid);
+  const baseOf = s => toID(dex.species.get(s).baseSpecies || s);
+  const out = {};
+  for (const side of ['p1', 'p2']) {
+    const mons = [];
+    for (const line of lines) {
+      const p = String(line).split('|');
+      if (p[1] === 'poke' && p[2] === side) mons.push({ ...parseDetails(p[3]), name: null });
+    }
+    if (!mons.length) continue;
+    const seen = new Set();
+    let exact = false;
+    for (const line of lines) {
+      const p = String(line).split('|');
+      if (!['switch', 'drag', 'replace'].includes(p[1])) continue;
+      const who = identOf(p[2]);
+      if (!who || who.side !== side) continue;
+      const hp = /^(\d+)\/(\d+)/.exec(String(p[4] || '').split(' ')[0]);
+      if (hp && Number(hp[2]) !== 100) exact = true;
+      if (seen.has(who.name)) continue;
+      const d = parseDetails(p[3]);
+      const mon = mons.find(m => !m.name && baseOf(m.species.replace(/-\*$/, '')) === baseOf(d.species));
+      if (!mon) continue;
+      mon.name = who.name;
+      if (mon.species.endsWith('-*')) mon.species = d.species;
+      seen.add(who.name);
+    }
+    const ruledOut = ruledOutBySide[side] || {};
+    const entries = mons.map((m) => {
+      const sp = dex.species.get(m.species.replace(/-\*$/, ''));
+      const rawName = m.name || sp.name;
+      const ruled = [...(ruledOut[rawName] || []), ...(ruledOut[sp.baseSpecies] || [])].map(r => toID(r.ability));
+      const abilities = Object.values(sp.abilities || {}).map(toID).filter(a => !ruled.includes(a));
+      return { mon: m, sp, rawName, abilities, illusion: abilities.includes('illusion') };
+    });
+    if (entries.filter(e => e.illusion).length !== 1) continue;
+    const dummy = Teams.pack([{ name: 'Snorlax', species: 'Snorlax', ability: 'Immunity', moves: ['Splash'], level: 50 }]);
+    const makeBattle = hpEv => new Battle({
+      formatid,
+      p1: {
+        name: 'p1',
+        team: Teams.pack(entries.map(e => ({
+          name: e.rawName, species: e.sp.name, ability: Object.values(e.sp.abilities || {})[0] || '',
+          moves: ['Splash'], nature: 'Serious', level: e.mon.level || 50,
+          evs: { hp: hpEv, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+        }))),
+      },
+      p2: { name: 'p2', team: dummy },
+    });
+    const b0 = makeBattle(0);
+    const b32 = makeBattle(32);
+    const items = Object.values(b0.dex.data.Items);
+    out[side] = {
+      exact,
+      members: entries.map((e, i) => ({
+        name: b0.sides[0].pokemon[i].name,
+        moves: new Set(),
+        abilities: new Set(e.abilities),
+        canMega: items.some(it => !!it?.megaStone?.[e.sp.baseSpecies]),
+        maxhp: b0.sides[0].pokemon[i].maxhp,
+        hpSpan: [b0.sides[0].pokemon[i].maxhp, b32.sides[0].pokemon[i].maxhp],
+        illusion: e.illusion,
+      })),
+    };
+  }
+  return out;
+}
+
+/**
  * What a log reveals about one side's sets, for a replay that publishes no team
  * sheet: the Pokemon previewed, the level and gender their details carry, every
  * move each one chose, and the item and ability it brought. Items and
@@ -346,13 +421,19 @@ function standInMove(dex, species) {
  * brought it, on either side. An ability seen after Mega Evolution is the
  * Mega's, and one a move or another ability gave is nobody's set.
  *
- * Who a line is about: `[of]` names the holder of Rocky Helmet, of a flung
- * Berry, and of an ability that acts on another Pokemon (Rough Skin, Static,
- * Cursed Body, Poison Touch, Frisk, Hospitality); `|cant|X|ability: A|Move|[of]
- * Y` and `-block|X|ability: A|[of] H` name the blocker's ability, and the move
- * is Y's. On a heal - Volt Absorb's is its own, Hospitality's its ally's - the
- * species decides which of the two could have it. Prankster's `-hint` names the
- * last Pokemon to move.
+ * Who a line is about: `[of]` names the holder of an item or ability that acts
+ * on another Pokemon (Rocky Helmet, Destiny Knot, a flung Berry; Rough Skin,
+ * Static, Cursed Body, Poison Touch, Frisk, Hospitality), except where the line
+ * is the holder's own gain: a non-Berry item's heal (Shell Bell), a Berry the
+ * healed Pokemon just ate itself (Enigma Berry), an absorbing ability's heal,
+ * or Magician's and Pickpocket's take. `|cant|X|ability: A|Move|[of] Y` and
+ * `-block|X|ability: A|[of] H` name the blocker's ability, and the move is Y's.
+ * On an ability's heal - Volt Absorb's is its own, Hospitality's its ally's -
+ * the species decides which of the two could have it. Prankster's `-hint` names
+ * the last Pokemon to move. On a side with an Illusion user, a teammate's stay
+ * nothing settles could have been either Pokemon: its moves and item are kept
+ * as assumptions (`assumedMoves`) on both so either reading can play, never as
+ * proven readings of either.
  *
  * Everything the log never showed is filled with a stated assumption, listed
  * per Pokemon in `assumed`: an ability the species has only one of is known by
@@ -374,7 +455,7 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
     const p = line.split('|');
     if (p[1] === 'poke' && p[2] === side) {
       const d = parseDetails(p[3]);
-      mons.push({ ...d, name: null, moves: [], item: null, ability: null });
+      mons.push({ ...d, name: null, moves: [], assumedMoves: [], item: null, assumedItem: null, ability: null });
     }
   }
   const baseOf = species => toID(dex.species.get(species).baseSpecies || species);
@@ -399,6 +480,17 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
     if (mon.species.endsWith('-*')) mon.species = d.species;
     byName.set(who.name, mon);
   }
+  for (const mon of mons) {
+    if (mon.name) continue;
+    const sp = dex.species.get(mon.species.replace(/-\*$/, ''));
+    for (const alias of [sp.baseSpecies, sp.name]) {
+      if (alias && !byName.has(alias)) byName.set(alias, mon);
+    }
+  }
+
+  const previewSheets = illusionSheetsFromLog(lines, formatid, { [side]: ruledOut });
+  const unmasked = unmaskIllusion(lines, previewSheets).lines;
+  const unsettledByAt = new Map(unsettledStays(lines, previewSheets).map(u => [u.at, u]));
 
   // Every Pokemon on either side holds an item and has an ability, and each
   // stands for whoever brought it to the battle: `origin` is that Pokemon's key
@@ -408,22 +500,40 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
   // Skill Swap moved is credited to the Pokemon that brought it.
   const keyOf = who => (who ? `${who.side} ${who.name}` : null);
   const monOf = key => (key && key.startsWith(`${side} `) ? byName.get(key.slice(3)) || null : null);
+  const settledHeld = new Map();
+  const ambiguousStay = new Set();
   const held = new Map();
   const lost = new Map();
   const holding = (key) => {
     if (!key) return null;
-    if (!held.has(key)) held.set(key, { origin: key });
+    if (!held.has(key)) {
+      const h = { origin: key };
+      held.set(key, h);
+      if (!ambiguousStay.has(key)) settledHeld.set(key, h);
+    }
     return held.get(key);
   };
   /** What a line naming a Pokemon's item is about: what it holds, or what it last held. */
   const itemOf = key => holding(key) || lost.get(key) || null;
   const nameItem = (h, item) => {
-    const mon = monOf(h?.origin);
-    if (mon && item && mon.item === null) mon.item = dex.items.get(item).name || item;
+    if (!h?.origin || !item) return;
+    const resolved = dex.items.get(item).name || item;
+    if (h.ambiguous) {
+      for (const key of [h.origin, h.ambiguous]) {
+        const mon = monOf(key);
+        if (mon && mon.assumedItem === null) mon.assumedItem = resolved;
+      }
+      return;
+    }
+    const mon = monOf(h.origin);
+    if (mon && mon.item === null) mon.item = resolved;
   };
   const loseItem = (key) => {
     const h = holding(key);
-    if (h) lost.set(key, h);
+    if (h) {
+      lost.set(key, h);
+      if (!ambiguousStay.has(key) && !h.ambiguous && settledHeld.get(key) === h) settledHeld.set(key, null);
+    }
     held.set(key, null);
     return h;
   };
@@ -435,8 +545,15 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
     return abilities.get(key);
   };
   const nameAbility = (a, ability) => {
-    const mon = monOf(a?.origin);
-    if (mon && ability && mon.ability === null && canHave(mon, ability)) mon.ability = dex.abilities.get(ability).name || ability;
+    if (!a?.origin || !ability) return;
+    const resolved = dex.abilities.get(ability).name || ability;
+    if (a.ambiguous) {
+      const candidates = [a.origin, a.ambiguous].map(monOf).filter(m => m && canHave(m, ability));
+      if (candidates.length === 1 && candidates[0].ability === null) candidates[0].ability = resolved;
+      return;
+    }
+    const mon = monOf(a.origin);
+    if (mon && mon.ability === null && canHave(mon, ability)) mon.ability = resolved;
   };
   const movesets = new Map();
   const movesetOf = (key) => {
@@ -444,9 +561,20 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
     if (!movesets.has(key)) movesets.set(key, { origin: key });
     return movesets.get(key);
   };
-  const addMove = (mon, name) => {
+  const addMove = (ms, name) => {
     const move = dex.moves.get(name);
-    if (mon && move.exists && move.id !== 'struggle' && !mon.moves.includes(move.name)) mon.moves.push(move.name);
+    if (!ms?.origin || !move.exists || move.id === 'struggle') return;
+    if (ms.ambiguous) {
+      for (const key of [ms.origin, ms.ambiguous]) {
+        const mon = monOf(key);
+        if (mon && !mon.moves.includes(move.name) && !mon.assumedMoves.includes(move.name)) {
+          mon.assumedMoves.push(move.name);
+        }
+      }
+      return;
+    }
+    const mon = monOf(ms.origin);
+    if (mon && !mon.moves.includes(move.name)) mon.moves.push(move.name);
   };
   const isMega = (details) => {
     const species = details ? dex.species.get(parseDetails(details).species) : null;
@@ -467,8 +595,9 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
   let trick = null;
   let transit = null;
   const eating = new Map();
+  const ateOwn = new Set();
 
-  for (const line of unmaskIllusion(lines).lines) {
+  for (const [idx, line] of unmasked.entries()) {
     const p = line.split('|');
     const kind = p[1];
     const tags = tagsOf(line);
@@ -476,13 +605,29 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
     const sKey = keyOf(identOf(p[2]));
     const oKey = keyOf(identOf(tags.of));
     if (['switch', 'drag', 'replace', 'detailschange'].includes(kind) && sKey) shownAs.set(sKey, parseDetails(p[3]).species);
+    if (['move', 'switch', 'drag', 'turn', 'upkeep'].includes(kind)) ateOwn.clear();
 
     // A Pokemon switched in has the ability and moveset it brought, or once it
     // has Mega Evolved, the Mega's ability: what Transform or another ability
-    // gave it is gone.
+    // gave it is gone. On an unsettled Illusion switch-in, the stay's origin is
+    // ambiguous between the Pokemon shown and the Illusion user.
     if ((kind === 'switch' || kind === 'drag') && sKey) {
-      abilities.set(sKey, switchedIn.get(sKey) || { origin: sKey });
-      movesets.set(sKey, { origin: sKey });
+      const stay = unsettledByAt.get(idx);
+      const zoroarkName = stay && previewSheets[stay.side]?.members.find(m => m.illusion)?.name;
+      const ambiguous = zoroarkName ? `${stay.side} ${zoroarkName}` : null;
+      const wasAmbiguous = ambiguousStay.has(sKey);
+      if (ambiguous) ambiguousStay.add(sKey);
+      else ambiguousStay.delete(sKey);
+      const token = ambiguous ? { origin: sKey, ambiguous } : { origin: sKey };
+      abilities.set(sKey, switchedIn.get(sKey) || token);
+      movesets.set(sKey, ambiguous ? { origin: sKey, ambiguous } : { origin: sKey });
+      if (ambiguous) {
+        held.set(sKey, { origin: sKey, ambiguous });
+      } else if (!held.has(sKey) || held.get(sKey)?.ambiguous || wasAmbiguous) {
+        const prev = settledHeld.has(sKey) ? settledHeld.get(sKey) : { origin: sKey };
+        settledHeld.set(sKey, prev);
+        held.set(sKey, prev);
+      }
     }
     if ((kind === '-mega' || (kind === 'detailschange' && isMega(p[3]))) && sKey && !switchedIn.has(sKey)) {
       switchedIn.set(sKey, { origin: null });
@@ -491,13 +636,13 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
 
     if (kind === 'move') {
       lastMover = sKey;
-      if (!from || from === 'lockedmove') addMove(monOf(movesetOf(sKey)?.origin), p[3]);
+      if (!from || from === 'lockedmove') addMove(movesetOf(sKey), p[3]);
     }
     // `|cant|X|ability: A|Move|[of] Y` - Armor Tail, Queenly Majesty, Dazzling,
     // Damp: X's ability stopped Y's move, which Y's own move line already named.
     if (kind === 'cant' && p[4]) {
       if (/^ability: /.test(p[3] || '')) nameAbility(abilityOf(sKey), p[3].slice(9));
-      else addMove(monOf(movesetOf(sKey)?.origin), p[4]);
+      else addMove(movesetOf(sKey), p[4]);
     }
 
     // Items. Trick and Switcheroo swap what two Pokemon hold, then name what each
@@ -507,8 +652,13 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
     // `[of]`. Symbiosis passes its holder's item to an ally.
     if (kind === '-activate' && /^move: (Trick|Switcheroo)$/.test(p[3] || '') && sKey && oKey) {
       const mine = holding(sKey);
-      held.set(sKey, holding(oKey));
+      const theirs = holding(oKey);
+      const sClear = !ambiguousStay.has(sKey) && !mine?.ambiguous;
+      const oClear = !ambiguousStay.has(oKey) && !theirs?.ambiguous;
+      held.set(sKey, theirs);
       held.set(oKey, mine);
+      if (sClear && !theirs?.ambiguous) settledHeld.set(sKey, theirs);
+      if (oClear && !mine?.ambiguous) settledHeld.set(oKey, mine);
       trick = { [sKey]: oKey, [oKey]: sKey };
     }
     if (kind === '-mega') nameItem(holding(sKey), p[4]);
@@ -517,43 +667,63 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
       else if (/^move: Thief$|^ability: Pickpocket$/.test(from)) {
         nameItem(holding(sKey), p[3]);
         transit = holding(sKey);
+        if (!ambiguousStay.has(sKey) && !transit?.ambiguous && settledHeld.get(sKey) === transit) settledHeld.set(sKey, null);
         held.set(sKey, null);
       } else {
         // Used up, knocked off, flung, or eaten by a Bug Bite or Pluck, whose
         // user then eats a Berry it did not bring.
+        if (tags.eat !== undefined && !from) ateOwn.add(sKey);
         nameItem(itemOf(sKey), p[3]);
         loseItem(sKey);
         if (from === 'stealeat' && oKey) eating.set(oKey, toID(p[3]));
       }
     }
     if (kind === '-item' && sKey) {
+      const sClear = !ambiguousStay.has(sKey) && !holding(sKey)?.ambiguous;
       if (/^move: (Trick|Switcheroo)$/.test(from)) nameItem(holding(sKey), p[3]);
       else if (/^move: (Thief|Covet)$|^ability: (Magician|Pickpocket)$/.test(from)) {
         const taken = transit || holding(oKey);
-        if (!transit && oKey) held.set(oKey, null);
+        if (!transit && oKey) {
+          if (!ambiguousStay.has(oKey) && !taken?.ambiguous && settledHeld.get(oKey) === taken) settledHeld.set(oKey, null);
+          held.set(oKey, null);
+        }
         transit = null;
         nameItem(taken, p[3]);
         held.set(sKey, taken);
+        if (sClear && !taken?.ambiguous) settledHeld.set(sKey, taken);
       } else if (/^ability: Harvest$|^move: Recycle$/.test(from)) {
-        held.set(sKey, lost.get(sKey) || { origin: sKey });
+        const restored = lost.get(sKey) || { origin: sKey };
+        held.set(sKey, restored);
+        if (sClear && !restored.ambiguous) settledHeld.set(sKey, restored);
         nameItem(holding(sKey), p[3]);
-      } else if (from && !/^ability: Frisk$/.test(from)) held.set(sKey, { origin: null });
-      else nameItem(holding(sKey), p[3]);
+      } else if (from && !/^ability: Frisk$/.test(from)) {
+        const fresh = { origin: null };
+        held.set(sKey, fresh);
+        if (sClear) settledHeld.set(sKey, fresh);
+      } else nameItem(holding(sKey), p[3]);
     }
     if (kind === '-activate' && /^ability: Symbiosis$/.test(p[3] || '') && oKey) {
-      nameItem(holding(sKey), p[4]);
-      held.set(oKey, holding(sKey));
+      const oClear = !ambiguousStay.has(oKey) && !holding(oKey)?.ambiguous;
+      const passed = holding(sKey);
+      nameItem(passed, p[4]);
+      held.set(oKey, passed);
       held.set(sKey, null);
+      if (!passed?.ambiguous) {
+        if (oClear) settledHeld.set(oKey, passed);
+        if (!ambiguousStay.has(sKey) && settledHeld.get(sKey) === passed) settledHeld.set(sKey, null);
+      }
     }
     if (kind === '-activate' && /^item: /.test(p[3] || '')) nameItem(itemOf(sKey), p[3].slice(6));
     if (kind === '-activate' && p[3] === 'move: Poltergeist') nameItem(holding(sKey), p[4]);
     if (kind === '-block' && /^item: /.test(p[3] || '')) nameItem(holding(sKey), p[3].slice(6));
-    // An effect credited to an item: Rocky Helmet hurts the attacker and a flung
-    // Berry heals its target, each naming the Pokemon whose item it was in `[of]`.
+    // An effect credited to an item: with `[of]` naming another Pokemon, that
+    // one holds it - Rocky Helmet, Destiny Knot, a flung Berry - except where
+    // the line is the holder's own heal (Shell Bell, or a Berry it just ate).
     if (/^item: /.test(from) && kind !== '-item' && kind !== '-enditem') {
       const item = from.slice(6);
+      const ownGain = kind === '-heal' && (!dex.items.get(item).isBerry || ateOwn.has(sKey));
       if (!tags.of && eating.get(sKey) === toID(item)) eating.delete(sKey);
-      else nameItem(itemOf((kind === '-damage' || kind === '-heal') && oKey ? oKey : sKey), item);
+      else nameItem(itemOf(oKey && oKey !== sKey && !ownGain ? oKey : sKey), item);
     }
 
     // Abilities, only ever as the species could have them. A changed ability
@@ -623,11 +793,20 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
     let ability = mon.ability;
     const name = mon.name || species.name;
     const ruled = (ruledOut[name] || []).filter(r => abilities.some(a => toID(a) === toID(r.ability)));
+    const extraMoves = mon.assumedMoves.filter(m => !mon.moves.includes(m)).slice(0, Math.max(0, 4 - mon.moves.length));
+    let moves = [...mon.moves, ...extraMoves];
+    let standInName = null;
+    if (!moves.length && standIn) {
+      standInName = standInMove(dex, species);
+      if (standInName) moves = [standInName];
+    }
     boxes.push({
       item: mon.item === null ? 'assumed' : 'read',
       ability: ability ? 'read' : abilities.length === 1 ? 'only' : 'assumed',
       nature: 'assumed',
       ruledOut: ability ? [] : ruled,
+      ...(extraMoves.length ? { assumedMoves: extraMoves } : {}),
+      ...(standInName ? { standIn: standInName } : {}),
     });
     if (!ability && abilities.length === 1) ability = abilities[0];
     if (!ability) {
@@ -635,18 +814,15 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
       const out = ruled.length ? `; ruled out: ${ruled.map(r => r.ability).join(', ')}` : '';
       notes.push(`ability ${ability || 'none'} (one of ${abilities.join(', ')}${out})`);
     }
-    if (mon.item === null) notes.push('no item');
+    if (mon.item === null) notes.push(mon.assumedItem ? `item ${mon.assumedItem} (under a possible Illusion)` : 'no item');
     notes.push('a neutral nature');
     if (mon.moves.length < 4) notes.push(`${mon.moves.length} move${mon.moves.length === 1 ? '' : 's'} seen`);
-    const moves = mon.moves.length || !standIn ? mon.moves : [standInMove(dex, species)].filter(Boolean);
-    if (!mon.moves.length && moves.length) {
-      boxes[boxes.length - 1].standIn = moves[0];
-      notes.push(`${moves[0]}, which it never used`);
-    }
+    if (extraMoves.length) notes.push(`${extraMoves.join(', ')} seen under a possible Illusion`);
+    if (standInName) notes.push(`${standInName}, which it never used`);
     sets.push({
       name,
       species: species.name,
-      item: mon.item || '',
+      item: mon.item || mon.assumedItem || '',
       ability,
       moves,
       nature: 'Serious',
@@ -679,14 +855,19 @@ export function withLogIdentity(sets, lines, side, formatid) {
  * and ability each one showed.
  */
 export function crossCheckLog(lines, side, formatid, packedTeam) {
-  const { sets } = setsFromLog(lines, side, formatid);
+  const { sets, boxes } = setsFromLog(lines, side, formatid);
   const mine = Teams.unpack(packedTeam);
   const problems = [];
-  for (const seen of sets) {
+  for (const [j, seen] of sets.entries()) {
     const got = mine.find(s => sameSpecies(s.species || s.name, seen.species));
     if (!got) { problems.push(`${seen.species} appears in the log but not in the supplied team`); continue; }
+    const assumed = new Set([boxes[j]?.standIn, ...(boxes[j]?.assumedMoves || [])].filter(Boolean).map(toID));
     const moves = (got.moves || []).map(toID);
-    for (const move of seen.moves) if (!moves.includes(toID(move))) problems.push(`${seen.species} used ${move}, which the supplied set lacks`);
+    for (const move of seen.moves) {
+      if (!assumed.has(toID(move)) && !moves.includes(toID(move))) {
+        problems.push(`${seen.species} used ${move}, which the supplied set lacks`);
+      }
+    }
   }
   return problems;
 }
