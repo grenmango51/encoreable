@@ -1922,6 +1922,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
   // pairs and brought run when none does. What was taken back is handed on if
   // nothing else advances: a die an earlier turn threw may be what it needed.
   let onTrial = null;
+  let fieldTrial = null;
   let trialDoneAt = -1;
   let tried = null;
   const takeBack = () => {
@@ -2009,6 +2010,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
         await dropShifted(prevLines);
         if (score[0] > prevLines) tried = null;
         if (onTrial && score[0] > onTrial.lines) onTrial = null;
+        if (fieldTrial && score[0] > fieldTrial.lines) fieldTrial = null;
         continue;
       }
     }
@@ -2058,16 +2060,37 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
       continue;
     }
     const inPlace = fallback && fallback.best[1] === score[1];
-    if (!committed && fallback && score[0] !== trialDoneAt && !(inPlace && onTrial?.inPlace)) {
-      if (!onTrial) onTrial = { at: commits.length, lines: score[0], inPlace: false };
-      if (inPlace) onTrial.inPlace = true;
+    if (!committed && fallback && !(inPlace ? onTrial : score[0] === trialDoneAt)) {
+      if (inPlace) onTrial = { at: commits.length, lines: score[0] };
+      else if (!fieldTrial) fieldTrial = { at: commits.length, lines: score[0] };
       commit(fallback.i, fallback.value, fallback.shape);
       committed = true;
     }
-    if (!committed && onTrial) {
+    let stashedFields = null;
+    if (!committed && (onTrial || fieldTrial)) {
       ask.cancel();
-      trialDoneAt = onTrial.lines;
-      takeBack();
+      if (onTrial) takeBack();
+      if (fieldTrial) {
+        trialDoneAt = fieldTrial.lines;
+        stashedFields = [];
+        for (const { i, prev, prevShape } of commits.splice(fieldTrial.at).reverse()) {
+          if (subs[i] === undefined) continue;
+          stashedFields.unshift({ i, value: subs[i], shape: ownShape.get(i) });
+          if (prev === undefined) {
+            delete subs[i];
+            delete subTurn[i];
+            ownShape.delete(i);
+            moved.push(i);
+            forced--;
+          } else {
+            subs[i] = prev;
+            if (prevShape !== undefined) ownShape.set(i, prevShape);
+            else ownShape.delete(i);
+            moved.push(i);
+          }
+        }
+        fieldTrial = null;
+      }
       run = await runTo(common, subs, t, t);
       score = scoreOf(run, t);
       reach = canReach(common, run, t);
@@ -2239,13 +2262,21 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     }
 
     ask.cancel();
-    if (!committed) break;
+    if (!committed) {
+      if (stashedFields?.length) {
+        for (const { i, value, shape } of stashedFields) commit(i, value, shape);
+        run = await runTo(common, subs, t, t);
+        score = scoreOf(run, t);
+      }
+      break;
+    }
     const prevLines = score[0];
     run = await runTo(common, subs, t, t);
     score = scoreOf(run, t);
     await dropShifted(prevLines);
     if (score[0] > prevLines) tried = null;
     if (onTrial && score[0] > onTrial.lines) onTrial = null;
+    if (fieldTrial && score[0] > fieldTrial.lines) fieldTrial = null;
   }
   // Why the search of this turn ended: the turn reproduces, the simulator
   // refused a choice, a limit left a candidate untried, or every candidate was
