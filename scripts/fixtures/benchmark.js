@@ -230,6 +230,7 @@ const SWEPT = [
   'mimic:gen9championsvgc2026regmcbo3-2707163383', // 2026-10-31: Archaludon's Leftovers matched past its earlier Grassy Terrain heal at a Residual cutoff
   'mimic:gen9championsvgc2026regmcbo3-2695573428', // 2026-10-09: flipping Dire Claw's secondary off shifts Poison Touch past Flame Body onto a new ordinal
   'mimic:gen9championsvgc2026regmcbo3-2694712442', // 2026-10-08: flipping both Muddy Water secondaries off reaches Make It Rain's line on fields before its miss settles
+  'mimic:gen9championsvgc2026regmcbo3-2705120655', // 2026-10-26: reusing a disputed pair's probe result so Scarf Arbok halves between base and Mega Staraptor
 ];
 
 const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));
