@@ -300,8 +300,15 @@ function exactTurns(raw, tokens, prefix, coupled = Infinity, cutAt = Infinity) {
     const parts = line.split('|');
     const at = HP_FIELD[parts[1]];
     const field = String(parts[at] || '');
-    parts[at] = token === '0' ? '0 fnt' : `${token}${field.includes(' ') ? field.slice(field.indexOf(' ')) : ''}`;
+    const suffix = field.includes(' ') ? field.slice(field.indexOf(' ')) : '';
+    parts[at] = token === '0' ? '0 fnt' : `${token}${suffix === ' fnt' ? '' : suffix}`;
     return parts.join('|');
+  };
+  const sameHpTarget = (a, b) => {
+    const x = (battleLines([a])[0] || a || '').split('|');
+    const y = String(b || '').split('|');
+    const at = HP_FIELD[x[1]];
+    return at !== undefined && x.length === y.length && x.every((p, idx) => idx === at || p === y[idx]);
   };
   for (const entry of view) {
     if (prefix.turn !== null && k > prefix.turn) break;
@@ -312,9 +319,9 @@ function exactTurns(raw, tokens, prefix, coupled = Infinity, cutAt = Infinity) {
     if (prefix.turn !== null && k === prefix.turn && (cut || entry.at > prefix.cutoffAt)) {
       // The failing line itself is proved only when it is a hidden HP the path
       // chose; anything else there is the scaffold's mistake, not the truth.
-      if (cut && tokens.has(entry.at)) {
+      if (cut && tokens.has(entry.at) && prefix.observedLine && sameHpTarget(entry.line, prefix.observedLine)) {
         if (entry.at >= cutAt && provedAt === null) provedAt = { k, n: lines.length };
-        lines.push(withHp(entry.line, tokens.get(entry.at)));
+        lines.push(withHp(prefix.observedLine, tokens.get(entry.at)));
       }
       break;
     }
@@ -3114,6 +3121,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
     }
   }
+  let sapCount = 0;
   const origSingle = battle.singleEvent;
   battle.singleEvent = function (eventid, effect, effectState, target, source, ...rest) {
     if (eventid !== 'Hit' || state.dry || state.ended || !effect || typeof target !== 'object' || typeof source !== 'object') {
@@ -3122,11 +3130,12 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const T = byPokemon.get(target);
     const S = byPokemon.get(source);
     if (effect.id === 'strengthsap' && T && S && !T.kn.known) {
-      const sapAt = a => guarded(() => {
+      const ord = sapCount++;
+      const sapAt = a => memo(`sap|${ord}|${a}`, () => guarded(() => {
         const undo = patchAll([{ pokemon: target, stats: { atk: T.stat('atk', a) } }]);
         try { return target.getStat('atk', false, true); } finally { undo(); }
-      });
-      const real = guarded(() => target.getStat('atk', false, true));
+      }));
+      const real = memo(`sap|${ord}|real`, () => guarded(() => target.getStat('atk', false, true)));
       if (plain(T, 'atk') && sapAt(fullEvs(target.set.evs).atk) === real) {
         const amounts = new Map();
         for (const a of aliveOf(T.flat.atk)) amounts.set(a, sapAt(a));
@@ -3719,6 +3728,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
     return result;
   });
+  let bestCount = 0;
   for (const rec of recs) {
     if (rec.kn.known) continue;
     const getBestStat = rec.pokemon.getBestStat;
@@ -3738,19 +3748,23 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       if (!bestAhead(rec, battle.log.length)) return real;
       // Which of two stats wins, for every pair of their values, asked now,
       // while the Pokemon stands as it did for the pick.
-      const pairWins = new Map();
-      guarded(() => {
-        const zero = Object.fromEntries(MOVABLE.map(s => [s, 0]));
-        for (const [x, y] of MOVABLE.flatMap((s, i) => MOVABLE.slice(i + 1).map(t => [s, t]))) {
-          const w = new Uint8Array(SPAN * SPAN);
-          for (let a = 0; a < SPAN; a++) {
-            for (let b = 0; b < SPAN; b++) {
-              const undo = patchAll([{ pokemon: rec.pokemon, stats: { ...zero, [x]: rec.stat(x, a), [y]: rec.stat(y, b) } }]);
-              try { w[a * SPAN + b] = getBestStat.call(rec.pokemon, unboosted, unmodified) === x ? 1 : 0; } finally { undo(); }
+      const ord = bestCount++;
+      const pairWins = memo(`best|${ord}|${rec.id}`, () => {
+        const wins = new Map();
+        guarded(() => {
+          const zero = Object.fromEntries(MOVABLE.map(s => [s, 0]));
+          for (const [x, y] of MOVABLE.flatMap((s, i) => MOVABLE.slice(i + 1).map(t => [s, t]))) {
+            const w = new Uint8Array(SPAN * SPAN);
+            for (let a = 0; a < SPAN; a++) {
+              for (let b = 0; b < SPAN; b++) {
+                const undo = patchAll([{ pokemon: rec.pokemon, stats: { ...zero, [x]: rec.stat(x, a), [y]: rec.stat(y, b) } }]);
+                try { w[a * SPAN + b] = getBestStat.call(rec.pokemon, unboosted, unmodified) === x ? 1 : 0; } finally { undo(); }
+              }
             }
+            wins.set(`${x} ${y}`, w);
           }
-          pairWins.set(`${x} ${y}`, w);
-        }
+        });
+        return wins;
       });
       bestOpen = { rec, real, event: battle.event, effect: battle.effect, narrow: best => narrowBest(rec, best, pairWins, what) };
       return real;
@@ -4056,11 +4070,6 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const dealtBy = new Map();
     let coupled = Infinity;
     let cutAt = unprovedAt;
-    // Every change the path made deal another amount than the scaffold's did,
-    // and the HP the scaffold showed each Pokemon on last (null where its last
-    // change showed none).
-    const drifted = new Set();
-    const scaffoldWas = new Map();
     const startOf = (rec) => {
       const [k, hs] = [...(rec.history[0]?.pre || new Map()).entries()][0] || [];
       return k === undefined ? null : [k, hs[0]];
@@ -4068,8 +4077,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const secretAt = new Map();
     for (const rec of recs) {
       for (const { at, hist } of rec.shown) {
-        const split = at >= 2 && /^\|split\|/.test(raw[at - 2] || '');
-        const exactAt = split && raw[at] !== raw[at - 1] && !rec.exact ? at - 1 : at;
+        const split = !rec.exact && at >= 2 && /^\|split\|/.test(raw[at - 2] || '');
+        const exactAt = split ? at - 1 : at;
         secretAt.set(`${rec.id}|${hist}`, exactAt);
       }
     }
@@ -4078,13 +4087,45 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const m = at === undefined ? null : /^(\d+)\//.exec(String(hpLine(raw[at])?.token || ''));
       return m ? Number(m[1]) : null;
     };
-    for (const { rec, i, e } of entries) {
+    const byChange = new Map(entries.map((x, idx) => [x.e.change, idx]));
+    const lastCoupled = new Map();
+    const touch = (r, idx) => { if (r) lastCoupled.set(r, Math.max(lastCoupled.get(r) ?? -1, idx)); };
+    for (const [idx, { rec, e }] of entries.entries()) {
+      const c = e.change;
+      if (c.victim && c.dealtOf) {
+        const u = byChange.get(c.victim);
+        if (u !== undefined) touch(entries[u].rec, u);
+        touch(rec, idx);
+      }
+      if (c.totals && c.hits) {
+        for (const h of c.hits) {
+          const u = byChange.get(h);
+          if (u !== undefined) touch(entries[u].rec, u);
+        }
+        touch(rec, idx);
+      }
+      if (c.sourceStates) {
+        touch(c.dealtBy, idx);
+        if (c.extra && !FLAT.includes(c.extra.stat)) touch(byId.get(c.extra.owner), idx);
+        touch(rec, idx);
+      }
+      if (c.pair) {
+        touch(rec, idx);
+        touch(c.pair.partner, idx);
+      }
+    }
+    let backtracks = 256;
+    const step = (idx) => {
+      if (idx === entries.length) return true;
+      const { rec, i, e } = entries[idx];
       const alive = rec.alive?.[i];
-      if (!alive) return null;
-      let state = cur.get(rec);
+      if (!alive) return false;
+      const hadCur = cur.has(rec);
+      const prevCur = cur.get(rec);
+      let state = prevCur;
       if (!state) {
         const [k, hs] = [...e.pre.entries()][0] || [];
-        if (k === undefined) return null;
+        if (k === undefined) return false;
         state = [k, hs[0]];
       }
       const [k, h] = state;
@@ -4144,8 +4185,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           if (!tagOf.has(h2)) tagOf.set(h2, tag % SPAN);
         }
       }
-      if (!options.length) return null;
+      if (!options.length) return false;
+      const prevCoupled = coupled;
       const pair = e.change.pair;
+      const hadPartnerCur = pair ? cur.has(pair.partner) : false;
+      const hadPairedOther = pair ? pairedTo.has(pair.other) : false;
+      const prevPairedOther = pair ? pairedTo.get(pair.other) : undefined;
+      const hadPassed = pair ? passed.has(e.change) : false;
       if (pair) {
         let want = pairedTo.get(e.change);
         let theirs = null;
@@ -4164,26 +4210,52 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         passed.add(e.change);
       }
       const own = e.token !== null ? scaffoldHp(rec, i) : null;
-      const h2 = options.includes(own) ? own : options[0];
-      // A change read only as a band or with both roundings hands on no roll,
-      // and under a new guess can deal another amount even where its path kept
-      // the scaffold's own HP. It and what follows are still the HPs the
-      // display allows, handed on as what a rebuild must reach, but proved no
-      // further than the line before it.
+      const first = options.includes(own) ? own : options[0];
+      const choices = idx <= (lastCoupled.get(rec) ?? -1)
+        ? [first, ...new Set(options.filter(x => x !== first))]
+        : [first];
+      const prevCutAt = cutAt;
       if (((e.change.band && !e.change.proved) || e.change.uncertain)) {
         cutAt = Math.min(cutAt, secretAt.get(`${rec.id}|${i}`) ?? e.change.logAt ?? Infinity);
       }
-      // What the scaffold's change dealt is known where its HP before and
-      // after were both shown; a change the path made deal anything else, or
-      // whose amount the scaffold did not show, drifted.
-      const was = scaffoldWas.get(rec);
-      if (own === null || was === undefined || was === null || h - h2 !== was - own) drifted.add(e.change);
-      scaffoldWas.set(rec, own);
-      chosen.get(rec)[i] = h2;
-      cur.set(rec, [k, h2]);
-      if (tagOf.has(h2)) dealtBy.set(e.change, { amount: h - h2, v: tagOf.get(h2) });
-      if (e.change.rollAt !== null && e.change.rollAt !== undefined && rollOf.has(h2)) rolls.set(e.change.rollAt, rollOf.get(h2));
-    }
+      const prevChosen = chosen.get(rec)[i];
+      const hadDealt = dealtBy.has(e.change);
+      const prevDealt = dealtBy.get(e.change);
+      const hasRollSlot = e.change.rollAt !== null && e.change.rollAt !== undefined;
+      const hadRoll = hasRollSlot && rolls.has(e.change.rollAt);
+      const prevRoll = hadRoll ? rolls.get(e.change.rollAt) : undefined;
+      for (let cIdx = 0; cIdx < choices.length; cIdx++) {
+        if (cIdx > 0) {
+          if (backtracks <= 0) break;
+          backtracks--;
+        }
+        const h2 = choices[cIdx];
+        chosen.get(rec)[i] = h2;
+        cur.set(rec, [k, h2]);
+        if (tagOf.has(h2)) dealtBy.set(e.change, { amount: h - h2, v: tagOf.get(h2) });
+        else dealtBy.delete(e.change);
+        if (hasRollSlot) {
+          if (rollOf.has(h2)) rolls.set(e.change.rollAt, rollOf.get(h2));
+          else rolls.delete(e.change.rollAt);
+        }
+        if (step(idx + 1)) return true;
+      }
+      chosen.get(rec)[i] = prevChosen;
+      if (hadCur) cur.set(rec, prevCur); else cur.delete(rec);
+      if (hadDealt) dealtBy.set(e.change, prevDealt); else dealtBy.delete(e.change);
+      if (hasRollSlot) {
+        if (hadRoll) rolls.set(e.change.rollAt, prevRoll); else rolls.delete(e.change.rollAt);
+      }
+      cutAt = prevCutAt;
+      coupled = prevCoupled;
+      if (pair) {
+        if (!hadPartnerCur) cur.delete(pair.partner);
+        if (hadPairedOther) pairedTo.set(pair.other, prevPairedOther); else pairedTo.delete(pair.other);
+        if (!hadPassed) passed.delete(e.change);
+      }
+      return false;
+    };
+    if (!step(0)) return null;
 
     const tokens = new Map();
     for (const rec of recs) {

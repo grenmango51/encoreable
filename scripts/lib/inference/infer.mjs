@@ -393,6 +393,20 @@ export async function inferSpreads({
       }
       was = now;
     };
+    if (!learn && !record) {
+      const allOrders = [...orders.values(), ...kept];
+      for (let pre = true; pre;) {
+        pre = false;
+        for (const kn of knowledge.values()) if (!kn.known) pre = tighten(kn) || pre;
+        pre = orderSpeeds(knowledge, allOrders) || pre;
+      }
+      if ([...knowledge.values()].some(kn => !kn.known && (!kn.keys.includes(1) || FLAT.some(x => !kn.dom[x].includes(1))))) {
+        return {
+          events: [], checks: [], cutoff: null, scaffoldOrders: [],
+          seen: new Set(), lent: new Map(), initial: null, afterFirst: null, passes: 0,
+        };
+      }
+    }
     while (passes < 8 * S) {
       const before = watch ? cloneKnowledge(knowledge) : null;
       const pass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, record: record && !first });
@@ -703,8 +717,12 @@ export async function inferSpreads({
           kn = restrictKnowledge(kn, c.stat, c.value);
           aim[c.stat] = c.value;
         }
-        const spread = closestSpread(kn, aim);
-        if (!spread || list.some(c => spread[c.stat] !== c.value)) return null;
+        const ok = sp => sp && list.every(c => sp[c.stat] === c.value);
+        let spread = !list.some(c => c.stat === 'spe')
+          ? closestSpread(restrictKnowledge(kn, 'spe', start[s][i].spe), aim)
+          : null;
+        if (!ok(spread)) spread = closestSpread(kn, aim);
+        if (!ok(spread)) return null;
         out[s][i] = spread;
       }
       return out;
@@ -719,15 +737,19 @@ export async function inferSpreads({
     // another move fit where the one put in still prints the same: a Protect
     // that goes first at any Speed.
     const plain = await replayWith(built.inputLog, packOf(start), t, channel);
+    const plainJson = plain ? JSON.stringify(plain) : null;
     const actorOf = l => [...namedIn(`|x|${(/^p[1-4][a-d]?: /.test(String(l || '').split('|')[2] || '') ? String(l).split('|')[2] : '')}`)][0];
-    const disputed = (built.report.hidden || []).includes(t) ? new Set([actorOf(diff.expected), actorOf(diff.actual)].filter(Boolean)) : new Set();
-    const done = new Set([signature(start)]);
+    const hiddenTurn = (built.report.hidden || []).includes(t);
+    const disputed = hiddenTurn ? new Set([actorOf(diff.expected), actorOf(diff.actual)].filter(Boolean)) : new Set();
+    const done = new Map([[signature(start), null]]);
     const probe = async (changes, from = knowledge) => {
       const chosen = build(changes, from);
-      if (!chosen || done.has(signature(chosen))) return null;
-      done.add(signature(chosen));
-      const same = !!plain && !changes.some(c => disputed.has(c.id))
-        && JSON.stringify(await replayWith(built.inputLog, packOf(chosen), t, channel)) === JSON.stringify(plain);
+      if (!chosen) return null;
+      const sig = signature(chosen);
+      if (done.has(sig)) return done.get(sig);
+      const speMoved = chosen.some((team, s) => team.some((e, i) => e.spe !== start[s][i].spe));
+      const same = !!plain && !(hiddenTurn && (speMoved || (order && changes.some(c => disputed.has(c.id)))))
+        && JSON.stringify(await replayWith(built.inputLog, packOf(chosen), t, channel)) === plainJson;
       let b = same ? null : await rebuild(chosen, budget);
       // Stopped on a turn the guess gets through, under the dice handed on
       // from it: they are addressed by the order the dice were thrown in, and
@@ -742,7 +764,9 @@ export async function inferSpreads({
       const stop = b && b.report.diffs[0];
       onProgress(`  fallback on turn ${t}: ${changes.map(c => `${c.name} ${c.stat} ${c.value}`).join(', ')} - ${same ? 'plays out the same'
         : b.report.complete ? 'reproduces it' : `stops at ${reach(b).join('.')}: wanted ${stop?.expected}, got ${stop?.actual}`}${fresh ? ' with the dice before it searched again' : ''}, ${clock()}`);
-      return { chosen, b, same, fresh };
+      const out = { chosen, b, same, fresh };
+      done.set(sig, out);
+      return out;
     };
 
     const baseReach = reach(base);
@@ -848,8 +872,9 @@ export async function inferSpreads({
     // leaves none for the one whose stat decides the line - the Orthworm whose
     // Shed Tail made the Substitute a drain was taken off.
     const halve = [];
-    const halving = async ({ d, ends }) => {
-      let [i, j] = [0, d.alive.length - 1];
+    const interior = [];
+    const halving = async ({ d, lo = 0, hi = d.alive.length - 1, ends }) => {
+      let [i, j] = [lo, hi];
       while (j - i > 1 && !found && !ahead && affordable()) {
         const m = (i + j) >> 1;
         const side = await tryValue(d, d.alive[m], { escorted: false });
@@ -862,9 +887,15 @@ export async function inferSpreads({
       const n = d.alive.length;
       if (!n || found || ahead || !affordable()) continue;
       const ends = [await tryValue(d, d.alive[0]), found || ahead || !affordable() ? null : await tryValue(d, d.alive[n - 1])];
-      if (!ends.includes('early') || !ends.includes('same')) continue;
-      if (order) await halving({ d, ends });
-      else halve.push({ d, ends });
+      if (ends.includes('early') && ends.includes('same')) {
+        if (order) await halving({ d, ends });
+        else halve.push({ d, ends });
+      } else if (ends[0] === 'early' && ends[1] === 'early') {
+        const midIdx = d.alive.indexOf(d.now);
+        if (midIdx > 0 && midIdx < n - 1) {
+          interior.push({ d, lo: 0, hi: midIdx, ends: ['early', 'same'] }, { d, lo: midIdx, hi: n - 1, ends: ['same', 'early'] });
+        }
+      }
     }
     for (const h of halve) await halving(h);
     for (const d of dims) {
@@ -895,15 +926,26 @@ export async function inferSpreads({
         }
       }
     }
+    for (const h of interior) {
+      if (found || ahead || !affordable()) break;
+      await halving(h);
+    }
 
     // A spread found under the dice of the turns before can owe the line to
     // dice that land differently under it; the guess itself, with those dice
     // searched again, says whether it does.
     if ((found || ahead) && Object.keys(handed.subs).length) {
-      const fresh = await rebuild(start, budgets[1], { given: null });
-      if (further(reach(fresh), baseReach)) {
-        onProgress(`  fallback on turn ${t}: the guess alone gets past the line with the dice before it searched again, ${clock()}`);
-        return stays(null, 1);
+      const cand = found || ahead;
+      const subsKept = !cand.got.fresh && Object.entries(handed.subs).every(([k, v]) => cand.got.b.pins?.subs?.[k] === v);
+      const preSame = subsKept && t > 1
+        && JSON.stringify(await replayWith(built.inputLog, packOf(cand.got.chosen), t - 1, -1))
+          === JSON.stringify(await replayWith(built.inputLog, packOf(start), t - 1, -1));
+      if (!preSame) {
+        const fresh = await rebuild(start, budgets[1], { given: null });
+        if (further(reach(fresh), baseReach)) {
+          onProgress(`  fallback on turn ${t}: the guess alone gets past the line with the dice before it searched again, ${clock()}`);
+          return stays(null, 1);
+        }
       }
     }
     const win = found || ahead;
@@ -912,8 +954,13 @@ export async function inferSpreads({
       const by = passed.length ? passed : win.by;
       const text = `${what} (moved by ${named(by)})`;
       const widest = budgets.findLastIndex(b => !b.resample);
-      let read = false;
-      for (const [chosen, given, ex] of [[start, handed, null], ...(proven?.exact ? [[proven.picks, proven.pins, proven.exact]] : [])]) {
+      const diceCapped = (dice.cost?.limits || dice.report.limits || []).some(l => ['probes', 'redrawProbes', 'backtracks'].includes(l));
+      let read = further(reach(dice), [t, diff.index]);
+      const checks = [
+        ...(proven?.exact ? [[proven.picks, proven.pins, proven.exact]] : []),
+        ...(diceCapped ? [[start, handed, null]] : []),
+      ];
+      for (const [chosen, given, ex] of checks) {
         if (read) break;
         const b = counted(await reconstruct({
           formatid, packedTeams: packOf(chosen), playerNames, observed: through, channel, exact: ex, forced: built.forced,
@@ -1059,6 +1106,7 @@ export async function inferSpreads({
     // nothing by a pin before it.
     const seq = order.slice();
     const blocked = new Map();
+    const isDead = map => [...map.values()].some(kn => !kn.known && emptied(kn));
     const blocks = (map, n) => {
       const out = seq.slice(n + 1).filter(([s2, i2]) => emptied(map.get(`p${s2 + 1}:${i2}`)));
       for (const [s2, i2] of out) blocked.set(`${s2}:${i2}`, (blocked.get(`${s2}:${i2}`) || 0) + 1);
@@ -1095,20 +1143,23 @@ export async function inferSpreads({
           pinned.keys.fill(0);
           pinned.keys[k] = 1;
           tries--;
-          await settle(built.inputLog, keyed, cache, false, false, keep);
-          entry = { pinned, blocked: blocks(keyed, n) || emptied(pinned) };
+          const settled = await settle(built.inputLog, keyed, cache, false, false, keep);
+          if (!settled.passes) tries++;
+          const flatFixed = FLAT.every(x => aliveOf(pinned.dom[x]).length === 1);
+          entry = { keyed, pinned, flatFixed, blocked: blocks(keyed, n) || isDead(keyed) };
           byKey.set(k, entry);
         }
         if (entry.blocked) continue;
         const pick = closestSpread(entry.pinned, aim);
         if (!pick || tried.some(t => sameSpread(t, pick))) continue;
         tried.push(pick);
-        const narrowed = cloneKnowledge(cond);
+        const narrowed = cloneKnowledge(entry.keyed);
         pinKnowledge(narrowed.get(id), pick);
-        if (n < seq.length - 1) {
+        if (n < seq.length - 1 && !entry.flatFixed) {
           tries--;
-          await settle(built.inputLog, narrowed, cache, false, false, keep);
-          if (blocks(narrowed, n)) continue;
+          const settled = await settle(built.inputLog, narrowed, cache, false, false, keep);
+          if (!settled.passes) tries++;
+          if (blocks(narrowed, n) || isDead(narrowed)) continue;
         }
         const found = await choose(n + 1, narrowed);
         if (found) { next[s][i] = pick; return found; }

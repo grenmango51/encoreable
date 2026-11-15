@@ -260,6 +260,7 @@ export function attachSpeed(battle, {
   // A forme change (`setSpecies`, which Mega Evolution runs) caches the bare
   // Speed stat of the new forme until the next update.
   let speedUpdates = 0;
+  let speciesUpdates = 0;
   for (const rec of recs) {
     const p = rec.pokemon;
     const setSpecies = p.setSpecies;
@@ -267,7 +268,8 @@ export function attachSpeed(battle, {
       const out = setSpecies.apply(this, args);
       if (!state.dry && !state.ended) {
         // A Transform's `setSpecies` is followed by the copied stats.
-        rec.cachedSpeed = args[2] ? null : speedsOf(rec, () => this.storedStats.spe);
+        const at = speciesUpdates++;
+        rec.cachedSpeed = args[2] ? null : memo(`spc|${at}|${rec.id}`, () => speedsOf(rec, () => this.storedStats.spe));
       }
       return out;
     });
