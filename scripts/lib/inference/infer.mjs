@@ -413,6 +413,7 @@ export async function inferSpreads({
       }
     }
     while (passes < 8 * S) {
+      if (passes > 0 && Date.now() >= deadline) { limits.add('deadline'); break; }
       const before = watch ? cloneKnowledge(knowledge) : null;
       const pass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, simCache, record: record && !first, beforeTurn });
       passes++;
@@ -552,6 +553,7 @@ export async function inferSpreads({
     return { exact: ex, pins: handOn(fromBuilt, rolls, coupledAt), coupledAt };
   };
   const certifyPrefix = async (fromBuilt, chosen, scaffoldList, maxBeforeTurn, sharedCache = new Map(), witness = null) => {
+    if (Date.now() >= deadline) { limits.add('deadline'); return { exact: null, pins: null, coupledAt: 0 }; }
     const cap = scaffoldLimit(chosen, scaffoldList, maxBeforeTurn);
     if (!(cap >= 1)) return { exact: null, pins: null, coupledAt: 0 };
     const full = await certifyAt(fromBuilt, chosen, cap, sharedCache, witness);
@@ -559,12 +561,13 @@ export async function inferSpreads({
     let lo = 0;
     let hi = cap - 1;
     let best = null;
-    while (lo < hi) {
+    while (lo < hi && Date.now() < deadline) {
       const mid = (lo + hi + 1) >> 1;
       const got = await certifyAt(fromBuilt, chosen, mid, sharedCache, witness);
       if (got) { best = got; lo = mid; }
       else hi = mid - 1;
     }
+    if (lo < hi && Date.now() >= deadline) limits.add('deadline');
     return best || { exact: null, pins: null, coupledAt: 0 };
   };
 
@@ -1184,6 +1187,7 @@ export async function inferSpreads({
     onProgress(`round ${rounds}${level ? ` (search ${level + 1})` : ''}, ${((Date.now() - searchStart) / 1000).toFixed(1)}s: ${built.report.complete ? 'the whole log reproduces'
       : `reproduces through turn ${built.report.verifiedThroughTurn} - wanted ${diff?.expected}, got ${diff?.actual}`}`);
     if (built.report.complete) break;
+    if (Date.now() >= deadline) { stop = 'deadline'; break; }
 
     const cache = new Map();
     const evidenceStart = Date.now();
@@ -1241,6 +1245,7 @@ export async function inferSpreads({
         ...baseAims.map(aim => [kn, aim]),
       ];
       for (const [domainKn, aim] of candidates) {
+        if (Date.now() >= deadline) { limits.add('deadline'); return null; }
         if (tries <= 0) { limits.add('guessTries'); return null; }
         const first = closestSpread(domainKn, aim);
         if (!first) continue;
@@ -1307,7 +1312,7 @@ export async function inferSpreads({
       // Each Pokemon moves to the front once; the order changes which spreads
       // are tried first, never which survive.
       const moved = new Set();
-      while (!found && tries > 0) {
+      while (!found && tries > 0 && Date.now() < deadline) {
         const key = [...blocked].filter(([k]) => !moved.has(k)).sort((a, b) => b[1] - a[1])[0]?.[0];
         if (key === undefined) break;
         moved.add(key);
@@ -1319,7 +1324,7 @@ export async function inferSpreads({
     };
     let proof = await pickGuesses();
     const isUnchanged = () => next.every((team, s) => team.every((e, i) => sameSpread(e, picks[s][i])));
-    if (keep.length && (!proof || isUnchanged())) {
+    if (keep.length && (!proof || isUnchanged()) && Date.now() < deadline) {
       keep = [];
       next = picks.map(team => team.map(e => ({ ...e })));
       tries = 32 * S * W;
