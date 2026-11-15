@@ -518,8 +518,10 @@ function choiceFor(side, plan, state, notes) {
   }
 
   if (request.forceSwitch) {
-    const bench = request.side.pokemon.map(p => identName(p.ident));
+    const pokemon = request.side.pokemon;
+    const bench = pokemon.map(p => identName(p.ident));
     const queue = state.forced[sideId];
+    const used = new Set();
     return request.forceSwitch.map((needed, i) => {
       if (!needed) return 'pass';
       // Match the slot the log names, not merely the order. When both actives
@@ -534,12 +536,24 @@ function choiceFor(side, plan, state, notes) {
         // search hears about it.
         return 'pass';
       }
-      const [entry] = queue.splice(at, 1);
-      const to = bench.indexOf(entry.name);
-      if (to < 0) {
-        state.unsatisfied = `${sideId} switched in ${entry.name}, which is not on the bench`;
+      const cand = queue[at];
+      const to = bench.findIndex((name, idx) => name === cand.name && !pokemon[idx]?.active && !pokemon[idx]?.condition?.endsWith(' fnt') && !used.has(idx));
+      if (to < 0 && pokemon.some((p, idx) => identName(p.ident) === cand.name && p.active && request.forceSwitch[idx] && idx !== i)) {
+        // The replacement is leaving the other active slot in this wave (such
+        // as end-of-turn Emergency Exit beside a fainted partner): pass now and
+        // send it in on the follow-up request once it reaches the bench.
         return 'pass';
       }
+      queue.splice(at, 1);
+      if (to < 0) {
+        const raw = bench.indexOf(cand.name);
+        if (raw < 0) {
+          state.unsatisfied = `${sideId} switched in ${cand.name}, which is not on the bench`;
+          return 'pass';
+        }
+        return `switch ${raw + 1}`;
+      }
+      used.add(to);
       return `switch ${to + 1}`;
     }).join(', ');
   }
@@ -572,9 +586,11 @@ function choiceFor(side, plan, state, notes) {
       const loc = encoredTarget ? targetLoc(sideId, i, encoredTarget) : null;
       const preferred = loc === null ? null : ` ${loc > 0 ? '+' : ''}${loc}`;
       const options = [];
-      for (const m of usable) {
-        for (const suffix of targetOptions(side, i, m.target, preferred)) {
-          options.push(`move ${m.j + 1}${suffix}${mega}`);
+      const perMove = usable.map(m => ({ j: m.j, targets: targetOptions(side, i, m.target, preferred) }));
+      const maxTargets = Math.max(0, ...perMove.map(x => x.targets.length));
+      for (let ti = 0; ti < maxTargets; ti++) {
+        for (const x of perMove) {
+          if (ti < x.targets.length) options.push(`move ${x.j + 1}${x.targets[ti]}${mega}`);
         }
       }
       if (!options.length) return 'pass';
@@ -1458,12 +1474,14 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
     // `cap` marks a turn our own guard gave up on, which no refusal decided.
     const diff = state.unsatisfied && !finished
       ? (early || { index: -1, expected: state.unsatisfied, actual: '', ...(state.cap ? { cap: state.cap } : {}) }) : found;
+    const stalled = !battle.ended && !finished && (k >= 1 ? battle.turn <= k : battle.turn < 1);
 
     if (diff) {
       diffs.push({ turn: k, ...diff });
       badTurn = k;
-      if (!tolerant) break;
+      if (!tolerant || stalled) break;
     }
+    if (stalled) break;
     if (stopAt !== undefined && k >= stopAt) break;
   }
 
@@ -2596,6 +2614,8 @@ async function reconstructOnce({
     // unseen choice, the first search holds half the probe budget back so
     // `rewalk` has probes left when another choice jumps past the line the
     // first stopped on; if nothing beats the first choice, it gets the rest.
+    const knownExact = exact?.get(t);
+    const exactUpTo = knownExact?.partial ? compareTurn(common, t, []).exactUpTo : 0;
     const enteringSubs = { ...subs };
     const enteringSubTurn = { ...subTurn };
     const restoreEntering = () => {
@@ -2604,21 +2624,50 @@ async function reconstructOnce({
       Object.assign(subs, enteringSubs);
       Object.assign(subTurn, enteringSubTurn);
     };
+    const actionMoves = (choices) => {
+      const seenSide = new Set();
+      const slots = [];
+      for (const { side, choice } of choices) {
+        if (seenSide.has(side)) continue;
+        seenSide.add(side);
+        for (const part of choice.split(', ')) slots.push(`${side}:${part.replace(/\s+[+-]\d+(?=\s|$)/g, '')}`);
+      }
+      return slots;
+    };
     const allVariants = run.widths?.[t] || 1;
     const width = Math.min(allVariants, maxVariants);
-    const ranked = [{ v: entering, score: walked[0].score, rejected: run.diffs[0]?.index === -1 }];
+    const ranked = [{ v: entering, score: walked[0].score, rejected: run.diffs[0]?.index === -1, keepEntering: true, slots: actionMoves(walked[0].choices) }];
     for (let v = 0; v < width && !solved; v++) {
       if (v === entering) continue;
       variants[t] = v;
-      forget(t);
-      const probe = await runTo(common, subs, t);
+      restoreEntering();
+      let probe = await runTo(common, subs, t);
+      let keepEntering = true;
+      if (exactUpTo && probe.badTurn === t && (probe.diffs[0]?.index ?? -1) < exactUpTo) {
+        forget(t);
+        probe = await runTo(common, subs, t);
+        keepEntering = false;
+      }
       const score = scoreOf(probe, t);
-      walked.push({ variant: v, choices: choicesOn(probe, t), score, searched: null });
+      const choices = choicesOn(probe, t);
+      walked.push({ variant: v, choices, score, searched: null });
       if (probe.badTurn === null || probe.badTurn > t) { solved = true; break; }
-      ranked.push({ v, score, rejected: probe.diffs[0]?.index === -1 });
+      ranked.push({ v, score, rejected: probe.diffs[0]?.index === -1, keepEntering, slots: actionMoves(choices) });
     }
     ranked.sort((a, b) => (outranks(b.score, a.score) ? 1 : outranks(a.score, b.score) ? -1
       : (a.v === entering ? -1 : b.v === entering ? 1 : a.v - b.v)));
+    const seenMoves = new Set();
+    const baseSlots = (ranked.find(r => !r.rejected) || ranked[0])?.slots || [];
+    for (const r of ranked) {
+      const sig = r.slots.join('|');
+      r.primary = !r.rejected && !seenMoves.has(sig);
+      if (r.primary) seenMoves.add(sig);
+      r.changed = r.slots.reduce((n, s, idx) => n + (s !== baseSlots[idx] ? 1 : 0), 0);
+    }
+    ranked.sort((a, b) => (a.primary !== b.primary ? (a.primary ? -1 : 1)
+      : outranks(b.score, a.score) ? 1 : outranks(a.score, b.score) ? -1
+        : a.changed !== b.changed ? a.changed - b.changed
+          : (a.v === entering ? -1 : b.v === entering ? 1 : a.v - b.v)));
 
     const searchedVariants = new Set();
     const cappedVariants = new Set();
@@ -2631,7 +2680,7 @@ async function reconstructOnce({
       const cap = shareOf();
       searchedVariants.add(first.v);
       variants[t] = first.v;
-      if (first.v === entering) restoreEntering();
+      if (first.keepEntering) restoreEntering();
       else forget(t);
       // A rejected choice is a legality problem, not an RNG one - no die can
       // make the simulator accept a choice it refused.
@@ -2697,13 +2746,13 @@ async function reconstructOnce({
     };
     while (await rewalk()) { /* keep advancing while rewalk finds a better variant */ }
 
-    for (const { v, rejected } of ranked) {
+    for (const { v, rejected, keepEntering } of ranked) {
       if (solved) break;
       if (searchedVariants.has(v) || rejected) continue;
       const cap = shareOf();
       searchedVariants.add(v);
       variants[t] = v;
-      if (v === entering) restoreEntering();
+      if (keepEntering) restoreEntering();
       else forget(t);
       const got = await resolveTurn(t, common, subs, subTurn, sample, cap);
       spent[t] += got.probes;
@@ -2736,11 +2785,13 @@ async function reconstructOnce({
     }
 
     if (!solved) {
-      variants[t] = partial ? partial.variant : 0;
-      forget(t);
+      variants[t] = partial ? partial.variant : entering;
       if (partial) {
+        forget(t);
         Object.assign(subs, partial.subs);
         Object.assign(subTurn, partial.subTurn);
+      } else {
+        restoreEntering();
       }
       run = await playThrough({ ...common, subs });
       remember();
