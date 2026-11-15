@@ -236,6 +236,7 @@ const SWEPT = [
   'mimic:gen9championsvgc2026regmcbo3-2704070734', // 2026-10-24: Golisopod leaving via end-of-turn Emergency Exit before replacing a fainted partner in the next wave
   'mimic:gen9championsvgc2026regmcbo3-2700875531', // 2026-10-19: a flinched Sneasler's unseen Fake Out speed-tying before Kingambit's Sucker Punch
   'mimic:gen9championsvgc2026regmc-2708661540', // 2026-11-03: Throat Chop blocking Incineroar's unseen Parting Shot behind a flinched Garchomp
+  'mimic:gen9championsvgc2026regmcbo3-2702518412', // 2026-10-22: Blaze Delphox into Multiscale Dragonite collapsing equivalent source and target HP states
 ];
 
 const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));

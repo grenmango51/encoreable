@@ -863,6 +863,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     for (const a of hit.aVals) {
       for (const d of dVals) hit.rows.set(rowKey(a, d, null, null, 0), rowAt(a, d));
     }
+    hit.rowOf = (a, d) => hit.rows.get(rowKey(a, d, null, null, 0)) || null;
     return hit;
   }
   const sameRow = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
@@ -1019,6 +1020,259 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       dVals.add(KEY_DIM[hit.def][k]);
       if (hit.targetHp) for (const h of hs) tStates.set(`${KEY_HP[k]}|${h}`, [KEY_HP[k], h]);
     }
+    const hasA = hit.readers.some(r => r.by === 'a');
+    const hasD = hit.readers.some(r => r.by === 'd');
+
+    // Trace one HP state through the simulator's damage pipeline so surviving
+    // target and source HP states that take the exact same BasePower,
+    // effectiveness and chainModify branches share one (a, d) evaluation grid.
+    const rawTargetHp = hit.targetHp;
+    const rawSourceHp = hit.sourceHp;
+    const traceHp = (tag, patch) => memo(`hpsig|${ord}|${tag}`, () => {
+      if (patch.some(x => x.hp !== undefined && x.hp <= 0)) return null;
+      return guarded(() => {
+        const undo = [patchAll(patch)];
+        let ok = true;
+        let sawModify = false;
+        let phase = 'pre';
+        let inEff = false;
+        let inFind = 0;
+        const preReads = new Set();
+        let effReads = null;
+        let preStatRead = false;
+        const eventStack = [];
+        const tokens = [];
+        const readHp = (who) => {
+          if (!calculating || inFind) return;
+          if (inEff) effReads.add(who);
+          if (phase === 'pre') {
+            preReads.add(who);
+            if (preStatRead) ok = false;
+          } else if (phase === 'stat') {
+            if (!eventStack.length) ok = false;
+          } else if (!eventStack.length && !inEff) {
+            ok = false;
+          }
+          for (const ev of eventStack) ev.reads.add(who);
+        };
+        for (const [p, who] of [[source, 's'], [target, 't']]) {
+          for (const prop of ['hp', 'maxhp', 'baseMaxhp']) {
+            const desc = Object.getOwnPropertyDescriptor(p, prop);
+            if (!desc || !('value' in desc)) { ok = false; continue; }
+            let cur = desc.value;
+            Object.defineProperty(p, prop, {
+              configurable: true, enumerable: desc.enumerable,
+              get() { readHp(who); return cur; },
+              set(v) { cur = v; },
+            });
+            undo.push(() => Object.defineProperty(p, prop, desc));
+          }
+          if (p.set?.evs) {
+            const evs = p.set.evs;
+            const desc = Object.getOwnPropertyDescriptor(evs, 'hp');
+            if (desc && 'value' in desc) {
+              let cur = desc.value;
+              Object.defineProperty(evs, 'hp', {
+                configurable: true, enumerable: desc.enumerable,
+                get() { readHp(who); return cur; },
+                set(v) { cur = v; },
+              });
+              undo.push(() => Object.defineProperty(evs, 'hp', desc));
+            }
+          }
+          for (const fnName of ['calculateStat', 'getStat']) {
+            const orig = p[fnName];
+            undo.push(override(p, fnName, function (...args) {
+              if (calculating) {
+                if (phase === 'pre') {
+                  preStatRead = true;
+                  if (preReads.size) ok = false;
+                } else if (phase === 'post' || eventStack.length > 0) {
+                  ok = false;
+                }
+              }
+              return orig.apply(this, args);
+            }));
+          }
+        }
+        const origFind = battle.findEventHandlers;
+        undo.push(override(battle, 'findEventHandlers', function (...args) {
+          inFind++;
+          let handlers;
+          try { handlers = origFind.apply(this, args); } finally { inFind--; }
+          if (!calculating || !eventStack.length) return handlers;
+          for (const h of handlers) {
+            if (typeof h.callback === 'function') {
+              const cb = h.callback;
+              h.callback = function (...cbArgs) {
+                const ret = cb.apply(this, cbArgs);
+                if (ret !== undefined && eventStack.length) eventStack.at(-1).assigned = true;
+                return ret;
+              };
+            } else if (h.callback !== undefined) {
+              eventStack.at(-1).assigned = true;
+            }
+          }
+          return handlers;
+        }));
+        const origChain = battle.chainModify;
+        undo.push(override(battle, 'chainModify', function (num, den) {
+          if (calculating && eventStack.length) {
+            eventStack.at(-1).mods.push(Array.isArray(num) ? `${num[0]}/${num[1]}` : `${num}/${den ?? 1}`);
+          }
+          return origChain.apply(this, arguments);
+        }));
+        const origRandom = battle.random;
+        undo.push(override(battle, 'random', function (...args) {
+          if (calculating && (eventStack.some(e => e.reads.size > 0) || (phase === 'pre' && preReads.size > 0) || inEff)) ok = false;
+          return origRandom.apply(this, args);
+        }));
+        const origRunEvent = battle.runEvent;
+        undo.push(override(battle, 'runEvent', function (eventid) {
+          if (!calculating) return origRunEvent.apply(this, arguments);
+          const ev = { eventid, depth: eventStack.length, mods: [], reads: new Set(), assigned: false };
+          eventStack.push(ev);
+          let out;
+          try {
+            out = origRunEvent.apply(this, arguments);
+          } finally {
+            eventStack.pop();
+            if (eventStack.length) for (const r of ev.reads) eventStack.at(-1).reads.add(r);
+          }
+          if (ev.reads.size > 1) ok = false;
+          if (ev.depth === 0 && eventid === 'BasePower') {
+            tokens.push(`BP:${out ? battle.clampIntRange(out, 1) : 0}`);
+            phase = 'stat';
+          } else if (ev.reads.size > 0) {
+            if (ev.assigned) ok = false;
+            tokens.push(`${eventid}@${ev.depth}:${ev.mods.join(',')}`);
+          }
+          return out;
+        }));
+        const origEff = target.runEffectiveness;
+        undo.push(override(target, 'runEffectiveness', function (mv) {
+          if (!calculating) return origEff.call(this, mv);
+          const prevEff = inEff;
+          const prevReads = effReads;
+          inEff = true;
+          effReads = new Set();
+          let out;
+          try {
+            out = origEff.call(this, mv);
+            if (effReads.size > 1) ok = false;
+          } finally {
+            inEff = prevEff;
+            effReads = prevReads;
+          }
+          tokens.push(`EFF:${out}`);
+          return out;
+        }));
+        const origModify = actions.modifyDamage;
+        undo.push(override(actions, 'modifyDamage', function (base, pkmn, tgt, mv, suppress) {
+          sawModify = true;
+          phase = 'post';
+          return origModify.call(this, base, pkmn, tgt, mv, suppress);
+        }));
+        try {
+          restoreItems(hit.items);
+          withRoll(0, () => onMove(hit, mv => {
+            calculating++;
+            try { return hit.getDamage.call(actions, hit.source, hit.target, mv, true); } finally { calculating--; }
+          }), hit.draws);
+          if (!sawModify) ok = false;
+          if (rawTargetHp && rawSourceHp && preReads.size > 1) ok = false;
+          return ok ? tokens.join(';') : null;
+        } finally {
+          for (const u of undo.reverse()) u();
+          restoreItems(hit.items);
+        }
+      });
+    });
+
+    let tFixedPatch = null;
+    let tFixedSig = '-';
+    let tClassMap = null;
+    const rawTargetStates = hit.targetHp ? [...tStates.values()] : [null];
+    let tReps = null;
+    if (hit.targetHp && hit.readers.length > 0 && rawTargetStates.length > 1) {
+      const bySig = new Map();
+      let traceable = true;
+      for (const t of rawTargetStates) {
+        const sig = traceHp(`t|${t[0]}|${t[1]}`, [{ pokemon: target, maxhp: maxHp(T, t[0]), hp: t[1] }]);
+        if (sig === null) { traceable = false; break; }
+        let g = bySig.get(sig);
+        if (!g) { g = []; bySig.set(sig, g); }
+        g.push(t);
+      }
+      if (traceable) {
+        if (bySig.size === 1) {
+          const [[sig, group]] = bySig.entries();
+          const t0 = group[0];
+          hit.targetHp = false;
+          tFixedPatch = { maxhp: maxHp(T, t0[0]), hp: t0[1] };
+          tFixedSig = sig;
+          tReps = [{ tc: 0, t: null, tag: `tsig:${sig}` }];
+        } else {
+          tClassMap = new Map();
+          tReps = [];
+          let tc = 0;
+          for (const [sig, group] of bySig) {
+            for (const t of group) tClassMap.set(t[0] * HP_BITS + t[1], tc);
+            tReps.push({ tc, t: group[0], tag: `tsig:${sig}` });
+            tc++;
+          }
+        }
+      }
+    }
+    if (!tReps) {
+      if (hit.targetHp) {
+        tClassMap = new Map();
+        tReps = rawTargetStates.map((t, tc) => {
+          tClassMap.set(t[0] * HP_BITS + t[1], tc);
+          return { tc, t, tag: `${t[0]}:${t[1]}` };
+        });
+      } else {
+        tReps = [{ tc: 0, t: null, tag: tFixedSig }];
+      }
+    }
+
+    let sFixedPatch = null;
+    let sFixedSig = '-';
+    let sHpSigOf = null;
+    if (hit.sourceHp && hit.readers.length > 0) {
+      if (!S.chain) initChain(S);
+      const sHpStates = [];
+      const seenHp = new Set();
+      for (const [k, hs] of S.chain) {
+        const M = maxHp(S, KEY_HP[k]);
+        for (const h of hs) {
+          const id = M * HP_BITS + h;
+          if (!seenHp.has(id)) { seenHp.add(id); sHpStates.push([M, h]); }
+        }
+      }
+      if (sHpStates.length > 1) {
+        const bySig = new Map();
+        const sigMap = new Map();
+        let traceable = true;
+        for (const [M, h] of sHpStates) {
+          const sig = traceHp(`s|${M}|${h}`, [{ pokemon: source, maxhp: M, hp: h }]);
+          if (sig === null) { traceable = false; break; }
+          sigMap.set(M * HP_BITS + h, sig);
+          if (!bySig.has(sig)) bySig.set(sig, [M, h]);
+        }
+        if (traceable) {
+          if (bySig.size === 1) {
+            const [[sig, [M0, h0]]] = bySig.entries();
+            hit.sourceHp = false;
+            sFixedPatch = { pokemon: source, maxhp: M0, hp: h0 };
+            sFixedSig = `ssig:${sig}`;
+          } else {
+            sHpSigOf = sigMap;
+          }
+        }
+      }
+    }
+
     // The source states: the HP the attacker could be on, when the hit reads
     // it, and the value of the one more candidate, when there is one - each as
     // `[maxhp, hp, extra]`, null where the hit reads no such thing. The
@@ -1043,18 +1297,44 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         }
       }
     }
-    const targetStates = hit.targetHp ? [...tStates.values()] : [null];
     // An attacker no spread fits has no states, and its hit narrows no attacker.
     hit.sStates = sStates.length ? sStates : [null];
 
-    hit.rows = new Map();
-    for (const t of targetStates) {
+    let sClass = null;
+    let sReps = null;
+    if (sHpSigOf && hit.sStates[0] !== null) {
+      sClass = new Int32Array(hit.sStates.length);
+      const byKey = new Map();
+      sReps = [];
       for (const [si, s] of hit.sStates.entries()) {
-        const hpKey = `${t ? t.join(':') : '-'}|${s ? s.join(':') : '-'}`;
+        const sig = sHpSigOf.get(s[0] * HP_BITS + s[1]);
+        const key = `${s[2] ?? '-'}|${sig}`;
+        let sc = byKey.get(key);
+        if (sc === undefined) {
+          sc = sReps.length;
+          byKey.set(key, sc);
+          sReps.push({ sc, s, tag: `ssig:${key}` });
+        }
+        sClass[si] = sc;
+      }
+    } else {
+      sReps = hit.sStates.map((s, sc) => ({
+        sc, s, tag: s ? `${s[0] ?? sFixedSig}:${s[1] ?? '-'}:${s[2] ?? '-'}` : sFixedSig,
+      }));
+    }
+
+    const aList = hasA ? hit.aVals : [0];
+    const dList = hasD ? [...dVals] : [0];
+    hit.rows = new Map();
+    for (const { tc, t, tag: tTag } of tReps) {
+      for (const { sc, s, tag: sTag } of sReps) {
+        const hpKey = `${tTag}|${sTag}`;
         const post = new Map();
-        for (const a of hit.aVals) {
-          for (const d of dVals) {
-            const row = memo(`row|${ord}|${a}|${d}|${hpKey}`, () => {
+        for (const a of aList) {
+          const aKey = hasA ? a : '-';
+          for (const d of dList) {
+            const dKey = hasD ? d : '-';
+            const row = memo(`row|${ord}|${aKey}|${dKey}|${hpKey}`, () => {
               const sp = { pokemon: source, stats: {} };
               const tp = { pokemon: target, stats: {} };
               for (const r of hit.readers) {
@@ -1066,15 +1346,23 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
                 (r.who === 'source' ? sp : tp).stats[r.key] = dep.at(r.by === 'a' ? a : r.by === 'x' ? (s ? s[2] : ownValue(dep)) : d);
               }
               if (t) { tp.maxhp = maxHp(T, t[0]); tp.hp = t[1]; }
+              else if (tFixedPatch) { tp.maxhp = tFixedPatch.maxhp; tp.hp = tFixedPatch.hp; }
               const patches = [sp, tp];
               if (s && s[0] !== null) patches.push({ pokemon: source, maxhp: s[0], hp: s[1] });
+              else if (sFixedPatch) patches.push(sFixedPatch);
               return dryRow(hit, patches, post);
             });
-            hit.rows.set(rowKey(a, d, t && t[0], t && t[1], si), row);
+            hit.rows.set(`${aKey}|${dKey}|${tc}|${sc}`, row);
           }
         }
       }
     }
+    hit.rowOf = (a, d, hp, h, si) => {
+      const tc = tClassMap ? tClassMap.get(hp * HP_BITS + h) : 0;
+      if (tc === undefined) return null;
+      const sc = sClass ? sClass[si] : si;
+      return hit.rows.get(`${hasA ? a : '-'}|${hasD ? d : '-'}|${tc}|${sc}`) || null;
+    };
     return hit;
   }
 
@@ -1205,10 +1493,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     // defence value alone: looked up once per value, not once per HP.
     const rowsByD = new Map();
     const rowsOf = (d, hp, h) => {
-      if (hit.targetHp) return hit.aVals.flatMap(a => hit.sStates.map((_, si) => hit.rows.get(rowKey(a, d, hp, h, si)) || null));
+      if (hit.targetHp) return hit.aVals.flatMap(a => hit.sStates.map((_, si) => hit.rowOf(a, d, hp, h, si)));
       let list = rowsByD.get(d);
       if (!list) {
-        list = hit.aVals.flatMap(a => hit.sStates.map((_, si) => hit.rows.get(rowKey(a, d, null, null, si)) || null));
+        list = hit.aVals.flatMap(a => hit.sStates.map((_, si) => hit.rowOf(a, d, null, null, si)));
         rowsByD.set(d, list);
       }
       return list;
@@ -2489,7 +2777,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const rs = [];
       for (const a of hit.aVals) {
         for (let si = 0; si < hit.sStates.length; si++) {
-          const row = hit.rows.get(rowKey(a, d, hit.targetHp ? hp : null, hit.targetHp ? h : null, si));
+          const row = hit.rowOf(a, d, hit.targetHp ? hp : null, hit.targetHp ? h : null, si);
           if (!row) continue;
           for (const [r, value] of row.entries()) {
             const x = typeof value === 'number' ? Math.max(1, value) : null;
