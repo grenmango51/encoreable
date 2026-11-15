@@ -518,8 +518,10 @@ function choiceFor(side, plan, state, notes) {
   }
 
   if (request.forceSwitch) {
-    const bench = request.side.pokemon.map(p => identName(p.ident));
+    const pokemon = request.side.pokemon;
+    const bench = pokemon.map(p => identName(p.ident));
     const queue = state.forced[sideId];
+    const used = new Set();
     return request.forceSwitch.map((needed, i) => {
       if (!needed) return 'pass';
       // Match the slot the log names, not merely the order. When both actives
@@ -534,12 +536,24 @@ function choiceFor(side, plan, state, notes) {
         // search hears about it.
         return 'pass';
       }
-      const [entry] = queue.splice(at, 1);
-      const to = bench.indexOf(entry.name);
-      if (to < 0) {
-        state.unsatisfied = `${sideId} switched in ${entry.name}, which is not on the bench`;
+      const cand = queue[at];
+      const to = bench.findIndex((name, idx) => name === cand.name && !pokemon[idx]?.active && !pokemon[idx]?.condition?.endsWith(' fnt') && !used.has(idx));
+      if (to < 0 && pokemon.some((p, idx) => identName(p.ident) === cand.name && p.active && request.forceSwitch[idx] && idx !== i)) {
+        // The replacement is leaving the other active slot in this wave (such
+        // as end-of-turn Emergency Exit beside a fainted partner): pass now and
+        // send it in on the follow-up request once it reaches the bench.
         return 'pass';
       }
+      queue.splice(at, 1);
+      if (to < 0) {
+        const raw = bench.indexOf(cand.name);
+        if (raw < 0) {
+          state.unsatisfied = `${sideId} switched in ${cand.name}, which is not on the bench`;
+          return 'pass';
+        }
+        return `switch ${raw + 1}`;
+      }
+      used.add(to);
       return `switch ${to + 1}`;
     }).join(', ');
   }
