@@ -450,6 +450,19 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
   // Inside the simulator's own damage calculation of a dry row, not the
   // snapshot `guarded` takes around it, which reads every field of everyone.
   let calculating = 0;
+  // `Side.allies` and `Side.foes` check `!!ally.hp` on every `runEvent` only to
+  // skip fainted Pokemon, which is identically true for every positive HP.
+  let checkingAlive = 0;
+  for (const side of battle.sides) {
+    for (const fn of ['allies', 'foes']) {
+      const orig = side[fn];
+      if (typeof orig !== 'function') continue;
+      override(side, fn, function (...args) {
+        checkingAlive++;
+        try { return orig.apply(this, args); } finally { checkingAlive--; }
+      });
+    }
+  }
   let changeOrdinal = 0;
   let seq = 0;
 
@@ -1094,7 +1107,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
           let cur = desc.value;
           Object.defineProperty(p, prop, {
             configurable: true, enumerable: desc.enumerable,
-            get() { if (calculating) (p === source ? sStages : tStages).add(stage); return cur; },
+            get() { if (calculating && !(prop === 'hp' && checkingAlive && cur > 0)) (p === source ? sStages : tStages).add(stage); return cur; },
             set(v) { cur = v; },
           });
           undo.push(() => Object.defineProperty(p, prop, { ...desc, value: cur }));
@@ -1270,7 +1283,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
         let cur = desc.value;
         Object.defineProperty(p, prop, {
           configurable: true, enumerable: desc.enumerable,
-          get() { if (calculating) onRead(); return cur; },
+          get() { if (calculating && !(prop === 'hp' && checkingAlive && cur > 0)) onRead(); return cur; },
           set(v) { cur = v; },
         });
         undoHp.push(() => Object.defineProperty(p, prop, { ...desc, value: cur }));
@@ -1507,7 +1520,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
       const xVec = xReaders.map(r => r.dep.at(s ? s[2] : ownValue(r.dep)));
       const xSig = xVec.join(',');
       const sig = !hit.sourceHp || !s || s[0] === null ? xSig
-        : hit.sPurePre ? cacheSim(`ssig|${s[0]}:${s[1]}|${xSig}`, () => probeSourceSig(s[0], s[1], xVec, xSig))
+        : hit.sPurePre && s[1] >= 1 ? cacheSim(`ssig|${s[0]}:${s[1]}|${xSig}`, () => probeSourceSig(s[0], s[1], xVec, xSig))
           : `raw:${s[0]}:${s[1]}:${xSig}`;
       let idx = sMap.get(sig);
       if (idx === undefined) { idx = uSs.length; sMap.set(sig, idx); uSs.push({ sig, s, xVec }); }
@@ -1523,8 +1536,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
       for (const t of targetStates) {
         const M = maxHp(T, t[0]);
         const h = t[1];
-        const sig = hit.tOnlyMod ? cacheSim(`tmod|${M}:${h}`, () => probeTargetModSig(M, h))
-          : hit.tPureBp ? cacheSim(`tbp|${M}:${h}`, () => probeTargetBpSig(M, h))
+        const sig = hit.tOnlyMod && h >= 1 ? cacheSim(`tmod|${M}:${h}`, () => probeTargetModSig(M, h))
+          : hit.tPureBp && h >= 1 ? cacheSim(`tbp|${M}:${h}`, () => probeTargetBpSig(M, h))
             : `raw:${M}:${h}`;
         let idx = tMap.get(sig);
         if (idx === undefined) { idx = uTs.length; tMap.set(sig, idx); uTs.push({ sig, t, M, h }); }
