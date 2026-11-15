@@ -194,9 +194,13 @@ function handOn(built, rolls, coupled = Infinity) {
     out.subs[i] = v;
     out.turns[i] = turns[i];
   };
+  const natural = new Map();
+  for (const d of built.dice) if (!(d.i in subs)) natural.set(d.i, d.value);
   for (const [i, v] of Object.entries(subs)) put(i, v, upToTurn);
   // A roll an evidence path chose past a joint Pain Split is no proof.
-  for (const [i, r] of rolls || []) put(i, r, Math.min(failed, coupled - 1));
+  for (const [i, r] of rolls || []) {
+    if (i in subs || natural.get(Number(i)) !== r) put(i, r, Math.min(failed, coupled - 1));
+  }
   const dice = {};
   for (const d of built.dice) if (d.mark <= failed) dice[d.i] = { ...d, value: d.i in out.subs ? out.subs[d.i] : d.value };
   out.proof = { dice, choices: built.choices, starts: built.starts, rawLog: built.rawLog };
@@ -1611,16 +1615,15 @@ export async function inferSpreads({
     for (const kn of pinned.values()) tighten(kn);
     if ([...pinned.values()].some(kn => !kn.known && emptied(kn))) return null;
     const firstUnproved = [...p.exact.entries()].find(([, v]) => v.partial || v.proved !== undefined)?.[0] ?? Infinity;
-    const coupledAt = Math.min(beforeTurn, p.coupled ?? Infinity, firstUnproved);
+    const coupledAt = scaffoldLimit(chosen, p.scaffoldOrders || [], Math.min(beforeTurn, p.coupled ?? Infinity, firstUnproved));
     const ex = new Map([...p.exact].filter(([k]) => k < coupledAt));
     if (!ex.size) return null;
-    const rolls = witness && sameTeam(chosen, witness) ? null : p.rolls;
-    return { exact: ex, pins: handOn(fromBuilt, rolls, coupledAt) };
+    return { exact: ex, pins: handOn(fromBuilt, p.rolls, coupledAt), coupledAt };
   };
   const certifyPrefix = async (fromBuilt, chosen, scaffoldList, maxBeforeTurn, sharedCache = new Map(), witness = null) => {
-    if (Date.now() >= deadline) { limits.add('deadline'); return { exact: null, pins: null }; }
+    if (Date.now() >= deadline) { limits.add('deadline'); return { exact: null, pins: null, coupledAt: 0 }; }
     const cap = scaffoldLimit(chosen, scaffoldList, maxBeforeTurn);
-    if (!(cap >= 1)) return { exact: null, pins: null };
+    if (!(cap >= 1)) return { exact: null, pins: null, coupledAt: 0 };
     const full = await certifyAt(fromBuilt, chosen, cap, sharedCache, witness);
     if (full) return full;
     let lo = 0;
@@ -1633,7 +1636,7 @@ export async function inferSpreads({
       else hi = mid - 1;
     }
     if (lo < hi && Date.now() >= deadline) limits.add('deadline');
-    return best || { exact: null, pins: null };
+    return best || { exact: null, pins: null, coupledAt: 0 };
   };
 
   /**
@@ -2068,7 +2071,10 @@ export async function inferSpreads({
       const u = unknown.find(x => x.id === id);
       return u ? `p${u.s + 1}:${u.name}` : null;
     }).filter(Boolean));
-    const scaffoldLog = (sameTeam(start, picks) && budget === budgets[0] ? built.inputLog : base.inputLog) || built.inputLog;
+    const sameHanded = sameTeam(start, picks) && budget === budgets[0]
+      && Object.entries(handed.subs).every(([k, v]) => built.pins.subs[k] === v)
+      && Object.keys(built.pins.subs).every(k => !(built.pins.turns[k] < t) || handed.subs[k] === built.pins.subs[k]);
+    const scaffoldLog = (sameHanded ? built.inputLog : base.inputLog) || built.inputLog;
     const plain = await replayWith(scaffoldLog, packOf(start), t, channel, nearNames);
     const plainJson = plain ? JSON.stringify(plain) : null;
     const actorOf = l => [...namedIn(`|x|${(/^p[1-4][a-d]?: /.test(String(l || '').split('|')[2] || '') ? String(l).split('|')[2] : '')}`)][0];
@@ -3388,8 +3394,7 @@ export async function inferSpreads({
         for (const k of [...exact.keys()]) if (k >= coupledAt) exact.delete(k);
         if (!exact.size) exact = null;
       }
-      const rolls = sameTeam(next, picks) ? null : proof.rolls;
-      pins = exact ? handOn(built, rolls, coupledAt) : null;
+      pins = exact ? handOn(built, proof.rolls, coupledAt) : null;
     } else {
       if (!advanced) {
         for (const [id, hn] of [...heldNature]) {
@@ -3447,7 +3452,13 @@ export async function inferSpreads({
         if (found.built && foundBeforeTurn >= 1 && ordersAllow(found.picks)) {
           const cert = await certifyPrefix(found.built, found.picks, [], foundBeforeTurn, new Map(), found.picks);
           exact = cert.exact;
-          pins = cert.exact && found.pins ? { ...found.pins, proof: cert.pins?.proof } : (found.pins ?? cert.pins);
+          if (cert.exact && found.pins) {
+            const samePrefix = Object.entries(cert.pins.subs).every(([k, v]) => found.pins.subs[k] === v)
+              && Object.keys(found.pins.subs).every(k => !(found.pins.turns[k] < cert.coupledAt) || k in cert.pins.subs);
+            pins = samePrefix ? { ...found.pins, proof: cert.pins?.proof } : cert.pins;
+          } else {
+            pins = found.pins ?? cert.pins;
+          }
         } else {
           exact = null;
           pins = found.pins;
