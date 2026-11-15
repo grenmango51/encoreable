@@ -10,7 +10,7 @@
 
 import { battleLines } from '../protocol.mjs';
 import { ACTION_START, SOFT_PRETURN, identName, identSide, override, tagsOf } from '../reconstruct.mjs';
-import { SPAN, orderSpeeds } from './knowledge.mjs';
+import { SPAN, cloneKnowledge, intersectKnowledge, orderSpeeds } from './knowledge.mjs';
 
 const OPENS_MOVE = /^\|(move|cant)\||^\|-activate\|[^|]+\|confusion$|^\|-curestatus\|[^|]+\|(slp|frz)\|\[msg\]$/;
 const MEGA = new Set(['megaEvo', 'megaEvoX', 'megaEvoY']);
@@ -102,7 +102,7 @@ function sameButHp(a, b) {
 
 export function attachSpeed(battle, {
   state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label, measure, cutOf, note, depOf, ownValue,
-  unmaskedAfter, frames,
+  unmaskedAfter, frames, passKey = '',
 }) {
   const byId = new Map(recs.map(rec => [rec.id, rec]));
   const sorts = [];
@@ -129,21 +129,55 @@ export function attachSpeed(battle, {
     const dep = depOf(rec, 'spe');
     const p = rec.pokemon;
     const real = read();
-    if (dep && !dep.owner && !dep.deps) return { owner: rec.id, table: new Float64Array(SPAN).fill(real) };
+    if (dep && !dep.owner && !dep.deps) return { owner: rec.id, table: new Float64Array(SPAN).fill(real), ownSpeed: real };
     if (dep && dep.owner && dep.stat === 'spe') {
       const saved = p.storedStats.spe;
       const table = new Float64Array(SPAN);
+      let ownSpe;
       try {
         for (let s = 0; s < SPAN; s++) { p.storedStats.spe = dep.at(s); table[s] = read(); }
+        const ownIdx = ownValue(dep);
+        if (dep.own !== undefined && dep.own !== dep.at(ownIdx)) {
+          p.storedStats.spe = dep.own;
+          ownSpe = read();
+        } else {
+          ownSpe = table[ownIdx];
+        }
       } finally {
         p.storedStats.spe = saved;
       }
-      if (table[ownValue(dep)] === real) return { owner: dep.owner.id, table };
+      if (ownSpe === real) return { owner: dep.owner.id, table, ownSpeed: ownSpe };
+    }
+    if (rec.kn.natures && !rec.kn.nature && !rec.unmapped.has('spe') && !rec.deps.spe) {
+      const saved = p.storedStats.spe;
+      const forme = p.species;
+      let ownSpe;
+      try {
+        p.storedStats.spe = rec.ownStat('spe', forme);
+        ownSpe = read();
+        if (ownSpe === real) {
+          const byStat = new Map();
+          const tables = {};
+          for (const n of rec.kn.natures.keys()) {
+            const t = new Float64Array(SPAN);
+            for (let s = 0; s < SPAN; s++) {
+              const st = rec.statFor(n, 'spe', s, forme);
+              let v = byStat.get(st);
+              if (v === undefined) { p.storedStats.spe = st; v = read(); byStat.set(st, v); }
+              t[s] = v;
+            }
+            tables[n] = t;
+          }
+          return { owner: rec.id, table: tables.Serious || Object.values(tables)[0], tables, ownSpeed: ownSpe };
+        }
+      } finally {
+        p.storedStats.spe = saved;
+      }
     }
     note(`${label(rec)}'s Speed`, 'no one candidate value says what it is, so its turn order was not used');
     return null;
   });
-  const speedTable = rec => memo(`spe|${sortOrdinal}|${rec.id}`, () => speedsOf(rec, () => rec.pokemon.getActionSpeed()));
+  const speedTable = rec => memo(`spe|${sortOrdinal}|${rec.id}${passKey}`, () => speedsOf(rec, () => rec.pokemon.getActionSpeed()));
 
   // Which moves the simulator's move request lets each active Pokemon choose
   // at the start of the turn (`side.chooseMove`), with each move's
@@ -382,14 +416,14 @@ export function attachSpeed(battle, {
   let speciesUpdates = 0;
   for (const rec of recs) {
     const p = rec.pokemon;
-    rec.cachedSpeed = memo(`init|${rec.id}`, () => speedsOf(rec, () => (p.isActive ? p.getActionSpeed() : p.storedStats.spe)));
+    rec.cachedSpeed = memo(`init|${rec.id}${passKey}`, () => speedsOf(rec, () => (p.isActive ? p.getActionSpeed() : p.storedStats.spe)));
     const setSpecies = p.setSpecies;
     override(p, 'setSpecies', function (...args) {
       const out = setSpecies.apply(this, args);
       if (!state.dry && !state.ended) {
         // A Transform's `setSpecies` is followed by the copied stats.
         const at = speciesUpdates++;
-        rec.cachedSpeed = args[2] ? null : memo(`spc|${at}|${rec.id}`, () => speedsOf(rec, () => this.storedStats.spe));
+        rec.cachedSpeed = args[2] ? null : memo(`spc|${at}|${rec.id}${passKey}`, () => speedsOf(rec, () => this.storedStats.spe));
       }
       return out;
     });
@@ -398,7 +432,7 @@ export function attachSpeed(battle, {
       const out = update.call(this);
       if (!state.dry && !state.ended) {
         const at = speedUpdates++;
-        rec.cachedSpeed = memo(`upd|${at}|${rec.id}`, () => speedsOf(rec, () => p.getActionSpeed()));
+        rec.cachedSpeed = memo(`upd|${at}|${rec.id}${passKey}`, () => speedsOf(rec, () => p.getActionSpeed()));
       }
       return out;
     });
@@ -516,11 +550,23 @@ export function attachSpeed(battle, {
     const pool = list.slice();
     list.splice(0, list.length, ...keys.map(key => pool.splice(pool.findIndex(item => keyOf(item) === key), 1)[0]));
   };
-  const varies = speeds => speeds.table.some(v => v !== speeds.table[0]);
-  const alike = (a, b) => a.owner === b.owner && a.table.every((v, s) => v === b.table[s]);
+  const varies = (speeds) => {
+    if (speeds.tables) {
+      let firstVal = undefined;
+      for (const t of Object.values(speeds.tables)) {
+        for (let v = 0; v < SPAN; v++) {
+          if (firstVal === undefined) firstVal = t[v];
+          else if (t[v] !== firstVal) return true;
+        }
+      }
+      return false;
+    }
+    return speeds.table.some(v => v !== speeds.table[0]);
+  };
+  const alike = (a, b) => a.owner === b.owner && !a.tables && !b.tables && a.table.every((v, s) => v === b.table[s]);
   // Whether a table gives, at the replay's own Stat Points, the speed an item
   // was sorted by.
-  const sortedBy = (speeds, item, speed = item.speed) => speeds.table[ownValue({ owner: byId.get(speeds.owner), stat: 'spe' })] === speed;
+  const sortedBy = (speeds, item, speed = item.speed) => speeds.ownSpeed === speed;
 
   const permutations = (items) => {
     if (items.length <= 1) return [items.slice()];
@@ -641,14 +687,19 @@ export function attachSpeed(battle, {
         const f = speeds.get(rec);
         if (!f) continue;
         if (fixed && fixed.has(f.owner)) {
-          const s = f.table[fixed.get(f.owner)];
+          const [nat, v] = fixed.get(f.owner);
+          const t = (nat && f.tables?.[nat]) || f.table;
+          const s = t[v];
           if (s > cap) return false;
           cap = s;
           continue;
         }
         let best = -Infinity;
-        for (let v = 0; v < SPAN; v++) {
-          if (f.table[v] <= cap && f.table[v] > best) best = f.table[v];
+        const tList = f.tables ? Object.values(f.tables) : [f.table];
+        for (const t of tList) {
+          for (let v = 0; v < SPAN; v++) {
+            if (t[v] <= cap && t[v] > best) best = t[v];
+          }
         }
         if (best === -Infinity) return false;
         cap = best;
@@ -660,9 +711,13 @@ export function attachSpeed(battle, {
       const fixed = new Map();
       const walk = (idx) => {
         if (idx === shared.length) return fitsSpeeds(perm, fixed);
-        for (let v = 0; v < SPAN; v++) {
-          fixed.set(shared[idx], v);
-          if (walk(idx + 1)) return true;
+        const ownerRec = byId.get(shared[idx]);
+        const nats = ownerRec?.kn.natures && !ownerRec.kn.nature ? [...ownerRec.kn.natures.keys()] : [null];
+        for (const nat of nats) {
+          for (let v = 0; v < SPAN; v++) {
+            fixed.set(shared[idx], [nat, v]);
+            if (walk(idx + 1)) return true;
+          }
         }
         return false;
       };
@@ -701,7 +756,7 @@ export function attachSpeed(battle, {
     if (byOrder.size < 2) return;
     const entries = [...byOrder.values()];
     const sortedAt = entries.findIndex(e => e.order.join('\n') === keysSig);
-    const runs = memo(`hsort|${handlerSortCount++}`, () => {
+    const runs = memo(`hsort|${handlerSortCount++}${passKey}`, () => {
       const kept = list.slice();
       const run = order => guarded(() => {
         const at = battle.log.length;
@@ -763,7 +818,17 @@ export function attachSpeed(battle, {
     const fx = speeds.get(X);
     const fy = speeds.get(Y);
     if (!fx || !fy) return null;
-    return { fast: byId.get(fx.owner), slow: byId.get(fy.owner), tf: fx.table, ts: fy.table, ...(strict ? { strict: true } : {}), turn, what };
+    return {
+      fast: byId.get(fx.owner),
+      slow: byId.get(fy.owner),
+      tf: fx.table,
+      ts: fy.table,
+      ...(fx.tables ? { tfByNature: fx.tables } : {}),
+      ...(fy.tables ? { tsByNature: fy.tables } : {}),
+      ...(strict ? { strict: true } : {}),
+      turn,
+      what,
+    };
   };
 
   let scaffoldOrders = [];
@@ -1307,8 +1372,14 @@ export function attachSpeed(battle, {
       const ex = executed.find(e => e.start <= prefix.cutoffAt && prefix.cutoffAt < e.end);
       const map = ev?.speeds || hs?.speeds || cutoffHandlerSpeeds || ex?.sort?.speeds || null;
       if (map) {
+        const packTables = by => Object.fromEntries(Object.entries(by).map(([n, t]) => [n, Array.from(t)]));
         for (const [rec, fx] of map) {
-          if (fx) cutoffSpeeds.push({ id: rec.id, owner: fx.owner, table: Array.from(fx.table) });
+          if (fx) {
+            cutoffSpeeds.push({
+              id: rec.id, owner: fx.owner, table: Array.from(fx.table),
+              ...(fx.tables ? { byNature: packTables(fx.tables) } : {}),
+            });
+          }
         }
       }
     }
@@ -1324,24 +1395,53 @@ export function attachSpeed(battle, {
    * simulator's speeds at that sort, so Trick Room's reversal, Tailwind,
    * paralysis and boosts are already in them. Returns whether anything went.
    */
-  function bound({ fast, slow, tf, ts, strict }) {
+  function bound({ fast, slow, tf, ts, tfByNature, tsByNature, strict }) {
     if (fast === slow) {
+      if (fast.kn.natures && !fast.kn.nature && (tfByNature || tsByNature)) return false;
+      const tFast = (fast.kn.nature && tfByNature?.[fast.kn.nature]) || tf;
+      const tSlow = (fast.kn.nature && tsByNature?.[fast.kn.nature]) || ts;
       let moved = false;
       for (let v = 0; v < SPAN; v++) {
-        if (fast.flat.spe[v] && (strict ? tf[v] <= ts[v] : tf[v] < ts[v])) { fast.flat.spe[v] = 0; moved = true; }
+        if (fast.flat.spe[v] && (strict ? tFast[v] <= tSlow[v] : tFast[v] < tSlow[v])) { fast.flat.spe[v] = 0; moved = true; }
       }
       return moved;
     }
+    const multiFast = fast.kn.natures && !fast.kn.nature && tfByNature;
+    const multiSlow = slow.kn.natures && !slow.kn.nature && tsByNature;
+    const tFast = (fast.kn.nature && tfByNature?.[fast.kn.nature]) || tf;
+    const tSlow = (slow.kn.nature && tsByNature?.[slow.kn.nature]) || ts;
     let maxFast = -Infinity;
     let minSlow = Infinity;
-    for (let v = 0; v < SPAN; v++) {
-      if (fast.flat.spe[v]) maxFast = Math.max(maxFast, tf[v]);
-      if (slow.flat.spe[v]) minSlow = Math.min(minSlow, ts[v]);
+    if (multiFast) {
+      for (const [n, sub] of fast.kn.natures) {
+        if (!sub.keys.includes(1) || !sub.dom.spe.includes(1)) continue;
+        const t = tfByNature[n];
+        if (!t) continue;
+        for (let v = 0; v < SPAN; v++) if (sub.dom.spe[v]) maxFast = Math.max(maxFast, t[v]);
+      }
+    } else {
+      for (let v = 0; v < SPAN; v++) if (fast.flat.spe[v]) maxFast = Math.max(maxFast, tFast[v]);
+    }
+    if (multiSlow) {
+      for (const [n, sub] of slow.kn.natures) {
+        if (!sub.keys.includes(1) || !sub.dom.spe.includes(1)) continue;
+        const t = tsByNature[n];
+        if (!t) continue;
+        for (let v = 0; v < SPAN; v++) if (sub.dom.spe[v]) minSlow = Math.min(minSlow, t[v]);
+      }
+    } else {
+      for (let v = 0; v < SPAN; v++) if (slow.flat.spe[v]) minSlow = Math.min(minSlow, tSlow[v]);
     }
     let moved = false;
-    for (let v = 0; v < SPAN; v++) {
-      if (fast.flat.spe[v] && (strict ? tf[v] <= minSlow : tf[v] < minSlow)) { fast.flat.spe[v] = 0; moved = true; }
-      if (slow.flat.spe[v] && (strict ? ts[v] >= maxFast : ts[v] > maxFast)) { slow.flat.spe[v] = 0; moved = true; }
+    if (!multiFast) {
+      for (let v = 0; v < SPAN; v++) {
+        if (fast.flat.spe[v] && (strict ? tFast[v] <= minSlow : tFast[v] < minSlow)) { fast.flat.spe[v] = 0; moved = true; }
+      }
+    }
+    if (!multiSlow) {
+      for (let v = 0; v < SPAN; v++) {
+        if (slow.flat.spe[v] && (strict ? tSlow[v] >= maxFast : tSlow[v] > maxFast)) { slow.flat.spe[v] = 0; moved = true; }
+      }
     }
     return moved;
   }
@@ -1363,10 +1463,30 @@ export function attachSpeed(battle, {
     }
     const linked = [...new Set(rules.flatMap(rule => [rule.fast, rule.slow]))];
     const before = record ? new Map(linked.map(rec => [rec, measure(rec)])) : null;
+    const speedMap = new Map();
+    for (const rec of linked) {
+      if (rec.kn.natures && !rec.kn.nature) {
+        const cloned = cloneKnowledge(new Map([[rec.id, rec.kn]])).get(rec.id);
+        intersectKnowledge(cloned, rec.chain ? [...rec.chain.keys()] : rec.knKeys, rec.flat, rec.ties);
+        speedMap.set(rec.id, cloned);
+      } else {
+        speedMap.set(rec.id, { ...(rec.kn.nature ? { nature: rec.kn.nature } : {}), dom: rec.flat });
+      }
+    }
     orderSpeeds(
-      new Map(linked.map(rec => [rec.id, { dom: rec.flat }])),
-      rules.map(r => ({ fast: r.fast.id, slow: r.slow.id, tf: r.tf, ts: r.ts, ...(r.strict ? { strict: true } : {}) })),
+      speedMap,
+      rules.map(r => ({
+        fast: r.fast.id, slow: r.slow.id, tf: r.tf, ts: r.ts,
+        ...(r.tfByNature ? { tfByNature: r.tfByNature } : {}),
+        ...(r.tsByNature ? { tsByNature: r.tsByNature } : {}),
+        ...(r.strict ? { strict: true } : {}),
+      })),
     );
+    for (const rec of linked) {
+      if (rec.kn.natures && !rec.kn.nature) {
+        rec.flat.spe.set(speedMap.get(rec.id).dom.spe);
+      }
+    }
     if (before) {
       const cuts = linked.map(rec => cutOf(rec, before.get(rec))).filter(Boolean);
       if (cuts.length) events.push({ turn: battle.turn, what: 'every speed order at once, each bound passed on to the Pokemon ordered against it', cuts });

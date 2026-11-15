@@ -508,6 +508,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
 
   // ------------------------------------------------------------ who is who
 
+  const natureTagged = [...knowledge].filter(([, kn]) => !kn.known && (kn.nature || kn.natures));
+  const passKey = natureTagged.length ? `|${natureTagged.map(([id, kn]) => `${id}:${kn.nature || '*'}`).join(',')}` : '';
+
   const recs = [];
   const byPokemon = new Map();
   const byIdent = new Map();
@@ -523,12 +526,14 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
       // Max HP is set once, from the species the Pokemon entered the battle as:
       // a Mega Evolution or a Transform changes every other stat, never HP.
       const hpSpecies = pokemon.species;
+      const candidateNature = kn.nature || pokemon.set.nature;
       const rec = {
         id,
         side: side.id,
         pokemon,
         name: pokemon.name,
         kn,
+        unpinned: !!kn.natures && !kn.nature,
         knKeys: maskKeys(kn.keys),
         exact: channel === -1 || side.id === `p${channel}`,
         chain: null,
@@ -537,20 +542,27 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
         pending: [],
         history: [],
         shown: [],
-        // A stat as the simulator computes it for this Pokemon's current forme,
-        // or for the forme it had when another Pokemon copied the stat.
-        stat(stat, sp, forme = pokemon.species) {
+        statFor(natureName, stat, sp, forme = pokemon.species) {
           const species = stat === 'hp' ? hpSpecies : forme;
-          let table = byForme.get(species);
+          const key = `${species.id}|${natureName || ''}`;
+          let table = byForme.get(key);
           if (!table) {
             table = {};
             for (const s of STAT_IDS) {
               table[s] = Int32Array.from({ length: SPAN }, (_, v) => battle.statModify(
-                species.baseStats, { ...pokemon.set, evs: { ...fullEvs(pokemon.set.evs), [s]: v } }, s));
+                species.baseStats, { ...pokemon.set, nature: natureName, evs: { ...fullEvs(pokemon.set.evs), [s]: v } }, s));
             }
-            byForme.set(species, table);
+            byForme.set(key, table);
           }
           return table[stat][sp];
+        },
+        ownStat(stat, forme = pokemon.species) {
+          return this.statFor(pokemon.set.nature, stat, fullEvs(pokemon.set.evs)[stat], forme);
+        },
+        // A stat as the simulator computes it for this Pokemon's current forme,
+        // or for the forme it had when another Pokemon copied the stat.
+        stat(stat, sp, forme = pokemon.species) {
+          return this.statFor(candidateNature, stat, sp, forme);
         },
       };
       recs.push(rec);
@@ -645,14 +657,15 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
     if (rec.unmapped.has(stat)) return null;
     if (rec.deps[stat]) return rec.deps[stat];
     if (rec.kn.known) return CONSTANT;
+    if (stat !== 'hp' && rec.unpinned) return null;
     // The forme it is now: a copy Transform kept stays what it was when
     // copied after the original Mega Evolves or changes forme.
     const forme = rec.pokemon.species;
-    return { owner: rec, stat, at: v => rec.stat(stat, v, forme) };
+    return { owner: rec, stat, own: rec.ownStat(stat, forme), at: v => rec.stat(stat, v, forme) };
   }
   const depVars = dep => (dep.deps || (dep.owner ? [dep] : []));
   const ownValue = dep => fullEvs(dep.owner.pokemon.set.evs)[dep.stat];
-  const ownAt = dep => (dep.deps ? dep.at(ownValue(dep.deps[0]), ownValue(dep.deps[1])) : dep.at(ownValue(dep)));
+  const ownAt = dep => (dep.own !== undefined ? dep.own : dep.deps ? dep.at(ownValue(dep.deps[0]), ownValue(dep.deps[1])) : dep.at(ownValue(dep)));
   /** Whether a stored stat is still the one the Pokemon's own Stat Points give. */
   const plain = (rec, stat) => !rec.unmapped.has(stat) && !rec.deps[stat];
   // A Pokemon by the species it is, not one it has transformed into.
@@ -909,10 +922,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
     };
     const atkVar = varOf('atk');
     const defVar = varOf(def);
-    const rowAt = (a, d) => memo(`conf|${ord}|${a}|${d}`, () => guarded(() => {
+    const rowFor = (atkVal, defVal) => memo(`conf|${ord}|${atkVal}|${defVal}`, () => guarded(() => {
       const stats = {};
-      if (atkVar) stats.atk = T.stat('atk', a);
-      if (defVar) stats[def] = T.stat(def, d);
+      if (atkVar) stats.atk = atkVal;
+      if (defVar) stats[def] = defVal;
       const undo = patchAll([{ pokemon, stats }]);
       try {
         return Array.from({ length: ROLLS }, (_, r) => withRoll(r, () => getConfusionDamage.call(actions, pokemon, basePower)));
@@ -920,9 +933,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
         undo();
       }
     }));
-    const own = fullEvs(pokemon.set.evs);
+    const rowAt = (a, d) => rowFor(atkVar ? T.stat('atk', a) : 0, defVar ? T.stat(def, d) : 0);
     const moved = atkVar === undefined || defVar === undefined;
-    if (moved || !rowAt(own.atk, own[def]).includes(real)) {
+    if (moved || !rowFor(atkVar ? atkVar.own : 0, defVar ? defVar.own : 0).includes(real)) {
       hit.supported = false;
       note(hit.what, moved ? 'a stat it read was moved by another effect, so the hit was not used'
         : 'no dry calculation reproduced the real damage, so the hit was not used');
@@ -1243,7 +1256,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
       return () => { m.basePowerCallback = cb; };
     };
 
-    const shape = memo(`hit|${ord}`, () => {
+    const shape = memo(`hit|${ord}${passKey}`, () => {
       // Which stats and HP stages the calculation reads, observed rather than
       // assumed: Body Press, Foul Play and Psyshock read something else, and
       // Wonder Room swaps.
@@ -1540,7 +1553,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
     if (hit.bpOnly && rawStates.length) {
       const groups = new Map();
       for (const tup of rawStates) {
-        const sig = memo(`bp|${ord}|${tup[2]}|${tup[3]}`, () => bpSignature(hit, tup));
+        const sig = memo(`bp|${ord}|${tup[2]}|${tup[3]}${passKey}`, () => bpSignature(hit, tup));
         let g = groups.get(sig);
         if (!g) { g = { rep: tup, sig, members: [] }; groups.set(sig, g); }
         g.members.push(tup);
@@ -2082,7 +2095,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
     const backMasks = hasBackMasks ? new Map() : null;
     if (hit.classInfo && !hasBackMasks) {
       const { nSC, nAC, nDC, tIdxOf, sIdxOf, aIdxOf, dIdxOf, classRows } = hit.classInfo;
-      const mcPrefix = `mc|${channel}|${hit.ord}|${dealt}|${shown ? shown.join('\u0000') : '-'}|${hit.aVals.join(',')}|${hit.sStatesSig}`;
+      const mcPrefix = `mc|${channel}|${hit.ord}${passKey}|${dealt}|${shown ? shown.join('\u0000') : '-'}|${hit.aVals.join(',')}|${hit.sStatesSig}`;
       let cap = 64;
       let pairs = new Int32Array(cap);
       let rs = new Uint8Array(cap);
@@ -2415,7 +2428,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
       return source === p ? () => frame.rerun() : null;
     };
     const ord = changeOrdinal;
-    const asked = memo(`frm|${ord}`, () => {
+    const asked = memo(`frm|${ord}${passKey}`, () => {
       const M = p.maxhp;
       const after = p.hp;
       if (after === before) return { reason: 'it moved no HP' };
@@ -5010,16 +5023,16 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
     }
     const T = byPokemon.get(target);
     const S = byPokemon.get(source);
-    if (effect.id === 'strengthsap' && T && S && !T.kn.known) {
+    if (effect.id === 'strengthsap' && T && S && !T.kn.known && !T.unpinned) {
       const ord = sapCount++;
-      const sapAt = a => memo(`sap|${ord}|${a}`, () => guarded(() => {
-        const undo = patchAll([{ pokemon: target, stats: { atk: T.stat('atk', a) } }]);
+      const sapVal = atkVal => memo(`sap|${ord}|${atkVal}`, () => guarded(() => {
+        const undo = patchAll([{ pokemon: target, stats: { atk: atkVal } }]);
         try { return target.getStat('atk', false, true); } finally { undo(); }
       }));
       const real = memo(`sap|${ord}|real`, () => guarded(() => target.getStat('atk', false, true)));
-      if (plain(T, 'atk') && sapAt(fullEvs(target.set.evs).atk) === real) {
+      if (plain(T, 'atk') && sapVal(T.ownStat('atk')) === real) {
         const amounts = new Map();
-        for (const a of aliveOf(T.flat.atk)) amounts.set(a, sapAt(a));
+        for (const a of aliveOf(T.flat.atk)) amounts.set(a, sapVal(T.stat('atk', a)));
         sapFor.set(source, { rec: T, amounts });
       } else {
         note(`Strength Sap on ${named(T)}`, 'its Attack is not the one its Stat Points give, so the heal was not used');
@@ -5119,11 +5132,21 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
           const ds = depVars(dep);
           if (ds.some(d => picked.has(`${d.owner.id}|${d.stat}`))) {
             stats[s] = dep.deps ? dep.at(valOf(ds[0]), valOf(ds[1])) : dep.at(valOf(ds[0]));
+          } else if (dep.own !== undefined) {
+            stats[s] = dep.own;
           }
         }
         return { pokemon: rec.pokemon, stats };
       }));
     };
+    const ownAfter = runRaw(involved.map((rec) => {
+      const stats = {};
+      for (const s of MOVABLE) {
+        const dep = depOf(rec, s);
+        if (dep && dep.own !== undefined) stats[s] = dep.own;
+      }
+      return { pokemon: rec.pokemon, stats };
+    }));
     const base = runRaw([]);
     const vars = new Map();
     for (const rec of involved) {
@@ -5199,12 +5222,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
           for (const [key, t] of byVar) if (t.some(x => x !== t[0])) candSet.add(key);
         }
         const cand = [...candSet].sort();
+        const own = ownAfter[i][j];
         if (cand.length === 0) {
-          out.set(at, { moving: [], base: base[i][j] });
+          out.set(at, { moving: [], base: base[i][j], own });
         } else if (cand.length === 1) {
           const [k0] = cand;
           const t = byVar.get(k0);
-          out.set(at, t.some(x => x !== t[0]) ? { moving: [k0], values: t } : { moving: [], base: t[0] });
+          out.set(at, t.some(x => x !== t[0]) ? { moving: [k0], values: t, own } : { moving: [], base: t[0], own });
         } else if (cand.length === 2) {
           const [k0, k1] = cand;
           const grid = gridFor(k0, k1).get(at);
@@ -5216,12 +5240,12 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
               if (grid[v0 * SPAN + v1] !== grid[v0 * SPAN]) moves1 = true;
             }
           }
-          if (!moves0 && !moves1) out.set(at, { moving: [], base: grid[0] });
-          else if (moves0 && !moves1) out.set(at, { moving: [k0], values: Int32Array.from({ length: SPAN }, (_, v0) => grid[v0 * SPAN]) });
-          else if (!moves0 && moves1) out.set(at, { moving: [k1], values: grid.slice(0, SPAN) });
-          else out.set(at, { moving: [k0, k1], grid });
+          if (!moves0 && !moves1) out.set(at, { moving: [], base: grid[0], own });
+          else if (moves0 && !moves1) out.set(at, { moving: [k0], values: Int32Array.from({ length: SPAN }, (_, v0) => grid[v0 * SPAN]), own });
+          else if (!moves0 && moves1) out.set(at, { moving: [k1], values: grid.slice(0, SPAN), own });
+          else out.set(at, { moving: [k0, k1], grid, own });
         } else {
-          out.set(at, { moving: cand });
+          out.set(at, { moving: cand, own });
         }
       }
     }
@@ -5242,12 +5266,12 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
       if (moving && moving.length === 0 && entry.base === actual) dep = CONSTANT;
       if (moving && moving.length === 1 && entry.values) {
         const [ownerId, stat] = moving[0].split('|');
-        const d = { owner: byId.get(ownerId), stat, at: v => entry.values[v] };
+        const d = { owner: byId.get(ownerId), stat, own: entry.own, at: v => entry.values[v] };
         if (ownAt(d) === actual) dep = d;
       }
       if (moving && moving.length === 2 && entry.grid) {
         const ds = moving.map((k) => { const [ownerId, stat] = k.split('|'); return { owner: byId.get(ownerId), stat }; });
-        const d = { owner: null, deps: ds, at: (v0, v1) => entry.grid[v0 * SPAN + v1] };
+        const d = { owner: null, deps: ds, own: entry.own, at: (v0, v1) => entry.grid[v0 * SPAN + v1] };
         if (ownAt(d) === actual) dep = d;
       }
       if (dep) {
@@ -5267,7 +5291,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
     if (state.dry || state.ended || !writesStats(effect, eventid)) return run();
     const involved = [...new Set([target, source])].filter(p => p && typeof p === 'object' && byPokemon.has(p)).map(p => byPokemon.get(p));
     const ord = writeOrdinal++;
-    const asked = memo(`writes|${ord}`, () => askWrites(involved, run));
+    const asked = memo(`writes|${ord}${passKey}`, () => askWrites(involved, run));
     const outer = writes;
     writes = [];
     try {
@@ -5407,7 +5431,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
     if (kind === 2) {
       const involved = [...new Set([target, source])].filter(p => p && typeof p === 'object' && byPokemon.has(p)).map(p => byPokemon.get(p));
       const ord = storeOrdinal++;
-      asked = memo(`stored|${ord}`, () => askStored(involved, effectState, runOn));
+      asked = memo(`stored|${ord}${passKey}`, () => askStored(involved, effectState, runOn));
     }
     try {
       return storedSingle.call(this, eventid, effect, effectState, target, source, ...rest);
@@ -5511,12 +5535,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
       return;
     }
     // 0 Physical, 1 Special, 2 either (a die was thrown), 3 anything else.
-    const pick = values => memo(`cat|${ord}|${values.join(',')}`, () => guarded(() => {
-      let i = 0;
-      const undo = patchAll(groups.map(g => ({
-        pokemon: g.rec.pokemon,
-        stats: Object.fromEntries(g.stats.map(s => [s, depOf(g.rec, s).at(values[i++])])),
-      })));
+    const pickFor = statPatches => memo(`cat|${ord}|${statPatches.flatMap(p => Object.values(p.stats)).join(',')}`, () => guarded(() => {
+      const undo = patchAll(statPatches);
       let thrown = false;
       const chance = battle.randomChance;
       const random = battle.random;
@@ -5532,7 +5552,17 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
       }
       return thrown ? 2 : CATEGORIES.includes(c.category) ? CATEGORIES.indexOf(c.category) : 3;
     }));
-    const own = pick(groups.flatMap(g => g.own));
+    const pick = (values) => {
+      let i = 0;
+      return pickFor(groups.map(g => ({
+        pokemon: g.rec.pokemon,
+        stats: Object.fromEntries(g.stats.map(s => [s, depOf(g.rec, s).at(values[i++])])),
+      })));
+    };
+    const own = pickFor(groups.map(g => ({
+      pokemon: g.rec.pokemon,
+      stats: Object.fromEntries(g.stats.map(s => [s, ownAt(depOf(g.rec, s))])),
+    })));
     if (own !== 2 && own !== CATEGORIES.indexOf(move.category)) {
       note(what, 'running its category again at its own Stat Points did not pick the one the real run did, so it was not read');
       return;
@@ -5825,7 +5855,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
   });
   let bestCount = 0;
   for (const rec of recs) {
-    if (rec.kn.known) continue;
+    if (rec.kn.known || rec.unpinned) continue;
     const getBestStat = rec.pokemon.getBestStat;
     override(rec.pokemon, 'getBestStat', function (unboosted, unmodified) {
       const real = getBestStat.call(this, unboosted, unmodified);
@@ -5844,7 +5874,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
       // Which of two stats wins, for every pair of their values, asked now,
       // while the Pokemon stands as it did for the pick.
       const ord = bestCount++;
-      const pairWins = memo(`best|${ord}|${rec.id}`, () => {
+      const pairWins = memo(`best|${ord}|${rec.id}${passKey}`, () => {
         const wins = new Map();
         guarded(() => {
           const zero = Object.fromEntries(MOVABLE.map(s => [s, 0]));
@@ -5913,7 +5943,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
 
   const speed = attachSpeed(battle, {
     state, sync, memo, guarded, recs, byPokemon, byIdent, view, prefix, record, events, label: named, measure, cutOf, note, depOf, ownValue,
-    unmaskedAfter, frames,
+    unmaskedAfter, frames, passKey,
   });
   // The speed orders the last `finish` read, handed on so later rounds keep
   // them between the two Pokemon and not only as bounds on each.
@@ -7259,6 +7289,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
       }
     },
     result() {
+      const packTables = by => (by ? Object.fromEntries(Object.entries(by).map(([n, t]) => [n, Array.from(t)])) : undefined);
       return {
         recs: recs.map(rec => ({
           id: rec.id,
@@ -7270,9 +7301,19 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
         })),
         // In the order they were applied: every HP event as the battle ran, then
         // the whole-path check, then speed order, which needs every turn's sort.
-        orders: speedOrders.map(r => ({ fast: r.fast.id, slow: r.slow.id, tf: Array.from(r.tf), ts: Array.from(r.ts), ...(r.strict ? { strict: true } : {}), turn: r.turn, what: r.what })),
+        orders: speedOrders.map(r => ({
+          fast: r.fast.id, slow: r.slow.id, tf: Array.from(r.tf), ts: Array.from(r.ts),
+          ...(r.tfByNature ? { tfByNature: packTables(r.tfByNature) } : {}),
+          ...(r.tsByNature ? { tsByNature: packTables(r.tsByNature) } : {}),
+          ...(r.strict ? { strict: true } : {}), turn: r.turn, what: r.what,
+        })),
         // The order the rebuild itself ran in: no evidence, only what a guess must keep for its dice to play again.
-        scaffoldOrders: speed.scaffold().map(r => ({ fast: r.fast.id, slow: r.slow.id, tf: Array.from(r.tf), ts: Array.from(r.ts), ...(r.strict ? { strict: true } : {}), turn: r.turn })),
+        scaffoldOrders: speed.scaffold().map(r => ({
+          fast: r.fast.id, slow: r.slow.id, tf: Array.from(r.tf), ts: Array.from(r.ts),
+          ...(r.tfByNature ? { tfByNature: packTables(r.tfByNature) } : {}),
+          ...(r.tsByNature ? { tsByNature: packTables(r.tsByNature) } : {}),
+          ...(r.strict ? { strict: true } : {}), turn: r.turn,
+        })),
         cutoffSpeeds: speed.cutoff(),
         events: events.map(e => ({ ...e, ...unmark(e.what) })),
         checks: checks.map(c => ({ ...c, ...unmark(c.what) })),

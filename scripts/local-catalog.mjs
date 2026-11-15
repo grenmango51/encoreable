@@ -1490,7 +1490,7 @@ async function hazardOf(template, run) {
     });
     const p = inf.pokemon.find(x => x.id === 'p2:0');
     const cutting = inf.events.filter(e => e.cuts.some(c => c.id === 'p2:0'));
-    if (!p.spreads || !p.contains(BASE)) return { verdict: 'HAZARD-UNSOUND', spreads: p.spreads, event: cutting.length ? `turn ${cutting[cutting.length - 1].turn}: ${cutting[cutting.length - 1].what}` : null };
+    if (!p.spreads || !p.contains(BASE, template.p2[0].nature)) return { verdict: 'HAZARD-UNSOUND', spreads: p.spreads, event: cutting.length ? `turn ${cutting[cutting.length - 1].turn}: ${cutting[cutting.length - 1].what}` : null };
     if (!inf.complete) {
       const diff = inf.built.report.diffs[0];
       return { verdict: 'HAZARD-REBUILD', spreads: p.spreads, event: diff ? `turn ${diff.turn}: wanted ${diff.expected}, got ${diff.actual}` : null };
@@ -3059,14 +3059,14 @@ async function dumpWorld(pool, [key, templateKey, stat, value], { control, entri
   for (const line of battleLines(run.ch1)) console.log(line);
   const r = hazard ? await (async () => {
     const read = setsFromLog(run.ch1, 'p2', FORMAT);
-    for (const [i, set] of read.sets.entries()) console.log(`  read off the log: ${set.name} @ ${set.item || 'no item'}, ${set.ability}, ${set.nature}: ${set.moves.join(', ')}  (${read.assumed[i].notes.join(', ')})`);
+    for (const [i, set] of read.sets.entries()) console.log(`  read off the log: ${set.name} @ ${set.item || 'no item'}, ${set.ability}, ${set.nature || 'unknown nature'}: ${set.moves.join(', ')}  (${read.assumed[i].notes.join(', ')})`);
     return inferWorld({ ...template, p2: read.sets }, run);
   })() : await inferWorld(template, run);
   console.log(`--- rebuilt from it${hazard ? ', with the sets read off the log' : ''}`);
   if (r.error) { console.log(`error: ${r.error}`); return; }
   printWork('inference work', r.inf);
   console.log(`complete ${r.complete}${r.diff ? `, first wrong line on turn ${r.diff.turn}: wanted ${r.diff.observed}, got ${r.diff.rebuilt}` : ''}`);
-  console.log(`hidden Pokemon: ${r.p.spreads} spreads, real spread ${r.p.contains(evs) ? 'kept' : 'REMOVED'}; ${STATS.map(s => `${STAT_NAME[s]} ${r.p.stats[s] ? `${r.p.stats[s].min}-${r.p.stats[s].max}` : 'none'}`).join(', ')}`);
+  console.log(`hidden Pokemon: ${r.p.spreads} spreads, real spread ${r.p.contains(evs, template.p2[template.probeIndex || 0].nature) ? 'kept' : 'REMOVED'}; ${STATS.map(s => `${STAT_NAME[s]} ${r.p.stats[s] ? `${r.p.stats[s].min}-${r.p.stats[s].max}` : 'none'}`).join(', ')}`);
   for (const e of r.inf.events) {
     const cut = e.cuts.find(c => c.id === 'p2:0');
     console.log(`  T${e.turn} ${e.what}${e.shown ? ` (shown ${e.shown})` : ''}${cut ? `: ${cut.before} -> ${cut.after}${cut.narrowed.length ? `, ${cut.narrowed.map(s => `${STAT_NAME[s]} ${cut.stats[s] ? `${cut.stats[s].min}-${cut.stats[s].max}` : 'none'}`).join(', ')}` : ''}` : ''}`);

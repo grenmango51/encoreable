@@ -135,7 +135,16 @@ export function supported(keys, dom, ties = {}) {
 
 // ------------------------------------------------------------ what is known
 
-export function freshKnowledge(set, known, spent = false) {
+const NEUTRAL_NATURES = new Set(['Hardy', 'Docile', 'Serious', 'Bashful', 'Quirky', 'hardy', 'docile', 'serious', 'bashful', 'quirky']);
+
+export const canonicalNatureName = (nature) => {
+  if (!nature || NEUTRAL_NATURES.has(nature)) return 'Serious';
+  return `${nature[0].toUpperCase()}${nature.slice(1).toLowerCase()}`;
+};
+
+export const candidateNatures = dex => ['Serious', ...dex.natures.all().filter(n => n.exists && n.plus).map(n => n.name)];
+
+function freshSingleKnowledge(set, known, spent = false) {
   const keys = new Uint8Array(KEYS);
   const dom = { atk: new Uint8Array(SPAN), spa: new Uint8Array(SPAN), spe: new Uint8Array(SPAN) };
   if (known) {
@@ -149,30 +158,77 @@ export function freshKnowledge(set, known, spent = false) {
   return { known, spent: !known && spent, keys, dom, ties: {} };
 }
 
+function cloneSingle(kn) {
+  return {
+    known: kn.known,
+    spent: kn.spent,
+    ...(kn.nature ? { nature: kn.nature } : {}),
+    keys: kn.keys.slice(),
+    dom: { atk: kn.dom.atk.slice(), spa: kn.dom.spa.slice(), spe: kn.dom.spe.slice() },
+    ties: cloneTies(kn.ties),
+  };
+}
+
+/** Keep `kn`'s flat and key summary equal to the union of its surviving natures. */
+export function syncKnowledge(kn) {
+  if (!kn?.natures) return;
+  kn.keys.fill(0);
+  for (const s of FLAT) kn.dom[s].fill(0);
+  kn.ties = {};
+  let first = true;
+  for (const sub of kn.natures.values()) {
+    if (!sub.keys.includes(1) || FLAT.some(s => !sub.dom[s].includes(1))) continue;
+    if (first) {
+      kn.keys.set(sub.keys);
+      for (const s of FLAT) kn.dom[s].set(sub.dom[s]);
+      kn.ties = cloneTies(sub.ties);
+      first = false;
+    } else {
+      uniteSingleKnowledge(kn, sub);
+    }
+  }
+}
+
+export function freshKnowledge(set, known, spent = false, dex = null) {
+  const kn = freshSingleKnowledge(set, known, spent);
+  if (!known && !set?.nature && dex) {
+    kn.natures = new Map(candidateNatures(dex).map(n => [n, { ...freshSingleKnowledge(set, false, spent), nature: n }]));
+  }
+  return kn;
+}
+
 export function cloneKnowledge(map) {
   const out = new Map();
   for (const [id, kn] of map) {
-    out.set(id, {
-      known: kn.known,
-      spent: kn.spent,
-      keys: kn.keys.slice(),
-      dom: { atk: kn.dom.atk.slice(), spa: kn.dom.spa.slice(), spe: kn.dom.spe.slice() },
-      ties: cloneTies(kn.ties),
-    });
+    const copy = cloneSingle(kn);
+    if (kn.natures) copy.natures = new Map([...kn.natures].map(([n, sub]) => [n, cloneSingle(sub)]));
+    out.set(id, copy);
   }
   return out;
 }
 
 export function pinKnowledge(kn, evs) {
   const e = fullEvs(evs);
+  if (kn.natures) {
+    if (evs?.nature) {
+      kn.nature = canonicalNatureName(evs.nature);
+      kn.natures = null;
+    } else {
+      for (const sub of kn.natures.values()) {
+        if (containsSpread(sub, e)) pinKnowledge(sub, e);
+        else { sub.keys.fill(0); for (const s of FLAT) sub.dom[s].fill(0); sub.ties = {}; }
+      }
+      syncKnowledge(kn);
+      return;
+    }
+  }
   kn.keys.fill(0);
   kn.keys[keyOf(e.hp, e.def, e.spd)] = 1;
   for (const s of FLAT) { kn.dom[s].fill(0); kn.dom[s][e[s]] = 1; }
   kn.ties = {};
 }
 
-/** Narrow `kn` to what a pass left alive. Returns whether anything moved. */
-export function intersectKnowledge(kn, keys, flat, ties = {}) {
+function intersectSingle(kn, keys, flat, ties = {}) {
   let moved = false;
   const keep = new Uint8Array(KEYS);
   for (const k of keys) keep[k] = 1;
@@ -192,6 +248,31 @@ export function intersectKnowledge(kn, keys, flat, ties = {}) {
       mine[i] = both;
     }
   }
+  return moved;
+}
+
+/** Narrow `kn` to what a pass left alive. Returns whether anything moved. */
+export function intersectKnowledge(kn, keys, flat, ties = {}, natures = null) {
+  if (!kn.natures) return intersectSingle(kn, keys, flat, ties);
+  let moved = false;
+  if (natures) {
+    for (const [n, sub] of kn.natures) {
+      const other = natures.get(n);
+      if (!other) {
+        if (sub.keys.includes(1) || FLAT.some(s => sub.dom[s].includes(1))) {
+          sub.keys.fill(0);
+          for (const s of FLAT) sub.dom[s].fill(0);
+          sub.ties = {};
+          moved = true;
+        }
+      } else {
+        moved = intersectSingle(sub, maskKeys(other.keys), other.dom, other.ties) || moved;
+      }
+    }
+  } else {
+    for (const sub of kn.natures.values()) moved = intersectSingle(sub, keys, flat, ties) || moved;
+  }
+  if (moved) syncKnowledge(kn);
   return moved;
 }
 
@@ -354,12 +435,7 @@ function tiedBudget(keys, dom, ties, spent) {
   return { key: k => keyOk[k] === 1, flat: FLAT.map(x => v => flatOk[x][v] === 1) };
 }
 
-/**
- * Every spread `other` leaves added to `kn`, a stat at a time: it holds every
- * spread either leaves, and can hold more. A tie either holds is kept, as what
- * each key allows in one or the other.
- */
-export function uniteKnowledge(kn, other) {
+function uniteSingleKnowledge(kn, other) {
   const tied = new Set([...Object.keys(kn.ties || {}), ...Object.keys(other.ties || {})]);
   const ties = {};
   for (const s of [...tied].filter(n => n.includes('|'))) {
@@ -392,10 +468,29 @@ export function uniteKnowledge(kn, other) {
 }
 
 /**
- * The 66-point budget and the ties, pushed through every stat: a value that
- * cannot fit beside any surviving choice for everything else is gone.
+ * Every spread `other` leaves added to `kn`, a stat at a time: it holds every
+ * spread either leaves, and can hold more. A tie either holds is kept, as what
+ * each key allows in one or the other.
  */
-export function tighten(kn) {
+export function uniteKnowledge(kn, other) {
+  if (kn.natures && other.natures) {
+    for (const [n, sub] of other.natures) {
+      if (kn.natures.has(n)) uniteSingleKnowledge(kn.natures.get(n), sub);
+      else kn.natures.set(n, cloneSingle(sub));
+    }
+    syncKnowledge(kn);
+    return;
+  }
+  if (kn.natures && other.nature) {
+    if (kn.natures.has(other.nature)) uniteSingleKnowledge(kn.natures.get(other.nature), other);
+    else kn.natures.set(other.nature, cloneSingle(other));
+    syncKnowledge(kn);
+    return;
+  }
+  uniteSingleKnowledge(kn, other);
+}
+
+function tightenSingle(kn) {
   let moved = false;
   for (let round = 0; round < 8; round++) {
     if (!kn.keys.includes(1) || FLAT.some(s => !kn.dom[s].includes(1))) {
@@ -429,6 +524,18 @@ export function tighten(kn) {
 }
 
 /**
+ * The 66-point budget and the ties, pushed through every stat: a value that
+ * cannot fit beside any surviving choice for everything else is gone.
+ */
+export function tighten(kn) {
+  if (!kn.natures) return tightenSingle(kn);
+  let moved = false;
+  for (const sub of kn.natures.values()) moved = tightenSingle(sub) || moved;
+  syncKnowledge(kn);
+  return moved;
+}
+
+/**
  * Speed orders kept from earlier rounds, each `{ fast, slow, tf, ts }` as
  * evidence.mjs hands them on: the ids of the Pokemon whose Stat Points the two
  * speeds stand on, and each one's speed at every Speed Stat Point at that
@@ -439,6 +546,16 @@ export function tighten(kn) {
  * two lines that prove it. Returns whether anything went.
  */
 export function orderSpeeds(map, orders) {
+  const slicesFor = (kn) => {
+    if (!kn) return null;
+    if (!kn.natures) return kn.dom?.spe ? [{ sub: null, dom: kn.dom.spe, nat: kn.nature || null }] : null;
+    const out = [];
+    for (const [nat, sub] of kn.natures) {
+      if (sub.keys.includes(1) && sub.dom.spe.includes(1)) out.push({ sub, dom: sub.dom.spe, nat });
+    }
+    return out;
+  };
+  const tableFor = (nat, table, byNature) => (nat && byNature?.[nat]) || table;
   const self = [];
   const byPair = new Map();
   for (const o of orders) {
@@ -450,56 +567,106 @@ export function orderSpeeds(map, orders) {
     entry.rules.push(o);
   }
   let any = false;
-  for (const { fast, tf, ts, strict } of self) {
-    const f = map.get(fast)?.dom.spe;
-    if (!f) continue;
-    for (let v = 0; v < SPAN; v++) {
-      if (f[v] && (strict ? tf[v] <= ts[v] : tf[v] < ts[v])) { f[v] = 0; any = true; }
+  const touched = new Set();
+  for (const { fast, tf, ts, tfByNature, tsByNature, strict } of self) {
+    const fKn = map.get(fast);
+    const slices = slicesFor(fKn);
+    if (!slices) continue;
+    for (const { sub, dom, nat } of slices) {
+      const tFast = tableFor(nat, tf, tfByNature);
+      const tSlow = tableFor(nat, ts, tsByNature);
+      let subMoved = false;
+      for (let v = 0; v < SPAN; v++) {
+        if (dom[v] && (strict ? tFast[v] <= tSlow[v] : tFast[v] < tSlow[v])) { dom[v] = 0; any = true; subMoved = true; }
+      }
+      if (subMoved && sub) { tightenSingle(sub); touched.add(fKn); }
     }
   }
   for (let moved = true; moved;) {
     moved = false;
     for (const { a, b, rules } of byPair.values()) {
-      const fa = map.get(a)?.dom.spe;
-      const fb = map.get(b)?.dom.spe;
-      if (!fa || !fb) continue;
+      const aKn = map.get(a);
+      const bKn = map.get(b);
+      const saList = slicesFor(aKn);
+      const sbList = slicesFor(bKn);
+      if (!saList || !sbList) continue;
       if (rules.length === 1) {
-        const { fast, tf, ts, strict } = rules[0];
-        const [f, w] = fast === a ? [fa, fb] : [fb, fa];
+        const { fast, tf, ts, tfByNature, tsByNature, strict } = rules[0];
+        const [fKn, sKn, fList, sList] = fast === a ? [aKn, bKn, saList, sbList] : [bKn, aKn, sbList, saList];
         let maxFast = -Infinity;
         let minSlow = Infinity;
-        for (let v = 0; v < SPAN; v++) {
-          if (f[v]) maxFast = Math.max(maxFast, tf[v]);
-          if (w[v]) minSlow = Math.min(minSlow, ts[v]);
+        for (const { dom, nat } of fList) {
+          const t = tableFor(nat, tf, tfByNature);
+          for (let v = 0; v < SPAN; v++) if (dom[v]) maxFast = Math.max(maxFast, t[v]);
         }
-        for (let v = 0; v < SPAN; v++) {
-          if (f[v] && (strict ? tf[v] <= minSlow : tf[v] < minSlow)) { f[v] = 0; moved = true; }
-          if (w[v] && (strict ? ts[v] >= maxFast : ts[v] > maxFast)) { w[v] = 0; moved = true; }
+        for (const { dom, nat } of sList) {
+          const t = tableFor(nat, ts, tsByNature);
+          for (let v = 0; v < SPAN; v++) if (dom[v]) minSlow = Math.min(minSlow, t[v]);
+        }
+        for (const { sub, dom, nat } of fList) {
+          const t = tableFor(nat, tf, tfByNature);
+          let subMoved = false;
+          for (let v = 0; v < SPAN; v++) {
+            if (dom[v] && (strict ? t[v] <= minSlow : t[v] < minSlow)) { dom[v] = 0; moved = true; subMoved = true; }
+          }
+          if (subMoved && sub) { tightenSingle(sub); touched.add(fKn); }
+        }
+        for (const { sub, dom, nat } of sList) {
+          const t = tableFor(nat, ts, tsByNature);
+          let subMoved = false;
+          for (let v = 0; v < SPAN; v++) {
+            if (dom[v] && (strict ? t[v] >= maxFast : t[v] > maxFast)) { dom[v] = 0; moved = true; subMoved = true; }
+          }
+          if (subMoved && sub) { tightenSingle(sub); touched.add(sKn); }
         }
         continue;
       }
-      const okA = new Uint8Array(SPAN);
-      const okB = new Uint8Array(SPAN);
-      for (let va = 0; va < SPAN; va++) {
-        if (!fa[va]) continue;
-        for (let vb = 0; vb < SPAN; vb++) {
-          if (!fb[vb]) continue;
-          let ok = true;
-          for (let r = 0; r < rules.length; r++) {
-            const o = rules[r];
-            const [lhs, rhs] = o.fast === a ? [o.tf[va], o.ts[vb]] : [o.tf[vb], o.ts[va]];
-            if (o.strict ? lhs <= rhs : lhs < rhs) { ok = false; break; }
+      const okA = saList.map(() => new Uint8Array(SPAN));
+      const okB = sbList.map(() => new Uint8Array(SPAN));
+      for (let ia = 0; ia < saList.length; ia++) {
+        const sa = saList[ia];
+        for (let va = 0; va < SPAN; va++) {
+          if (!sa.dom[va]) continue;
+          for (let ib = 0; ib < sbList.length; ib++) {
+            const sb = sbList[ib];
+            for (let vb = 0; vb < SPAN; vb++) {
+              if (!sb.dom[vb]) continue;
+              let ok = true;
+              for (let r = 0; r < rules.length; r++) {
+                const o = rules[r];
+                const lhs = o.fast === a
+                  ? tableFor(sa.nat, o.tf, o.tfByNature)[va]
+                  : tableFor(sb.nat, o.tf, o.tfByNature)[vb];
+                const rhs = o.fast === a
+                  ? tableFor(sb.nat, o.ts, o.tsByNature)[vb]
+                  : tableFor(sa.nat, o.ts, o.tsByNature)[va];
+                if (o.strict ? lhs <= rhs : lhs < rhs) { ok = false; break; }
+              }
+              if (ok) { okA[ia][va] = 1; okB[ib][vb] = 1; }
+            }
           }
-          if (ok) { okA[va] = 1; okB[vb] = 1; }
         }
       }
-      for (let v = 0; v < SPAN; v++) {
-        if (fa[v] && !okA[v]) { fa[v] = 0; moved = true; }
-        if (fb[v] && !okB[v]) { fb[v] = 0; moved = true; }
+      for (let ia = 0; ia < saList.length; ia++) {
+        const { sub, dom } = saList[ia];
+        let subMoved = false;
+        for (let v = 0; v < SPAN; v++) {
+          if (dom[v] && !okA[ia][v]) { dom[v] = 0; moved = true; subMoved = true; }
+        }
+        if (subMoved && sub) { tightenSingle(sub); touched.add(aKn); }
+      }
+      for (let ib = 0; ib < sbList.length; ib++) {
+        const { sub, dom } = sbList[ib];
+        let subMoved = false;
+        for (let v = 0; v < SPAN; v++) {
+          if (dom[v] && !okB[ib][v]) { dom[v] = 0; moved = true; subMoved = true; }
+        }
+        if (subMoved && sub) { tightenSingle(sub); touched.add(bKn); }
       }
     }
     any = any || moved;
   }
+  for (const kn of touched) syncKnowledge(kn);
   return any;
 }
 
@@ -644,8 +811,13 @@ function pairedCount(keys, dom, ties) {
 }
 
 /** The whole spreads left for one Pokemon, counted the way it is assumed to spend. */
-export function spreadsLeft(kn, keys = maskKeys(kn.keys), dom = kn.dom) {
-  const count = spreadCount(keys, dom, kn.ties);
+export function spreadsLeft(kn, keys, dom) {
+  if (kn.natures && keys === undefined && dom === undefined) {
+    let sum = 0;
+    for (const sub of kn.natures.values()) sum += spreadsLeft(sub);
+    return sum;
+  }
+  const count = spreadCount(keys ?? maskKeys(kn.keys), dom ?? kn.dom, kn.ties);
   return kn.spent ? count.spent : count.total;
 }
 
@@ -677,6 +849,19 @@ export function valuesOf(keys, dom, spent = false, ties = {}) {
   return { values, grids };
 }
 
+/** `valuesOf` across every surviving nature of `kn`, or on `kn` directly when its nature is fixed. */
+export function valuesOfKnowledge(kn) {
+  if (!kn.natures) return valuesOf(maskKeys(kn.keys), kn.dom, kn.spent, kn.ties);
+  const values = Object.fromEntries(STAT_IDS.map(s => [s, new Uint8Array(SPAN)]));
+  const grids = { def: new Uint8Array(SPAN * SPAN), spd: new Uint8Array(SPAN * SPAN) };
+  for (const sub of kn.natures.values()) {
+    const got = valuesOf(maskKeys(sub.keys), sub.dom, sub.spent, sub.ties);
+    for (const s of STAT_IDS) for (let v = 0; v < SPAN; v++) if (got.values[s][v]) values[s][v] = 1;
+    for (const d of ['def', 'spd']) for (let i = 0; i < SPAN * SPAN; i++) if (got.grids[d][i]) grids[d][i] = 1;
+  }
+  return { values, grids };
+}
+
 /** Each stat's range across the whole spreads that survive, as `{ min, max }`, or null for a stat with nothing left. */
 export function rangesOf(keys, dom, spent = false, ties = {}) {
   return rangesOfValues(valuesOf(keys, dom, spent, ties).values);
@@ -694,6 +879,22 @@ export function rangesOfValues(values) {
 
 /** What survives for one Pokemon, as a range per stat plus the spread count. */
 export function summarise(kn) {
+  if (kn.natures) {
+    let total = 0;
+    let allSpent = 0;
+    for (const sub of kn.natures.values()) {
+      const c = spreadCount(maskKeys(sub.keys), sub.dom, sub.ties);
+      total += c.total;
+      allSpent += c.spent;
+    }
+    const { values } = valuesOfKnowledge(kn);
+    const stats = {};
+    for (const s of STAT_IDS) {
+      const list = aliveOf(values[s]);
+      stats[s] = list.length ? { min: list[0], max: list[list.length - 1], count: list.length } : null;
+    }
+    return { spreads: kn.spent ? allSpent : total, allSpent, stats };
+  }
   const { keys, dom } = supported(maskKeys(kn.keys), kn.dom, kn.ties);
   const count = spreadCount(keys, dom, kn.ties);
   const seen = { hp: new Uint8Array(SPAN), def: new Uint8Array(SPAN), spd: new Uint8Array(SPAN) };
@@ -779,6 +980,19 @@ function statWeights(kn) {
 
 /** The surviving spread nearest `prev`, counting Stat Points moved. */
 export function closestSpread(kn, prev) {
+  if (kn.natures) {
+    let best = null;
+    for (const [n, sub] of kn.natures) {
+      const cand = closestSpread(sub, prev);
+      if (!cand) continue;
+      const cost = STAT_IDS.reduce((t, s) => t + Math.abs(cand[s] - prev[s]), 0);
+      const sameNat = prev?.nature && n === canonicalNatureName(prev.nature) ? 0 : 1;
+      if (!best || cost < best.cost || (cost === best.cost && sameNat < best.sameNat)) {
+        best = { cost, sameNat, spread: { ...cand, nature: n } };
+      }
+    }
+    return best ? best.spread : null;
+  }
   if (pairsOf(kn.ties).length) return closestPaired(kn, prev);
   if (FLAT.some(s => kn.ties?.[s])) return closestTied(kn, prev);
   const A = aliveOf(kn.dom.atk);
@@ -977,7 +1191,15 @@ export function aimFor(kn, prev, q = 0.5) {
 // ------------------------------------------------------------ one spread
 
 /** Whether `evs` is one of the spreads `kn` still allows. */
-export function containsSpread(kn, evs) {
+export function containsSpread(kn, evs, nature = null) {
+  if (kn.natures) {
+    if (nature) {
+      const sub = kn.natures.get(canonicalNatureName(nature));
+      return !!sub && containsSpread(sub, evs);
+    }
+    for (const sub of kn.natures.values()) if (containsSpread(sub, evs)) return true;
+    return false;
+  }
   const e = fullEvs(evs);
   const sum = STAT_IDS.reduce((t, x) => t + e[x], 0);
   if (kn.spent ? sum !== BUDGET : sum > BUDGET) return false;
@@ -990,6 +1212,21 @@ export function containsSpread(kn, evs) {
 /** A copy of `kn` with `stat` held at `value`, and the budget and ties pushed through. */
 export function restrictKnowledge(kn, stat, value) {
   const at = cloneKnowledge(new Map([['x', kn]])).get('x');
+  if (at.natures) {
+    for (const sub of at.natures.values()) {
+      if (FLAT.includes(stat)) {
+        const keep = sub.dom[stat][value];
+        sub.dom[stat].fill(0);
+        sub.dom[stat][value] = keep;
+      } else {
+        const of = { hp: KEY_HP, def: KEY_DEF, spd: KEY_SPD }[stat];
+        for (let k = 0; k < KEYS; k++) if (of[k] !== value) sub.keys[k] = 0;
+      }
+      tightenSingle(sub);
+    }
+    syncKnowledge(at);
+    return at;
+  }
   if (FLAT.includes(stat)) {
     at.dom[stat].fill(0);
     at.dom[stat][value] = kn.dom[stat][value];
@@ -1030,7 +1267,7 @@ export function typicalSpread(kn, baseStats, nature = {}) {
   let at = kn;
   const out = {};
   for (const stat of [...order, ...rest]) {
-    const alive = aliveOf(valuesOf(maskKeys(at.keys), at.dom, at.spent, at.ties).values[stat]);
+    const alive = aliveOf(valuesOfKnowledge(at).values[stat]);
     if (!alive.length) return null;
     out[stat] = alive[alive.length - 1];
     at = restrictKnowledge(at, stat, out[stat]);
@@ -1071,7 +1308,7 @@ export function unpackBits(text, length) {
  * flat domains and each pair tie as bits, and each key tie as the distinct
  * words it holds with, per alive key in order, which one that key has.
  */
-export function packKnowledge(kn) {
+function packSingleKnowledge(kn) {
   const alive = maskKeys(kn.keys);
   const ties = {};
   for (const [name, tie] of Object.entries(kn.ties || {})) {
@@ -1089,17 +1326,36 @@ export function packKnowledge(kn) {
   return { spent: kn.spent, keys: packBits(kn.keys), dom: Object.fromEntries(FLAT.map(s => [s, packBits(kn.dom[s])])), ties };
 }
 
-export function unpackKnowledge(packed) {
+export function packKnowledge(kn) {
+  const base = packSingleKnowledge(kn);
+  if (!kn.natures) return base;
+  const natures = {};
+  for (const [n, sub] of kn.natures) {
+    if (sub.keys.includes(1) && FLAT.every(s => sub.dom[s].includes(1))) natures[n] = packSingleKnowledge(sub);
+  }
+  return { ...base, natures };
+}
+
+function unpackSingleKnowledge(packed) {
   const keys = unpackBits(packed.keys, KEYS);
   const alive = maskKeys(keys);
   const ties = {};
   for (const [name, t] of Object.entries(packed.ties || {})) {
     if (name.includes('|')) { ties[name] = unpackBits(t, SPAN * SPAN); continue; }
-    const at = new Uint16Array(fromBase64(t.at).buffer);
+    const raw = fromBase64(t.at);
+    const at = new Uint16Array(raw.buffer, raw.byteOffset, raw.byteLength / 2);
     const tie = newTie();
     alive.forEach((k, i) => { [tie[2 * k], tie[2 * k + 1]] = t.words[at[i]]; });
     ties[name] = tie;
   }
   const dom = Object.fromEntries(FLAT.map(s => [s, unpackBits(packed.dom[s], SPAN)]));
   return { known: false, spent: !!packed.spent, keys, dom, ties };
+}
+
+export function unpackKnowledge(packed) {
+  const base = unpackSingleKnowledge(packed);
+  if (packed.natures && typeof packed.natures === 'object') {
+    base.natures = new Map(Object.entries(packed.natures).map(([n, p]) => [n, { ...unpackSingleKnowledge(p), nature: n }]));
+  }
+  return base;
 }
