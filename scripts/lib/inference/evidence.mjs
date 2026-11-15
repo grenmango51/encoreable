@@ -155,7 +155,7 @@ function channelView(raw, channel) {
  * Compared exactly the way `playThrough` compares, so the verified prefix here
  * is the one the reconstruction report means.
  */
-function verifiedPrefix(view, observed) {
+function verifiedPrefix(view, observed, beforeTurn = Infinity) {
   const want = splitTurns(observed.filter(l => typeof l === 'string'));
   const got = [[]];
   for (const entry of view) {
@@ -163,6 +163,9 @@ function verifiedPrefix(view, observed) {
     if (/^\|turn\|\d+/.test(entry.line)) got.push([]);
   }
   for (let k = 0; k < want.length; k++) {
+    if (k >= beforeTurn) {
+      return { cutoffAt: got[k]?.[0]?.at ?? Infinity, observedLine: null, observedAfter: [], turn: k };
+    }
     const soft = (line) => {
       const kind = String(line).split('|')[1];
       return kind === 'player' || (k === 0 && SOFT_PRETURN.has(kind));
@@ -228,14 +231,14 @@ async function replayRaw(lines) {
  * Replay one input log and remove every spread the verified part of it rules
  * out. `knowledge` is read, never written; the caller intersects the result.
  */
-export async function evidencePass({ inputLog, observed, channel, knowledge, cache, record, exact = false, truth = null }) {
+export async function evidencePass({ inputLog, observed, channel, knowledge, cache, record, exact = false, truth = null, beforeTurn = Infinity }) {
   const lines = (Array.isArray(inputLog) ? inputLog : String(inputLog).split('\n'))
     .map(l => String(l).trimEnd())
     .filter(l => l.startsWith('>'));
   let pre = cache.get('raw');
   if (!pre) { pre = await replayRaw(lines); cache.set('raw', pre); }
   const view = channelView(pre, channel);
-  const prefix = verifiedPrefix(view, observed);
+  const prefix = verifiedPrefix(view, observed, beforeTurn);
 
   const stream = new BattleStream({ keepAlive: true });
   const drain = (async () => { for await (const chunk of stream) { /* discard */ } })();
@@ -248,6 +251,7 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
   try {
     for (const line of lines) {
       if (thrown) throw thrown;
+      if (ctx && stream.battle.turn >= beforeTurn) break;
       if (!ctx && /^>p[1-4] /.test(line)) {
         ctx = attachInference(stream.battle, { view, prefix, channel, knowledge, cache, record, exact, truth });
       }
@@ -255,14 +259,14 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
       // Draw ordinals count from installation, and `playThrough` installs right
       // after `>start`, so a roll found here is addressed the way a pin is.
       if (line.startsWith('>start')) install(stream.battle);
-      if (ctx?.state.ended) break;
+      if (ctx?.state.ended || (ctx && stream.battle.turn >= beforeTurn)) break;
     }
     if (thrown) throw thrown;
     if (!ctx) throw new Error('the input log makes no choices, so there is nothing to infer from');
     ctx.finish();
     if (exact) {
       const found = ctx.paths(pre);
-      ctx.coupled = Math.min(ctx.state.coupled, found?.coupled ?? Infinity);
+      ctx.coupled = Math.min(ctx.state.coupled, found?.coupled ?? Infinity, beforeTurn);
       ctx.exact = found && exactTurns(pre, found.tokens, prefix, ctx.coupled, found.cutAt);
       ctx.rolls = found?.rolls || null;
     }
@@ -294,13 +298,15 @@ function exactTurns(raw, tokens, prefix, coupled = Infinity, cutAt = Infinity) {
   let provedAt = null;
   const proved = t => (provedAt === null || t < provedAt.k ? {} : { proved: t === provedAt.k ? provedAt.n : 0 });
   // A path that ends a Pokemon on 0 HP prints it fainted, whatever HP the
-  // scaffold left it on.
-  const withHp = (line, token) => {
+  // scaffold left it on; one that leaves it standing never carries `fnt`.
+  const withHp = (line, token, obsLine = null) => {
     if (token === undefined) return line;
     const parts = line.split('|');
     const at = HP_FIELD[parts[1]];
-    const field = String(parts[at] || '');
-    parts[at] = token === '0' ? '0 fnt' : `${token}${field.includes(' ') ? field.slice(field.indexOf(' ')) : ''}`;
+    const obsParts = obsLine ? obsLine.split('|') : null;
+    const field = obsParts && HP_FIELD[obsParts[1]] === at ? String(obsParts[at] || '') : String(parts[at] || '');
+    const suffix = field.includes(' ') ? field.slice(field.indexOf(' ')) : '';
+    parts[at] = token === '0' ? '0 fnt' : `${token}${suffix === ' fnt' ? '' : suffix}`;
     return parts.join('|');
   };
   for (const entry of view) {
@@ -314,7 +320,7 @@ function exactTurns(raw, tokens, prefix, coupled = Infinity, cutAt = Infinity) {
       // chose; anything else there is the scaffold's mistake, not the truth.
       if (cut && tokens.has(entry.at)) {
         if (entry.at >= cutAt && provedAt === null) provedAt = { k, n: lines.length };
-        lines.push(withHp(entry.line, tokens.get(entry.at)));
+        lines.push(withHp(entry.line, tokens.get(entry.at), prefix.observedLine));
       }
       break;
     }
@@ -4056,11 +4062,6 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const dealtBy = new Map();
     let coupled = Infinity;
     let cutAt = unprovedAt;
-    // Every change the path made deal another amount than the scaffold's did,
-    // and the HP the scaffold showed each Pokemon on last (null where its last
-    // change showed none).
-    const drifted = new Set();
-    const scaffoldWas = new Map();
     const startOf = (rec) => {
       const [k, hs] = [...(rec.history[0]?.pre || new Map()).entries()][0] || [];
       return k === undefined ? null : [k, hs[0]];
@@ -4069,7 +4070,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     for (const rec of recs) {
       for (const { at, hist } of rec.shown) {
         const split = at >= 2 && /^\|split\|/.test(raw[at - 2] || '');
-        const exactAt = split && raw[at] !== raw[at - 1] && !rec.exact ? at - 1 : at;
+        const exactAt = split ? at - 1 : at;
         secretAt.set(`${rec.id}|${hist}`, exactAt);
       }
     }
@@ -4078,13 +4079,96 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const m = at === undefined ? null : /^(\d+)\//.exec(String(hpLine(raw[at])?.token || ''));
       return m ? Number(m[1]) : null;
     };
-    for (const { rec, i, e } of entries) {
+    const byChange = new Map(entries.map((x, idx) => [x.e.change, idx]));
+    const lastCoupled = new Map();
+    const touch = (r, idx) => { if (r) lastCoupled.set(r, Math.max(lastCoupled.get(r) ?? -1, idx)); };
+    for (const [idx, { rec, e }] of entries.entries()) {
+      const c = e.change;
+      if (c.victim && c.dealtOf) {
+        const u = byChange.get(c.victim);
+        if (u !== undefined) touch(entries[u].rec, u);
+        touch(rec, idx);
+      }
+      if (c.totals && c.hits) {
+        for (const h of c.hits) {
+          const u = byChange.get(h);
+          if (u !== undefined) touch(entries[u].rec, u);
+        }
+        touch(rec, idx);
+      }
+      if (c.sourceStates) {
+        touch(c.dealtBy, idx);
+        if (c.extra && !FLAT.includes(c.extra.stat)) touch(byId.get(c.extra.owner), idx);
+        touch(rec, idx);
+      }
+      if (c.pair) {
+        touch(rec, idx);
+        touch(c.pair.partner, idx);
+      }
+    }
+    const liveRecs = new Array(entries.length);
+    const liveDealt = new Array(entries.length);
+    const livePairs = new Array(entries.length);
+    {
+      const seenRecs = new Set();
+      const neededDealt = new Set();
+      const neededPairs = [];
+      for (let idx = entries.length - 1; idx >= 0; idx--) {
+        const { rec, e } = entries[idx];
+        const c = e.change;
+        seenRecs.add(rec);
+        if (c.sourceStates) {
+          if (c.dealtBy) seenRecs.add(c.dealtBy);
+          if (c.extra && !FLAT.includes(c.extra.stat) && byId.get(c.extra.owner)) seenRecs.add(byId.get(c.extra.owner));
+        }
+        if (c.pair?.partner) seenRecs.add(c.pair.partner);
+        if (c.victim && c.dealtOf) {
+          const u = byChange.get(c.victim);
+          if (u !== undefined) neededDealt.add(u);
+        }
+        if (c.totals && c.hits) {
+          for (const h of c.hits) {
+            const u = byChange.get(h);
+            if (u !== undefined) neededDealt.add(u);
+          }
+        }
+        if (c.pair) {
+          const u = byChange.get(c.pair.other);
+          if (u !== undefined && u < idx) neededPairs.push(idx);
+        }
+        neededDealt.delete(idx);
+        liveRecs[idx] = [...seenRecs];
+        liveDealt[idx] = [...neededDealt];
+        livePairs[idx] = neededPairs.filter(j => (byChange.get(entries[j].e.change.pair.other) ?? Infinity) < idx);
+      }
+    }
+    const nogood = new Set();
+    let backtracks = 2048;
+    let hitBacktrackLimit = false;
+    const step = (idx) => {
+      if (idx === entries.length) return true;
+      const stateKey = lastCoupled.size
+        ? `${idx}|${liveRecs[idx].map(r => cur.get(r)?.[1] ?? -1).join(',')}|${liveDealt[idx].map((u) => {
+          const d = dealtBy.get(entries[u].e.change);
+          return d ? `${d.amount}:${d.v}` : '';
+        }).join(',')}|${livePairs[idx].map(j => `${pairedTo.get(entries[j].e.change) ?? ''}:${passed.has(entries[j].e.change.pair.other) ? 1 : 0}`).join(',')}`
+        : null;
+      if (stateKey && nogood.has(stateKey)) return false;
+      const { rec, i, e } = entries[idx];
       const alive = rec.alive?.[i];
-      if (!alive) return null;
-      let state = cur.get(rec);
+      if (!alive) {
+        if (stateKey && !hitBacktrackLimit) nogood.add(stateKey);
+        return false;
+      }
+      const hadCur = cur.has(rec);
+      const prevCur = cur.get(rec);
+      let state = prevCur;
       if (!state) {
         const [k, hs] = [...e.pre.entries()][0] || [];
-        if (k === undefined) return null;
+        if (k === undefined) {
+          if (stateKey && !hitBacktrackLimit) nogood.add(stateKey);
+          return false;
+        }
         state = [k, hs[0]];
       }
       const [k, h] = state;
@@ -4144,8 +4228,16 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           if (!tagOf.has(h2)) tagOf.set(h2, tag % SPAN);
         }
       }
-      if (!options.length) return null;
+      if (!options.length) {
+        if (stateKey && !hitBacktrackLimit) nogood.add(stateKey);
+        return false;
+      }
+      const prevCoupled = coupled;
       const pair = e.change.pair;
+      const hadPartnerCur = pair ? cur.has(pair.partner) : false;
+      const hadPairedOther = pair ? pairedTo.has(pair.other) : false;
+      const prevPairedOther = pair ? pairedTo.get(pair.other) : undefined;
+      const hadPassed = pair ? passed.has(e.change) : false;
       if (pair) {
         let want = pairedTo.get(e.change);
         let theirs = null;
@@ -4164,7 +4256,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         passed.add(e.change);
       }
       const own = e.token !== null ? scaffoldHp(rec, i) : null;
-      const h2 = options.includes(own) ? own : options[0];
+      const first = options.includes(own) ? own : options[0];
+      const choices = idx <= (lastCoupled.get(rec) ?? -1)
+        ? [first, ...new Set(options.filter(x => x !== first))]
+        : [first];
+      const prevCutAt = cutAt;
       // A change read only as a band or with both roundings hands on no roll,
       // and under a new guess can deal another amount even where its path kept
       // the scaffold's own HP. It and what follows are still the HPs the
@@ -4173,17 +4269,48 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       if (((e.change.band && !e.change.proved) || e.change.uncertain)) {
         cutAt = Math.min(cutAt, secretAt.get(`${rec.id}|${i}`) ?? e.change.logAt ?? Infinity);
       }
-      // What the scaffold's change dealt is known where its HP before and
-      // after were both shown; a change the path made deal anything else, or
-      // whose amount the scaffold did not show, drifted.
-      const was = scaffoldWas.get(rec);
-      if (own === null || was === undefined || was === null || h - h2 !== was - own) drifted.add(e.change);
-      scaffoldWas.set(rec, own);
-      chosen.get(rec)[i] = h2;
-      cur.set(rec, [k, h2]);
-      if (tagOf.has(h2)) dealtBy.set(e.change, { amount: h - h2, v: tagOf.get(h2) });
-      if (e.change.rollAt !== null && e.change.rollAt !== undefined && rollOf.has(h2)) rolls.set(e.change.rollAt, rollOf.get(h2));
-    }
+      const prevChosen = chosen.get(rec)[i];
+      const hadDealt = dealtBy.has(e.change);
+      const prevDealt = dealtBy.get(e.change);
+      const hasRollSlot = e.change.rollAt !== null && e.change.rollAt !== undefined;
+      const hadRoll = hasRollSlot && rolls.has(e.change.rollAt);
+      const prevRoll = hadRoll ? rolls.get(e.change.rollAt) : undefined;
+      for (let cIdx = 0; cIdx < choices.length; cIdx++) {
+        if (cIdx > 0) {
+          if (backtracks <= 0) {
+            hitBacktrackLimit = true;
+            break;
+          }
+          backtracks--;
+        }
+        const h2 = choices[cIdx];
+        chosen.get(rec)[i] = h2;
+        cur.set(rec, [k, h2]);
+        if (tagOf.has(h2)) dealtBy.set(e.change, { amount: h - h2, v: tagOf.get(h2) });
+        else dealtBy.delete(e.change);
+        if (hasRollSlot) {
+          if (rollOf.has(h2)) rolls.set(e.change.rollAt, rollOf.get(h2));
+          else rolls.delete(e.change.rollAt);
+        }
+        if (step(idx + 1)) return true;
+      }
+      chosen.get(rec)[i] = prevChosen;
+      if (hadCur) cur.set(rec, prevCur); else cur.delete(rec);
+      if (hadDealt) dealtBy.set(e.change, prevDealt); else dealtBy.delete(e.change);
+      if (hasRollSlot) {
+        if (hadRoll) rolls.set(e.change.rollAt, prevRoll); else rolls.delete(e.change.rollAt);
+      }
+      cutAt = prevCutAt;
+      coupled = prevCoupled;
+      if (pair) {
+        if (!hadPartnerCur) cur.delete(pair.partner);
+        if (hadPairedOther) pairedTo.set(pair.other, prevPairedOther); else pairedTo.delete(pair.other);
+        if (!hadPassed) passed.delete(e.change);
+      }
+      if (stateKey && !hitBacktrackLimit) nogood.add(stateKey);
+      return false;
+    };
+    if (!step(0)) return null;
 
     const tokens = new Map();
     for (const rec of recs) {
