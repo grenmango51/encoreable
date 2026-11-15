@@ -2087,6 +2087,13 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
     if (stopAt !== undefined && k >= stopAt) break;
   }
 
+  const subHps = {};
+  for (const side of battle.sides) {
+    for (const p of side.pokemon) {
+      if (p.volatiles?.substitute) subHps[`${side.id}:${p.name}`] = p.volatiles.substitute.hp;
+    }
+  }
+
   const result = {
     badTurn,
     diffs,
@@ -2099,6 +2106,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
     trace,
     choices,
     steer: steered,
+    subHps,
     inputLog: from ? null : [...battle.inputLog],
     rawLog: [...battle.log],
     turn: battle.turn,
@@ -2265,7 +2273,7 @@ function serveProbes() {
         job,
         run: {
           badTurn: run.badTurn, diffs: run.diffs, starts: run.starts, widths: run.widths,
-          trace: [...run.trace], tail: run.rawLog.slice(from.logAt),
+          trace: [...run.trace], tail: run.rawLog.slice(from.logAt), subHps: run.subHps,
         },
       });
     } catch (err) {
@@ -3207,7 +3215,7 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
       const probe = await ask.get({ ...subs, [draw.i]: v });
       probes++;
       if (scoreOf(probe, t)[0] !== Infinity) continue;
-      const found = (run.steer?.get(draw.i)?.groups.get(v) || [v]).map(value => ({ i: draw.i, value }));
+      const found = (run.steer?.get(draw.i)?.groups.get(v) || [v]).map(value => ({ i: draw.i, value, subHps: probe.subHps }));
       options.push(...found);
       // Most of a turn's dice have nothing to do with the Pokemon that is stuck.
       // Only the ones that actually move its HP are worth spending a backtrack
@@ -3217,14 +3225,38 @@ async function redrawTurn(t, common, subs, subTurn, sample, budget, who, strict 
   }
   ask.cancel();
   // A die whose face shows nowhere in its own turn - how long Thrash locks its
-  // user, how long a sleep or a Taunt lasts - decides a later one. When no
-  // die here moves the stuck Pokemon's HP, the ones that bring the failing
-  // turn closer to the observation are the ones worth a backtrack.
+  // user, how long a sleep or a Taunt lasts, or how much HP a Substitute kept -
+  // decides a later one. When no die here moves the stuck Pokemon's HP, the
+  // ones that bring the failing turn closer to the observation - or leave a
+  // Substitute that fails on a later hit closer to holding or breaking there -
+  // are the ones worth a backtrack.
   if (!moving.length && failing !== null && failing > t && options.length) {
-    const before = scoreOf(await runTo(common, { ...subs, ...tried }, failing), failing);
+    const beforeRun = await runTo(common, { ...subs, ...tried }, failing);
+    const before = scoreOf(beforeRun, failing);
+    const subLine = l => /^\|(-end|-activate)\|(p[1-4])[a-d]?: ([^|]+)\|(?:move: )?Substitute(\||$)/.exec(String(l || ''));
+    const expSub = subLine(beforeRun.diffs[0]?.expected);
+    const actSub = subLine(beforeRun.diffs[0]?.actual);
+    const sameSub = expSub && actSub && expSub[2] === actSub[2] && expSub[3] === actSub[3]
+      && !common.segments.slice(t + 1, failing).some(seg => seg.some((l) => {
+        const m = /^\|-start\|(p[1-4])[a-d]?: ([^|]+)\|Substitute(\||$)/.exec(String(l || ''));
+        return m && m[1] === expSub[2] && m[2] === expSub[3];
+      }));
+    const subKey = sameSub ? `${expSub[2]}:${expSub[3]}` : null;
+    const wasSub = subKey ? run.subHps?.[subKey] : undefined;
+    const subBetter = [];
     for (const option of options) {
-      const after = scoreOf(await runTo(common, { ...subs, ...tried, [option.i]: option.value }, failing), failing);
-      if (after[0] > before[0] || (after[0] === before[0] && after[1] > before[1])) moving.push(option);
+      const afterRun = await runTo(common, { ...subs, ...tried, [option.i]: option.value }, failing);
+      const after = scoreOf(afterRun, failing);
+      if (after[0] > before[0] || (after[0] === before[0] && after[1] > before[1])) {
+        moving.push(option);
+      } else if (wasSub !== undefined && option.subHps?.[subKey] !== undefined && after[0] === before[0] && after[1] === before[1]) {
+        const delta = expSub[1] === '-activate' ? option.subHps[subKey] - wasSub : wasSub - option.subHps[subKey];
+        if (delta > 0) subBetter.push({ option, delta });
+      }
+    }
+    if (!moving.length && subBetter.length) {
+      const bestDelta = Math.max(...subBetter.map(x => x.delta));
+      moving.push(...subBetter.filter(x => x.delta === bestDelta).map(x => x.option));
     }
     // Such a die can need another of the failing turn's unseen choices with it:
     // a sleep one turn longer only shows when the sleeper's own unseen move is
