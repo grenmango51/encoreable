@@ -211,6 +211,24 @@ const SWEPT = [
   'mimic:gen9championsvgc2026regmc-2702579306', // 2026-10-22: next guesses chosen inside the orders the rebuild itself ran in
   'mimic:gen9championsvgc2026regmc-2692932942', // 2026-10-05: a targeted move that Imprison turns into Struggle, written with a target
   'mimic:gen9championsvgc2026regmcbo3-2698084073', // 2026-10-14: a hit on a Transformed Ditto when a pinned guess leaves the stat's owner no spread
+  'mimic:gen9championsvgc2026regmcbo3-2696763978', // 2026-10-11: a three-way switch-in where Psychic Surge stayed silent before Grassy Surge and Intimidate
+  'mimic:gen9championsvgc2026regmcbo3-2703274968', // 2026-10-23: Grassy Terrain and Leftovers at equal Residual order where subOrder breaks a Speed tie
+  'mimic:gen9championsvgc2026regmcbo3-2705400321', // 2026-10-28: an action that already opened before the cutoff, ordered against those behind it
+  'mimic:gen9championsvgc2026regmcbo3-2697078591', // 2026-10-12: a verified Residual handler ordered before the handler the replay shows at the cutoff
+  'mimic:gen9championsvgc2026regmcbo3-2697644605', // 2026-10-13: a Focus Sash the scaffold fired at the cutoff where the replay printed the hit's HP line directly
+  'mimic:gen9championsvgc2026regmcbo3-2698749318', // 2026-10-15: Disguise changing Mimikyu's forme before dealing its eighth of max HP
+  'mimic:gen9championsvgc2026regmcbo3-2694740900', // 2026-10-08: a drain heal off a Substitute on a Pokemon whose own HP is shown exactly
+  'mimic:gen9championsvgc2026regmcbo3-2691851791', // 2026-10-02: Parabolic Charge's drain narrowed by later exact displays and passed back to its first target
+  'mimic:gen9championsvgc2026regmcbo3-2695828443', // 2026-10-09: Beat Up's bench hits read as bands, ending the proof even where the path kept the scaffold's HP
+  'mimic:gen9championsvgc2026regmcbo3-2706304976', // 2026-10-29: a second hit on a Shed Tail Substitute ending the proof before its unmodeled break check
+  'mimic:gen9championsvgc2026regmc-2704181244', // 2026-10-25: a guess chosen outside scaffoldOrders ending the proof before the turn whose order it reversed
+  'mimic:gen9championsvgc2026regmc-2707833650', // 2026-11-01: a Pokemon revived onto the bench by Revival Blessing and sent in later in the same turn
+  'mimic:gen9championsvgc2026regmcbo3-2710347095', // 2026-11-07: an Encored Electro Shot carrying the hidden choice's target into the execution turn
+  'mimic:gen9championsvgc2026regmcbo3-2708420838', // 2026-11-03: Zoroark switching in for a lead that moves to the back slot Illusion copies
+  'mimic:gen9championsvgc2026regmcbo3-2705100409', // 2026-10-26: an earlier draw shifting a same-turn pin onto Sylveon's burn roll
+  'mimic:gen9championsvgc2026regmcbo3-2696353204', // 2026-10-11: a flinched Indeedee-F whose unseen Trick Room needs probes left after Rock Slide's dice settle
+  'mimic:gen9championsvgc2026regmcbo3-2707163383', // 2026-10-31: Archaludon's Leftovers matched past its earlier Grassy Terrain heal at a Residual cutoff
+  'mimic:gen9championsvgc2026regmcbo3-2695573428', // 2026-10-09: flipping Dire Claw's secondary off shifts Poison Touch past Flame Body onto a new ordinal
 ];
 
 const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));

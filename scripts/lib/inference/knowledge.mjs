@@ -422,7 +422,7 @@ export function orderSpeeds(map, orders) {
   let any = false;
   for (let moved = true; moved;) {
     moved = false;
-    for (const { fast, slow, tf, ts } of orders) {
+    for (const { fast, slow, tf, ts, strict } of orders) {
       const f = map.get(fast)?.dom.spe;
       const w = map.get(slow)?.dom.spe;
       if (!f || !w) continue;
@@ -433,8 +433,8 @@ export function orderSpeeds(map, orders) {
         if (w[v]) minSlow = Math.min(minSlow, ts[v]);
       }
       for (let v = 0; v < SPAN; v++) {
-        if (f[v] && tf[v] < minSlow) { f[v] = 0; moved = true; }
-        if (w[v] && ts[v] > maxFast) { w[v] = 0; moved = true; }
+        if (f[v] && (strict ? tf[v] <= minSlow : tf[v] < minSlow)) { f[v] = 0; moved = true; }
+        if (w[v] && (strict ? ts[v] >= maxFast : ts[v] > maxFast)) { w[v] = 0; moved = true; }
       }
     }
     any = any || moved;

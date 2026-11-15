@@ -111,6 +111,7 @@ function planSegment(segment, dex) {
   const plan = {
     switches: { p1: [], p2: [] },   // [slotIndex] -> species name
     actions: { p1: [], p2: [] },    // [slotIndex] -> { moveid, target, mega }
+    encoredCharges: { p1: [], p2: [] }, // [slotIndex] -> { moveid, target }
     forced: { p1: [], p2: [] },     // in log order
     megas: new Set(),
   };
@@ -134,7 +135,7 @@ function planSegment(segment, dex) {
     if (kind === '-heal' && tagsOf(line).from === 'move: Revival Blessing' && reviver) {
       const side = identSide(parts[2]);
       plan.forced[side].push({ slot: reviver.slot, name: identName(parts[2]) });
-      revived = { side, name: identName(parts[2]) };
+      revived = identSlot(parts[2]) >= 0 ? { side, name: identName(parts[2]) } : null;
       reviver = null;
       continue;
     }
@@ -142,6 +143,7 @@ function planSegment(segment, dex) {
       revived = null;
       continue;
     }
+    if (revived && ACTION_START.has(kind)) revived = null;
 
     if (kind === 'swap') {
       const side = identSide(parts[2]);
@@ -174,12 +176,22 @@ function planSegment(segment, dex) {
 
     if (kind === 'move') {
       if (toID(parts[3]) === 'revivalblessing') reviver = { slot: identSlot(parts[2]) };
-      if (encored.has(parts[2])) continue;
       const from = tagsOf(line).from;
       // A `[from]` move was executed by something other than a fresh choice -
       // Copycat, Instruct, Dancer, Magic Bounce, Sleep Talk. `lockedmove` is the
       // exception: a locked Pokemon still gets a request offering exactly one
-      // move (sim/pokemon.ts:1084), so it does need a choice line.
+      // move (sim/pokemon.ts:1084), so it does need a choice line, even if
+      // Encore landed on it earlier in the turn.
+      if (encored.has(parts[2]) && from !== 'lockedmove') {
+        const side = identSide(parts[2]);
+        const slot = startOf[side]?.[identSlot(parts[2])] ?? identSlot(parts[2]);
+        const moveid = toID(parts[3]);
+        const target = parts[4] && parts[4].includes(': ') ? parts[4] : null;
+        if (!target && CHOOSABLE_TARGETS.has(dex.moves.get(moveid).target)) {
+          plan.encoredCharges[side][slot] = { moveid, target: null };
+        }
+        continue;
+      }
       if (from && from !== 'lockedmove') continue;
       const side = identSide(parts[2]);
       const slot = startOf[side]?.[identSlot(parts[2])] ?? identSlot(parts[2]);
@@ -208,15 +220,17 @@ function planSegment(segment, dex) {
 function recoverChargeTargets(plans) {
   for (const [k, plan] of plans.entries()) {
     for (const side of ['p1', 'p2']) {
-      for (const [slot, action] of plan.actions[side].entries()) {
-        if (!action || action.target || !action.needsTarget) continue;
-        for (const later of plans.slice(k + 1)) {
-          const match = later.actions[side][slot];
-          if (match?.moveid === action.moveid && match.target) {
-            action.target = match.target;
-            action.recovered = true;
-            action.landsOn = plans.indexOf(later);
-            break;
+      for (const list of [plan.actions[side], plan.encoredCharges[side]]) {
+        for (const [slot, action] of list.entries()) {
+          if (!action || action.target || (list === plan.actions[side] && !action.needsTarget)) continue;
+          for (const later of plans.slice(k + 1)) {
+            const match = later.actions[side][slot];
+            if (match?.moveid === action.moveid && match.target) {
+              action.target = match.target;
+              action.recovered = true;
+              action.landsOn = plans.indexOf(later);
+              break;
+            }
           }
         }
       }
@@ -228,14 +242,16 @@ function recoverChargeTargets(plans) {
 function carriedInto(plans, t) {
   const out = [];
   for (let k = t - 1; k >= 0; k--) {
-    if (Object.values(plans[k]?.actions || {}).some(acts => (acts || []).some(a => a?.landsOn === t))) out.push(k);
+    const has = map => Object.values(map || {}).some(acts => (acts || []).some(a => a?.landsOn === t));
+    if (has(plans[k]?.actions) || has(plans[k]?.encoredCharges)) out.push(k);
   }
   return out;
 }
 
 /**
- * Note in `out` each turn (`at.k`) on which a move reads the set of a
- * Pokemon not on the field: what Beat Up reads of each Pokemon it calls on.
+ * Note in `out` each turn (`at.k`) on which a move or Illusion reads who stands
+ * in the back of the party: Beat Up's allies, or `BeforeSwitchIn` choosing an
+ * Illusion user's disguise from the last unfainted slot.
  */
 function watchParty(battle, at, out) {
   for (const side of battle.sides) {
@@ -252,6 +268,15 @@ function watchParty(battle, at, out) {
       });
     }
   }
+  const origRunEvent = battle.runEvent;
+  battle.runEvent = function (eventid, target, ...rest) {
+    const res = origRunEvent.call(this, eventid, target, ...rest);
+    if (eventid === 'BeforeSwitchIn' && at.k > 0
+      && (target?.ability === 'illusion' || target?.baseAbility === 'illusion') && !out.includes(at.k)) {
+      out.push(at.k);
+    }
+    return res;
+  };
 }
 
 /** Every way to take `k` of `items` (as many as there are, if fewer), the first ones first. */
@@ -470,10 +495,20 @@ function choiceFor(side, plan, state, notes) {
     const room = Math.max(0, state.sizes[sideId] - last.length - front.length);
     const pool = bench.map((_, i) => i).filter(i => !seen.includes(i) && !last.includes(i));
     const options = [];
+    const seenOrders = new Set();
+    const addOrder = (back, chosen, ends) => {
+      const key = [...back, ...ends].join(',');
+      if (seenOrders.has(key)) return;
+      seenOrders.add(key);
+      options.push({ back, chosen, ends });
+    };
     const lastOrders = permutations(last.slice().reverse());
     for (const chosen of combinations(pool, Math.max(0, room - known.length))) {
       for (const back of permutations([...known, ...chosen])) {
-        for (const ends of lastOrders) options.push({ back, chosen, ends });
+        for (const ends of lastOrders) addOrder(back, chosen, ends);
+      }
+      if (last.length) {
+        for (const full of permutations([...known, ...chosen, ...last])) addOrder(full, chosen, []);
       }
     }
     const { back, chosen, ends } = options.length > 1 ? options[state.nextVariantDigit(options.length, true)] : options[0];
@@ -533,9 +568,12 @@ function choiceFor(side, plan, state, notes) {
         .map((m, j) => ({ ...m, j }))
         .filter(m => !m.disabled)
         .sort(state.selfSwitchLast);
+      const encoredTarget = plan.encoredCharges?.[sideId]?.[i]?.target;
+      const loc = encoredTarget ? targetLoc(sideId, i, encoredTarget) : null;
+      const preferred = loc === null ? null : ` ${loc > 0 ? '+' : ''}${loc}`;
       const options = [];
       for (const m of usable) {
-        for (const suffix of targetOptions(side, i, m.target)) {
+        for (const suffix of targetOptions(side, i, m.target, preferred)) {
           options.push(`move ${m.j + 1}${suffix}${mega}`);
         }
       }
@@ -589,9 +627,17 @@ function forcedEnding(segment, sides) {
   return loser ? `>forcelose ${loser.id}` : null;
 }
 
-/** The lines a raw log slice shows on one channel. */
+/**
+ * The lines a raw log slice shows on one channel. A prefix slice cut inside an
+ * unfinished `|split|p[1-4]` triplet drops the incomplete split so
+ * `extractChannelMessages` never emits the raw `|split|` header or secret half.
+ */
 function onChannel(raw, channel) {
-  return extractChannelMessages(raw.join('\n'), [channel])[channel];
+  let end = raw.length;
+  if (end >= 1 && /^\|split\|p[1-4]$/.test(raw[end - 1])) end -= 1;
+  else if (end >= 2 && /^\|split\|p[1-4]$/.test(raw[end - 2])) end -= 2;
+  const slice = end === raw.length ? raw : raw.slice(0, end);
+  return extractChannelMessages(slice.join('\n'), [channel])[channel];
 }
 
 // ------------------------------------------------- HP displays and dry runs
@@ -1793,12 +1839,16 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
 
   const found = new Map();
   const commits = [];
+  const moved = [];
+  const ownShape = new Map();
+  let minCommitted = null;
+  const shapeOf = d => (d ? `${d.lo}|${d.hi}|${d.chance}` : null);
   const ask = prober(common, t);
   const remember = (probe) => {
     const start = probe.starts?.[t] ?? 0;
     return {
       score: scoreOf(probe, t),
-      since: commits.length,
+      since: moved.length,
       start,
       lines: probe.rawLog.slice(start),
       trace: probe.trace.filter(row => row.mark === t),
@@ -1827,28 +1877,62 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
   };
   const holds = (rec) => {
     if (!rec.at) rec.at = new Map(rec.trace.map(row => [row.i, row.at]));
-    for (const c of commits.slice(rec.since)) {
+    for (const c of moved.slice(rec.since)) {
       const thrown = rec.at.get(Number(c));
       if (thrown !== undefined && thrown < failAt(rec)) return false;
     }
     return true;
   };
-  const commit = (i, value) => {
+  const commit = (i, value, shape = null) => {
+    if (subs[i] === undefined) forced++;
     subs[i] = value;
     subTurn[i] = t;
     commits.push(i);
-    forced++;
+    moved.push(i);
+    if (shape) ownShape.set(i, shape);
+    minCommitted = minCommitted === null ? i : Math.min(minCommitted, i);
   };
-  // A draw that only gets more of the line's fields right in place is held
-  // on trial: it stays when a later draw carries the turn further, and is
-  // taken back, with every draw committed after it, when none does - the
-  // turn then ends where it would have without it. What was taken back is
-  // handed on: a die an earlier turn threw may be what it was waiting for.
+  const dropShifted = async (prevLines) => {
+    if (minCommitted === null || !(score[0] > prevLines)) { minCommitted = null; return; }
+    const from = minCommitted;
+    minCommitted = null;
+    const now = new Map(drawsOf(run.trace, t).map(d => [d.i, shapeOf(d)]));
+    const stale = [...ownShape].filter(([k, sh]) => k > from && now.get(k) !== sh).map(([k]) => k);
+    if (!stale.length) return;
+    const cleaned = { ...subs };
+    for (const k of stale) delete cleaned[k];
+    const check = await runTo(common, cleaned, t, t);
+    if (scoreOf(check, t)[0] > prevLines) {
+      for (const k of stale) {
+        delete subs[k];
+        delete subTurn[k];
+        ownShape.delete(k);
+        moved.push(k);
+        forced--;
+      }
+      run = check;
+      score = scoreOf(check, t);
+    }
+  };
+  // A draw that only gets more of the line's fields right without advancing
+  // past it is held on trial: it stays when a later draw carries the turn
+  // further, and is taken back, with every draw committed after it, before
+  // pairs and brought run when none does. What was taken back is handed on if
+  // nothing else advances: a die an earlier turn threw may be what it needed.
   let onTrial = null;
+  let trialDoneAt = -1;
   let tried = null;
   const takeBack = () => {
     tried = {};
-    for (const i of commits.splice(onTrial.at)) { tried[i] = subs[i]; delete subs[i]; delete subTurn[i]; forced--; }
+    for (const i of commits.splice(onTrial.at)) {
+      if (subs[i] === undefined) continue;
+      tried[i] = subs[i];
+      delete subs[i];
+      delete subTurn[i];
+      ownShape.delete(i);
+      moved.push(i);
+      forced--;
+    }
     onTrial = null;
   };
 
@@ -1873,8 +1957,8 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     // draws that were settled long before the line it spoils shows up.
     // A draw the steer has shown prints the wrong line is the likeliest fix,
     // so those go first; the rest keep the order they were thrown in.
-    const reach = canReach(common, run, t);
-    const all = drawsOf(run.trace, t);
+    let reach = canReach(common, run, t);
+    let all = drawsOf(run.trace, t);
     const wrong = d => !!run.steer?.get(d.i)?.wrong;
 
     // Every such draw set right at once, first. A spread move that missed one
@@ -1893,7 +1977,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
 
     // The probes this scan will ask for, in order, are known before it asks:
     // the workers start on them now.
-    const order = [...all.filter(wrong), ...all.filter(d => !wrong(d))];
+    let order = [...all.filter(wrong), ...all.filter(d => !wrong(d))];
     const planned = trial ? [trial] : [];
     for (const draw of order) {
       if (subs[draw.i] !== undefined || !reach(draw)) continue;
@@ -1909,9 +1993,13 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
       probes++;
       if (outranks(scoreOf(probe, t), score)) {
         ask.cancel();
-        for (const d of fixes) commit(d.i, trial[d.i]);
+        const prevLines = score[0];
+        for (const d of fixes) commit(d.i, trial[d.i], shapeOf(d));
         run = await runTo(common, subs, t, t);
         score = scoreOf(run, t);
+        await dropShifted(prevLines);
+        if (score[0] > prevLines) tried = null;
+        if (onTrial && score[0] > onTrial.lines) onTrial = null;
         continue;
       }
     }
@@ -1943,12 +2031,12 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
       // uniformly among them - this is where the opponent's exact HP is sampled.
       // A draw that matched on its own needs no such treatment: the generator
       // had already picked it uniformly, and it survived the comparison.
-      const pick = { i: draw.i, value: winners[sample.pick(winners.length)], best };
+      const pick = { i: draw.i, value: winners[sample.pick(winners.length)], best, shape: shapeOf(draw) };
       if (best[0] === score[0]) {
         if (!fallback || outranks(best, fallback.best)) fallback = pick;
         continue;
       }
-      commit(pick.i, pick.value);
+      commit(pick.i, pick.value, pick.shape);
       committed = true;
       break;
     }
@@ -1961,10 +2049,21 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
       continue;
     }
     const inPlace = fallback && fallback.best[1] === score[1];
-    if (!committed && fallback && !(inPlace && onTrial)) {
-      if (inPlace) onTrial = { at: commits.length, lines: score[0] };
-      commit(fallback.i, fallback.value);
+    if (!committed && fallback && score[0] !== trialDoneAt && !(inPlace && onTrial?.inPlace)) {
+      if (!onTrial) onTrial = { at: commits.length, lines: score[0], inPlace: false };
+      if (inPlace) onTrial.inPlace = true;
+      commit(fallback.i, fallback.value, fallback.shape);
       committed = true;
+    }
+    if (!committed && onTrial) {
+      ask.cancel();
+      trialDoneAt = onTrial.lines;
+      takeBack();
+      run = await runTo(common, subs, t, t);
+      score = scoreOf(run, t);
+      reach = canReach(common, run, t);
+      all = drawsOf(run.trace, t);
+      order = [...all.filter(wrong), ...all.filter(d => !wrong(d))];
     }
     // Last, two chances flipped together: a spread move's secondary that came
     // up on one target and not the other prints the wrong target's line under
@@ -1984,8 +2083,8 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
               const probe = await ask.get({ ...subs, [a.i]: va, [b.i]: vb });
               probes++;
               if (scoreOf(probe, t)[0] > score[0]) {
-                commit(a.i, va);
-                commit(b.i, vb);
+                commit(a.i, va, shapeOf(a));
+                commit(b.i, vb, shapeOf(b));
                 committed = true;
                 break pairs;
               }
@@ -1994,13 +2093,13 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
         }
       }
     }
-    // Then a chance with the die it throws when it comes up: a secondary that
-    // hits picks its status with a die of its own - Dire Claw's poison,
-    // paralysis or sleep - which the chance as drawn never threw, so no pair
-    // above holds it, and the pick it is first given can print a status no
-    // closer than the one an ability put on instead.
+    // Then a chance with the die it brings in or shifts onto a new ordinal:
+    // flipping Dire Claw's secondary on brings in its 3-way status pick, and
+    // flipping it off drops that pick and shifts contact abilities like Flame
+    // Body and Poison Touch down one ordinal where `pairs` never tested them.
     if (!committed) {
-      const before = new Map(all.map(d => [d.i, `${d.lo}-${d.hi}`]));
+      const before = new Map(all.map(d => [d.i, shapeOf(d)]));
+      const beforeAt = new Map(all.map(d => [d.i, d.at]));
       const chances = all.filter(d => (d.chance || d.hi - d.lo + 1 > 16) && subs[d.i] === undefined);
       brought: for (const a of chances) {
         if (!reach(a)) continue;
@@ -2008,18 +2107,55 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
           if (probes >= budget) { cut = 'probes'; break brought; }
           const flipped = await ask.get({ ...subs, [a.i]: va });
           probes++;
-          const b = drawsOf(flipped.trace, t).find(d => d.i > a.i);
-          if (!b || b.chance || b.hi - b.lo + 1 > 16 || before.get(b.i) === `${b.lo}-${b.hi}`) continue;
-          for (const vb of candidates(b)) {
-            if (probes >= budget) { cut = 'probes'; break brought; }
-            const probe = await ask.get({ ...subs, [a.i]: va, [b.i]: vb });
-            probes++;
-            if (scoreOf(probe, t)[0] > score[0]) {
-              commit(a.i, va);
-              commit(b.i, vb);
-              committed = true;
-              break brought;
+          const flippedReach = canReach(common, flipped, t);
+          let shifted = false;
+          for (const b of drawsOf(flipped.trace, t)) {
+            if (b.i <= a.i) continue;
+            if (before.get(b.i) !== shapeOf(b)
+              || (!shifted && !(b.chance || b.hi - b.lo + 1 > 16) && beforeAt.get(b.i) !== b.at)) shifted = true;
+            if (!shifted || subs[b.i] !== undefined || !flippedReach(b)) continue;
+            if (!b.chance && b.hi - b.lo + 1 === ROLLS) continue;
+            const faces = (b.chance || b.hi - b.lo + 1 > 16) ? [b.lo, b.hi].filter(v => v !== b.value) : candidates(b);
+            for (const vb of faces) {
+              if (probes >= budget) { cut = 'probes'; break brought; }
+              const probe = await ask.get({ ...subs, [a.i]: va, [b.i]: vb });
+              probes++;
+              if (scoreOf(probe, t)[0] > score[0]) {
+                commit(a.i, va, shapeOf(a));
+                commit(b.i, vb, shapeOf(b));
+                committed = true;
+                break brought;
+              }
             }
+          }
+        }
+      }
+    }
+    // A draw committed earlier in this turn's scan can shift onto a later roll
+    // of the same shape once an earlier draw before it changes, or pick a face
+    // within a percentage band that blocks a later line in the same turn.
+    if (!committed && ownShape.size) {
+      reprobe: for (const d of order) {
+        if (!ownShape.has(d.i) || !reach(d)) continue;
+        const next = { ...subs };
+        delete next[d.i];
+        const faces = [undefined, ...candidates(d, run.steer, true).filter(v => v !== subs[d.i])];
+        for (const v of faces) {
+          if (probes >= budget) { cut = 'probes'; break reprobe; }
+          const probe = await ask.get(v === undefined ? next : { ...next, [d.i]: v });
+          probes++;
+          if (scoreOf(probe, t)[0] > score[0]) {
+            if (v === undefined) {
+              delete subs[d.i];
+              delete subTurn[d.i];
+              ownShape.delete(d.i);
+              moved.push(d.i);
+              forced--;
+            } else {
+              commit(d.i, v, shapeOf(d));
+            }
+            committed = true;
+            break reprobe;
           }
         }
       }
@@ -2027,8 +2163,11 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
 
     ask.cancel();
     if (!committed) break;
+    const prevLines = score[0];
     run = await runTo(common, subs, t, t);
     score = scoreOf(run, t);
+    await dropShifted(prevLines);
+    if (score[0] > prevLines) tried = null;
     if (onTrial && score[0] > onTrial.lines) onTrial = null;
   }
   // Why the search of this turn ended: the turn reproduces, the simulator
@@ -2303,6 +2442,10 @@ async function reconstructOnce({
   const state0 = { reveal: revealOrder(unmasked.lines), sizes: teamSizes(lines), disguises: unmasked.disguises };
   const reseeds = new Array(segments.length).fill(null);
   const variants = new Array(segments.length).fill(0);
+  for (const [k, v] of Object.entries(pins?.variants || {})) {
+    const idx = Number(k);
+    if (idx >= 0 && idx < variants.length && v >= 0) variants[idx] = v;
+  }
   const spent = new Array(segments.length).fill(0);
   const subs = {};
   const subTurn = {};
@@ -2343,11 +2486,13 @@ async function reconstructOnce({
   // A handed-in pin is only as good as the turn it rebuilds: a spread that
   // throws a different sequence of dice there moves every ordinal after it. On
   // a turn proved only in part, the pins stand as long as that part holds.
-  if (run.badTurn !== null && Object.keys(subs).some(i => subTurn[i] >= run.badTurn)) {
+  if (run.badTurn !== null && (Object.keys(subs).some(i => subTurn[i] >= run.badTurn) || variants.slice(run.badTurn).some(Boolean))) {
     const t = run.badTurn;
     const known = exact?.get(t);
     const held = known?.partial && run.diffs[0]?.index >= compareTurn(common, t, []).exactUpTo;
-    forget(held ? t + 1 : t);
+    const clearFrom = held ? t + 1 : t;
+    forget(clearFrom);
+    for (let k = clearFrom; k < variants.length; k++) variants[k] = 0;
     run = await playThrough({ ...common, subs });
   }
 
@@ -2409,27 +2554,23 @@ async function reconstructOnce({
       }
     };
 
-    // A rejected choice is a legality problem, not an RNG one - no die can make
-    // the simulator accept a choice it refused - so that case goes straight to
-    // the substitutions.
-    if (run.diffs[0]?.index !== -1) {
-      const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
-      spent[t] += got.probes;
-      forcedDraws += got.forced;
-      solved = got.solved;
-      walked[0].searched = got.score;
-      if (!solved) consider(got.score, entering, got.tried);
-    }
-
-    // Then the choices this turn left invisible. A mon that fainted before
-    // acting emits no line either way, so its move is a free variable; walking
-    // those is cheaper than anything and may well recover the real choice.
-    // Each is played once with the turn's dice as drawn, and the search walks
-    // them furthest first: a flinched Pokemon's unseen move that sorts where
-    // the replay has it gets further than one that does not.
+    // Walk every unseen choice once under the turn's dice as drawn before
+    // spending probes on one: a flinched or fainted Pokemon's real move that
+    // sorts where the replay has it gets further right away. With more than one
+    // unseen choice, the first search holds half the probe budget back so
+    // `rewalk` has probes left when another choice jumps past the line the
+    // first stopped on; if nothing beats the first choice, it gets the rest.
+    const enteringSubs = { ...subs };
+    const enteringSubTurn = { ...subTurn };
+    const restoreEntering = () => {
+      for (const k of Object.keys(subs)) delete subs[k];
+      for (const k of Object.keys(subTurn)) delete subTurn[k];
+      Object.assign(subs, enteringSubs);
+      Object.assign(subTurn, enteringSubTurn);
+    };
     const allVariants = run.widths?.[t] || 1;
     const width = Math.min(allVariants, maxVariants);
-    const ranked = [];
+    const ranked = [{ v: entering, score: walked[0].score, rejected: run.diffs[0]?.index === -1 }];
     for (let v = 0; v < width && !solved; v++) {
       if (v === entering) continue;
       variants[t] = v;
@@ -2437,24 +2578,50 @@ async function reconstructOnce({
       const probe = await runTo(common, subs, t);
       const score = scoreOf(probe, t);
       walked.push({ variant: v, choices: choicesOn(probe, t), score, searched: null });
-      if (probe.badTurn === null) { solved = true; break; }
-      ranked.push({ v, score });
+      if (probe.badTurn === null || probe.badTurn > t) { solved = true; break; }
+      ranked.push({ v, score, rejected: probe.diffs[0]?.index === -1 });
     }
-    ranked.sort((a, b) => (outranks(b.score, a.score) ? 1 : outranks(a.score, b.score) ? -1 : a.v - b.v));
+    ranked.sort((a, b) => (outranks(b.score, a.score) ? 1 : outranks(a.score, b.score) ? -1
+      : (a.v === entering ? -1 : b.v === entering ? 1 : a.v - b.v)));
+
+    const searchedVariants = new Set();
+    const cappedVariants = new Set();
+    const shareOf = () => {
+      const left = ranked.filter(r => !r.rejected && !searchedVariants.has(r.v)).length;
+      return left > 1 ? Math.ceil((maxProbes - spent[t]) / 2) : maxProbes - spent[t];
+    };
+    if (!solved && ranked.length) {
+      const first = ranked[0];
+      const cap = shareOf();
+      searchedVariants.add(first.v);
+      variants[t] = first.v;
+      if (first.v === entering) restoreEntering();
+      else forget(t);
+      // A rejected choice is a legality problem, not an RNG one - no die can
+      // make the simulator accept a choice it refused.
+      if (!first.rejected) {
+        const got = await resolveTurn(t, common, subs, subTurn, sample, cap);
+        spent[t] += got.probes;
+        forcedDraws += got.forced;
+        const w = walked.findLast(x => x.variant === first.v);
+        if (w) w.searched = got.score;
+        if (got.solved) solved = true;
+        else {
+          consider(got.score, first.v, got.tried);
+          if (got.ended === 'probes') cappedVariants.add(first.v);
+        }
+      }
+    }
 
     // The dice the search settled under one hidden choice can be the ones
     // another needs: the damage roll found under a substituted move is the roll
-    // a Follow Me needs too, and under the dice as first drawn every choice
-    // stopped at that roll alike, so the order put the Follow Me last. So the
-    // choices are walked again under the furthest attempt's dice, and one that
-    // gets further is searched on with what the turn's budget has left - first
-    // as soon as the choice the turn came with has been searched, before the
-    // budget goes on choices that only tied under the dice as drawn, and again
-    // at the end if a later search got further.
-    const searchedVariants = new Set([entering]);
+    // a Follow Me or Trick Room needs too, and under the dice as first drawn
+    // every choice stopped at that roll alike. So the choices are walked again
+    // under the furthest attempt's dice, and one that gets past the line it
+    // stopped on is searched on with its share of what the turn's budget has left.
     let rewalkedFrom = null;
     const rewalk = async () => {
-      if (solved || !partial || width <= 1 || partial === rewalkedFrom) return;
+      if (solved || !partial || width <= 1 || partial === rewalkedFrom) return false;
       rewalkedFrom = partial;
       const held = { subs: { ...partial.subs }, subTurn: { ...partial.subTurn } };
       const hold = () => {
@@ -2471,39 +2638,66 @@ async function reconstructOnce({
         const probe = await runTo(common, subs, t);
         if (probe.badTurn === null || probe.badTurn > t) { solved = true; break; }
         const score = scoreOf(probe, t);
-        if (outranks(score, better ? better.score : partial.at.slice(1))) better = { v, score };
+        if (score[0] > partial.at[1] && (!better || outranks(score, better.score))) better = { v, score };
       }
       if (!solved && better) {
+        const cap = shareOf();
         variants[t] = better.v;
         hold();
         searchedVariants.add(better.v);
-        const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
+        const got = await resolveTurn(t, common, subs, subTurn, sample, cap);
         spent[t] += got.probes;
         forcedDraws += got.forced;
         const w = walked.findLast(x => x.variant === better.v);
         if (w) w.searched = got.score;
         if (got.solved) solved = true;
-        else consider(got.score, better.v, got.tried);
+        else {
+          consider(got.score, better.v, got.tried);
+          if (got.ended === 'probes') cappedVariants.add(better.v);
+        }
+        return true;
       }
+      return false;
     };
-    await rewalk();
+    while (await rewalk()) { /* keep advancing while rewalk finds a better variant */ }
 
-    for (const { v } of ranked) {
+    for (const { v, rejected } of ranked) {
       if (solved) break;
-      if (searchedVariants.has(v)) continue;
+      if (searchedVariants.has(v) || rejected) continue;
+      const cap = shareOf();
       searchedVariants.add(v);
       variants[t] = v;
-      forget(t);
-      const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
+      if (v === entering) restoreEntering();
+      else forget(t);
+      const got = await resolveTurn(t, common, subs, subTurn, sample, cap);
       spent[t] += got.probes;
       forcedDraws += got.forced;
       walked.findLast(w => w.variant === v).searched = got.score;
       if (got.solved) solved = true;
-      else consider(got.score, v, got.tried);
+      else {
+        consider(got.score, v, got.tried);
+        if (got.ended === 'probes') cappedVariants.add(v);
+      }
     }
     if (!solved && allVariants > maxVariants) common.limits.add('variants');
 
-    await rewalk();
+    while (await rewalk()) { /* re-check if a later variant settled dice another needs */ }
+
+    if (!solved && partial && cappedVariants.has(partial.variant) && spent[t] < maxProbes) {
+      variants[t] = partial.variant;
+      for (const k of Object.keys(subs)) delete subs[k];
+      for (const k of Object.keys(subTurn)) delete subTurn[k];
+      Object.assign(subs, partial.subs);
+      Object.assign(subTurn, partial.subTurn);
+      const got = await resolveTurn(t, common, subs, subTurn, sample, maxProbes - spent[t]);
+      spent[t] += got.probes;
+      forcedDraws += got.forced;
+      const w = walked.findLast(x => x.variant === partial.variant);
+      if (w) w.searched = got.score;
+      if (got.solved) solved = true;
+      else consider(got.score, partial.variant, got.tried);
+      while (await rewalk()) { /* re-check under the full search's dice */ }
+    }
 
     if (!solved) {
       variants[t] = partial ? partial.variant : 0;
@@ -2629,7 +2823,7 @@ async function reconstructOnce({
     rawLog: run.rawLog,
     starts: run.starts,
     seed: startSeed,
-    pins: { subs: { ...subs }, turns: Object.fromEntries(run.trace.map(r => [r.i, r.mark])) },
+    pins: { subs: { ...subs }, turns: Object.fromEntries(run.trace.map(r => [r.i, r.mark])), variants: [...variants] },
     dice: run.trace.map(({ i, from, to, value, mark, chance, at }) => ({ i, from, to, value, mark, chance, at })),
     choices: run.choices.map(({ turn, side, choice, at }) => ({ turn, side, choice, at })),
     variantsTried: complete ? null : { turn: run.diffs[0]?.turn ?? null, variants: variantsAt.get(run.diffs[0]?.turn) || [] },

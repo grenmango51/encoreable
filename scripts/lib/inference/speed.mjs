@@ -300,16 +300,23 @@ export function attachSpeed(battle, {
     const out = origSpeedSort.call(this, list, comparator);
     const top = open[open.length - 1];
     if (top && !top.entry.items && !state.dry) {
+      const atTie = item => Object.create(item, { speed: { value: 0 }, effectOrder: { value: 0 } });
+      const cmp = comparator || battle.comparePriority;
       top.entry.items = list.map((item) => {
         const holder = item.effectHolder !== undefined ? item.effectHolder : item;
+        const rec = byPokemon.get(holder) || null;
         return {
+          raw: item,
           holder,
           effect: item.effect || null,
           order: item.order || 4294967296,
           priority: item.priority || 0,
-          rec: byPokemon.get(holder) || null,
+          rec,
+          plain: !!(rec?.cachedSpeed && sortedBy(rec.cachedSpeed, item)),
         };
       });
+      top.entry.strict = top.entry.eventid === 'SwitchIn' ? () => false
+        : (x, y) => x.plain && y.plain && cmp.call(battle, atTie(x.raw), atTie(y.raw)) > 0;
       for (const it of top.entry.items) if (it.rec && it.rec.cachedSpeed) top.entry.speeds.set(it.rec, it.rec.cachedSpeed);
       if (frames && !queueSorting && !state.ended && top.entry.eventid === 'SwitchIn') readHandlerSort(list, comparator, true);
     } else if (frames && !queueSorting && !state.dry && !state.ended) {
@@ -393,17 +400,28 @@ export function attachSpeed(battle, {
   // was sorted by.
   const sortedBy = (speeds, item, speed = item.speed) => speeds.table[ownValue({ owner: byId.get(speeds.owner), stat: 'spe' })] === speed;
 
+  const permuteGroups = (groups) => {
+    if (groups.length <= 1) return [groups[0] ? groups[0].slice() : []];
+    const out = [];
+    for (let i = 0; i < groups.length; i++) {
+      for (const rest of permuteGroups([...groups.slice(0, i), ...groups.slice(i + 1)])) out.push([...groups[i], ...rest]);
+    }
+    return out;
+  };
+
   /**
-   * A sort a handler made: each two neighbours of different Pokemon, one of
-   * them hidden, that the comparator ties at equal speed, so that speed alone
-   * put them in this order. The handler runs again dry from where it was
-   * entered, once in this sort's order and once per such pair with the two
-   * swapped, and `speedRules` compares what each run printed.
+   * A sort a handler made: within each tied block, every order the holders'
+   * speeds could put them in. The handler runs again dry from where it was
+   * entered under each such order, and `speedRules` keeps the orders whose
+   * lines agree with the replay: a pair that every surviving order puts one
+   * way round ran that way in the battle, even when an earlier handler in the
+   * block stayed silent.
    *
    * Switch-in effects are sorted the same way, by the action that switched
    * their Pokemon in, which runs again from the queue it started from. Each
    * handler there carries its Pokemon's speed less a fraction that only
-   * breaks a tie, so two at one order and priority are in speed order.
+   * breaks a tie, so one Pokemon's handlers stay together and two at one order
+   * and priority are in speed order.
    */
   function readHandlerSort(list, comparator, switchIn = false) {
     const frame = frames[frames.length - 1];
@@ -415,18 +433,79 @@ export function attachSpeed(battle, {
       ? (a, b) => bracket(a) === bracket(b)
       : (a, b) => (comparator || battle.comparePriority)(atSpeed(a), atSpeed(b)) === 0;
     const speedOf = item => (switchIn ? pokemonOf(item).speed : item.speed);
+    const keys = list.map(keyOf);
+    const counts = new Map();
+    for (const k of keys) counts.set(k, (counts.get(k) || 0) + 1);
     const pairs = [];
-    for (let i = 0; i + 1 < list.length; i++) {
-      const X = byPokemon.get(pokemonOf(list[i]));
-      const Y = byPokemon.get(pokemonOf(list[i + 1]));
-      const fx = X?.cachedSpeed;
-      const fy = Y?.cachedSpeed;
-      if (!fx || !fy || X === Y || !(varies(fx) || varies(fy)) || alike(fx, fy)) continue;
-      if (!sortedBy(fx, list[i], speedOf(list[i])) || !sortedBy(fy, list[i + 1], speedOf(list[i + 1]))) continue;
-      if (tied(list[i], list[i + 1])) pairs.push({ i, X, Y });
+    const seenPairs = new Set();
+    const blockOrders = [];
+    let totalOrders = 1;
+    for (let a = 0; a < list.length;) {
+      let b = a + 1;
+      while (b < list.length && tied(list[b - 1], list[b])) b++;
+      const block = list.slice(a, b);
+      let blockVaries = false;
+      for (const it of block) {
+        const P = byPokemon.get(pokemonOf(it));
+        const fp = P?.cachedSpeed;
+        if (!P || !fp || varies(fp) || !sortedBy(fp, it, speedOf(it))) blockVaries = true;
+      }
+      for (let u = 0; u < block.length; u++) {
+        for (let v = u + 1; v < block.length; v++) {
+          const X = byPokemon.get(pokemonOf(block[u]));
+          const Y = byPokemon.get(pokemonOf(block[v]));
+          const fx = X?.cachedSpeed;
+          const fy = Y?.cachedSpeed;
+          const uKey = keyOf(block[u]);
+          const vKey = keyOf(block[v]);
+          if (!fx || !fy || X === Y || !(varies(fx) || varies(fy)) || alike(fx, fy)) continue;
+          if (counts.get(uKey) !== 1 || counts.get(vKey) !== 1) continue;
+          if (!sortedBy(fx, block[u], speedOf(block[u])) || !sortedBy(fy, block[v], speedOf(block[v]))) continue;
+          const pairId = `${X.id}|${Y.id}`;
+          if (!seenPairs.has(pairId)) { seenPairs.add(pairId); pairs.push({ uKey, vKey, X, Y }); }
+        }
+      }
+      if (!blockVaries || block.length <= 1) {
+        blockOrders.push([block.map(keyOf)]);
+      } else if (switchIn) {
+        const byHolder = new Map();
+        for (const it of block) {
+          const h = pokemonOf(it) || it.effectHolder || it;
+          if (!byHolder.has(h)) byHolder.set(h, []);
+          byHolder.get(h).push(keyOf(it));
+        }
+        const perms = permuteGroups([...byHolder.values()]);
+        totalOrders *= perms.length;
+        blockOrders.push(perms);
+      } else {
+        const groups = block.map(it => [keyOf(it)]);
+        const holderAt = new Map(block.map(it => [keyOf(it), pokemonOf(it)]));
+        const perms = permuteGroups(groups).filter((ord) => {
+          const last = new Map();
+          for (const [idx, k] of ord.entries()) {
+            const p = holderAt.get(k);
+            if (!p) continue;
+            const want = block.findIndex(it => keyOf(it) === k);
+            if ((last.get(p) ?? -1) > want) return false;
+            last.set(p, want);
+          }
+          return true;
+        });
+        totalOrders *= perms.length;
+        blockOrders.push(perms);
+      }
+      a = b;
     }
     if (!pairs.length) return;
-    const keys = list.map(keyOf);
+    const name = frame.effect?.name || (switchIn ? 'SwitchIn' : 'a handler');
+    if (totalOrders > 24) {
+      note(`${name}'s order`, 'too many items tied in its sort to run every order, so it was not used');
+      return;
+    }
+    let orders = [[]];
+    for (const perms of blockOrders) {
+      orders = orders.flatMap(prefix => perms.map(p => [...prefix, ...p]));
+    }
     const runs = memo(`hsort|${handlerSortCount++}`, () => {
       const kept = list.slice();
       const run = order => guarded(() => {
@@ -442,16 +521,17 @@ export function attachSpeed(battle, {
         }
       });
       try {
+        const sorted = run(keys);
         return {
-          sorted: run(keys),
-          swapped: pairs.map(({ i }) => run([...keys.slice(0, i), keys[i + 1], keys[i], ...keys.slice(i + 2)])),
+          sorted,
+          orders: orders.map(order => ({ order, raw: order.every((k, idx) => k === keys[idx]) ? sorted : run(order) })),
         };
       } finally {
         list.splice(0, list.length, ...kept);
       }
     });
     const speeds = new Map(pairs.flatMap(({ X, Y }) => [[X, X.cachedSpeed], [Y, Y.cachedSpeed]]));
-    handlerSorts.push({ frame, pairs, runs, speeds, turn: battle.turn, name: frame.effect?.name || 'a handler' });
+    handlerSorts.push({ frame, pairs, runs, speeds, turn: battle.turn, name });
   }
 
   // Whether the channel the replay was seen from reads `side`'s secret half of
@@ -489,11 +569,11 @@ export function attachSpeed(battle, {
    * each one's speed stands on - the two themselves, unless a Speed Swap
    * handed one the other's.
    */
-  const ruleOf = (X, Y, speeds, turn, what) => {
+  const ruleOf = (X, Y, speeds, turn, what, strict = false) => {
     const fx = speeds.get(X);
     const fy = speeds.get(Y);
     if (!fx || !fy) return null;
-    return { fast: byId.get(fx.owner), slow: byId.get(fy.owner), tf: fx.table, ts: fy.table, turn, what };
+    return { fast: byId.get(fx.owner), slow: byId.get(fy.owner), tf: fx.table, ts: fy.table, ...(strict ? { strict: true } : {}), turn, what };
   };
 
   let scaffoldOrders = [];
@@ -516,14 +596,14 @@ export function attachSpeed(battle, {
     // stood in.
     const visible = (ex) => {
       const rec = ex.pokemon && byPokemon.get(ex.pokemon);
-      if (!rec || ex.end > upTo) return false;
+      if (!rec || ex.start >= upTo) return false;
       const out = SWITCHES.has(ex.action?.choice) ? ex.sort?.list.find(item => item.action === ex.action) : null;
       if (SWITCHES.has(ex.action?.choice) && !(out?.slot >= 0)) return false;
       const me = out ? new RegExp(`^\\|switch\\|${out.side}${'abcd'[out.slot]}: `)
         : new RegExp(`(^|\\|| )${rec.side}[a-d]: ${rec.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\||$)`);
       const disguise = out ? null : disguiseOf(ex);
       const as = disguise && fieldOf(disguise.ident);
-      for (let i = firstAt(ex.start); i < view.length && view[i].at < ex.end; i++) {
+      for (let i = firstAt(ex.start); i < view.length && view[i].at < Math.min(ex.end, upTo); i++) {
         if (me.test(view[i].line)) return true;
         if (as && as.test(view[i].line) && settled(ex.pokemon, disguise.key, view[i].at)) return true;
       }
@@ -666,7 +746,8 @@ export function attachSpeed(battle, {
     const eventRule = (entry, x, y) => {
       if (!x.rec || !y.rec || x.rec === y.rec || x.order !== y.order || x.priority !== y.priority) return;
       const name = it => (entry.kind === 'eachEvent' ? entry.eventid : it.effect?.name || entry.eventid);
-      const rule = ruleOf(x.rec, y.rec, entry.speeds, entry.turn, `${label(x.rec)}'s ${name(x)} came before ${label(y.rec)}'s ${name(y)}`);
+      const strict = !!entry.strict?.(x, y);
+      const rule = ruleOf(x.rec, y.rec, entry.speeds, entry.turn, `${label(x.rec)}'s ${name(x)} came before ${label(y.rec)}'s ${name(y)}`, strict);
       if (rule) rules.push(rule);
     };
     for (const entry of eventSorts) {
@@ -677,35 +758,47 @@ export function attachSpeed(battle, {
       }
     }
 
-    // A sort a handler made, read off what the other order would have
-    // printed. The run in the sort's own order must print what the handler
-    // printed. Then, at the first line where the run with a pair swapped
-    // prints something else, the replay showing the handler's own line proves
-    // the pair's order, and the replay showing the swapped run's line there,
-    // at the cutoff, proves the other.
+    // A sort a handler made, read off every order its tied blocks could take.
+    // The run in the sort's own order must print what the handler printed, and
+    // no order may fail to run. Each order whose lines agree with the replay is
+    // kept, and a pair every kept order puts one way round ran that way.
+    const hardOf = list => list.map(e => ({ at: e.at, line: battleLines([e.line])[0] }))
+      .filter(e => e.line !== undefined && e.line.split('|')[1] !== 'player');
     for (const read of handlerSorts) {
       const { frame, runs } = read;
       if (frame.logAt === undefined || frame.logEnd === undefined || frame.logAt > upTo) continue;
       const real = battle.log.slice(frame.logAt, frame.logEnd);
-      if (!runs.sorted || runs.sorted.length !== real.length || runs.sorted.some((line, i) => line !== real[i])) {
+      if (!runs.sorted || runs.sorted.length !== real.length || runs.sorted.some((line, i) => line !== real[i])
+        || runs.orders.some(o => !o.raw)) {
         note(`${read.name}'s order`, 'running the handler again did not print what it printed, so the order it sorted was not used');
         continue;
       }
-      const mine = shownOf(runs.sorted, frame.logAt);
-      for (const [k, { X, Y }] of read.pairs.entries()) {
-        const theirs = runs.swapped[k] && shownOf(runs.swapped[k], frame.logAt);
-        if (!theirs) continue;
-        let j = 0;
-        while (j < mine.length && j < theirs.length && sameButHp(mine[j].line, theirs[j].line)) j++;
-        if (j >= mine.length || j >= theirs.length) continue;
-        const what = (P, Q) => `${label(P)} came before ${label(Q)} in ${read.name}'s order`;
-        let rule = null;
-        if (mine[j].at < upTo) rule = ruleOf(X, Y, read.speeds, read.turn, what(X, Y));
-        else if (mine[j].at === prefix.cutoffAt && prefix.observedLine) {
-          const replayed = line => sameButHp(battleLines([line])[0], prefix.observedLine);
-          if (replayed(theirs[j].line) && !replayed(mine[j].line)) rule = ruleOf(Y, X, read.speeds, read.turn, what(Y, X));
+      const mineHard = hardOf(shownOf(runs.sorted, frame.logAt));
+      const verifiedCount = mineHard.filter(e => e.at < upTo).length;
+      const beforeCut = hardOf(view.filter(e => e.at >= frame.logAt && e.at < upTo)).map(e => e.line);
+      const replayFromFrame = [...beforeCut, ...(upTo < Infinity && prefix.observedLine ? [prefix.observedLine, ...(prefix.observedAfter || [])] : [])];
+      const afterAt = firstAt(frame.logEnd);
+      const nextShown = afterAt < view.length ? battleLines([view[afterAt].line])[0] : null;
+      const closedAfter = afterAt >= view.length || ACTION_START.has(nextShown?.split('|')[1]);
+      const consistent = runs.orders.filter(({ raw }) => {
+        const pHard = hardOf(shownOf(raw, frame.logAt)).map(e => e.line);
+        if (pHard.length > replayFromFrame.length) return false;
+        for (let j = 0; j < pHard.length; j++) if (!sameButHp(pHard[j], replayFromFrame[j])) return false;
+        if (closedAfter && frame.logEnd < upTo && pHard.length !== verifiedCount) return false;
+        if (closedAfter && frame.logEnd >= upTo && upTo < Infinity && prefix.observedLine
+          && !ACTION_START.has(prefix.observedLine.split('|')[1]) && pHard.length <= verifiedCount) return false;
+        return true;
+      });
+      if (!consistent.length || consistent.length === runs.orders.length) continue;
+      const what = (P, Q) => `${label(P)} came before ${label(Q)} in ${read.name}'s order`;
+      for (const { uKey, vKey, X, Y } of read.pairs) {
+        if (consistent.every(({ order }) => order.indexOf(uKey) < order.indexOf(vKey))) {
+          const rule = ruleOf(X, Y, read.speeds, read.turn, what(X, Y));
+          if (rule) rules.push(rule);
+        } else if (consistent.every(({ order }) => order.indexOf(vKey) < order.indexOf(uKey))) {
+          const rule = ruleOf(Y, X, read.speeds, read.turn, what(Y, X));
+          if (rule) rules.push(rule);
         }
-        if (rule) rules.push(rule);
       }
     }
 
@@ -875,16 +968,24 @@ export function attachSpeed(battle, {
         // replay's line names; an each-Pokemon pass has one item per Pokemon
         // and no effect to name.
         const P = whose(prefix.observedLine);
-        const x = P && entry.items.find(it => it.rec === P
-          && (entry.kind === 'eachEvent'
-            || (it.effect && (it.effect === hit.item.effect || prefix.observedLine.includes(it.effect.name)))));
         // And the replay's line is that handler's: the one it wrote first in
-        // the rebuild too, on whatever HP. A line naming P that something
-        // before the sort wrote - a status its last move brought on, which the
-        // rebuild's dice did not - says nothing of the sort's order.
-        const mine = x && ms.find(m => m.item === x);
-        const first = mine ? firstAt(mine.span.start) : -1;
-        const wrote = mine && first < view.length && view[first].at < mine.span.end ? battleLines([view[first].line])[0] : null;
+        // the rebuild too, after the cutoff, on whatever HP. A Pokemon with
+        // both Grassy Terrain and Leftovers has two handlers in `Residual`, so
+        // match the span after the cutoff whose own first line agrees with
+        // `observedLine` rather than taking its first item in `entry.items`.
+        const wroteOf = (m) => {
+          const first = firstAt(m.span.start);
+          return first < view.length && view[first].at < m.span.end ? battleLines([view[first].line])[0] : null;
+        };
+        const mine = P && ms.find((m) => {
+          const it = m.item;
+          if (it.rec !== P || m.span.start <= prefix.cutoffAt) return false;
+          if (!(entry.kind === 'eachEvent'
+            || (it.effect && (it.effect === hit.item.effect || prefix.observedLine.includes(it.effect.name))))) return false;
+          const wrote = wroteOf(m);
+          return !!wrote && sameButHp(wrote, prefix.observedLine);
+        });
+        const x = mine?.item;
         // Q's line later in the replay: the rebuild's own but for the HP, or
         // one of the same kind that names Q first and Q's effect as its
         // source - what a handler prints can hang on a die, as which foe's
@@ -903,7 +1004,12 @@ export function attachSpeed(battle, {
           if (ACTION_START.has(line.split('|')[1])) break;
           if (fromQ(line)) { later = true; break; }
         }
-        if (x && later && wrote && sameButHp(wrote, prefix.observedLine)) eventRule(entry, x, hit.item);
+        if (x) {
+          if (later) eventRule(entry, x, hit.item);
+          for (const m of ms.slice(0, ms.indexOf(hit))) {
+            if (m.item.rec && shownIn(m.span)) eventRule(entry, m.item, x);
+          }
+        }
         break;
       }
     }
@@ -915,7 +1021,8 @@ export function attachSpeed(battle, {
     scaffoldOrders = [];
     for (const ex of executed) {
       const S = ex.sort;
-      if (!S || ex.start >= upTo || ex.end > upTo || !ex.pokemon) continue;
+      if (!S || ex.start >= upTo || !ex.pokemon) continue;
+      if (ex.end > upTo && !(firstAt(ex.start) < view.length && view[firstAt(ex.start)].at < Math.min(ex.end, upTo))) continue;
       const at = S.list.findIndex(item => item.action === ex.action);
       if (at < 0) continue;
       const x = S.list[at];
@@ -930,10 +1037,11 @@ export function attachSpeed(battle, {
     for (const entry of eventSorts) {
       if (!entry.items) continue;
       for (const { span, item: x } of matched(entry)) {
-        if (span.start >= upTo || span.end > upTo || !x.rec) continue;
+        if (span.start >= upTo || (span.end > upTo && !shownIn(span)) || !x.rec) continue;
         for (const y of entry.items.slice(entry.items.indexOf(x) + 1)) {
           if (!y.rec || y.rec === x.rec || y.order !== x.order || y.priority !== x.priority) continue;
-          const rule = ruleOf(x.rec, y.rec, entry.speeds, entry.turn, 'the rebuild ran them so');
+          const strict = !!entry.strict?.(x, y);
+          const rule = ruleOf(x.rec, y.rec, entry.speeds, entry.turn, 'the rebuild ran them so', strict);
           if (rule && rule.fast !== rule.slow) scaffoldOrders.push(rule);
         }
       }
@@ -945,11 +1053,12 @@ export function attachSpeed(battle, {
    * One order as bounds on the two Speeds it compares, each narrowing the
    * other: no Speed of the faster one below the slower one's lowest
    * surviving speed, and no Speed of the slower one above the faster one's
-   * highest. A tie can go either way, so equal speeds stay. The tables are
-   * the simulator's speeds at that sort, so Trick Room's reversal, Tailwind,
+   * highest. A tie can go either way unless `strict` says the simulator's
+   * tie-break puts the slower one first at equal speed. The tables are the
+   * simulator's speeds at that sort, so Trick Room's reversal, Tailwind,
    * paralysis and boosts are already in them. Returns whether anything went.
    */
-  function bound({ fast, slow, tf, ts }) {
+  function bound({ fast, slow, tf, ts, strict }) {
     let maxFast = -Infinity;
     let minSlow = Infinity;
     for (let v = 0; v < SPAN; v++) {
@@ -958,8 +1067,8 @@ export function attachSpeed(battle, {
     }
     let moved = false;
     for (let v = 0; v < SPAN; v++) {
-      if (fast.flat.spe[v] && tf[v] < minSlow) { fast.flat.spe[v] = 0; moved = true; }
-      if (slow.flat.spe[v] && ts[v] > maxFast) { slow.flat.spe[v] = 0; moved = true; }
+      if (fast.flat.spe[v] && (strict ? tf[v] <= minSlow : tf[v] < minSlow)) { fast.flat.spe[v] = 0; moved = true; }
+      if (slow.flat.spe[v] && (strict ? ts[v] >= maxFast : ts[v] > maxFast)) { slow.flat.spe[v] = 0; moved = true; }
     }
     return moved;
   }

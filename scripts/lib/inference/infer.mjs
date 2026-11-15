@@ -163,16 +163,20 @@ async function replayWith(inputLog, packedTeams, turn, channel) {
  */
 function handOn(built, rolls, coupled = Infinity) {
   const failed = built.report.diffs[0]?.turn ?? Infinity;
-  const { subs, turns } = built.pins;
-  const out = { subs: {}, turns: {} };
+  const { subs, turns, variants } = built.pins;
+  const out = { subs: {}, turns: {}, variants: {} };
   const put = (i, v, upTo) => {
     if (!(turns[i] <= upTo)) return;
     out.subs[i] = v;
     out.turns[i] = turns[i];
   };
-  for (const [i, v] of Object.entries(subs)) put(i, v, failed - 1);
+  const upToTurn = Math.min(failed, coupled) - 1;
+  for (const [i, v] of Object.entries(subs)) put(i, v, upToTurn);
   // A roll an evidence path chose past a joint Pain Split is no proof.
   for (const [i, r] of rolls || []) put(i, r, Math.min(failed, coupled - 1));
+  if (variants) {
+    for (let k = 0; k < variants.length && k <= upToTurn; k++) if (variants[k]) out.variants[k] = variants[k];
+  }
   const dice = {};
   for (const d of built.dice) if (d.mark <= failed) dice[d.i] = { ...d, value: d.i in out.subs ? out.subs[d.i] : d.value };
   out.proof = { dice, choices: built.choices, starts: built.starts, rawLog: built.rawLog };
@@ -379,7 +383,9 @@ export async function inferSpreads({
           by = by.map(({ real, ...c }) => c);
         } else if (step === 'orders') {
           const named = [...orders.values()].filter(o => o.fast === id || o.slow === id);
-          by = named.filter(o => speedOf(o.fast, o.tf, Math.max) < speedOf(o.slow, o.ts, Math.min));
+          by = named.filter(o => (o.strict
+            ? speedOf(o.fast, o.tf, Math.max) <= speedOf(o.slow, o.ts, Math.min)
+            : speedOf(o.fast, o.tf, Math.max) < speedOf(o.slow, o.ts, Math.min)));
           if (!by.length) by = named;
           by = by.map(o => ({ turn: o.turn, what: o.what || `${o.fast} before ${o.slow}` }));
         }
@@ -395,7 +401,7 @@ export async function inferSpreads({
       let moved = false;
       for (const r of pass.recs) moved = intersectKnowledge(knowledge.get(r.id), r.keys, r.flat, r.ties) || moved;
       if (watch) await report('evidence', before);
-      if (learn) for (const o of pass.orders || []) orders.set(`${o.fast}|${o.slow}|${o.tf}|${o.ts}`, o);
+      if (learn) for (const o of pass.orders || []) orders.set(`${o.fast}|${o.slow}|${o.strict ? '>' : '>='}|${o.tf}|${o.ts}`, o);
       moved = orderSpeeds(knowledge, [...orders.values(), ...kept]) || moved;
       if (watch) await report('orders');
       for (const kn of knowledge.values()) moved = tighten(kn) || moved;
@@ -1159,7 +1165,24 @@ export async function inferSpreads({
       proof = await pickGuesses();
     }
     exact = proof?.exact || null;
-    pins = proof ? handOn(built, proof.rolls, proof.coupled) : null;
+    let coupledAt = proof?.coupled ?? Infinity;
+    if (proof && !keep.length && scaffoldOrders.length) {
+      const speOf = (id) => {
+        const [s, i] = id.slice(1).split(':').map(Number);
+        return next[s - 1][i].spe;
+      };
+      for (const o of scaffoldOrders) {
+        if (!(o.turn >= 0)) continue;
+        const vf = speOf(o.fast);
+        const vs = speOf(o.slow);
+        if (o.strict ? o.tf[vf] <= o.ts[vs] : o.tf[vf] < o.ts[vs]) coupledAt = Math.min(coupledAt, o.turn);
+      }
+      if (exact && coupledAt < Infinity) {
+        for (const k of [...exact.keys()]) if (k >= coupledAt) exact.delete(k);
+        if (!exact.size) exact = null;
+      }
+    }
+    pins = proof ? handOn(built, proof.rolls, coupledAt) : null;
     if (!exact) {
       for (const [s, i] of order) {
         const id = `p${s + 1}:${i}`;
