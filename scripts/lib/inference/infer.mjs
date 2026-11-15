@@ -393,6 +393,20 @@ export async function inferSpreads({
       }
       was = now;
     };
+    if (!learn && !record) {
+      const allOrders = [...orders.values(), ...kept];
+      for (let pre = true; pre;) {
+        pre = false;
+        for (const kn of knowledge.values()) if (!kn.known) pre = tighten(kn) || pre;
+        pre = orderSpeeds(knowledge, allOrders) || pre;
+      }
+      if ([...knowledge.values()].some(kn => !kn.known && (!kn.keys.includes(1) || FLAT.some(x => !kn.dom[x].includes(1))))) {
+        return {
+          events: [], checks: [], cutoff: null, scaffoldOrders: [],
+          seen: new Set(), lent: new Map(), initial: null, afterFirst: null, passes: 0,
+        };
+      }
+    }
     while (passes < 8 * S) {
       const before = watch ? cloneKnowledge(knowledge) : null;
       const pass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, record: record && !first });
@@ -1063,6 +1077,7 @@ export async function inferSpreads({
     // nothing by a pin before it.
     const seq = order.slice();
     const blocked = new Map();
+    const isDead = map => [...map.values()].some(kn => !kn.known && emptied(kn));
     const blocks = (map, n) => {
       const out = seq.slice(n + 1).filter(([s2, i2]) => emptied(map.get(`p${s2 + 1}:${i2}`)));
       for (const [s2, i2] of out) blocked.set(`${s2}:${i2}`, (blocked.get(`${s2}:${i2}`) || 0) + 1);
@@ -1099,20 +1114,23 @@ export async function inferSpreads({
           pinned.keys.fill(0);
           pinned.keys[k] = 1;
           tries--;
-          await settle(built.inputLog, keyed, cache, false, false, keep);
-          entry = { pinned, blocked: blocks(keyed, n) || emptied(pinned) };
+          const settled = await settle(built.inputLog, keyed, cache, false, false, keep);
+          if (!settled.passes) tries++;
+          const flatFixed = FLAT.every(x => aliveOf(pinned.dom[x]).length === 1);
+          entry = { keyed, pinned, flatFixed, blocked: blocks(keyed, n) || isDead(keyed) };
           byKey.set(k, entry);
         }
         if (entry.blocked) continue;
         const pick = closestSpread(entry.pinned, aim);
         if (!pick || tried.some(t => sameSpread(t, pick))) continue;
         tried.push(pick);
-        const narrowed = cloneKnowledge(cond);
+        const narrowed = cloneKnowledge(entry.keyed);
         pinKnowledge(narrowed.get(id), pick);
-        if (n < seq.length - 1) {
+        if (n < seq.length - 1 && !entry.flatFixed) {
           tries--;
-          await settle(built.inputLog, narrowed, cache, false, false, keep);
-          if (blocks(narrowed, n)) continue;
+          const settled = await settle(built.inputLog, narrowed, cache, false, false, keep);
+          if (!settled.passes) tries++;
+          if (blocks(narrowed, n) || isDead(narrowed)) continue;
         }
         const found = await choose(n + 1, narrowed);
         if (found) { next[s][i] = pick; return found; }
