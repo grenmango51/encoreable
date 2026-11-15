@@ -4620,11 +4620,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       return k === undefined ? null : [k, hs[0]];
     };
     const secretAt = new Map();
+    const omniAt = new Map();
     for (const rec of recs) {
       for (const { at, hist } of rec.shown) {
-        const split = at >= 2 && /^\|split\|/.test(raw[at - 2] || '');
-        const exactAt = split ? at - 1 : at;
+        const split = !rec.exact && at >= 2 && /^\|split\|/.test(raw[at - 2] || '');
+        const exactAt = split && raw[at] !== raw[at - 1] ? at - 1 : at;
         secretAt.set(`${rec.id}|${hist}`, exactAt);
+        omniAt.set(`${rec.id}|${hist}`, split ? at - 1 : at);
       }
     }
     const scaffoldHp = (rec, hist) => {
@@ -4650,7 +4652,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           if (!plan.ownOk) {
             for (let p = i; p <= e.backSpan.end; p++) {
               if (!rec.history[p].change.backUncertain) continue;
-              stopAt = Math.min(stopAt, secretAt.get(`${rec.id}|${p}`) ?? rec.history[p].change.logAt ?? Infinity);
+              stopAt = Math.min(stopAt, omniAt.get(`${rec.id}|${p}`) ?? rec.history[p].change.logAt ?? Infinity);
               break;
             }
           }
@@ -4662,7 +4664,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         const r = plan.rs[q];
         const v = plan.tags[q];
         const own = e.token !== null ? scaffoldHp(rec, i) : null;
-        const lineAt = secretAt.get(`${rec.id}|${i}`);
+        const lineAt = omniAt.get(`${rec.id}|${i}`);
         if (((e.change.band && !e.change.proved) || e.change.uncertain)) {
           cutAt = Math.min(cutAt, lineAt ?? e.change.logAt ?? Infinity);
           if (lineAt !== undefined) unproved.add(lineAt);
@@ -4777,7 +4779,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       // the scaffold's own HP. It and what follows are still the HPs the
       // display allows, handed on as what a rebuild must reach, but proved no
       // further than the line before it.
-      const lineAt = secretAt.get(`${rec.id}|${i}`);
+      const lineAt = omniAt.get(`${rec.id}|${i}`);
       if (((e.change.band && !e.change.proved) || e.change.uncertain)) {
         cutAt = Math.min(cutAt, lineAt ?? e.change.logAt ?? Infinity);
         if (lineAt !== undefined) unproved.add(lineAt);
