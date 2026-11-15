@@ -9,7 +9,7 @@
  */
 
 import { battleLines } from '../protocol.mjs';
-import { ACTION_START, identName, identSide, override, tagsOf } from '../reconstruct.mjs';
+import { ACTION_START, SOFT_PRETURN, identName, identSide, override, tagsOf } from '../reconstruct.mjs';
 import { SPAN } from './knowledge.mjs';
 
 const OPENS_MOVE = /^\|(move|cant)\||^\|-activate\|[^|]+\|confusion$|^\|-curestatus\|[^|]+\|(slp|frz)\|\[msg\]$/;
@@ -262,12 +262,14 @@ export function attachSpeed(battle, {
   let speedUpdates = 0;
   for (const rec of recs) {
     const p = rec.pokemon;
+    rec.cachedSpeed = memo(`init|${rec.id}`, () => speedsOf(rec, () => (p.isActive ? p.getActionSpeed() : p.storedStats.spe)));
     const setSpecies = p.setSpecies;
     override(p, 'setSpecies', function (...args) {
       const out = setSpecies.apply(this, args);
       if (!state.dry && !state.ended) {
         // A Transform's `setSpecies` is followed by the copied stats.
-        rec.cachedSpeed = args[2] ? null : speedsOf(rec, () => this.storedStats.spe);
+        const at = speedUpdates++;
+        rec.cachedSpeed = args[2] ? null : memo(`sp|${at}|${rec.id}`, () => speedsOf(rec, () => p.storedStats.spe));
       }
       return out;
     });
@@ -400,22 +402,23 @@ export function attachSpeed(battle, {
   // was sorted by.
   const sortedBy = (speeds, item, speed = item.speed) => speeds.table[ownValue({ owner: byId.get(speeds.owner), stat: 'spe' })] === speed;
 
-  const permuteGroups = (groups) => {
-    if (groups.length <= 1) return [groups[0] ? groups[0].slice() : []];
+  const permutations = (items) => {
+    if (items.length <= 1) return [items.slice()];
     const out = [];
-    for (let i = 0; i < groups.length; i++) {
-      for (const rest of permuteGroups([...groups.slice(0, i), ...groups.slice(i + 1)])) out.push([...groups[i], ...rest]);
+    for (let i = 0; i < items.length; i++) {
+      const rest = [...items.slice(0, i), ...items.slice(i + 1)];
+      for (const tail of permutations(rest)) out.push([items[i], ...tail]);
     }
     return out;
   };
 
   /**
-   * A sort a handler made: within each tied block, every order the holders'
-   * speeds could put them in. The handler runs again dry from where it was
-   * entered under each such order, and `speedRules` keeps the orders whose
-   * lines agree with the replay: a pair that every surviving order puts one
-   * way round ran that way in the battle, even when an earlier handler in the
-   * block stayed silent.
+   * A sort a handler made: every speed-realizable order of the Pokemon tied by
+   * the comparator at equal speed, where at least one of two Pokemon is hidden.
+   * Each Pokemon's handlers within one bracket keep their relative place and
+   * move together. The handler runs again dry from where it was entered in
+   * every distinct order those speeds allow, and `speedRules` keeps only the
+   * orders consistent with what the replay printed from there on.
    *
    * Switch-in effects are sorted the same way, by the action that switched
    * their Pokemon in, which runs again from the queue it started from. Each
@@ -425,87 +428,159 @@ export function attachSpeed(battle, {
    */
   function readHandlerSort(list, comparator, switchIn = false) {
     const frame = frames[frames.length - 1];
-    if (!frame) return;
+    if (!frame || list.length < 2) return;
     if (switchIn ? frame.kind !== 'action' || frame.args?.[0]?.choice !== 'runSwitch' : frame.kind !== 'handler' && frame.kind !== 'event') return;
+    const name = frame.effect?.name || (switchIn ? 'SwitchIn' : 'a handler');
     const atSpeed = item => Object.create(item, { speed: { value: 0 } });
     const bracket = item => [item.order || 4294967296, item.priority || 0].join('|');
     const tied = switchIn
       ? (a, b) => bracket(a) === bracket(b)
       : (a, b) => (comparator || battle.comparePriority)(atSpeed(a), atSpeed(b)) === 0;
-    const speedOf = item => (switchIn ? pokemonOf(item).speed : item.speed);
-    const keys = list.map(keyOf);
-    const counts = new Map();
-    for (const k of keys) counts.set(k, (counts.get(k) || 0) + 1);
-    const pairs = [];
-    const seenPairs = new Set();
-    const blockOrders = [];
-    let totalOrders = 1;
-    for (let a = 0; a < list.length;) {
-      let b = a + 1;
-      while (b < list.length && tied(list[b - 1], list[b])) b++;
-      const block = list.slice(a, b);
-      let blockVaries = false;
-      for (const it of block) {
-        const P = byPokemon.get(pokemonOf(it));
-        const fp = P?.cachedSpeed;
-        if (!P || !fp || varies(fp) || !sortedBy(fp, it, speedOf(it))) blockVaries = true;
-      }
-      for (let u = 0; u < block.length; u++) {
-        for (let v = u + 1; v < block.length; v++) {
-          const X = byPokemon.get(pokemonOf(block[u]));
-          const Y = byPokemon.get(pokemonOf(block[v]));
-          const fx = X?.cachedSpeed;
-          const fy = Y?.cachedSpeed;
-          const uKey = keyOf(block[u]);
-          const vKey = keyOf(block[v]);
-          if (!fx || !fy || X === Y || !(varies(fx) || varies(fy)) || alike(fx, fy)) continue;
-          if (counts.get(uKey) !== 1 || counts.get(vKey) !== 1) continue;
-          if (!sortedBy(fx, block[u], speedOf(block[u])) || !sortedBy(fy, block[v], speedOf(block[v]))) continue;
-          const pairId = `${X.id}|${Y.id}`;
-          if (!seenPairs.has(pairId)) { seenPairs.add(pairId); pairs.push({ uKey, vKey, X, Y }); }
-        }
-      }
-      if (!blockVaries || block.length <= 1) {
-        blockOrders.push([block.map(keyOf)]);
-      } else if (switchIn) {
-        const byHolder = new Map();
-        for (const it of block) {
-          const h = pokemonOf(it) || it.effectHolder || it;
-          if (!byHolder.has(h)) byHolder.set(h, []);
-          byHolder.get(h).push(keyOf(it));
-        }
-        const perms = permuteGroups([...byHolder.values()]);
-        totalOrders *= perms.length;
-        blockOrders.push(perms);
-      } else {
-        const groups = block.map(it => [keyOf(it)]);
-        const holderAt = new Map(block.map(it => [keyOf(it), pokemonOf(it)]));
-        const perms = permuteGroups(groups).filter((ord) => {
-          const last = new Map();
-          for (const [idx, k] of ord.entries()) {
-            const p = holderAt.get(k);
-            if (!p) continue;
-            const want = block.findIndex(it => keyOf(it) === k);
-            if ((last.get(p) ?? -1) > want) return false;
-            last.set(p, want);
-          }
-          return true;
-        });
-        totalOrders *= perms.length;
-        blockOrders.push(perms);
-      }
-      a = b;
+    const speedOf = item => (switchIn ? pokemonOf(item)?.speed : item.speed);
+    const sections = [[list[0]]];
+    for (let i = 1; i < list.length; i++) {
+      if (tied(list[i - 1], list[i])) sections[sections.length - 1].push(list[i]);
+      else sections.push([list[i]]);
     }
-    if (!pairs.length) return;
-    const name = frame.effect?.name || (switchIn ? 'SwitchIn' : 'a handler');
-    if (totalOrders > 24) {
-      note(`${name}'s order`, 'too many items tied in its sort to run every order, so it was not used');
+    const grouped = [];
+    const involved = [];
+    const multiItems = new Map();
+    for (const section of sections) {
+      if (section.length < 2) {
+        grouped.push({ fixed: section.map(keyOf) });
+        continue;
+      }
+      const blocks = [];
+      const seen = new Set();
+      for (const item of section) {
+        const rec = byPokemon.get(pokemonOf(item));
+        if (!rec) {
+          if (section.some(it => byPokemon.has(pokemonOf(it)))) {
+            note(`${name}'s order`, 'an item with no Pokemon shared a speed bracket, so the order it sorted was not used');
+          }
+          return;
+        }
+        const prev = blocks[blocks.length - 1];
+        if (prev && prev.rec === rec) {
+          prev.keys.push(keyOf(item));
+        } else {
+          if (seen.has(rec)) {
+            note(`${name}'s order`, `${label(rec)} appeared in two places of one speed bracket, so the order it sorted was not used`);
+            return;
+          }
+          seen.add(rec);
+          blocks.push({ rec, keys: [keyOf(item)] });
+        }
+      }
+      if (blocks.length < 2) {
+        grouped.push({ fixed: section.map(keyOf) });
+        continue;
+      }
+      grouped.push({ blocks });
+      for (const { rec } of blocks) {
+        if (!involved.includes(rec)) involved.push(rec);
+        if (!multiItems.has(rec)) multiItems.set(rec, []);
+      }
+      for (const item of section) multiItems.get(byPokemon.get(pokemonOf(item))).push(item);
+    }
+    if (involved.length < 2) return;
+    if (involved.length > 4) {
+      note(`${name}'s order`, `more than four Pokemon (${involved.length}) raced in one sort, so it was not used`);
       return;
     }
-    let orders = [[]];
-    for (const perms of blockOrders) {
-      orders = orders.flatMap(prefix => perms.map(p => [...prefix, ...p]));
+    const speeds = new Map();
+    for (const rec of involved) {
+      const f = rec.cachedSpeed;
+      if (f && multiItems.get(rec).every(it => sortedBy(f, it, speedOf(it)))) speeds.set(rec, f);
     }
+    const pairs = [];
+    const pairSeen = new Set();
+    for (const g of grouped) {
+      if (!g.blocks) continue;
+      for (let a = 0; a < g.blocks.length; a++) {
+        for (let b = a + 1; b < g.blocks.length; b++) {
+          const X = g.blocks[a].rec;
+          const Y = g.blocks[b].rec;
+          const id = X.id < Y.id ? `${X.id}|${Y.id}` : `${Y.id}|${X.id}`;
+          if (pairSeen.has(id)) continue;
+          pairSeen.add(id);
+          const fx = speeds.get(X);
+          const fy = speeds.get(Y);
+          if (!fx || !fy || !(varies(fx) || varies(fy)) || alike(fx, fy)) continue;
+          pairs.push([X, Y]);
+        }
+      }
+    }
+    if (!pairs.length) return;
+    const ownerCounts = new Map();
+    for (const f of speeds.values()) ownerCounts.set(f.owner, (ownerCounts.get(f.owner) || 0) + 1);
+    const shared = [...ownerCounts].filter(([, c]) => c > 1).map(([o]) => o);
+    const fitsSpeeds = (perm, fixed) => {
+      let cap = Infinity;
+      for (const rec of perm) {
+        const f = speeds.get(rec);
+        if (!f) continue;
+        if (fixed && fixed.has(f.owner)) {
+          const s = f.table[fixed.get(f.owner)];
+          if (s > cap) return false;
+          cap = s;
+          continue;
+        }
+        let best = -Infinity;
+        for (let v = 0; v < SPAN; v++) {
+          if (f.table[v] <= cap && f.table[v] > best) best = f.table[v];
+        }
+        if (best === -Infinity) return false;
+        cap = best;
+      }
+      return true;
+    };
+    const realizable = (perm) => {
+      if (!shared.length) return fitsSpeeds(perm, null);
+      const fixed = new Map();
+      const walk = (idx) => {
+        if (idx === shared.length) return fitsSpeeds(perm, fixed);
+        for (let v = 0; v < SPAN; v++) {
+          fixed.set(shared[idx], v);
+          if (walk(idx + 1)) return true;
+        }
+        return false;
+      };
+      return walk(0);
+    };
+    const keys = list.map(keyOf);
+    const keysSig = keys.join('\n');
+    const buildOrder = (perm) => {
+      const rank = new Map(perm.map((rec, idx) => [rec, idx]));
+      const out = [];
+      for (const g of grouped) {
+        if (g.fixed) out.push(...g.fixed);
+        else {
+          const sorted = g.blocks.slice().sort((a, b) => rank.get(a.rec) - rank.get(b.rec));
+          for (const b of sorted) out.push(...b.keys);
+        }
+      }
+      return out;
+    };
+    const byOrder = new Map();
+    for (const perm of permutations(involved)) {
+      if (!realizable(perm)) continue;
+      const order = buildOrder(perm);
+      const sig = order.join('\n');
+      let entry = byOrder.get(sig);
+      if (!entry) {
+        entry = { order, perms: [] };
+        byOrder.set(sig, entry);
+      }
+      entry.perms.push(perm);
+    }
+    if (!byOrder.has(keysSig)) {
+      note(`${name}'s order`, 'its own sorted order was not among the orders its speeds allow, so it was not used');
+      return;
+    }
+    if (byOrder.size < 2) return;
+    const entries = [...byOrder.values()];
+    const sortedAt = entries.findIndex(e => e.order.join('\n') === keysSig);
     const runs = memo(`hsort|${handlerSortCount++}`, () => {
       const kept = list.slice();
       const run = order => guarded(() => {
@@ -521,17 +596,12 @@ export function attachSpeed(battle, {
         }
       });
       try {
-        const sorted = run(keys);
-        return {
-          sorted,
-          orders: orders.map(order => ({ order, raw: order.every((k, idx) => k === keys[idx]) ? sorted : run(order) })),
-        };
+        return entries.map(({ order }) => run(order));
       } finally {
         list.splice(0, list.length, ...kept);
       }
     });
-    const speeds = new Map(pairs.flatMap(({ X, Y }) => [[X, X.cachedSpeed], [Y, Y.cachedSpeed]]));
-    handlerSorts.push({ frame, pairs, runs, speeds, turn: battle.turn, name });
+    handlerSorts.push({ frame, pairs, entries, sortedAt, runs, speeds, turn: battle.turn, name });
   }
 
   // Whether the channel the replay was seen from reads `side`'s secret half of
@@ -758,44 +828,81 @@ export function attachSpeed(battle, {
       }
     }
 
-    // A sort a handler made, read off every order its tied blocks could take.
-    // The run in the sort's own order must print what the handler printed, and
-    // no order may fail to run. Each order whose lines agree with the replay is
-    // kept, and a pair every kept order puts one way round ran that way.
-    const hardOf = list => list.map(e => ({ at: e.at, line: battleLines([e.line])[0] }))
-      .filter(e => e.line !== undefined && e.line.split('|')[1] !== 'player');
+    // A sort a handler made, read off what every speed-realizable order would
+    // have printed. The run in the sort's own order must print what the handler
+    // printed. Each order whose lines agree with the verified replay - and with
+    // the replay's continuation where one ends or diverges at the cutoff, when
+    // at least one order does - stays possible; one Pokemon came before another
+    // when it precedes it in every surviving order.
+    const hardLine = (rawLine, turnZero = false) => {
+      const h = battleLines([rawLine])[0];
+      if (h === undefined) return undefined;
+      const kind = h.split('|')[1];
+      return kind === 'player' || (turnZero && SOFT_PRETURN.has(kind)) ? undefined : h;
+    };
+    const nextAfter = (at, turnZero = false) => {
+      for (let i = firstAt(at); i < view.length; i++) {
+        const line = hardLine(view[i].line, turnZero);
+        if (line !== undefined) return { line, at: view[i].at };
+      }
+      return null;
+    };
     for (const read of handlerSorts) {
-      const { frame, runs } = read;
+      const { frame, entries, sortedAt, runs } = read;
       if (frame.logAt === undefined || frame.logEnd === undefined || frame.logAt > upTo) continue;
       const real = battle.log.slice(frame.logAt, frame.logEnd);
-      if (!runs.sorted || runs.sorted.length !== real.length || runs.sorted.some((line, i) => line !== real[i])
-        || runs.orders.some(o => !o.raw)) {
+      const sortedRaw = runs[sortedAt];
+      if (!sortedRaw || sortedRaw.length !== real.length || sortedRaw.some((line, i) => line !== real[i]) || runs.some(r => !r)) {
         note(`${read.name}'s order`, 'running the handler again did not print what it printed, so the order it sorted was not used');
         continue;
       }
-      const mineHard = hardOf(shownOf(runs.sorted, frame.logAt));
-      const verifiedCount = mineHard.filter(e => e.at < upTo).length;
-      const beforeCut = hardOf(view.filter(e => e.at >= frame.logAt && e.at < upTo)).map(e => e.line);
-      const replayFromFrame = [...beforeCut, ...(upTo < Infinity && prefix.observedLine ? [prefix.observedLine, ...(prefix.observedAfter || [])] : [])];
-      const afterAt = firstAt(frame.logEnd);
-      const nextShown = afterAt < view.length ? battleLines([view[afterAt].line])[0] : null;
-      const closedAfter = afterAt >= view.length || ACTION_START.has(nextShown?.split('|')[1]);
-      const consistent = runs.orders.filter(({ raw }) => {
-        const pHard = hardOf(shownOf(raw, frame.logAt)).map(e => e.line);
-        if (pHard.length > replayFromFrame.length) return false;
-        for (let j = 0; j < pHard.length; j++) if (!sameButHp(pHard[j], replayFromFrame[j])) return false;
-        if (closedAfter && frame.logEnd < upTo && pHard.length !== verifiedCount) return false;
-        if (closedAfter && frame.logEnd >= upTo && upTo < Infinity && prefix.observedLine
-          && !ACTION_START.has(prefix.observedLine.split('|')[1]) && pHard.length <= verifiedCount) return false;
-        return true;
-      });
-      if (!consistent.length || consistent.length === runs.orders.length) continue;
+      const hardEntries = raw => shownOf(raw, frame.logAt)
+        .map(e => ({ line: hardLine(e.line, read.turn === 0), at: e.at }))
+        .filter(e => e.line !== undefined);
+      const mine = hardEntries(sortedRaw);
+      const outputs = runs.map((raw, m) => (m === sortedAt ? mine.map(e => e.line) : hardEntries(raw).map(e => e.line)));
+      const maxLen = Math.max(0, ...outputs.map(o => o.length));
+      if (!maxLen) continue;
+      const mineVerified = mine.filter(e => e.at < upTo).length;
+      const after = nextAfter(frame.logEnd, read.turn === 0 && !mine.some(e => /^\|turn\|\d+/.test(e.line)));
+      const wantVerified = [];
+      let turnZero = read.turn === 0;
+      for (let i = firstAt(frame.logAt); i < view.length && view[i].at < upTo && wantVerified.length < maxLen; i++) {
+        const h = hardLine(view[i].line, turnZero);
+        if (h !== undefined) {
+          wantVerified.push(h);
+          if (/^\|turn\|\d+/.test(h)) turnZero = false;
+        }
+      }
+      const atCutoff = prefix.observedLine !== null && (mine.length > mineVerified
+        ? mine[mineVerified].at === prefix.cutoffAt
+        : frame.logEnd <= prefix.cutoffAt && (!after || after.at === prefix.cutoffAt));
+      const wantFull = wantVerified.slice();
+      if (atCutoff && wantFull.length < maxLen) {
+        for (const l of [prefix.observedLine, ...(prefix.observedAfter || [])]) {
+          if (wantFull.length >= maxLen) break;
+          wantFull.push(l);
+        }
+      }
+      const matchesVerified = lines => lines.length >= mineVerified
+        && lines.every((line, j) => j >= wantVerified.length || sameButHp(line, wantVerified[j]));
+      const matchesFull = (lines) => {
+        if (lines.length === mineVerified) return Boolean(after && sameButHp(after.line, wantFull[mineVerified]));
+        return lines.every((line, j) => j >= wantFull.length || sameButHp(line, wantFull[j]));
+      };
+      const verifiedSurvivors = entries.filter((_, m) => matchesVerified(outputs[m]));
+      const fullSurvivors = wantFull.length > wantVerified.length
+        ? verifiedSurvivors.filter(e => matchesFull(outputs[entries.indexOf(e)]))
+        : verifiedSurvivors;
+      const surviving = fullSurvivors.length ? fullSurvivors : verifiedSurvivors;
+      if (!surviving.length || surviving.length === entries.length) continue;
+      const before = (P, Q, entry) => entry.perms.every(perm => perm.indexOf(P) < perm.indexOf(Q));
       const what = (P, Q) => `${label(P)} came before ${label(Q)} in ${read.name}'s order`;
-      for (const { uKey, vKey, X, Y } of read.pairs) {
-        if (consistent.every(({ order }) => order.indexOf(uKey) < order.indexOf(vKey))) {
+      for (const [X, Y] of read.pairs) {
+        if (surviving.every(e => before(X, Y, e))) {
           const rule = ruleOf(X, Y, read.speeds, read.turn, what(X, Y));
           if (rule) rules.push(rule);
-        } else if (consistent.every(({ order }) => order.indexOf(vKey) < order.indexOf(uKey))) {
+        } else if (surviving.every(e => before(Y, X, e))) {
           const rule = ruleOf(Y, X, read.speeds, read.turn, what(Y, X));
           if (rule) rules.push(rule);
         }
@@ -1019,6 +1126,7 @@ export function attachSpeed(battle, {
     // nobody saw may have been another - but a guess that keeps these sorts
     // the rebuild's dice and choices play the same way again (`scaffold`).
     scaffoldOrders = [];
+    const contradicted = rule => rules.some(r => r.fast === rule.slow && r.slow === rule.fast && r.turn === rule.turn);
     for (const ex of executed) {
       const S = ex.sort;
       if (!S || ex.start >= upTo || !ex.pokemon) continue;
@@ -1031,7 +1139,7 @@ export function attachSpeed(battle, {
         const X = byPokemon.get(x.pokemon);
         const Y = byPokemon.get(y.pokemon);
         const rule = X && Y ? ruleOf(X, Y, S.speeds, S.turn, 'the rebuild ran them so') : null;
-        if (rule && rule.fast !== rule.slow) scaffoldOrders.push(rule);
+        if (rule && rule.fast !== rule.slow && !contradicted(rule)) scaffoldOrders.push(rule);
       }
     }
     for (const entry of eventSorts) {
@@ -1042,7 +1150,7 @@ export function attachSpeed(battle, {
           if (!y.rec || y.rec === x.rec || y.order !== x.order || y.priority !== x.priority) continue;
           const strict = !!entry.strict?.(x, y);
           const rule = ruleOf(x.rec, y.rec, entry.speeds, entry.turn, 'the rebuild ran them so', strict);
-          if (rule && rule.fast !== rule.slow) scaffoldOrders.push(rule);
+          if (rule && rule.fast !== rule.slow && !contradicted(rule)) scaffoldOrders.push(rule);
         }
       }
     }
