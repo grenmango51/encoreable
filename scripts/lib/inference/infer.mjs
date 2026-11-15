@@ -628,7 +628,7 @@ export async function inferSpreads({
     }
     return limit;
   };
-  const certifyAt = async (fromBuilt, chosen, beforeTurn, sharedCache, witness) => {
+  const certifyAt = async (fromBuilt, chosen, beforeTurn, sharedCache) => {
     if (!(beforeTurn >= 1)) return null;
     const pinned = cloneKnowledge(blank);
     for (const [s, team] of sets.entries()) {
@@ -649,20 +649,19 @@ export async function inferSpreads({
     const coupledAt = Math.min(beforeTurn, p.coupled ?? Infinity, firstUnproved);
     const ex = new Map([...p.exact].filter(([k]) => k < coupledAt));
     if (!ex.size) return null;
-    const rolls = witness && sameTeam(chosen, witness) ? null : p.rolls;
-    return { exact: ex, pins: handOn(fromBuilt, rolls, coupledAt) };
+    return { exact: ex, pins: handOn(fromBuilt, p.rolls, coupledAt) };
   };
-  const certifyPrefix = async (fromBuilt, chosen, scaffoldList, maxBeforeTurn, sharedCache = new Map(), witness = null) => {
+  const certifyPrefix = async (fromBuilt, chosen, scaffoldList, maxBeforeTurn, sharedCache = new Map()) => {
     const cap = scaffoldLimit(chosen, scaffoldList, maxBeforeTurn);
     if (!(cap >= 1)) return { exact: null, pins: null };
-    const full = await certifyAt(fromBuilt, chosen, cap, sharedCache, witness);
+    const full = await certifyAt(fromBuilt, chosen, cap, sharedCache);
     if (full) return full;
     let lo = 0;
     let hi = cap - 1;
     let best = null;
     while (lo < hi) {
       const mid = (lo + hi + 1) >> 1;
-      const got = await certifyAt(fromBuilt, chosen, mid, sharedCache, witness);
+      const got = await certifyAt(fromBuilt, chosen, mid, sharedCache);
       if (got) { best = got; lo = mid; }
       else hi = mid - 1;
     }
@@ -2228,8 +2227,7 @@ export async function inferSpreads({
         for (const k of [...exact.keys()]) if (k >= coupledAt) exact.delete(k);
         if (!exact.size) exact = null;
       }
-      const rolls = sameTeam(next, picks) ? null : proof.rolls;
-      pins = exact ? handOn(built, rolls, coupledAt) : null;
+      pins = exact ? handOn(built, proof.rolls, coupledAt) : null;
     } else {
       if (!advanced) {
         for (const [id, coords] of [...held]) {
@@ -2251,7 +2249,7 @@ export async function inferSpreads({
       }
       repairOrders(next, order);
       if (failTurn >= 1) {
-        ({ exact, pins } = await certifyPrefix(built, next, scaffoldOrders, failTurn, cache, picks));
+        ({ exact, pins } = await certifyPrefix(built, next, scaffoldOrders, failTurn, cache));
       } else {
         exact = null;
         pins = null;
@@ -2280,9 +2278,16 @@ export async function inferSpreads({
           ? (found.built.report.complete ? Math.max(failTurn, 1) + 1 : found.built.report.diffs[0]?.turn ?? failTurn)
           : 0;
         if (found.built && foundBeforeTurn >= 1 && ordersAllow(found.picks)) {
-          const cert = await certifyPrefix(found.built, found.picks, [], foundBeforeTurn, new Map(), found.picks);
+          const cert = await certifyPrefix(found.built, found.picks, [], foundBeforeTurn, new Map());
           exact = cert.exact;
-          pins = cert.exact && found.pins ? { ...found.pins, proof: cert.pins?.proof } : (found.pins ?? cert.pins);
+          pins = cert.exact && found.pins && cert.pins
+            ? {
+              ...found.pins,
+              subs: { ...found.pins.subs, ...cert.pins.subs },
+              turns: { ...found.pins.turns, ...cert.pins.turns },
+              proof: cert.pins.proof,
+            }
+            : (found.pins ?? cert.pins);
         } else {
           exact = null;
           pins = found.pins;
@@ -2320,7 +2325,7 @@ export async function inferSpreads({
       if (mix) {
         onProgress(`  back to a guess already tried; mixing it with the last one: ${mix.what}`);
         next = mix.picks;
-        ({ exact, pins } = await certifyPrefix(built, next, scaffoldOrders, failTurn, cache, picks));
+        ({ exact, pins } = await certifyPrefix(built, next, scaffoldOrders, failTurn, cache));
       }
     }
     picks = next;
