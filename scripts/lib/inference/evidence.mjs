@@ -308,13 +308,16 @@ function exactTurns(raw, tokens, prefix, coupled = Infinity, cutAt = Infinity) {
   let provedAt = null;
   const proved = t => (provedAt === null || t < provedAt.k ? {} : { proved: t === provedAt.k ? provedAt.n : 0 });
   // A path that ends a Pokemon on 0 HP prints it fainted, whatever HP the
-  // scaffold left it on.
-  const withHp = (line, token) => {
+  // scaffold left it on; one that leaves it standing takes the observed line's
+  // status when the scaffold fainted it at the cutoff.
+  const withHp = (line, token, ref = line) => {
     if (token === undefined) return line;
     const parts = line.split('|');
     const at = HP_FIELD[parts[1]];
-    const field = String(parts[at] || '');
-    parts[at] = token === '0' ? '0 fnt' : `${token}${field.includes(' ') ? field.slice(field.indexOf(' ')) : ''}`;
+    const refParts = String(ref || line).split('|');
+    const field = String((HP_FIELD[refParts[1]] !== undefined ? refParts[HP_FIELD[refParts[1]]] : parts[at]) || '');
+    const suffix = field.includes(' ') ? field.slice(field.indexOf(' ')) : '';
+    parts[at] = token === '0' ? '0 fnt' : `${token}${suffix === ' fnt' ? '' : suffix}`;
     return parts.join('|');
   };
   for (const entry of view) {
@@ -328,7 +331,8 @@ function exactTurns(raw, tokens, prefix, coupled = Infinity, cutAt = Infinity) {
       // chose; anything else there is the scaffold's mistake, not the truth.
       if (cut && tokens.has(entry.at)) {
         if (entry.at >= cutAt && provedAt === null) provedAt = { k, n: lines.length };
-        lines.push(withHp(entry.line, tokens.get(entry.at)));
+        const obs = [prefix.observedLine, ...(prefix.observedAfter || [])].find(hpLine) || entry.line;
+        lines.push(withHp(entry.line, tokens.get(entry.at), obs));
       }
       break;
     }
