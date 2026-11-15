@@ -483,9 +483,9 @@ async function runOne({
       for (const line of report.lines) say(line);
       setReports.push(report);
     }
-    inferSets = sets;
+    inferSets = inference.sets || sets;
     built = inference.built;
-    packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({
+    packedTeams = inferSets.map((team, s) => Teams.pack(team.map((set, i) => ({
       ...set, ...(set.nature ? {} : { nature: inference.picks[s][i]?.nature || 'Serious' }), evs: inference.picks[s][i],
     }))));
   } else {

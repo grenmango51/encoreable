@@ -796,16 +796,18 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
     const ruled = (ruledOut[name] || []).filter(r => abilities.some(a => toID(a) === toID(r.ability)));
     const extraMoves = mon.assumedMoves.filter(m => !mon.moves.includes(m)).slice(0, Math.max(0, 4 - mon.moves.length));
     let moves = [...mon.moves, ...extraMoves];
+    const fallbackMove = !moves.length ? standInMove(dex, species) : null;
     let standInName = null;
-    if (!moves.length && standIn) {
-      standInName = standInMove(dex, species);
-      if (standInName) moves = [standInName];
+    if (!moves.length && standIn && fallbackMove) {
+      standInName = fallbackMove;
+      moves = [standInName];
     }
     boxes.push({
       item: mon.item === null ? 'assumed' : 'read',
       ability: ability ? 'read' : abilities.length === 1 ? 'only' : 'assumed',
       nature: 'unknown',
       ruledOut: ability ? [] : ruled,
+      ...(mon.item === null && mon.assumedItem ? { assumedItem: mon.assumedItem } : {}),
       ...(extraMoves.length ? { assumedMoves: extraMoves } : {}),
       ...(standInName ? { standIn: standInName } : {}),
     });
@@ -820,7 +822,7 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
     if (mon.moves.length < 4) notes.push(`${mon.moves.length} move${mon.moves.length === 1 ? '' : 's'} seen`);
     if (extraMoves.length) notes.push(`${extraMoves.join(', ')} seen under a possible Illusion`);
     if (standInName) notes.push(`${standInName}, which it never used`);
-    sets.push({
+    const set = {
       name,
       species: species.name,
       item: mon.item || mon.assumedItem || '',
@@ -831,7 +833,11 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
       shiny: mon.shiny,
       level: mon.level || 50,
       evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+    };
+    Object.defineProperty(set, 'boxes', {
+      value: { ...boxes[boxes.length - 1], fallbackMove },
     });
+    sets.push(set);
     assumed.push({ name, notes });
   }
   return { sets, assumed, boxes };

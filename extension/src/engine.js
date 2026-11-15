@@ -428,7 +428,7 @@ export async function reconstructReplay({ source: input, teams = [null, null], i
         observed, channel, sampleSeed, maxProbes, allSpent: false, threads, deadline: started + INFER_MS,
       });
       built = inference.built;
-      packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({
+      packedTeams = (inference.sets || sets).map((team, s) => Teams.pack(team.map((set, i) => ({
         ...set, ...(set.nature ? {} : { nature: inference.picks[s][i]?.nature || 'Serious' }), evs: inference.picks[s][i],
       }))));
     } else {
