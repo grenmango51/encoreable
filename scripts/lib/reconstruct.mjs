@@ -44,7 +44,10 @@ const { Battle, BattleStream, Dex, Teams, toID } = require('pokemon-showdown');
 const { extractChannelMessages } = require('pokemon-showdown/dist/sim/battle.js');
 
 /** Move targets the chooser must name explicitly (sim/battle-actions.ts:3). */
-const CHOOSABLE_TARGETS = new Set(['normal', 'any', 'adjacentFoe', 'adjacentAlly', 'adjacentAllyOrSelf']);
+export const CHOOSABLE_TARGETS = new Set(['normal', 'any', 'adjacentFoe', 'adjacentAlly', 'adjacentAllyOrSelf']);
+
+/** Lines that start another action: a hit's own HP line always comes before them. */
+export const ACTION_START = new Set(['move', 'cant', 'switch', 'drag', 'replace', 'upkeep', 'turn']);
 
 /**
  * Pre-turn protocol lines allowed to differ without failing the reconstruction.
@@ -111,7 +114,6 @@ function planSegment(segment, dex) {
   const plan = {
     switches: { p1: [], p2: [] },   // [slotIndex] -> species name
     actions: { p1: [], p2: [] },    // [slotIndex] -> { moveid, target, mega }
-    encoredCharges: { p1: [], p2: [] }, // [slotIndex] -> { moveid, target }
     forced: { p1: [], p2: [] },     // in log order
     megas: new Set(),
   };
@@ -119,12 +121,16 @@ function planSegment(segment, dex) {
   // it name the new slots; a choice belongs to the slot its Pokemon chose from.
   const startOf = { p1: [0, 1, 2], p2: [0, 1, 2] };
   // A Pokemon Encored before it moves uses the Encored move, not the one it
-  // chose, so its move line says nothing about its choice.
+  // chose, so its move line leaves its choice unseen - except a `[from]
+  // lockedmove` release, which carries out a choice stored earlier, and a
+  // charging move, whose target its release turn still names.
   const encored = new Set();
   // Revival Blessing asks its user's player which fainted Pokemon to bring
   // back, as a switch request for the user's slot; the heal line names the one
-  // chosen. One revived into an empty active slot is switched in by the
-  // simulator itself, so its switch line answers no request.
+  // chosen. One revived into an empty active slot is switched in at once by
+  // the simulator itself, before any next action or upkeep, so only that
+  // immediate switch answers no request; one revived on the bench and sent in
+  // later answers a request of its own.
   let reviver = null;
   let revived = null;
 
@@ -139,11 +145,14 @@ function planSegment(segment, dex) {
       reviver = null;
       continue;
     }
-    if (kind === 'switch' && revived && identSide(parts[2]) === revived.side && identName(parts[2]) === revived.name) {
+    if (kind === 'switch' && !tagsOf(line).from && revived && identSide(parts[2]) === revived.side && identName(parts[2]) === revived.name) {
       revived = null;
       continue;
     }
-    if (revived && ACTION_START.has(kind)) revived = null;
+    if (ACTION_START.has(kind) || kind === 'faint') {
+      reviver = null;
+      revived = null;
+    }
 
     if (kind === 'swap') {
       const side = identSide(parts[2]);
@@ -182,16 +191,6 @@ function planSegment(segment, dex) {
       // exception: a locked Pokemon still gets a request offering exactly one
       // move (sim/pokemon.ts:1084), so it does need a choice line, even if
       // Encore landed on it earlier in the turn.
-      if (encored.has(parts[2]) && from !== 'lockedmove') {
-        const side = identSide(parts[2]);
-        const slot = startOf[side]?.[identSlot(parts[2])] ?? identSlot(parts[2]);
-        const moveid = toID(parts[3]);
-        const target = parts[4] && parts[4].includes(': ') ? parts[4] : null;
-        if (!target && CHOOSABLE_TARGETS.has(dex.moves.get(moveid).target)) {
-          plan.encoredCharges[side][slot] = { moveid, target: null };
-        }
-        continue;
-      }
       if (from && from !== 'lockedmove') continue;
       const side = identSide(parts[2]);
       const slot = startOf[side]?.[identSlot(parts[2])] ?? identSlot(parts[2]);
@@ -201,7 +200,19 @@ function planSegment(segment, dex) {
         moveid,
         target,
         needsTarget: CHOOSABLE_TARGETS.has(dex.moves.get(moveid).target),
+        encored: encored.has(parts[2]) && from !== 'lockedmove',
       };
+    }
+
+    if (kind === '-anim') {
+      const side = identSide(parts[2]);
+      const slot = startOf[side]?.[identSlot(parts[2])] ?? identSlot(parts[2]);
+      const action = plan.actions[side]?.[slot];
+      const target = parts[4] && parts[4].includes(': ') ? parts[4] : null;
+      if (action && !action.target && action.needsTarget && action.moveid === toID(parts[3]) && target) {
+        action.target = target;
+        action.recovered = true;
+      }
     }
   }
   return plan;
@@ -220,17 +231,15 @@ function planSegment(segment, dex) {
 function recoverChargeTargets(plans) {
   for (const [k, plan] of plans.entries()) {
     for (const side of ['p1', 'p2']) {
-      for (const list of [plan.actions[side], plan.encoredCharges[side]]) {
-        for (const [slot, action] of list.entries()) {
-          if (!action || action.target || (list === plan.actions[side] && !action.needsTarget)) continue;
-          for (const later of plans.slice(k + 1)) {
-            const match = later.actions[side][slot];
-            if (match?.moveid === action.moveid && match.target) {
-              action.target = match.target;
-              action.recovered = true;
-              action.landsOn = plans.indexOf(later);
-              break;
-            }
+      for (const [slot, action] of plan.actions[side].entries()) {
+        if (!action || action.target || !action.needsTarget) continue;
+        for (const later of plans.slice(k + 1)) {
+          const match = later.actions[side][slot];
+          if (match?.moveid === action.moveid && match.target) {
+            action.target = match.target;
+            action.recovered = true;
+            action.landsOn = plans.indexOf(later);
+            break;
           }
         }
       }
@@ -242,8 +251,7 @@ function recoverChargeTargets(plans) {
 function carriedInto(plans, t) {
   const out = [];
   for (let k = t - 1; k >= 0; k--) {
-    const has = map => Object.values(map || {}).some(acts => (acts || []).some(a => a?.landsOn === t));
-    if (has(plans[k]?.actions) || has(plans[k]?.encoredCharges)) out.push(k);
+    if (Object.values(plans[k]?.actions || {}).some(acts => (acts || []).some(a => a?.landsOn === t))) out.push(k);
   }
   return out;
 }
@@ -557,23 +565,24 @@ function choiceFor(side, plan, state, notes) {
     const action = plan.actions[sideId][i];
     const mega = plan.megas.has(`${sideId}${'abc'[i]}`) && slot.canMegaEvo ? ' mega' : '';
 
-    if (!action) {
-      // Nothing executed for this slot: it fainted before acting, was flinched
-      // or fully paralysed, or the battle ended before its action ran. No PP
-      // moved and no state changed - but the target still perturbs the RNG
-      // stream, so which substitution we make is a search variable.
+    if (!action || action.encored) {
+      // Nothing executed for this slot - it fainted before acting, was flinched
+      // or fully paralysed, or the battle ended before its action ran - or
+      // Encore replaced what it chose before it moved. Which legal move and
+      // target was chosen is a search variable; when a charging move's target
+      // was recovered from its release turn, try that move and target first.
       notes.push(`${sideId} slot ${i + 1} made an invisible choice - substituted a legal move`);
       state.invisible = true;
+      const loc = action?.recovered && action.target ? targetLoc(sideId, i, action.target) : null;
+      const preferred = loc === null ? null : ` ${loc > 0 ? '+' : ''}${loc}`;
       const usable = slot.moves
         .map((m, j) => ({ ...m, j }))
         .filter(m => !m.disabled)
-        .sort(state.selfSwitchLast);
-      const encoredTarget = plan.encoredCharges?.[sideId]?.[i]?.target;
-      const loc = encoredTarget ? targetLoc(sideId, i, encoredTarget) : null;
-      const preferred = loc === null ? null : ` ${loc > 0 ? '+' : ''}${loc}`;
+        .sort((a, b) => (action?.recovered ? Number(b.id === action.moveid) - Number(a.id === action.moveid) : 0) || state.selfSwitchLast(a, b));
       const options = [];
       for (const m of usable) {
-        for (const suffix of targetOptions(side, i, m.target, preferred)) {
+        const pref = preferred && (!side.active[i] || side.battle.validTargetLoc(loc, side.active[i], m.target)) ? preferred : null;
+        for (const suffix of targetOptions(side, i, m.target, pref)) {
           options.push(`move ${m.j + 1}${suffix}${mega}`);
         }
       }
@@ -847,9 +856,6 @@ function compareTurn({ segments, exact, channel }, k, slice) {
   }
   return { wantHard, gotHard, exactUpTo, provedUpTo };
 }
-
-/** Lines that start another action: a hit's own HP line always comes before them. */
-export const ACTION_START = new Set(['move', 'cant', 'switch', 'drag', 'replace', 'upkeep', 'turn']);
 
 /**
  * Read the dice of every real hit on turn `turn` off the observed turn, as they
@@ -1457,7 +1463,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
     const finished = !found && k === segments.length - 1;
     // `cap` marks a turn our own guard gave up on, which no refusal decided.
     const diff = state.unsatisfied && !finished
-      ? (early || { index: -1, expected: state.unsatisfied, actual: '', ...(state.cap ? { cap: state.cap } : {}) }) : found;
+      ? (early || { index: -1, prefix: gotHard.length, expected: state.unsatisfied, actual: '', ...(state.cap ? { cap: state.cap } : {}) }) : found;
 
     if (diff) {
       diffs.push({ turn: k, ...diff });
@@ -1702,21 +1708,23 @@ function prober(common, t) {
  * How well a run agreed with turn `t`, as `[lines, fields, shared]`.
  *
  * `lines` is how far the turn got before disagreeing - `Infinity` for a turn
- * that matched outright, `-1` for a choice the simulator refused, which no die
- * can repair. `fields` counts how much of the disagreeing line is nevertheless
- * right, and it is what keeps the search off a local minimum: one line can need
- * two draws to change together, and a move line that has found its target but
- * not yet its damage is genuinely closer than one that has neither. `shared`
- * counts the fields right in place anywhere in the line, which ranks lines
- * whose kind is still wrong: a Pokemon the replay shows flinching, sorted after
- * a speed tie it lost, needs the tie and the flinch together, and the run that
- * has it moving where the replay has it flinch has its name right.
+ * that matched outright. `fields` counts how much of the disagreeing line is
+ * nevertheless right (`-1` for a choice the simulator refused after `lines`
+ * agreed, which no die can repair), and it is what keeps the search off a
+ * local minimum: one line can need two draws to change together, and a move
+ * line that has found its target but not yet its damage is genuinely closer
+ * than one that has neither. `shared` counts the fields right in place anywhere
+ * in the line, which ranks lines whose kind is still wrong: a Pokemon the
+ * replay shows flinching, sorted after a speed tie it lost, needs the tie and
+ * the flinch together, and the run that has it moving where the replay has it
+ * flinch has its name right.
  */
 function scoreOf(run, t) {
   if (run.badTurn === null || run.badTurn > t) return [Infinity, 0, 0];
   if (run.badTurn < t) return [-Infinity, 0, 0];
   const diff = run.diffs[0];
-  if (!diff || diff.index < 0) return [-1, 0, 0];
+  if (!diff) return [-1, 0, 0];
+  if (diff.index < 0) return [diff.prefix ?? 0, -1, 0];
   const want = String(diff.expected ?? '').split('|');
   const got = String(diff.actual ?? '').split('|');
   let fields = 0;
@@ -1859,7 +1867,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     const { start, lines } = rec;
     const end = start + lines.length;
     let idx = rec.score[0];
-    if (!Number.isFinite(idx) || idx < 0) return (rec.fail = end);
+    if (!Number.isFinite(idx) || idx < 0 || rec.score[1] === -1) return (rec.fail = end);
     const count = p => compareTurn(common, t, lines.slice(0, p - start)).gotHard.length;
     const { gotHard } = compareTurn(common, t, lines);
     if (/^\|(move|-anim)\|/.test(gotHard[idx] || '')) {
@@ -1941,7 +1949,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
   let wide = false;
   // The limit that left a candidate untried, if one did.
   let cut = null;
-  while (score[0] !== Infinity && score[0] !== -1) {
+  while (score[0] !== Infinity && score[0] !== -1 && score[1] !== -1) {
     if (probes >= budget) { cut = 'probes'; break; }
     if (Date.now() >= common.deadline) { cut = 'deadline'; break; }
     let committed = false;
@@ -2174,7 +2182,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
   // refused a choice, a limit left a candidate untried, or every candidate was
   // tried and no die and no pair of them carried the turn further. Only the
   // first two are answers; the rest prove nothing about the guess.
-  const ended = score[0] === Infinity ? 'solved' : score[0] === -1 ? 'refused' : cut || 'stuck';
+  const ended = score[0] === Infinity ? 'solved' : (score[0] === -1 || score[1] === -1) ? 'refused' : cut || 'stuck';
   if (ended === cut) common.limits.add(cut);
   if (onTrial) {
     takeBack();
@@ -2182,7 +2190,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     score = scoreOf(run, t);
   }
 
-  return { solved: score[0] === Infinity, rejected: score[0] === -1, ended, forced, probes, score, tried };
+  return { solved: score[0] === Infinity, rejected: score[0] === -1 || score[1] === -1, ended, forced, probes, score, tried };
 }
 
 /**
@@ -2610,6 +2618,8 @@ async function reconstructOnce({
           consider(got.score, first.v, got.tried);
           if (got.ended === 'probes') cappedVariants.add(first.v);
         }
+      } else {
+        consider(first.score, first.v, null);
       }
     }
 
