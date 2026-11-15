@@ -232,6 +232,7 @@ const SWEPT = [
   'mimic:gen9championsvgc2026regmcbo3-2694712442', // 2026-10-08: flipping both Muddy Water secondaries off reaches Make It Rain's line on fields before its miss settles
   'mimic:gen9championsvgc2026regmcbo3-2705120655', // 2026-10-26: reusing a disputed pair's probe result so Scarf Arbok halves between base and Mega Staraptor
   'mimic:gen9championsvgc2026regmcbo3-2692349682', // 2026-10-04: rebuilding when an earlier actor's Speed on a turn with an unseen choice lets another priority bracket fit
+  'mimic:gen9championsvgc2026regmcbo3-2691905905', // 2026-10-02: Mirror Coat fainting Garchomp on an identical split pair still ends the proof at the secret half's index
 ];
 
 const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));

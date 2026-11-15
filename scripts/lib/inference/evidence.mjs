@@ -300,8 +300,15 @@ function exactTurns(raw, tokens, prefix, coupled = Infinity, cutAt = Infinity) {
     const parts = line.split('|');
     const at = HP_FIELD[parts[1]];
     const field = String(parts[at] || '');
-    parts[at] = token === '0' ? '0 fnt' : `${token}${field.includes(' ') ? field.slice(field.indexOf(' ')) : ''}`;
+    const suffix = field.includes(' ') ? field.slice(field.indexOf(' ')) : '';
+    parts[at] = token === '0' ? '0 fnt' : `${token}${suffix === ' fnt' ? '' : suffix}`;
     return parts.join('|');
+  };
+  const sameHpTarget = (a, b) => {
+    const x = (battleLines([a])[0] || a || '').split('|');
+    const y = String(b || '').split('|');
+    const at = HP_FIELD[x[1]];
+    return at !== undefined && x.length === y.length && x.every((p, idx) => idx === at || p === y[idx]);
   };
   for (const entry of view) {
     if (prefix.turn !== null && k > prefix.turn) break;
@@ -312,9 +319,9 @@ function exactTurns(raw, tokens, prefix, coupled = Infinity, cutAt = Infinity) {
     if (prefix.turn !== null && k === prefix.turn && (cut || entry.at > prefix.cutoffAt)) {
       // The failing line itself is proved only when it is a hidden HP the path
       // chose; anything else there is the scaffold's mistake, not the truth.
-      if (cut && tokens.has(entry.at)) {
+      if (cut && tokens.has(entry.at) && prefix.observedLine && sameHpTarget(entry.line, prefix.observedLine)) {
         if (entry.at >= cutAt && provedAt === null) provedAt = { k, n: lines.length };
-        lines.push(withHp(entry.line, tokens.get(entry.at)));
+        lines.push(withHp(prefix.observedLine, tokens.get(entry.at)));
       }
       break;
     }
@@ -4068,8 +4075,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const secretAt = new Map();
     for (const rec of recs) {
       for (const { at, hist } of rec.shown) {
-        const split = at >= 2 && /^\|split\|/.test(raw[at - 2] || '');
-        const exactAt = split && raw[at] !== raw[at - 1] && !rec.exact ? at - 1 : at;
+        const split = !rec.exact && at >= 2 && /^\|split\|/.test(raw[at - 2] || '');
+        const exactAt = split ? at - 1 : at;
         secretAt.set(`${rec.id}|${hist}`, exactAt);
       }
     }
