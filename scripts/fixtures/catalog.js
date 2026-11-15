@@ -1727,12 +1727,12 @@ const entries = {
       p1: [withMoves('known', ['Fissure', 'Splash']), 'knownAlly', 'knownBench'],
       p2: [set('Kingambit', 'M', 'Supreme Overlord', 'Smooth Rock', {}, ['Kowtow Cleave', 'Splash']), 'hiddenAlly', 'hiddenBench'],
       turns: [
-        { p1: 'move fissure 2, move splash', p2: 'switch 3, move splash' },
-        { p1: 'move splash, move splash', p2: 'move splash, move kowtowcleave 1' },
+        { p1: 'move fissure 1, move splash', p2: 'switch 3, move splash' },
+        hiddenHits('kowtowcleave'),
         QUIET,
       ],
       control: { p2: [{ ability: 'Run Away' }] },
-      why: "Switched out while the known Snorlax's Fissure knocks out its ally Avalugg, the hidden Kingambit comes back in under Supreme Overlord (`fallen1`), making its Kowtow Cleave 1.1 times as strong; Snorlax's exact HP shows its Attack.",
+      why: "Switched out while the known Snorlax's Fissure knocks out its replacement Slowking, the hidden Kingambit comes back into p2a under Supreme Overlord (`fallen1`), making its Kowtow Cleave 1.1 times as strong; Snorlax's exact HP shows its Attack.",
     }],
   },
   'move:shedtail': {
