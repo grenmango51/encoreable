@@ -1607,6 +1607,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             for (let j = start; j < n; j++) {
               if (pairs[j] === packed && fatal[j] === o.fatal) {
                 if (bms) bms[j] |= bMask;
+                if (r + rOff === hit.realRoll) rs[j] = r + rOff;
                 repeat = true;
                 break;
               }
@@ -1644,6 +1645,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       backMasks,
       backSlot: hit.backSlot || null,
       rollAt: hit.rollAt,
+      realRoll: hit.realRoll ?? null,
       via,
       dealtBy: S,
       sourceStates: (hit.sourceHp || hit.extras?.length) && hit.sStates[0] !== null ? hit.sStates : null,
@@ -3171,7 +3173,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const via = !hit.off || hit.A.kn.known ? null
       : hit.offDim ? { rec: hit.A, dim: hit.off } : { rec: hit.A, stat: hit.off };
     return {
-      dim: hit.def, table, rolls, rollAt: hit.rollAt, via, noDealt: true,
+      dim: hit.def, table, rolls, rollAt: hit.rollAt, realRoll: hit.realRoll ?? null, via, noDealt: true,
       dealtBy: hit.S,
       sourceStates: (hit.sourceHp || hit.extras?.length) && hit.sStates[0] !== null ? hit.sStates : null,
       sourceMembers: hit.sMembers || null,
@@ -3305,6 +3307,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     try {
       const hit = analyseHit(source, target, move, clone, crit, real, pre, origGetDamage, thrown, hpBefore);
       hit.rollAt = draws.length === 1 ? draws[0] : null;
+      hit.realRoll = hit.rollAt !== null ? (thrown.find(d => d.i === hit.rollAt)?.value ?? null) : null;
       // A hit a Substitute takes moves no HP; the line after it says whether it
       // broke. Only the first hit on a Substitute is read, while it still holds
       // the number its `onStart` stored: after a hit, what it holds depends on
@@ -3344,14 +3347,16 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const draws = [];
     rollDraws = draws;
     let real;
+    let thrown;
     try {
-      real = origConfusion.call(this, pokemon, basePower);
+      ({ value: real, thrown } = withDice(st, () => origConfusion.call(this, pokemon, basePower)));
     } finally {
       rollDraws = null;
     }
     if (typeof real !== 'number' || state.ended) return real;
     const hit = selfHit(pokemon, basePower, real, pre, origConfusion);
     hit.rollAt = draws.length === 1 ? draws[0] : null;
+    hit.realRoll = hit.rollAt !== null ? (thrown.find(d => d.i === hit.rollAt)?.value ?? null) : null;
     pendingHits.set(pokemon, hit);
     return real;
   };
@@ -5666,7 +5671,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             const c = { h2, v, roll, backBit };
             byCandKey.set(candKey, c);
             candidates.push(c);
-          } else if (roll !== undefined && roll < ROLLS && (prev.roll === undefined || prev.roll >= ROLLS)) {
+          } else if (roll !== undefined && roll < ROLLS
+            && (prev.roll === undefined || prev.roll >= ROLLS || roll === e.change.realRoll)) {
             prev.roll = roll;
           }
         };
