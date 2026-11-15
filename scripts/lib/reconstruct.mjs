@@ -33,7 +33,7 @@ import os from 'os';
 import { createRequire } from 'module';
 import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 
-import { battleLines, firstDivergence, illusionStays, unmaskIllusion, unsettledStays } from './protocol.mjs';
+import { battleLines, firstDivergence, illusionStays, unmaskIllusion } from './protocol.mjs';
 import { install, traceOn, markDraws, atLine } from './rng-control.mjs';
 
 const require = createRequire(import.meta.url);
@@ -254,6 +254,9 @@ function carriedInto(plans, t) {
  * Illusion user's disguise from the last unfainted slot.
  */
 function watchParty(battle, at, out) {
+  const note = () => {
+    if (at.k > 0 && !out.includes(at.k)) out.push(at.k);
+  };
   for (const side of battle.sides) {
     for (const pokemon of side.pokemon) {
       let set = pokemon.set;
@@ -261,7 +264,7 @@ function watchParty(battle, at, out) {
         configurable: true,
         enumerable: true,
         get() {
-          if (!this.isActive && battle.activeMove && !out.includes(at.k)) out.push(at.k);
+          if (!this.isActive && battle.activeMove) note();
           return set;
         },
         set(value) { set = value; },
@@ -271,12 +274,16 @@ function watchParty(battle, at, out) {
   const origRunEvent = battle.runEvent;
   battle.runEvent = function (eventid, target, ...rest) {
     const res = origRunEvent.call(this, eventid, target, ...rest);
-    if (eventid === 'BeforeSwitchIn' && at.k > 0
-      && (target?.ability === 'illusion' || target?.baseAbility === 'illusion') && !out.includes(at.k)) {
-      out.push(at.k);
-    }
+    if (eventid === 'BeforeSwitchIn' && (target?.ability === 'illusion' || target?.baseAbility === 'illusion')) note();
     return res;
   };
+  const origRandomSwitch = battle.getRandomSwitchable;
+  if (typeof origRandomSwitch === 'function') {
+    battle.getRandomSwitchable = function (side, ...rest) {
+      note();
+      return origRandomSwitch.call(this, side, ...rest);
+    };
+  }
 }
 
 /** Every way to take `k` of `items` (as many as there are, if fewer), the first ones first. */
@@ -324,11 +331,18 @@ function sheetsOf(formatid, packedTeams, channel, guessed = null) {
   for (const [s, packed] of packedTeams.entries()) {
     if (!packed) continue;
     const battle = new Battle({ formatid, p1: { name: 'p1', team: packed }, p2: { name: 'p2', team: packed } });
+    const items = Object.values(battle.dex.data.Items);
     out[`p${s + 1}`] = {
       exact: channel === -1 || channel === s + 1,
+      leads: battle.sides[0].active.length,
       members: battle.sides[0].pokemon.map(p => ({
         name: p.name,
         moves: new Set(p.set.moves.map(toID)),
+        ability: toID(p.set.ability),
+        megas: new Set([
+          battle.actions.canMegaEvo(p),
+          ...items.map(it => it?.megaStone?.[p.baseSpecies.name]).filter(Boolean),
+        ].filter(Boolean)),
         maxhp: p.maxhp,
         // On a side whose spreads are guesses (`guessed`), every max HP its
         // Stat Points allow: one HP for each point, 0 to 32.
@@ -338,6 +352,367 @@ function sheetsOf(formatid, packedTeams, channel, guessed = null) {
     };
   }
   return out;
+}
+
+/**
+ * Whether `orderNames` (a side's brought Pokemon in team-preview order) produces
+ * every Illusion disguise shown in `rawLines` when replayed against `unmaskedLines`.
+ */
+function partyMatchesDisguises(orderNames, unmaskedLines, rawLines, sideId, sheet) {
+  const users = (sheet?.members || []).filter(m => m.illusion);
+  if (users.length !== 1) return true;
+  if (new Set(sheet.members.map(m => m.name)).size !== sheet.members.length) return true;
+  const zoroarkName = users[0].name;
+  for (const l of unmaskedLines) {
+    if (l.includes('Neutralizing Gas') || l.includes('Revival Blessing')) return true;
+    if (l.startsWith('|-terastallize|') && l.includes(sideId) && l.includes(`: ${zoroarkName}`)) return true;
+  }
+  const slots = orderNames.slice();
+  const leads = Math.min(sheet.leads || 2, slots.length);
+  const fainted = new Set();
+  let initialEntered = 0;
+  for (let i = 0; i < unmaskedLines.length; i++) {
+    const uParts = String(unmaskedLines[i]).split('|');
+    const kind = uParts[1];
+    const m = /^(p[1-4])([a-d]): (.+)$/.exec(uParts[2] || '');
+    if (!m || m[1] !== sideId) continue;
+    const pos = 'abcd'.indexOf(m[2]);
+    const realName = m[3];
+    if (kind === 'faint') {
+      fainted.add(realName);
+      continue;
+    }
+    if (kind === 'swap') {
+      const newPos = Number(uParts[3]);
+      if (pos >= 0 && newPos >= 0 && pos < leads && newPos < leads) {
+        [slots[pos], slots[newPos]] = [slots[newPos], slots[pos]];
+        continue;
+      }
+      return true;
+    }
+    if (kind !== 'switch' && kind !== 'drag') continue;
+    if (initialEntered < leads) {
+      initialEntered++;
+      if (slots[pos] !== realName) return false;
+    } else {
+      const from = slots.indexOf(realName);
+      if (from < leads || fainted.has(realName)) return false;
+      [slots[pos], slots[from]] = [slots[from], slots[pos]];
+    }
+    if (realName === zoroarkName) {
+      let disguisedAs = zoroarkName;
+      for (let j = slots.length - 1; j > pos; j--) {
+        if (!fainted.has(slots[j])) {
+          disguisedAs = slots[j];
+          break;
+        }
+      }
+      const rParts = String(rawLines[i] || '').split('|');
+      const rMatch = /^(p[1-4])[a-d]: (.+)$/.exec(rParts[2] || '');
+      const shownName = rMatch ? rMatch[2] : realName;
+      if (disguisedAs !== shownName) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Whether the stay starting at `stayAt` did something the Illusion user's set
+ * cannot: showed an exact max HP outside the Illusion user's range, Mega Evolved
+ * into another species's Mega forme, triggered a non-Illusion ability before any
+ * ability/forme change, used an unspoiled move only the shown Pokemon has,
+ * overlapped with the Illusion user in another slot, or survived a move hit
+ * without `|replace|` while Illusion was unsuppressed.
+ */
+function stayImpossibleForZoroark(rawLines, seenLines, stayAt, side, sheet) {
+  const users = (sheet?.members || []).filter(m => m.illusion);
+  if (users.length !== 1) return false;
+  const zoroark = users[0];
+  const rParts = String(rawLines[stayAt] || '').split('|');
+  const m = /^((p[1-4])[a-d]): (.+)$/.exec(rParts[2] || '');
+  if (!m || m[2] !== side) return false;
+  const [, slot, , rawShownName] = m;
+  const shown = sheet.members.find(x => x.name === rawShownName);
+  const hp = /^\d+\/(\d+)/.exec(rParts[4] || '');
+  const zoroarkCould = n => (zoroark.hpSpan ? n >= zoroark.hpSpan[0] && n <= zoroark.hpSpan[1] : n === zoroark.maxhp);
+  const shownCould = n => !shown || (shown.hpSpan ? n >= shown.hpSpan[0] && n <= shown.hpSpan[1] : n === shown.maxhp);
+  if (sheet.exact && hp && shownCould(Number(hp[1])) && !zoroarkCould(Number(hp[1]))) return true;
+
+  let stayEnd = seenLines.length;
+  let endedByReplace = false;
+  for (let j = stayAt + 1; j < seenLines.length; j++) {
+    const q = String(seenLines[j]).split('|');
+    if (q[1] === 'swap' && String(q[2] || '').startsWith(side)) { stayEnd = j; break; }
+    if (!String(q[2] || '').startsWith(`${slot}: `)) continue;
+    if (['switch', 'drag', 'replace', 'faint'].includes(q[1])) {
+      stayEnd = j;
+      endedByReplace = q[1] === 'replace';
+      break;
+    }
+  }
+  if (endedByReplace) return false;
+
+  const hasNeutralizingGas = seenLines.some(l => l.includes('Neutralizing Gas'));
+  const zoroarkUnique = sheet.members.filter(x => x.name === zoroark.name).length === 1;
+  let mover = null;
+  let moveSpoiled = false;
+  let abilitySpoiled = false;
+  let illusionSuppressed = hasNeutralizingGas;
+  for (let j = stayAt + 1; j < stayEnd; j++) {
+    const line = String(seenLines[j]);
+    const q = line.split('|');
+    if (q[1] === 'move') mover = q[2];
+    const who = /^((p[1-4])[a-d]): (.+)$/.exec(q[2] || '');
+    if (zoroarkUnique && who && who[2] === side && who[1] !== slot && who[3] === zoroark.name) return true;
+    if (q[1] === '-activate' && line.includes(`${slot}: `)) {
+      abilitySpoiled = true;
+      if (/^move: (Mimic|Sketch)$/.test(q[3] || '')) moveSpoiled = true;
+    }
+    if (!abilitySpoiled && (q[1] === '-fieldstart' || q[1] === '-weather')) {
+      const abMatch = /\[from\] ability: ([^|]+)/.exec(line);
+      if (abMatch && line.includes(`[of] ${slot}: `)) {
+        const ab = toID(abMatch[1]);
+        if (ab && ab !== zoroark.ability) return true;
+      }
+    }
+    if (!String(q[2] || '').startsWith(`${slot}: `)) continue;
+    if (q[1] === 'detailschange') {
+      const forme = String(q[3] || '').split(',')[0].trim();
+      if (forme && (!shown || shown.megas.has(forme)) && !zoroark.megas.has(forme)) return true;
+      abilitySpoiled = true;
+    }
+    if (q[1] === '-mega' && !zoroark.megas.size) return true;
+    if (['-transform', '-formechange', '-terastallize', '-endability'].includes(q[1])) {
+      abilitySpoiled = true;
+      if (q[1] === '-transform') moveSpoiled = true;
+      if (q[1] === '-endability') illusionSuppressed = true;
+    }
+    if (q[1] === '-ability') {
+      if (line.includes('[from]')) abilitySpoiled = true;
+      else if (!abilitySpoiled && toID(q[3]) && toID(q[3]) !== zoroark.ability) return true;
+    }
+    if (!illusionSuppressed && q[1] === '-damage' && !line.includes('[from]')
+      && !/^0\b/.test(q[3] || '') && mover && mover !== q[2]) {
+      return true;
+    }
+    if (!moveSpoiled && q[1] === 'move' && !line.includes('[from]')) {
+      const move = toID(q[3]);
+      if (move !== 'struggle' && shown?.moves.has(move) && !zoroark.moves.has(move)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether `seenLines` (with `forcedOnSide` unmasked on `side`) obeys Showdown's
+ * team-size, active-slot uniqueness, fainted-switch, per-stay and party-slot
+ * Illusion invariants on `side`.
+ */
+function sideConsistent(rawLines, seenLines, side, sheet, size, forcedOnSide) {
+  if (!sheet) return true;
+  for (const at of forcedOnSide) {
+    if (stayImpossibleForZoroark(rawLines, seenLines, at, side, sheet)) return false;
+  }
+  const rev = revealOrder(seenLines)[side];
+  if (rev.length > size) return false;
+  const active = new Map();
+  const dead = new Set();
+  const entered = new Set();
+  for (const line of seenLines) {
+    if (line.includes('Revival Blessing')) dead.clear();
+    const parts = String(line).split('|');
+    const m = /^((p[1-4])[a-d]): (.+)$/.exec(parts[2] || '');
+    if (!m || m[2] !== side) continue;
+    const [, slot, , name] = m;
+    const unique = sheet.members.filter(x => x.name === name).length === 1;
+    if (parts[1] === 'faint') {
+      active.delete(slot);
+      if (unique) dead.add(name);
+    } else if (parts[1] === 'swap') {
+      const pos = Number(parts[3]);
+      const other = pos >= 0 && pos < 4 ? `${side}${'abcd'[pos]}` : null;
+      if (other) {
+        const [va, vb] = [active.get(slot), active.get(other)];
+        active.delete(slot); active.delete(other);
+        if (vb !== undefined) active.set(slot, vb);
+        if (va !== undefined) active.set(other, va);
+      } else {
+        active.clear();
+      }
+    } else if (parts[1] === 'replace') {
+      if (unique && ([...active.entries()].some(([s, n]) => s !== slot && n === name) || dead.has(name))) return false;
+      active.set(slot, name);
+      entered.add(name);
+    } else if (parts[1] === 'switch' || parts[1] === 'drag') {
+      if (unique && ([...active.values()].includes(name) || dead.has(name))) return false;
+      if (unique && !entered.has(name)) {
+        const hp = /^(\d+)\/(\d+)/.exec(parts[4] || '');
+        if (hp && Number(hp[1]) < Number(hp[2])) return false;
+        if (/\b(psn|tox|brn|par|slp|frz)\b/.test(parts[4] || '')) return false;
+      }
+      active.set(slot, name);
+      entered.add(name);
+    }
+  }
+  const users = (sheet.members || []).filter(m => m.illusion);
+  if (users.length === 1 && new Set(sheet.members.map(m => m.name)).size === sheet.members.length) {
+    const leads = Math.min(sheet.leads || 2, size);
+    const front = rev.slice(0, leads);
+    const known = rev.slice(leads);
+    const pool = sheet.members.map(m => m.name).filter(n => !rev.includes(n));
+    const need = Math.max(0, size - front.length - known.length);
+    let anyOrder = false;
+    outer: for (const chosen of combinations(pool, need)) {
+      for (const back of permutations([...known, ...chosen])) {
+        const order = [...front, ...back].slice(0, size);
+        if (partyMatchesDisguises(order, seenLines, rawLines, side, sheet)) {
+          anyOrder = true;
+          break outer;
+        }
+      }
+    }
+    if (!anyOrder) return false;
+  }
+  return true;
+}
+
+/**
+ * Structural Illusion analysis for one side: finds switch-ins that MUST be the
+ * Illusion user across every consistent reading (`autoForced`), those that can
+ * go either way (`open`), and tests complete or partial forced assignments.
+ */
+function analyseIllusionSide(lines, sheets, side) {
+  const sheet = sheets?.[side];
+  const users = (sheet?.members || []).filter(m => m.illusion);
+  if (users.length !== 1) {
+    return { autoForced: [], open: [], valid: () => true, canExtend: () => true };
+  }
+  const zoroark = users[0];
+  const size = teamSizes(lines)[side];
+  const base = unmaskIllusion(lines, { [side]: sheet });
+  const rawStays = illusionStays(lines, { [side]: sheet });
+  const candidates = rawStays.filter(({ at }) => {
+    const m = /^(p[1-4])[a-d]: (.+)$/.exec(String(base.lines[at] || '').split('|')[2] || '');
+    if (!m || m[2] === zoroark.name) return false;
+    return !stayImpossibleForZoroark(lines, base.lines, at, side, sheet);
+  });
+
+  if (candidates.length <= 8) {
+    const validMasks = [];
+    for (let mask = 0; mask < (1 << candidates.length); mask++) {
+      const trial = new Set(candidates.filter((_, k) => mask & (1 << k)).map(x => x.at));
+      const unmasked = unmaskIllusion(lines, { [side]: sheet }, trial);
+      if (sideConsistent(lines, unmasked.lines, side, sheet, size, trial)) validMasks.push(mask);
+    }
+    if (validMasks.length > 0) {
+      const autoForced = candidates
+        .filter((_, k) => validMasks.every(m => m & (1 << k)))
+        .map(x => x.at);
+      const open = candidates.filter((_, k) =>
+        validMasks.some(m => m & (1 << k)) && validMasks.some(m => !(m & (1 << k))))
+        .map(x => ({ ...x, side, name: identName(String(lines[x.at] || '').split('|')[2]) }));
+      const candIndex = new Map(candidates.map((c, k) => [c.at, k]));
+      const checkForced = (forcedOnSide, partial) => {
+        let reqBits = 0;
+        for (const at of forcedOnSide) {
+          const m = /^(p[1-4])[a-d]: (.+)$/.exec(String(base.lines[at] || '').split('|')[2] || '');
+          if (m && m[2] === zoroark.name) continue;
+          const idx = candIndex.get(at);
+          if (idx === undefined) return false;
+          reqBits |= 1 << idx;
+        }
+        if (partial) return validMasks.some(m => (m & reqBits) === reqBits);
+        let fullMask = reqBits;
+        for (const at of autoForced) fullMask |= 1 << candIndex.get(at);
+        return validMasks.includes(fullMask);
+      };
+      return {
+        autoForced,
+        open,
+        valid: set => checkForced(set, false),
+        canExtend: set => checkForced(set, true),
+      };
+    }
+  }
+
+  // Fallback for logs with >8 unsettled switches on one side (or synthetic invalid logs).
+  const autoSet = new Set();
+  const hasSwap = lines.some(l => /^\|swap\|/.test(l) && l.includes(side));
+  if (!hasSwap) {
+    let moved = true;
+    while (moved) {
+      moved = false;
+      const cur = unmaskIllusion(lines, { [side]: sheet }, autoSet).lines;
+      const activeBySlot = new Map();
+      const pairs = [];
+      for (let i = 0; i < cur.length; i++) {
+        const parts = String(cur[i]).split('|');
+        const m = /^((p[1-4])[a-d]): (.+)$/.exec(parts[2] || '');
+        if (!m || m[2] !== side) continue;
+        const [, slot, , name] = m;
+        if (parts[1] === 'faint') { activeBySlot.delete(slot); continue; }
+        if (parts[1] !== 'switch' && parts[1] !== 'drag' && parts[1] !== 'replace') continue;
+        const prevs = parts[1] === 'replace' ? [] : [...activeBySlot.values()];
+        activeBySlot.delete(slot);
+        if (parts[1] === 'replace') continue;
+        const entry = { slot, name, at: i };
+        for (const prev of prevs) pairs.push([prev, entry]);
+        activeBySlot.set(slot, entry);
+      }
+      for (const [a, b] of pairs) {
+        if (a.name !== b.name || a.name === zoroark.name) continue;
+        if (sheet.members.filter(x => x.name === a.name).length !== 1) continue;
+        const aImp = stayImpossibleForZoroark(lines, cur, a.at, side, sheet);
+        const bImp = stayImpossibleForZoroark(lines, cur, b.at, side, sheet);
+        if (aImp && !bImp && !autoSet.has(b.at)) { autoSet.add(b.at); moved = true; }
+        else if (bImp && !aImp && !autoSet.has(a.at)) { autoSet.add(a.at); moved = true; }
+      }
+    }
+  }
+  const curLines = unmaskIllusion(lines, { [side]: sheet }, autoSet).lines;
+  const open = candidates
+    .filter(c => !autoSet.has(c.at) && !stayImpossibleForZoroark(lines, curLines, c.at, side, sheet))
+    .map(x => ({ ...x, side, name: identName(String(lines[x.at] || '').split('|')[2]) }));
+  const directValid = (forcedOnSide) => {
+    const full = new Set([...autoSet, ...forcedOnSide]);
+    const unmasked = unmaskIllusion(lines, { [side]: sheet }, full);
+    return sideConsistent(lines, unmasked.lines, side, sheet, size, full);
+  };
+  return { autoForced: [...autoSet], open, valid: directValid, canExtend: directValid };
+}
+
+function analyseIllusion(lines, sheets) {
+  const bySide = {
+    p1: analyseIllusionSide(lines, sheets, 'p1'),
+    p2: analyseIllusionSide(lines, sheets, 'p2'),
+  };
+  const sideMap = (ats) => {
+    const out = { p1: new Set(), p2: new Set() };
+    for (const at of ats || []) {
+      const s = identSide(String(lines[at] || '').split('|')[2]);
+      if (out[s]) out[s].add(at);
+    }
+    return out;
+  };
+  return {
+    autoForced: [...bySide.p1.autoForced, ...bySide.p2.autoForced],
+    open: [...bySide.p1.open, ...bySide.p2.open].sort((a, b) => a.at - b.at),
+    valid(ats) {
+      const m = sideMap(ats);
+      return bySide.p1.valid(m.p1) && bySide.p2.valid(m.p2);
+    },
+    canExtend(ats) {
+      const m = sideMap(ats);
+      return bySide.p1.canExtend(m.p1) && bySide.p2.canExtend(m.p2);
+    },
+  };
+}
+
+function unmaskWithSheet(lines, sheets = null, forced = null) {
+  if (!sheets) return unmaskIllusion(lines, null, forced);
+  const analysis = analyseIllusion(lines, sheets);
+  const fullForced = new Set([...(forced || []), ...analysis.autoForced]);
+  return unmaskIllusion(lines, sheets, fullForced);
 }
 
 /** `|teamsize|pN|4` -> how many each side brought. */
@@ -510,6 +885,16 @@ function choiceFor(side, plan, state, notes) {
       if (last.length) {
         for (const full of permutations([...known, ...chosen, ...last])) addOrder(full, chosen, []);
       }
+    }
+    if (state.sheets?.[sideId] && state.unmaskedLines) {
+      const fits = [];
+      const rest = [];
+      for (const opt of options) {
+        const names = [...front, ...opt.back, ...opt.ends].slice(0, state.sizes[sideId]).map(at => bench[at]);
+        if (partyMatchesDisguises(names, state.unmaskedLines, state.rawLines, sideId, state.sheets[sideId])) fits.push(opt);
+        else rest.push(opt);
+      }
+      options.splice(0, options.length, ...fits, ...rest);
     }
     const { back, chosen, ends } = options.length > 1 ? options[state.nextVariantDigit(options.length, true)] : options[0];
     for (const i of chosen) notes.push(`${sideId} brought a Pokemon that never appeared - assumed ${bench[i]}`);
@@ -1374,6 +1759,9 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
       reveal: state0.reveal,
       sizes: state0.sizes,
       disguises: state0.disguises,
+      sheets: state0.sheets,
+      rawLines: state0.rawLines,
+      unmaskedLines: state0.unmaskedLines,
       forced: { p1: [...plans[k].forced.p1], p2: [...plans[k].forced.p2] },
       unsatisfied: null,
       selfSwitchLast: selfSwitchLast(dex),
@@ -2426,7 +2814,8 @@ async function reconstructOnce({
 
   // Who was really sent in, and who really acted, is planned from the log with
   // every Illusion seen through; the turns are still compared as shown.
-  const unmasked = unmaskIllusion(lines, sheetsOf(formatid, packedTeams, channel, guessed), forced);
+  const sheets = sheetsOf(formatid, packedTeams, channel, guessed);
+  const unmasked = unmaskWithSheet(lines, sheets, forced);
   const plans = splitTurns(unmasked.lines).map(s => planSegment(s, dex));
   recoverChargeTargets(plans);
 
@@ -2439,7 +2828,14 @@ async function reconstructOnce({
     `>player p2 ${JSON.stringify({ name: playerNames[1], avatar: avatar.p2, team: packedTeams[1] })}`,
   ];
 
-  const state0 = { reveal: revealOrder(unmasked.lines), sizes: teamSizes(lines), disguises: unmasked.disguises };
+  const state0 = {
+    reveal: revealOrder(unmasked.lines),
+    sizes: teamSizes(lines),
+    disguises: unmasked.disguises,
+    sheets,
+    rawLines: lines,
+    unmaskedLines: unmasked.lines,
+  };
   const reseeds = new Array(segments.length).fill(null);
   const variants = new Array(segments.length).fill(0);
   for (const [k, v] of Object.entries(pins?.variants || {})) {
@@ -2887,7 +3283,9 @@ export async function reconstruct(options) {
   const { brokenProof: broken } = best;
   if (best.report.complete || options.fixedReadings) return { ...best, forced: [...forced], cost };
   const lines = options.observed.filter(l => typeof l === 'string');
-  const stays = illusionStays(lines, sheetsOf(options.formatid, options.packedTeams, options.channel ?? -1, options.guessed));
+  const sheets = sheetsOf(options.formatid, options.packedTeams, options.channel ?? -1, options.guessed);
+  const analysis = analyseIllusion(lines, sheets);
+  const stays = analysis.open;
   const further = (a, b) => {
     const at = r => [r.report.diffs[0]?.turn ?? Infinity, r.report.diffs[0]?.index ?? Infinity];
     const [x, y] = [at(a), at(b)];
@@ -2896,29 +3294,49 @@ export async function reconstruct(options) {
   let moved = true;
   while (moved && !best.report.complete) {
     moved = false;
+    const baseValid = analysis.valid(forced);
     const failing = (best.report.diffs[0]?.turn ?? Infinity);
+    let bestTrial = null;
+    let bestAt = null;
     for (const { at, turn } of stays) {
-      if (forced.has(at) || turn > failing) continue;
-      const tried = await once({ ...options, exact: null, pins: null, forced: new Set([...forced, at]) });
-      if (further(tried, best)) {
-        best = tried;
-        forced.add(at);
-        moved = true;
-        break;
+      if (forced.has(at) || (baseValid && turn > failing)) continue;
+      const nextForced = new Set([...forced, at]);
+      if (!analysis.canExtend(nextForced)) continue;
+      const tried = await once({ ...options, exact: null, pins: null, forced: nextForced });
+      if (further(tried, bestTrial || best)) {
+        bestTrial = tried;
+        bestAt = at;
+        if (tried.report.complete) break;
       }
+    }
+    if (bestTrial) {
+      best = bestTrial;
+      forced.add(bestAt);
+      moved = true;
     }
   }
   return { ...best, forced: [...forced], cost, brokenProof: broken };
 }
 
-/** The switch-ins of a log that could be an Illusion user in disguise, as `illusionStays` gives them. */
+/**
+ * The unsettled switch-ins of a log that could be an Illusion user in disguise,
+ * with `.valid(ats)` and `.canExtend(ats)` checking structural consistency.
+ */
 export function disguisableStays(formatid, packedTeams, channel, observed, guessed = null) {
-  return illusionStays(observed.filter(l => typeof l === 'string'), sheetsOf(formatid, packedTeams, channel, guessed));
+  const lines = observed.filter(l => typeof l === 'string');
+  const analysis = analyseIllusion(lines, sheetsOf(formatid, packedTeams, channel, guessed));
+  const out = analysis.open.map(({ at, turn }) => ({ at, turn }));
+  Object.defineProperties(out, {
+    valid: { value: analysis.valid },
+    canExtend: { value: analysis.canExtend },
+  });
+  return out;
 }
 
-/** Those of them nothing settles, as `unsettledStays` gives them. */
+/** Those switch-ins nothing settles, as `{ at, turn, side, name }`. */
 export function unsettledDisguises(formatid, packedTeams, channel, observed, guessed = null) {
-  return unsettledStays(observed.filter(l => typeof l === 'string'), sheetsOf(formatid, packedTeams, channel, guessed));
+  const lines = observed.filter(l => typeof l === 'string');
+  return analyseIllusion(lines, sheetsOf(formatid, packedTeams, channel, guessed)).open;
 }
 
 /** Both teams as set objects, the shape a `.log.json` carries them in. */

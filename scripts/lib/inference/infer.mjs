@@ -1251,22 +1251,31 @@ export async function inferSpreads({
   // switch-in as the Illusion user, and the first that rebuilds is kept. The
   // plain reading's search ran out without proving it wrong (audit A50), so
   // every Pokemon also keeps what the plain reading left it.
+  const triedReadings = new Map();
   if (!built.report.complete && readings && Date.now() < deadline) {
     const packed = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
-    const failing = built.report.diffs[0]?.turn ?? Infinity;
-    for (const { at, turn } of disguisableStays(formatid, packed, channel, observed, guessed)) {
-      if (turn > failing || (built.forced || []).includes(at)) continue;
+    const given = [...(forced || [])];
+    const stays = disguisableStays(formatid, packed, channel, observed, guessed);
+    const plainValid = !stays.valid || stays.valid(given);
+    const failing = Math.max(built.report.diffs[0]?.turn ?? 0, deepest?.[0] ?? 0) || Infinity;
+    for (const { at, turn } of stays) {
+      if ((plainValid && turn > failing) || (built.forced || []).includes(at)) continue;
+      const nextForced = [...given, at];
+      if (stays.canExtend && !stays.canExtend(nextForced)) continue;
       onProgress(`reading the switch-in at line ${at} as the Illusion user`);
-      const other = absorb(await inferSpreads({ ...options, forced: [at], readings: false }));
+      const other = absorb(await inferSpreads({ ...options, forced: nextForced, readings: false, fixedReadings: true }));
+      triedReadings.set([...nextForced].sort((a, b) => a - b).join(','), other);
       if (!other.complete) continue;
-      for (const p of other.pokemon) {
-        if (p.known) continue;
-        uniteKnowledge(other.knowledge.get(p.id), knowledge.get(p.id));
-        tighten(other.knowledge.get(p.id));
-        Object.assign(p, summarise(other.knowledge.get(p.id)));
+      if (plainValid) {
+        for (const p of other.pokemon) {
+          if (p.known) continue;
+          uniteKnowledge(other.knowledge.get(p.id), knowledge.get(p.id));
+          tighten(other.knowledge.get(p.id));
+          Object.assign(p, summarise(other.knowledge.get(p.id)));
+        }
       }
       ahead?.cancel();
-      return spareDisguises(Object.assign(other, { work, warnings, lost }));
+      return spareDisguises(Object.assign(other, { work, warnings, lost }), triedReadings);
     }
   }
 
@@ -1322,7 +1331,7 @@ export async function inferSpreads({
     warnings,
     lost,
     stop,
-  });
+  }, triedReadings);
 
   // Where the search starts decides, more than anything, whether a hard battle
   // rebuilds: the same battle can give up from one start and rebuild from
@@ -1411,7 +1420,7 @@ export async function inferSpreads({
    * rebuilds, and one the deadline cut short widens every Pokemon to every
    * spread.
    */
-  async function spareDisguises(res) {
+  async function spareDisguises(res, memo = new Map()) {
     // The readings below add to `limits`, which `res` carries a copy of.
     const done = () => Object.assign(res, { limits: [...limits].sort() });
     if (!readings) return done();
@@ -1441,18 +1450,42 @@ export async function inferSpreads({
     const unsettled = unsettledDisguises(formatid, packed, channel, observed, guessed).filter(x => !base.includes(x.at));
     const open = [...chosen, ...unsettled.map(x => x.at)];
     if (!open.length) return done();
-    const text = observed.filter(l => typeof l === 'string');
-    const sideOf = at => Number(/^\|\w+\|p([1-4])/.exec(String(text[at] || ''))?.[1] || 0) - 1;
-    const read = async ats => absorb(await inferSpreads({ ...options, forced: [...given, ...ats], readings: false, fixedReadings: true }));
+    const read = async (ats) => {
+      const nextForced = [...given, ...ats];
+      const key = [...nextForced].sort((a, b) => a - b).join(',');
+      if (memo.has(key)) return memo.get(key);
+      const out = absorb(await inferSpreads({ ...options, forced: nextForced, readings: false, fixedReadings: true }));
+      memo.set(key, out);
+      return out;
+    };
     const has = new Set(base);
+    let seeded = !stays.valid || stays.valid(base);
+    const merge = (from, sides, spare = null) => {
+      if (!seeded) {
+        for (const s of sides) {
+          if (known[s]) continue;
+          for (const [i, set] of sets[s].entries()) {
+            const id = `p${s + 1}:${i}`;
+            if (spare === s && toID(set.ability) === 'illusion') continue;
+            const kn = res.knowledge.get(id);
+            kn.keys.fill(0);
+            for (const st of FLAT) kn.dom[st].fill(0);
+            kn.ties = {};
+          }
+        }
+        seeded = true;
+      }
+      unite(from, sides, spare);
+    };
     if (open.length <= MAX_READINGS) {
       onProgress(`reading ${open.length} switch-in(s) each way, as the Pokemon shown and as the Illusion user`);
       for (let mask = 0; mask < 1 << open.length; mask++) {
         const ats = open.filter((_, k) => mask & (1 << k));
-        const same = ats.length === chosen.length && ats.every(at => has.has(at));
+        const same = seeded && ats.length === chosen.length && ats.every(at => has.has(at));
         if (same) continue;
+        if (stays.valid && !stays.valid([...given, ...ats])) continue;
         const other = late() ? null : await read(ats);
-        unite(other ? other.knowledge : blank, [0, 1]);
+        merge(other ? other.knowledge : blank, [0, 1]);
         // A reading that rebuilds the whole log, where the one kept did not, is
         // the rebuild the result reports: two disguises can be needed together,
         // and the rebuilds try none on their own. What every reading leaves is
@@ -1467,7 +1500,7 @@ export async function inferSpreads({
       // Pokemon to another through what the evidence settles, so every
       // Pokemon of both sides keeps every spread.
       onProgress(`${open.length} switch-ins could each be the Illusion user: every Pokemon keeps every spread`);
-      unite(blank, [0, 1]);
+      merge(blank, [0, 1]);
     }
     res.checks.push({
       turn: Math.min(...open.map(turnOf)),
