@@ -2072,6 +2072,7 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     // second die can be thrown after the line the turn disagrees on: the
     // first one moves that line.
     if (!committed) {
+      let pairFallback = null;
       const chances = all.filter(d => (d.chance || d.hi - d.lo + 1 > 16) && subs[d.i] === undefined);
       pairs: for (const a of chances) {
         if (!reach(a)) continue;
@@ -2082,15 +2083,26 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
               if (probes >= budget) { cut = 'probes'; break pairs; }
               const probe = await ask.get({ ...subs, [a.i]: va, [b.i]: vb });
               probes++;
-              if (scoreOf(probe, t)[0] > score[0]) {
+              const probeScore = scoreOf(probe, t);
+              if (probeScore[0] > score[0]) {
                 commit(a.i, va, shapeOf(a));
                 commit(b.i, vb, shapeOf(b));
                 committed = true;
                 break pairs;
               }
+              if (probeScore[0] === score[0] && probeScore[1] > score[1]
+                && (!pairFallback || outranks(probeScore, pairFallback.best))) {
+                pairFallback = { a, va, b, vb, best: probeScore };
+              }
             }
           }
         }
+      }
+      if (!committed && pairFallback && score[0] !== trialDoneAt) {
+        if (!onTrial) onTrial = { at: commits.length, lines: score[0], inPlace: false };
+        commit(pairFallback.a.i, pairFallback.va, shapeOf(pairFallback.a));
+        commit(pairFallback.b.i, pairFallback.vb, shapeOf(pairFallback.b));
+        committed = true;
       }
     }
     // Then a chance with the die it brings in or shifts onto a new ordinal:
