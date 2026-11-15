@@ -371,6 +371,10 @@ export async function inferSpreads({
   let picks = firstGuesses(start);
   const ahead = parallel && deadline === Infinity && start === 'default' && !wide ? parallel.ahead(restarts()) : null;
 
+  // Cross-round simulator cache: keyed by full battle-state + move/crit/draws
+  // signature, so dry damage rows never re-run `getDamage` across rounds.
+  const simCache = new Map();
+
   // Every speed order a round's own evidence read, by its two Pokemon and
   // tables: applied in every settle after, the guess picker's too, so a pin
   // on one Speed moves the other.
@@ -396,7 +400,7 @@ export async function inferSpreads({
         let by = [];
         if (step === 'evidence') {
           // The pass again from what it started with, recording what each event removed.
-          const again = await evidencePass({ inputLog, observed: lines, channel, knowledge: before, cache, record: true, truth: Object.fromEntries(Object.entries(truth).map(([k, v]) => [k, fullEvs(v)])), beforeTurn });
+          const again = await evidencePass({ inputLog, observed: lines, channel, knowledge: before, cache, simCache, record: true, truth: Object.fromEntries(Object.entries(truth).map(([k, v]) => [k, fullEvs(v)])), beforeTurn });
           const cuts = (again.events || []).flatMap(e => e.cuts.filter(c => c.id === id).map(c => ({ turn: e.turn, what: e.what, narrowed: c.narrowed, real: !!c.lostReal })));
           by = cuts.filter(c => c.real);
           if (!by.length) by = cuts;
@@ -428,8 +432,9 @@ export async function inferSpreads({
       }
     }
     while (passes < 8 * S) {
+      if (passes > 0 && Date.now() >= deadline) { limits.add('deadline'); break; }
       const before = watch ? cloneKnowledge(knowledge) : null;
-      const pass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, record: record && !first, beforeTurn });
+      const pass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, simCache, record: record && !first, beforeTurn });
       passes++;
       work.passes++;
       let moved = false;
@@ -506,7 +511,7 @@ export async function inferSpreads({
   // guesses while the rest of its spread stays free to move and released once
   // later evidence overrides it or a downstream stall contradicts it.
   const gaps = new Map();
-  const gap = (mark, entry, found = false) => gaps.set(mark, { entry, at: mark.split('|').slice(0, 2).map(Number), found });
+  const gap = (mark, entry, found = false, verify = null) => gaps.set(mark, { entry, at: mark.split('|').slice(0, 2).map(Number), found, verify });
   const searched = new Map();
   const failedAtKn = new Map();
   const abortedBefore = new Map();
@@ -542,11 +547,12 @@ export async function inferSpreads({
     const [side, slot] = id.split(':');
     return chosen[Number(side.slice(1)) - 1]?.[Number(slot)];
   };
-  const ordersAllow = (chosen, list = orders.values()) => {
-    for (const { fast, slow, tf, ts, strict } of list) {
-      const ef = evOf(chosen, fast);
-      const ew = evOf(chosen, slow);
-      if (ef && ew && (strict ? tf[ef.spe] <= ts[ew.spe] : tf[ef.spe] < ts[ew.spe])) return false;
+  const ordersAllow = (chosen, list = orders.values(), maxTurn = Infinity) => {
+    for (const o of list) {
+      if (o.turn >= 0 && o.turn >= maxTurn) continue;
+      const ef = evOf(chosen, o.fast);
+      const ew = evOf(chosen, o.slow);
+      if (ef && ew && (o.strict ? o.tf[ef.spe] <= o.ts[ew.spe] : o.tf[ef.spe] < o.ts[ew.spe])) return false;
     }
     return true;
   };
@@ -629,7 +635,7 @@ export async function inferSpreads({
     return limit;
   };
   const certifyAt = async (fromBuilt, chosen, beforeTurn, sharedCache, witness) => {
-    if (!(beforeTurn >= 1)) return null;
+    if (!(beforeTurn >= 1) || !ordersAllow(chosen, [...orders.values()], beforeTurn)) return null;
     const pinned = cloneKnowledge(blank);
     for (const [s, team] of sets.entries()) {
       if (known[s]) continue;
@@ -638,11 +644,11 @@ export async function inferSpreads({
     work.passes++;
     const p = await evidencePass({
       inputLog: fromBuilt.inputLog, observed: lines, channel,
-      knowledge: pinned, cache: sharedCache, exact: true, beforeTurn,
+      knowledge: pinned, cache: sharedCache, simCache, exact: true, beforeTurn,
     });
     if (!p.exact?.size) return null;
     for (const r of p.recs) intersectKnowledge(pinned.get(r.id), r.keys, r.flat, r.ties);
-    orderSpeeds(pinned, p.orders || []);
+    orderSpeeds(pinned, [...orders.values(), ...(p.orders || [])]);
     for (const kn of pinned.values()) tighten(kn);
     if ([...pinned.values()].some(kn => !kn.known && emptied(kn))) return null;
     const firstUnproved = [...p.exact.entries()].find(([, v]) => v.partial || v.proved !== undefined)?.[0] ?? Infinity;
@@ -653,6 +659,7 @@ export async function inferSpreads({
     return { exact: ex, pins: handOn(fromBuilt, rolls, coupledAt) };
   };
   const certifyPrefix = async (fromBuilt, chosen, scaffoldList, maxBeforeTurn, sharedCache = new Map(), witness = null) => {
+    if (Date.now() >= deadline) { limits.add('deadline'); return { exact: null, pins: null }; }
     const cap = scaffoldLimit(chosen, scaffoldList, maxBeforeTurn);
     if (!(cap >= 1)) return { exact: null, pins: null };
     const full = await certifyAt(fromBuilt, chosen, cap, sharedCache, witness);
@@ -660,12 +667,13 @@ export async function inferSpreads({
     let lo = 0;
     let hi = cap - 1;
     let best = null;
-    while (lo < hi) {
+    while (lo < hi && Date.now() < deadline) {
       const mid = (lo + hi + 1) >> 1;
       const got = await certifyAt(fromBuilt, chosen, mid, sharedCache, witness);
       if (got) { best = got; lo = mid; }
       else hi = mid - 1;
     }
+    if (lo < hi && Date.now() >= deadline) limits.add('deadline');
     return best || { exact: null, pins: null };
   };
 
@@ -1720,12 +1728,13 @@ export async function inferSpreads({
     // A spread found under the dice of the turns before can owe the line to
     // dice that land differently under it; the guess itself, with those dice
     // searched again, says whether it does.
+    let preSame = t <= 1;
     if ((found || ahead) && hasHanded()) {
       const cand = found || ahead;
       const subsKept = !cand.got.fresh && !cand.got.resampled
         && Object.entries(handed.subs).every(([k, v]) => cand.got.b.pins?.subs?.[k] === v)
         && handed.variants.every((v, k) => (cand.got.b.pins?.variants?.[k] || 0) === (v || 0));
-      let preSame = false;
+      preSame = false;
       if (subsKept && t > 1) {
         const r1 = await replayWith(scaffoldLog, packOf(cand.got.chosen), t - 1, -1);
         const r2 = r1 !== null ? await replayWith(scaffoldLog, packOf(start), t - 1, -1) : null;
@@ -1746,24 +1755,44 @@ export async function inferSpreads({
       const by = passed.length ? passed : win.by;
       const text = `${what} (moved by ${named(by)})`;
       if (!gaps.get(mark)?.found) {
+        const diceLimits = dice.cost?.limits || dice.report.limits || [];
         const diceStoppedByCap = activeDiceBudget !== budgets[maxNonResample]
-          && (dice.report.stop === 'probes' || dice.report.stop === 'backtracks');
-        let read = further(reach(dice), target);
-        const checks = [
-          ...(proven?.exact ? [[proven.picks, proven.pins, proven.exact]] : []),
-          ...(diceStoppedByCap ? [[start, handed, null]] : []),
-        ];
-        for (const [chosen, given, ex] of checks) {
-          if (read) break;
-          const b = counted(await reconstruct({
-            formatid, packedTeams: packOf(chosen), playerNames, observed: through, channel, exact: ex, forced: built.forced,
-            seed: roundSeed, pins: given, sampleSeed: roundSample,
-            maxProbes: budgets[maxNonResample].maxProbes, maxBacktracks: budgets[1].maxBacktracks,
-            threads, deadline, ...searchLimits,
-          }), true, ex);
-          read = b.report.complete || further(reach(b), target);
+          && (dice.report.stop === 'probes' || dice.report.stop === 'backtracks'
+            || diceLimits.some(l => ['probes', 'redrawProbes', 'backtracks'].includes(l)));
+        const diceHitProbes = diceLimits.some(l => ['probes', 'redrawProbes', 'variants'].includes(l));
+        const diceHitProbeCap = diceLimits.some(l => ['probes', 'redrawProbes'].includes(l));
+        const read = further(reach(dice), target);
+        if (!read) {
+          const forcedNow = built.forced;
+          const seedNow = roundSeed;
+          const sampleNow = roundSample;
+          const handedNow = handed;
+          const startNow = start;
+          gap(mark, { turn: t, what: text, who: whoIn(text, by), reason: 'no evidence hook reads this line, and the fallback found a spread that reproduces it' }, true, async () => {
+            if (Date.now() >= deadline) return false;
+            const runCheck = async (chosen, given, ex, maxP, maxB) => {
+              const b = counted(await reconstruct({
+                formatid, packedTeams: packOf(chosen), playerNames, observed: through, channel, exact: ex, forced: forcedNow,
+                seed: seedNow, pins: given, sampleSeed: sampleNow, maxProbes: maxP, maxBacktracks: maxB,
+                threads, deadline, ...searchLimits,
+              }), true, ex);
+              return b.report.complete || further(reach(b), target);
+            };
+            if (proven?.exact) {
+              if (await runCheck(proven.picks, proven.pins ?? handedNow, proven.exact, budget.maxProbes, 0)) return true;
+              const capP = t <= 3 ? Math.min(maxProbes, 4000) : Math.min(maxProbes, 1200);
+              const capB = t <= 3 ? 6 : 2;
+              if (await runCheck(proven.picks, proven.pins ?? handedNow, proven.exact, capP, capB)) return true;
+            }
+            if (diceStoppedByCap) {
+              const capP = t <= 3 ? Math.min(maxProbes, 4000) : Math.min(maxProbes, 1200);
+              const capB = t <= 3 ? 6 : preSame && !diceHitProbes ? 1 : 2;
+              const alreadyCovered = capB <= activeDiceBudget.maxBacktracks && (capP <= activeDiceBudget.maxProbes || !diceHitProbeCap);
+              if (!alreadyCovered && await runCheck(startNow, handedNow, null, capP, capB)) return true;
+            }
+            return false;
+          });
         }
-        if (!read) gap(mark, { turn: t, what: text, who: whoIn(text, by), reason: 'no evidence hook reads this line, and the fallback found a spread that reproduces it' }, true);
       }
       onProgress(`  fallback on turn ${t}: ${found ? 'reproduced' : `past the line, stopping at ${reach(ahead.got.b).join('.')}`} in ${spent} rebuilds, ${clock()}`);
       const fullNorm = list => list && list.map(l => l.replace(/\|(\d+)\/\1(?=[|\s]|$)/g, '|100/100'));
@@ -1981,6 +2010,7 @@ export async function inferSpreads({
     onProgress(`round ${rounds}${level ? ` (search ${level + 1})` : ''}, ${((Date.now() - searchStart) / 1000).toFixed(1)}s: ${built.report.complete ? 'the whole log reproduces'
       : `reproduces through turn ${built.report.verifiedThroughTurn} - wanted ${diff?.expected}, got ${diff?.actual}`}`);
     if (built.report.complete) break;
+    if (Date.now() >= deadline) { stop = 'deadline'; break; }
 
     const cache = new Map();
     const evidenceStart = Date.now();
@@ -2033,7 +2063,7 @@ export async function inferSpreads({
       if (n === seq.length) {
         tries--;
         work.passes++;
-        const proof = await evidencePass({ inputLog: built.inputLog, observed: lines, channel, knowledge: cond, cache, exact: true, beforeTurn });
+        const proof = await evidencePass({ inputLog: built.inputLog, observed: lines, channel, knowledge: cond, cache, simCache, exact: true, beforeTurn });
         return proof.exact ? { ...proof, beforeTurn } : null;
       }
       const [s, i] = seq[n];
@@ -2069,6 +2099,7 @@ export async function inferSpreads({
           aimFor(curKn, picks[s][i], 0), aimFor(curKn, picks[s][i], 1),
         ].map(withHeldAim);
         for (const aim of aims) {
+          if (Date.now() >= deadline) { limits.add('deadline'); return null; }
           if (triedAims.some(a => sameSpread(a, aim))) continue;
           triedAims.push(aim);
           if (tries <= 0 || checks <= 0) { limits.add('guessTries'); return null; }
@@ -2142,7 +2173,7 @@ export async function inferSpreads({
     const pickGuesses = async (beforeTurn = Infinity, preferPrev = null) => {
       let found = await choose(0, within(beforeTurn), beforeTurn, preferPrev);
       const moved = new Set();
-      while (!found && tries > 0 && checks > 0) {
+      while (!found && tries > 0 && checks > 0 && Date.now() < deadline) {
         const key = [...blocked].filter(([k]) => !moved.has(k)).sort((a, b) => b[1] - a[1])[0]?.[0];
         if (key === undefined) break;
         moved.add(key);
@@ -2154,7 +2185,7 @@ export async function inferSpreads({
     };
     let proof = await pickGuesses();
     const isUnchanged = () => next.every((team, s) => team.every((e, i) => sameSpread(e, picks[s][i])));
-    if (keep.length && (!proof
+    if (keep.length && Date.now() < deadline && (!proof
       || ((isUnchanged() || visited.has(signature(next))) && (failed.has(mark) || !built.report.limits.length)))) {
       keep = [];
       next = picks.map(team => team.map(e => ({ ...e })));
@@ -2410,6 +2441,20 @@ export async function inferSpreads({
     }
   }
 
+  const resolvePlainChecks = async (res) => {
+    const confirmed = [];
+    for (const g of gaps.values()) {
+      if (g.found) {
+        if (!(await g.verify?.())) confirmed.push(g.entry);
+      } else if (!rebuiltPast(g.at)) {
+        confirmed.push(g.entry);
+      }
+    }
+    if (confirmed.length) res.checks = [...result.checks, ...confirmed, ...res.checks.slice(result.checks.length)];
+    res.limits = [...limits].sort();
+    return res;
+  };
+
   const plain = await spareDisguises({
     complete: built.report.complete,
     rounds,
@@ -2418,7 +2463,7 @@ export async function inferSpreads({
     picks,
     pokemon,
     events: result.events,
-    checks: [...result.checks, ...[...gaps.values()].filter(g => g.found || !rebuiltPast(g.at)).map(g => g.entry)],
+    checks: [...result.checks],
     cutoff: result.cutoff,
     passes: result.passes,
     knowledge: final,
@@ -2440,11 +2485,12 @@ export async function inferSpreads({
   // removed was removed by evidence, so each Pokemon keeps only what all
   // left, and the rebuild is the one that reproduced the log, if one did:
   // never worse than the first search alone. One that gave up from all three
-  // runs the three once more with every limit `WIDE` times wider (`widest`),
-  // as `--budget` widens them, and no wider after that: a battle any earlier
-  // start rebuilds never gets there.
+  // runs `default` and `usage` once more with every limit `WIDE` times wider
+  // (`widest`), as `--budget` widens them, and no wider after that: a battle
+  // any earlier start rebuilds never gets there.
   if (plain.complete || wide || start !== 'default' || Date.now() >= deadline) {
     ahead?.cancel();
+    if (plain.complete || (!wide && start === 'default' && readings)) await resolvePlainChecks(plain);
     return plain;
   }
   const starts = [plain];
@@ -2455,6 +2501,7 @@ export async function inferSpreads({
   }
   ahead?.cancel();
   const kept = starts.find(r => r.complete) || plain;
+  if (kept === plain) await resolvePlainChecks(plain);
   for (const partner of starts) {
     if (partner === kept) continue;
     for (const p of kept.pokemon) {
@@ -2488,13 +2535,13 @@ export async function inferSpreads({
     // Not for the inferences run again under another reading of an Illusion
     // (`readings: false`): a battle that rebuilds keeps its path.
     if (!readings) return list;
-    list.push({
-      key: 'wide', need: 0, note: `the search gave up; searching once more with ${WIDE} times the fallback's rebuilds and the joint guess tries`,
-      options: { ...options, wide: true, spend: { rebuilds: FALLBACK_TOTAL * WIDE * budgetScale, fruitless: new Set() } },
-    });
     if (!widest) {
       list.push({
-        key: 'widest', need: list.length, note: `the search gave up from every start; searching from each again with every limit ${WIDE} times wider`,
+        key: 'wide', need: 0, note: `the search gave up; searching once more with ${WIDE} times the fallback's rebuilds and the joint guess tries`,
+        options: { ...options, wide: true, spend: { rebuilds: FALLBACK_TOTAL * WIDE * budgetScale, fruitless: new Set() } },
+      });
+      list.push({
+        key: 'widest', need: differs ? 1 : 0, note: `the search gave up from every start; searching from each again with every limit ${WIDE} times wider`,
         options: { ...options, widest: true, budgetScale: budgetScale * WIDE, spend: { rebuilds: FALLBACK_TOTAL * WIDE * budgetScale, fruitless: new Set() } },
       });
     }

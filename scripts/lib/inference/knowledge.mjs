@@ -244,7 +244,7 @@ function tiedBudget(keys, dom, ties, spent) {
   const tied = FLAT.filter(s => ties[s]);
   const pairs = pairsOf(ties);
   const words = FLAT.map(s => maskWords(dom[s]));
-  const keyOk = new Set();
+  const keyOk = new Uint8Array(KEYS);
   const flatOk = Object.fromEntries(FLAT.map(s => [s, new Uint8Array(SPAN)]));
   const fit = (total, room) => (spent ? total === room : total <= room);
   if (tied.length === 1 && !pairs.length) {
@@ -266,28 +266,46 @@ function tiedBudget(keys, dom, ties, spent) {
       const need = room - base;
       return need >= 0 && need < totals.length && totals[need] === 1;
     };
-    // What a tied value marks beside the untied stats depends on the room and
-    // the value alone: each pair of them is worked out once.
-    const marked = new Uint8Array((BUDGET + 1) * SPAN);
+    // Which tied values fit each room beside the untied stats: precomputed as a
+    // bitmask per room so every key tests all 33 values at once, and the untied
+    // stats are marked once per (room, value) that any surviving key reached.
+    const j = FLAT.indexOf(t);
+    const tie = ties[t];
+    const w0 = words[j][0];
+    const w1 = words[j][1] & 1;
+    const fitLo = new Uint32Array(BUDGET + 1);
+    const fitHi = new Uint8Array(BUDGET + 1);
+    for (let room = 0; room <= BUDGET; room++) {
+      let lo = 0;
+      for (let v = 0; v < 32; v++) if (fitsWith(both, lowBoth, v, room)) lo |= 1 << v;
+      fitLo[room] = lo >>> 0;
+      if (fitsWith(both, lowBoth, 32, room)) fitHi[room] = 1;
+    }
+    const roomLo = new Uint32Array(BUDGET + 1);
+    const roomHi = new Uint8Array(BUDGET + 1);
     for (const k of keys) {
       const room = BUDGET - KEY_SUM[k];
       if (room < 0) continue;
-      const j = FLAT.indexOf(t);
-      const list = wordValues((ties[t][2 * k] & words[j][0]) >>> 0, ties[t][2 * k + 1] & words[j][1]);
-      let any = false;
-      for (const v of list) {
-        if (!fitsWith(both, lowBoth, v, room)) continue;
-        any = true;
+      const lo = (tie[2 * k] & w0 & fitLo[room]) >>> 0;
+      const hi = tie[2 * k + 1] & w1 & fitHi[room];
+      if (lo === 0 && hi === 0) continue;
+      keyOk[k] = 1;
+      roomLo[room] = (roomLo[room] | lo) >>> 0;
+      roomHi[room] |= hi;
+    }
+    for (let room = 0; room <= BUDGET; room++) {
+      const rLo = roomLo[room];
+      const rHi = roomHi[room];
+      if (rLo === 0 && rHi === 0) continue;
+      for (let v = 0; v < SPAN; v++) {
+        if (!(v < 32 ? (rLo >>> v) & 1 : rHi & 1)) continue;
         flatOk[t][v] = 1;
-        if (marked[room * SPAN + v]) continue;
-        marked[room * SPAN + v] = 1;
         for (const x of free) {
           for (const w of vals[x]) {
             if (!flatOk[x][w] && fitsWith(other[x], lowOther[x], v + w, room)) flatOk[x][w] = 1;
           }
         }
       }
-      if (any) keyOk.add(k);
     }
   } else {
     // Per signature, the totals the whole choices reach, and each flat value's
@@ -297,9 +315,10 @@ function tiedBudget(keys, dom, ties, spent) {
     for (const k of keys) {
       const room = BUDGET - KEY_SUM[k];
       if (room < 0) continue;
-      const { lists, sig } = listsFor(k, dom, ties, words);
+      const sig = sigFor(k, ties, words);
       let by = memo.get(sig);
       if (!by) {
+        const { lists } = listsFor(k, dom, ties, words);
         const vals = FLAT.map(x => lists[x] || aliveOf(dom[x]));
         const any = new Uint8Array(TOTALS);
         const at = FLAT.map(() => new Array(SPAN).fill(null));
@@ -329,10 +348,10 @@ function tiedBudget(keys, dom, ties, spent) {
         by.rooms.set(room, ok);
         if (ok) for (const [j, x] of FLAT.entries()) for (let w = 0; w < SPAN; w++) if (by.at[j][w] && fits(by.at[j][w])) flatOk[x][w] = 1;
       }
-      if (ok) keyOk.add(k);
+      if (ok) keyOk[k] = 1;
     }
   }
-  return { key: k => keyOk.has(k), flat: FLAT.map(x => v => flatOk[x][v] === 1) };
+  return { key: k => keyOk[k] === 1, flat: FLAT.map(x => v => flatOk[x][v] === 1) };
 }
 
 /**
@@ -386,8 +405,10 @@ export function tighten(kn) {
       return moved || any;
     }
     let changed = false;
-    if (Object.keys(kn.ties || {}).length) {
-      const sup = supported(maskKeys(kn.keys), kn.dom, kn.ties);
+    const hasTies = Object.keys(kn.ties || {}).length > 0;
+    const keys = maskKeys(kn.keys);
+    if (hasTies) {
+      const sup = supported(keys, kn.dom, kn.ties);
       const keep = new Uint8Array(KEYS);
       for (const k of sup.keys) keep[k] = 1;
       for (let k = 0; k < KEYS; k++) if (kn.keys[k] && !keep[k]) { kn.keys[k] = 0; changed = true; }
@@ -396,8 +417,7 @@ export function tighten(kn) {
       }
       if (changed) { moved = true; continue; }
     }
-    const fits = Object.keys(kn.ties || {}).length ? tiedBudget(maskKeys(kn.keys), kn.dom, kn.ties, kn.spent)
-      : budgetTest(maskKeys(kn.keys), kn.dom, kn.spent);
+    const fits = hasTies ? tiedBudget(keys, kn.dom, kn.ties, kn.spent) : budgetTest(keys, kn.dom, kn.spent);
     for (let k = 0; k < KEYS; k++) if (kn.keys[k] && !fits.key(k)) { kn.keys[k] = 0; changed = true; }
     for (const [j, s] of FLAT.entries()) {
       for (let v = 0; v < SPAN; v++) if (kn.dom[s][v] && !fits.flat[j](v)) { kn.dom[s][v] = 0; changed = true; }
@@ -518,11 +538,14 @@ export function spreadCount(keys, dom, ties = {}) {
       if (room < flat.length) spent += flat[room];
       continue;
     }
-    const allowed = tied.map((s, j) => [(ties[s][2 * k] & words[j][0]) >>> 0, ties[s][2 * k + 1] & words[j][1]]);
-    const sig = `${room}|${allowed.join('|')}`;
+    let sig = `${room}`;
+    for (let j = 0; j < tied.length; j++) {
+      const t = ties[tied[j]];
+      sig += `|${(t[2 * k] & words[j][0]) >>> 0},${t[2 * k + 1] & words[j][1]}`;
+    }
     let got = memo.get(sig);
     if (!got) {
-      const own = sums(allowed.map(([lo, hi]) => wordValues(lo, hi)));
+      const own = sums(tied.map((s, j) => wordValues((ties[s][2 * k] & words[j][0]) >>> 0, ties[s][2 * k + 1] & words[j][1])));
       got = [0, 0];
       for (let x = 0; x < own.length; x++) {
         if (!own[x] || x > room) continue;
@@ -543,7 +566,17 @@ export const maskKeys = (mask) => {
   return out;
 };
 
-/** The whole spreads left for one Pokemon, counted the way it is assumed to spend. */
+/** Signature shared by two keys whose ties allow the same flat values. */
+function sigFor(k, ties, words) {
+  let sig = '';
+  for (let j = 0; j < FLAT.length; j++) {
+    const t = ties?.[FLAT[j]];
+    if (t) sig += `${(t[2 * k] & words[j][0]) >>> 0}.${t[2 * k + 1] & words[j][1]}|`;
+    else sig += '-|';
+  }
+  return sig;
+}
+
 /**
  * The flat values each key allows - its domain, cut by any tie on that key -
  * as lists, with a signature that two keys allowing the same share.
@@ -593,9 +626,10 @@ function pairedCount(keys, dom, ties) {
   for (const k of keys) {
     const room = BUDGET - KEY_SUM[k];
     if (room < 0) continue;
-    const { lists, sig } = listsFor(k, dom, ties, words);
+    const sig = sigFor(k, ties, words);
     let by = memo.get(sig);
     if (!by) {
+      const { lists } = listsFor(k, dom, ties, words);
       const at = pairedSums(lists, dom, pairs);
       const upTo = new Float64Array(at.length);
       let run = 0;
@@ -609,6 +643,7 @@ function pairedCount(keys, dom, ties) {
   return { total, spent };
 }
 
+/** The whole spreads left for one Pokemon, counted the way it is assumed to spend. */
 export function spreadsLeft(kn, keys = maskKeys(kn.keys), dom = kn.dom) {
   const count = spreadCount(keys, dom, kn.ties);
   return kn.spent ? count.spent : count.total;
@@ -811,6 +846,7 @@ function closestTied(kn, prev) {
     upTo[r] = run;
   }
   const words = tied.map(s => maskWords(kn.dom[s]));
+  const memo = new Map();
   let win = null;
   for (let k = 0; k < KEYS; k++) {
     if (!kn.keys[k]) continue;
@@ -818,21 +854,38 @@ function closestTied(kn, prev) {
     if (room < 0) continue;
     const keyCost = Math.abs(KEY_HP[k] - prev.hp) * w.hp + Math.abs(KEY_DEF[k] - prev.def) * w.def + Math.abs(KEY_SPD[k] - prev.spd) * w.spd;
     if (win && keyCost > win.cost) continue;
-    const lists = tied.map((s, j) => wordValues((kn.ties[s][2 * k] & words[j][0]) >>> 0, kn.ties[s][2 * k + 1] & words[j][1]));
-    if (lists.some(l => !l.length)) continue;
-    const pick = (j, sum, cost, vals) => {
-      if (j === tied.length) {
-        const r = room - sum;
-        if (r < 0) return;
-        const f = kn.spent ? best[r] : upTo[Math.min(r, upTo.length - 1)];
-        if (!f) return;
-        const total = keyCost + cost + f.cost;
-        if (!win || total < win.cost || (total === win.cost && k > win.k)) win = { cost: total, k, vals: { ...vals, ...f.vals } };
-        return;
-      }
-      for (const v of lists[j]) pick(j + 1, sum + v, cost + Math.abs(v - prev[tied[j]]) * w[tied[j]], { ...vals, [tied[j]]: v });
-    };
-    pick(0, 0, 0, {});
+    let sig = `${room}`;
+    let empty = false;
+    for (let j = 0; j < tied.length; j++) {
+      const t = kn.ties[tied[j]];
+      const lo = (t[2 * k] & words[j][0]) >>> 0;
+      const hi = t[2 * k + 1] & words[j][1];
+      if (lo === 0 && (hi & 1) === 0) { empty = true; break; }
+      sig += `|${lo},${hi}`;
+    }
+    if (empty) continue;
+    let got = memo.get(sig);
+    if (got === undefined) {
+      const lists = tied.map((s, j) => wordValues((kn.ties[s][2 * k] & words[j][0]) >>> 0, kn.ties[s][2 * k + 1] & words[j][1]));
+      got = null;
+      const pick = (j, sum, cost, vals) => {
+        if (j === tied.length) {
+          const r = room - sum;
+          if (r < 0) return;
+          const f = kn.spent ? best[r] : upTo[Math.min(r, upTo.length - 1)];
+          if (!f) return;
+          const flatCost = cost + f.cost;
+          if (!got || flatCost < got.cost) got = { cost: flatCost, vals: { ...vals, ...f.vals } };
+          return;
+        }
+        for (const v of lists[j]) pick(j + 1, sum + v, cost + Math.abs(v - prev[tied[j]]) * w[tied[j]], { ...vals, [tied[j]]: v });
+      };
+      pick(0, 0, 0, {});
+      memo.set(sig, got);
+    }
+    if (!got) continue;
+    const total = keyCost + got.cost;
+    if (!win || total < win.cost || (total === win.cost && k > win.k)) win = { cost: total, k, vals: got.vals };
   }
   if (!win) return null;
   return { hp: KEY_HP[win.k], atk: win.vals.atk, def: KEY_DEF[win.k], spa: win.vals.spa, spd: KEY_SPD[win.k], spe: win.vals.spe };
@@ -851,9 +904,10 @@ function closestPaired(kn, prev) {
     if (room < 0) continue;
     const keyCost = Math.abs(KEY_HP[k] - prev.hp) * w.hp + Math.abs(KEY_DEF[k] - prev.def) * w.def + Math.abs(KEY_SPD[k] - prev.spd) * w.spd;
     if (win && keyCost > win.cost) continue;
-    const { lists, sig } = listsFor(k, kn.dom, kn.ties, words);
+    const sig = sigFor(k, kn.ties, words);
     let best = memo.get(sig);
     if (!best) {
+      const { lists } = listsFor(k, kn.dom, kn.ties, words);
       const vals = FLAT.map(s => lists[s] || aliveOf(kn.dom[s]));
       const at = [];
       const v = {};
