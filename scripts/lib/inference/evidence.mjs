@@ -2284,9 +2284,14 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         for (const p of R.pending.splice(0)) apply(R, p, null);
         if (!R.chain) initChain(R);
         touch(R);
-        apply(R, { same: true, ...c, what: change.what, turn: change.turn }, null);
+        const gate = { same: true, ...c, what: change.what, turn: change.turn };
+        apply(R, gate, null);
+        return gate;
       };
-      if (allowSet || X === S) narrow(S, { allowSet, allowDims: X === S ? allowDims : null });
+      if (allowSet || X === S) {
+        const gate = narrow(S, { allowSet, allowDims: X === S ? allowDims : null });
+        if (allowSet) change.sourceGate = gate;
+      }
       if (sourceTied && S.chain && (allowSet || X === S)) {
         const byState = new Map();
         for (const tag of sourceTied) {
@@ -3822,203 +3827,383 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
    * every HP state keeps the values of that stat that reach the end from it, as
    * a mask, so two such hits read one value between them, not one each.
    */
-  function backward() {
-    for (let round = 0; round < 4; round++) {
-      let shrank = false;
-      for (const rec of recs) {
-        if (!rec.history.length) continue;
-        const reads = new Map();
-        for (const { change } of rec.history) {
-          const s = tiedStat(rec, change);
-          if (s) reads.set(s, (reads.get(s) || 0) + 1);
-        }
-        const track = [...reads].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-        const full = track ? maskOf(rec.flat[track]) : ALL_VALUES;
-        let alive = new Map();
-        // Keys with one list and one mask start from one map of states: the walk
-        // writes none in place, so keys that share their inputs share answers.
-        const starts = new Map();
-        for (const [k, hs] of rec.chain) {
-          const m = track && rec.ties[track] ? maskAnd(full, tieMask(rec.ties[track], k)) : full;
-          if (!m) continue;
-          let byMask = starts.get(hs);
-          if (!byMask) { byMask = new Map(); starts.set(hs, byMask); }
-          if (!byMask.has(m)) byMask.set(m, new Map(hs.map(h => [h, m])));
-          alive.set(k, byMask.get(m));
-        }
-        // The states alive after each step, for `paths`: only a pass asked for
-        // exact turns reads them.
-        rec.alive = exact ? [] : null;
-        for (let i = rec.history.length - 1; i >= 0; i--) {
-          if (exact) rec.alive[i] = new Map([...alive].map(([k, states]) => [k, [...states.keys()]]));
-          const { change, token, survived, pre } = rec.history[i];
-          const seen = change.via && token !== null ? new Uint8Array(SPAN) : null;
-          const tied = tiedStat(rec, change);
-          const follows = tied !== null && tied === track;
-          const held = tied && !follows ? rec.ties[tied] : null;
-          const byKey = tied && !follows && token !== null ? new Map() : null;
-          const nextDealtOk = change.dealtOf ? new Set() : null;
-          const passed = change.narrowHits ? new Set() : null;
-          const keptDealt = change.linkedDealt ? new Set() : null;
-          const validTags = change.allowedTags ? change.allowedTags() : null;
-          const collect = !!(nextDealtOk || passed || keptDealt);
-          const prev = new Map();
-          const allowAt = new Map();
-          // Every key on one max HP and one value of the dimension the change
-          // reads looks up one row of its table: each row decoded once - the HP
-          // after, and the value it was read at.
-          const rows = new Map();
-          const rowOf = (g) => {
-            let row = rows.get(g);
-            if (!row) {
-              const packs = change.table.get(g) || [];
-              const after = new Int32Array(packs.length);
-              const at = new Int32Array(packs.length);
-              // Without a lethal mask, which is read by position, an entry
-              // counts only as its pair of HP after and value: each pair once.
-              const uAfter = new Int32Array(packs.length);
-              const uAt = new Int32Array(packs.length);
-              let u = 0;
-              stamp++;
-              for (let j = 0; j < packs.length; j++) {
-                after[j] = packs[j] % HP_BITS;
-                at[j] = Math.floor(packs[j] / HP_BITS) % SPAN;
-                const pair = after[j] * SPAN + at[j];
-                if (pairStamp[pair] === stamp) continue;
-                pairStamp[pair] = stamp;
-                uAfter[u] = after[j];
-                uAt[u++] = at[j];
-              }
-              row = { packs, after, at, uAfter: uAfter.subarray(0, u), uAt: uAt.subarray(0, u) };
-              rows.set(g, row);
-            }
-            return row;
-          };
-          // Without a per-key tie or filter, what a key keeps depends on its
-          // list, its later states, its max HP and the value the change reads
-          // alone: worked out once for each and shared.
-          const shareable = !held && !byKey && !(change.same && (change.allowDims || change.allowGrid));
-          const shared = shareable ? new Map() : null;
-          for (const [k, hs] of pre) {
-            const later = alive.get(k);
-            if (!later) continue;
-            const hp = KEY_HP[k];
-            const M = maxHp(rec, hp);
-            let allow = null;
-            if (token !== null) {
-              if (!allowAt.has(M)) allowAt.set(M, allowed(rec, M, token, survived));
-              allow = allowAt.get(M);
-              if (!allow) continue;
-            }
-            const d = change.dim ? KEY_DIM[change.dim][k] : 0;
-            let group = null;
-            if (shared) {
-              let byLater = shared.get(hs);
-              if (!byLater) { byLater = new Map(); shared.set(hs, byLater); }
-              group = byLater.get(later);
-              if (!group) { group = new Map(); byLater.set(later, group); }
-              const had = group.get(hp * SPAN + d);
-              if (had !== undefined) {
-                if (had) prev.set(k, had);
-                continue;
-              }
-            }
-            const fatalOf = survived ? change.lethal : null;
-            const keep = new Map();
-            const vs = byKey ? new Set() : null;
-            // A band reaches every later state between two bounds, one of them
-            // the HP it starts from: the states sorted, with running ORs from
-            // the fixed bound, answer each start in a binary search.
-            const span = change.band ? bandSpan(later, change.band, M, allow) : null;
-            // The later states by HP, for the table's lookups.
-            // One array for every key, cleared after it of what it set.
-            let byHp = null;
-            if (!change.same && !span) {
-              byHp = byHpScratch;
-              for (const [x, mx] of later) if (x <= M + 1) byHp[x] = mx;
-            }
-            for (const h of hs) {
-              let m = 0;
-              if (change.same) {
-                if (later.has(h) && dimAllowed(change, k) && (!change.allowSet || change.allowSet.has(M * HP_BITS + h)) && (!change.allow || change.allow(M, h))) m = later.get(h);
-              } else if (span) {
-                m = span(h);
-              } else {
-                const g = (hp * SPAN + d) * HP_BITS + h;
-                const fatal = fatalOf?.get(g);
-                const amounts = nextDealtOk ? change.dealtOf.get(g) : null;
-                const row = rowOf(g);
-                const fullRow = !!(fatal || nextDealtOk || passed || validTags);
-                const after = fullRow ? row.after : row.uAfter;
-                const at = fullRow ? row.at : row.uAt;
-                for (let j = 0; j < after.length; j++) {
-                  if (fatal && !fatal[j]) continue;
-                  const h2 = fatal ? 1 : after[j];
-                  const mx = h2 <= M + 1 ? byHp[h2] : later.get(h2);
-                  if (!mx) continue;
-                  const v = at[j];
-                  if (held && !tieHas(held, k, v)) continue;
-                  if (change.dealtOk && !change.dealtOk.has(v * HP_BITS + h - h2)) continue;
-                  if (amounts && change.victim?.dealtOk && !change.victim.dealtOk.has(v * HP_BITS + amounts[j])) continue;
-                  const tag = passed || validTags ? Math.floor(row.packs[j] / HP_BITS) : 0;
-                  if (validTags && !validTags.has(tag)) continue;
-                  if (follows && !maskHas(mx, v)) continue;
-                  m = maskOr(m, follows ? maskBit(v) : mx);
-                  if (vs) vs.add(v);
-                  if (amounts) nextDealtOk.add(v * HP_BITS + amounts[j]);
-                  if (passed) passed.add(tag);
-                  if (keptDealt) keptDealt.add(v * HP_BITS + h - h2);
-                  if (seen) seen[v] = 1;
-                  else if (!vs && !collect && m === full) break;
-                }
-              }
-              if (m) keep.set(h, m);
-            }
-            if (byHp) for (const x of later.keys()) if (x <= M + 1) byHp[x] = 0;
-            if (group) group.set(hp * SPAN + d, keep.size ? keep : null);
-            if (keep.size) {
-              prev.set(k, keep);
-              if (byKey) byKey.set(k, vs);
-            }
-          }
-          if (nextDealtOk) {
-            const had = change.victim.dealtOk;
-            const nextOk = had ? new Set([...nextDealtOk].filter(x => had.has(x))) : nextDealtOk;
-            if (!had || nextOk.size < had.size) shrank = true;
-            change.victim.dealtOk = nextOk;
-          }
-          if (passed && change.narrowHits(passed, false)) shrank = true;
-          if (keptDealt) {
-            const had = change.dealtOk;
-            const nextOk = had ? new Set([...keptDealt].filter(x => had.has(x))) : keptDealt;
-            if (!had || nextOk.size < had.size) shrank = true;
-            change.dealtOk = nextOk;
-          }
-          if (byKey) tie(rec, tied, byKey);
-          if (seen) narrowVia(change.via, seen);
-          alive = prev;
-        }
-        if (track) {
-          const byKey = new Map();
-          for (const [k, states] of alive) {
-            let m = 0;
-            for (const x of states.values()) m = maskOr(m, x);
-            byKey.set(k, maskValues(m));
-          }
-          tie(rec, track, byKey);
-        }
-        rec.pathKeys = new Set(alive.keys());
+  function viaAliveOf(via) {
+    if (!via) return null;
+    const A = via.rec;
+    if (!via.dim) return A.flat[via.stat];
+    const ok = new Uint8Array(SPAN);
+    const dimArr = via.dim === 'hp' ? KEY_HP : KEY_DIM[via.dim];
+    for (const ak of A.chain ? A.chain.keys() : A.knKeys) ok[dimArr[ak]] = 1;
+    return ok;
+  }
+
+  function sourceMaskOf(change) {
+    if (!change.sourceStates) return null;
+    const X = change.extra ? byId.get(change.extra.owner) : null;
+    const xDim = !!X && !FLAT.includes(change.extra.stat);
+    let xOk = null;
+    if (X) {
+      if (xDim) {
+        xOk = new Uint8Array(SPAN);
+        for (const xk of X.chain ? X.chain.keys() : X.knKeys) xOk[KEY_DIM[change.extra.stat][xk]] = 1;
+      } else {
+        xOk = X.flat[change.extra.stat];
       }
-      if (!shrank) break;
     }
+    const gateSet = change.sourceGate?.allowSet || null;
+    if (!gateSet && !xOk) return null;
+    const ok = new Uint8Array(change.sourceStates.length);
+    for (let si = 0; si < change.sourceStates.length; si++) {
+      const [sM, sH, sX] = change.sourceStates[si];
+      if (gateSet && sM !== null && !gateSet.has(sM * HP_BITS + sH)) continue;
+      if (xOk && sX !== null && !xOk[sX]) continue;
+      ok[si] = 1;
+    }
+    return ok;
+  }
+
+  function pruneForward() {
+    for (const rec of recs) {
+      if (!rec.history.length || !rec.chain) continue;
+      let cur = new Map();
+      for (const [k, hs] of rec.history[0].pre) if (rec.chain.has(k)) cur.set(k, hs);
+      for (let i = 0; i < rec.history.length; i++) {
+        const entry = rec.history[i];
+        entry.pre = cur;
+        const { change, token, survived } = entry;
+        const afterMap = i + 1 < rec.history.length ? rec.history[i + 1].pre : rec.chain;
+        const viaOk = viaAliveOf(change.via);
+        const validTags = change.allowedTags ? change.allowedTags() : null;
+        const siOk = sourceMaskOf(change);
+        const tied = tiedStat(rec, change);
+        const held = tied ? rec.ties[tied] : null;
+        const shared = tied ? null : new Map();
+        const done = new Map();
+        const allowAt = new Map();
+        const next = new Map();
+        for (const [k, hs] of cur) {
+          const oldHs = afterMap.get(k);
+          if (!oldHs) continue;
+          const hp = KEY_HP[k];
+          const M = maxHp(rec, hp);
+          let allow = null;
+          if (token !== null) {
+            if (!allowAt.has(M)) allowAt.set(M, allowed(rec, M, token, survived));
+            allow = allowAt.get(M);
+            if (!allow) continue;
+          }
+          if (!dimAllowed(change, k)) continue;
+          const d = change.dim ? KEY_DIM[change.dim][k] : 0;
+          let list = null;
+          let group = null;
+          if (shared) {
+            group = shared.get(hs);
+            if (!group) { group = new Map(); shared.set(hs, group); }
+            list = group.get(hp * SPAN + d);
+          }
+          if (list === undefined || (list === null && !shared)) {
+            const out = new Set();
+            for (const h of hs) {
+              const g = (hp * SPAN + d) * HP_BITS + h;
+              let res = done.get(g);
+              if (!res) {
+                res = { hs: [], pv: null };
+                if (change.same) {
+                  const fits = (!change.allowSet || change.allowSet.has(M * HP_BITS + h)) && (!change.allow || change.allow(M, h));
+                  if (fits && (!allow || (h >= allow[0] && h <= allow[1]))) res.hs.push(h);
+                } else if (change.band) {
+                  let lo = change.band === 'up' ? h : 0;
+                  let hi = change.band === 'down' ? h : M;
+                  if (allow) { lo = Math.max(lo, allow[0]); hi = Math.min(hi, allow[1]); }
+                  for (let x = lo; x <= hi; x++) res.hs.push(x);
+                } else {
+                  const pairs = change.table.get(g) || [];
+                  const amounts = change.dealtOf ? change.dealtOf.get(g) : null;
+                  const fatal = survived ? change.lethal?.get(g) : null;
+                  const hsSeen = new Set();
+                  const pv = tied ? [] : null;
+                  for (let j = 0; j < pairs.length; j++) {
+                    if (fatal && !fatal[j]) continue;
+                    const packed = pairs[j];
+                    const h2 = fatal ? 1 : packed % HP_BITS;
+                    if (allow && (h2 < allow[0] || h2 > allow[1])) continue;
+                    const tag = Math.floor(packed / HP_BITS);
+                    const v = tag % SPAN;
+                    if (viaOk && !viaOk[v]) continue;
+                    if (amounts && change.victim?.dealtOk && !change.victim.dealtOk.has(v * HP_BITS + amounts[j])) continue;
+                    if (change.dealtOk && !change.dealtOk.has(v * HP_BITS + (h - h2))) continue;
+                    if (validTags && !validTags.has(tag)) continue;
+                    if (siOk && !siOk[Math.floor(tag / SPAN)]) continue;
+                    hsSeen.add(h2);
+                    if (pv) pv.push(h2, v);
+                  }
+                  res.hs = [...hsSeen];
+                  res.pv = pv;
+                }
+                done.set(g, res);
+              }
+              if (tied && res.pv) {
+                for (let j = 0; j < res.pv.length; j += 2) {
+                  if (held && !tieHas(held, k, res.pv[j + 1])) continue;
+                  out.add(res.pv[j]);
+                }
+              } else {
+                for (const h2 of res.hs) out.add(h2);
+              }
+            }
+            list = out.size ? [...out] : null;
+            if (group) group.set(hp * SPAN + d, list);
+          }
+          if (!list) continue;
+          if (list.length > oldHs.length || list.some(x => !oldHs.includes(x))) {
+            const oldSet = new Set(oldHs);
+            const filtered = list.filter(x => oldSet.has(x));
+            if (filtered.length) next.set(k, filtered.length === oldHs.length ? oldHs : filtered);
+          } else {
+            next.set(k, list.length === oldHs.length ? oldHs : list);
+          }
+        }
+        cur = next;
+      }
+      rec.chain = cur;
+    }
+  }
+
+  function backward() {
+    let shrank = false;
+    const shrinkSet = (target, keep) => {
+      let moved = false;
+      for (const x of [...target]) if (!keep.has(x)) { target.delete(x); moved = true; }
+      return moved;
+    };
+    for (const rec of recs) {
+      if (!rec.history.length) continue;
+      const reads = new Map();
+      for (const { change } of rec.history) {
+        const s = tiedStat(rec, change);
+        if (s) reads.set(s, (reads.get(s) || 0) + 1);
+      }
+      const track = [...reads].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+      const full = track ? maskOf(rec.flat[track]) : ALL_VALUES;
+      let alive = new Map();
+      // Keys with one list and one mask start from one map of states: the walk
+      // writes none in place, so keys that share their inputs share answers.
+      const starts = new Map();
+      for (const [k, hs] of rec.chain) {
+        const m = track && rec.ties[track] ? maskAnd(full, tieMask(rec.ties[track], k)) : full;
+        if (!m) continue;
+        let byMask = starts.get(hs);
+        if (!byMask) { byMask = new Map(); starts.set(hs, byMask); }
+        if (!byMask.has(m)) byMask.set(m, new Map(hs.map(h => [h, m])));
+        alive.set(k, byMask.get(m));
+      }
+      // The states alive after each step, for `paths`: only a pass asked for
+      // exact turns reads them.
+      rec.alive = exact ? [] : null;
+      for (let i = rec.history.length - 1; i >= 0; i--) {
+        if (exact) rec.alive[i] = new Map([...alive].map(([k, states]) => [k, [...states.keys()]]));
+        const { change, token, survived, pre } = rec.history[i];
+        const seen = change.via && token !== null ? new Uint8Array(SPAN) : null;
+        const viaOk = viaAliveOf(change.via);
+        const siOk = sourceMaskOf(change);
+        const tied = tiedStat(rec, change);
+        const follows = tied !== null && tied === track;
+        const held = tied && !follows ? rec.ties[tied] : null;
+        const byKey = tied && !follows && token !== null ? new Map() : null;
+        const nextDealtOk = change.dealtOf ? new Set() : null;
+        const passed = change.narrowHits ? new Set() : null;
+        const keptDealt = change.linkedDealt ? new Set() : null;
+        const validTags = change.allowedTags ? change.allowedTags() : null;
+        const siSeen = change.sourceGate?.allowSet && token !== null ? new Uint8Array(change.sourceStates.length) : null;
+        const sameSeen = change.same && change.allowSet ? new Set() : null;
+        const collect = !!(nextDealtOk || passed || keptDealt || siSeen);
+        const prev = new Map();
+        const allowAt = new Map();
+        // Every key on one max HP and one value of the dimension the change
+        // reads looks up one row of its table: each row decoded once - the HP
+        // after, and the value it was read at.
+        const rows = new Map();
+        const rowOf = (g) => {
+          let row = rows.get(g);
+          if (!row) {
+            const packs = change.table.get(g) || [];
+            const after = new Int32Array(packs.length);
+            const at = new Int32Array(packs.length);
+            // Without a lethal mask, which is read by position, an entry
+            // counts only as its pair of HP after and value: each pair once.
+            const uAfter = new Int32Array(packs.length);
+            const uAt = new Int32Array(packs.length);
+            let u = 0;
+            stamp++;
+            for (let j = 0; j < packs.length; j++) {
+              after[j] = packs[j] % HP_BITS;
+              at[j] = Math.floor(packs[j] / HP_BITS) % SPAN;
+              const pair = after[j] * SPAN + at[j];
+              if (pairStamp[pair] === stamp) continue;
+              pairStamp[pair] = stamp;
+              uAfter[u] = after[j];
+              uAt[u++] = at[j];
+            }
+            row = { packs, after, at, uAfter: uAfter.subarray(0, u), uAt: uAt.subarray(0, u) };
+            rows.set(g, row);
+          }
+          return row;
+        };
+        // Without a per-key tie or filter, what a key keeps depends on its
+        // list, its later states, its max HP and the value the change reads
+        // alone: worked out once for each and shared.
+        const shareable = !held && !byKey && !(change.same && (change.allowDims || change.allowGrid));
+        const shared = shareable ? new Map() : null;
+        for (const [k, hs] of pre) {
+          const later = alive.get(k);
+          if (!later) continue;
+          const hp = KEY_HP[k];
+          const M = maxHp(rec, hp);
+          let allow = null;
+          if (token !== null) {
+            if (!allowAt.has(M)) allowAt.set(M, allowed(rec, M, token, survived));
+            allow = allowAt.get(M);
+            if (!allow) continue;
+          }
+          const d = change.dim ? KEY_DIM[change.dim][k] : 0;
+          let group = null;
+          if (shared) {
+            let byLater = shared.get(hs);
+            if (!byLater) { byLater = new Map(); shared.set(hs, byLater); }
+            group = byLater.get(later);
+            if (!group) { group = new Map(); byLater.set(later, group); }
+            const had = group.get(hp * SPAN + d);
+            if (had !== undefined) {
+              if (had) prev.set(k, had);
+              continue;
+            }
+          }
+          const fatalOf = survived ? change.lethal : null;
+          const keep = new Map();
+          const vs = byKey ? new Set() : null;
+          // A band reaches every later state between two bounds, one of them
+          // the HP it starts from: the states sorted, with running ORs from
+          // the fixed bound, answer each start in a binary search.
+          const span = change.band ? bandSpan(later, change.band, M, allow) : null;
+          // The later states by HP, for the table's lookups.
+          // One array for every key, cleared after it of what it set.
+          let byHp = null;
+          if (!change.same && !span) {
+            byHp = byHpScratch;
+            for (const [x, mx] of later) if (x <= M + 1) byHp[x] = mx;
+          }
+          for (const h of hs) {
+            let m = 0;
+            if (change.same) {
+              if (later.has(h) && dimAllowed(change, k) && (!change.allowSet || change.allowSet.has(M * HP_BITS + h)) && (!change.allow || change.allow(M, h))) {
+                m = later.get(h);
+                if (m && sameSeen) sameSeen.add(M * HP_BITS + h);
+              }
+            } else if (span) {
+              m = span(h);
+            } else {
+              const g = (hp * SPAN + d) * HP_BITS + h;
+              const fatal = fatalOf?.get(g);
+              const amounts = nextDealtOk ? change.dealtOf.get(g) : null;
+              const row = rowOf(g);
+              const fullRow = !!(fatal || nextDealtOk || passed || validTags || siOk || siSeen);
+              const after = fullRow ? row.after : row.uAfter;
+              const at = fullRow ? row.at : row.uAt;
+              for (let j = 0; j < after.length; j++) {
+                if (fatal && !fatal[j]) continue;
+                const h2 = fatal ? 1 : after[j];
+                const mx = h2 <= M + 1 ? byHp[h2] : later.get(h2);
+                if (!mx) continue;
+                const v = at[j];
+                if (viaOk && !viaOk[v]) continue;
+                if (held && !tieHas(held, k, v)) continue;
+                if (change.dealtOk && !change.dealtOk.has(v * HP_BITS + h - h2)) continue;
+                if (amounts && change.victim?.dealtOk && !change.victim.dealtOk.has(v * HP_BITS + amounts[j])) continue;
+                const tag = passed || validTags || siOk || siSeen ? Math.floor(row.packs[j] / HP_BITS) : 0;
+                if (validTags && !validTags.has(tag)) continue;
+                const si = siOk || siSeen ? Math.floor(tag / SPAN) : 0;
+                if (siOk && !siOk[si]) continue;
+                if (follows && !maskHas(mx, v)) continue;
+                m = maskOr(m, follows ? maskBit(v) : mx);
+                if (vs) vs.add(v);
+                if (amounts) nextDealtOk.add(v * HP_BITS + amounts[j]);
+                if (passed) passed.add(tag);
+                if (keptDealt) keptDealt.add(v * HP_BITS + h - h2);
+                if (siSeen) siSeen[si] = 1;
+                if (seen) seen[v] = 1;
+                else if (!vs && !collect && m === full) break;
+              }
+            }
+            if (m) keep.set(h, m);
+          }
+          if (byHp) for (const x of later.keys()) if (x <= M + 1) byHp[x] = 0;
+          if (group) group.set(hp * SPAN + d, keep.size ? keep : null);
+          if (keep.size) {
+            prev.set(k, keep);
+            if (byKey) byKey.set(k, vs);
+          }
+        }
+        if (nextDealtOk) {
+          const had = change.victim.dealtOk;
+          const nextOk = had ? new Set([...nextDealtOk].filter(x => had.has(x))) : nextDealtOk;
+          if (!had || nextOk.size < had.size) shrank = true;
+          change.victim.dealtOk = nextOk;
+        }
+        if (passed && change.narrowHits(passed, false)) shrank = true;
+        if (keptDealt) {
+          const had = change.dealtOk;
+          const nextOk = had ? new Set([...keptDealt].filter(x => had.has(x))) : keptDealt;
+          if (!had || nextOk.size < had.size) shrank = true;
+          change.dealtOk = nextOk;
+        }
+        if (sameSeen && shrinkSet(change.allowSet, sameSeen)) shrank = true;
+        if (siSeen) {
+          const keepPairs = new Set();
+          for (let si = 0; si < siSeen.length; si++) {
+            if (!siSeen[si]) continue;
+            const [sM, sH] = change.sourceStates[si];
+            if (sM !== null) keepPairs.add(sM * HP_BITS + sH);
+          }
+          if (shrinkSet(change.sourceGate.allowSet, keepPairs)) shrank = true;
+        }
+        if (byKey) tie(rec, tied, byKey);
+        if (seen) {
+          const R = change.via.rec;
+          const prevSize = change.via.dim ? R.chain?.size ?? R.knKeys.length : aliveOf(R.flat[change.via.stat]).length;
+          narrowVia(change.via, seen);
+          const nowSize = change.via.dim ? R.chain?.size ?? R.knKeys.length : aliveOf(R.flat[change.via.stat]).length;
+          if (nowSize < prevSize) shrank = true;
+        }
+        alive = prev;
+      }
+      if (track) {
+        const byKey = new Map();
+        for (const [k, states] of alive) {
+          let m = 0;
+          for (const x of states.values()) m = maskOr(m, x);
+          byKey.set(k, maskValues(m));
+        }
+        tie(rec, track, byKey);
+      }
+      rec.pathKeys = new Set(alive.keys());
+    }
+    return shrank;
   }
 
   /** What the backward walk removed, as one event per Pokemon. */
   function wholePaths() {
     const before = record ? new Map(recs.map(rec => [rec, measure(rec)])) : null;
-    backward();
-    for (const rec of recs) {
-      if (rec.pathKeys && rec.chain) for (const k of [...rec.chain.keys()]) if (!rec.pathKeys.has(k)) rec.chain.delete(k);
+    for (let round = 0; round < 6; round++) {
+      if (round > 0) pruneForward();
+      const shrank = backward();
+      let keysMoved = false;
+      for (const rec of recs) {
+        if (!rec.pathKeys || !rec.chain) continue;
+        for (const k of [...rec.chain.keys()]) {
+          if (!rec.pathKeys.has(k)) { rec.chain.delete(k); keysMoved = true; }
+        }
+      }
+      if (!shrank && !keysMoved) break;
     }
     if (!record) return;
     const cuts = recs.map(rec => cutOf(rec, before.get(rec))).filter(Boolean);
@@ -4056,11 +4241,6 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const dealtBy = new Map();
     let coupled = Infinity;
     let cutAt = unprovedAt;
-    // Every change the path made deal another amount than the scaffold's did,
-    // and the HP the scaffold showed each Pokemon on last (null where its last
-    // change showed none).
-    const drifted = new Set();
-    const scaffoldWas = new Map();
     const startOf = (rec) => {
       const [k, hs] = [...(rec.history[0]?.pre || new Map()).entries()][0] || [];
       return k === undefined ? null : [k, hs[0]];
@@ -4078,13 +4258,45 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const m = at === undefined ? null : /^(\d+)\//.exec(String(hpLine(raw[at])?.token || ''));
       return m ? Number(m[1]) : null;
     };
-    for (const { rec, i, e } of entries) {
+    const byChange = new Map(entries.map((x, idx) => [x.e.change, idx]));
+    const lastCoupled = new Map();
+    const touch = (r, idx) => { if (r) lastCoupled.set(r, Math.max(lastCoupled.get(r) ?? -1, idx)); };
+    for (const [idx, { rec, e }] of entries.entries()) {
+      const c = e.change;
+      if (c.victim && c.dealtOf) {
+        const u = byChange.get(c.victim);
+        if (u !== undefined) touch(entries[u].rec, u);
+        touch(rec, idx);
+      }
+      if (c.totals && c.hits) {
+        for (const h of c.hits) {
+          const u = byChange.get(h);
+          if (u !== undefined) touch(entries[u].rec, u);
+        }
+        touch(rec, idx);
+      }
+      if (c.sourceStates) {
+        touch(c.dealtBy, idx);
+        if (c.extra && !FLAT.includes(c.extra.stat)) touch(byId.get(c.extra.owner), idx);
+        touch(rec, idx);
+      }
+      if (c.pair) {
+        touch(rec, idx);
+        touch(c.pair.partner, idx);
+      }
+    }
+    let backtracks = 256;
+    const step = (idx) => {
+      if (idx === entries.length) return true;
+      const { rec, i, e } = entries[idx];
       const alive = rec.alive?.[i];
-      if (!alive) return null;
-      let state = cur.get(rec);
+      if (!alive) return false;
+      const hadCur = cur.has(rec);
+      const prevCur = cur.get(rec);
+      let state = prevCur;
       if (!state) {
         const [k, hs] = [...e.pre.entries()][0] || [];
-        if (k === undefined) return null;
+        if (k === undefined) return false;
         state = [k, hs[0]];
       }
       const [k, h] = state;
@@ -4144,8 +4356,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           if (!tagOf.has(h2)) tagOf.set(h2, tag % SPAN);
         }
       }
-      if (!options.length) return null;
+      if (!options.length) return false;
+      const prevCoupled = coupled;
       const pair = e.change.pair;
+      const hadPartnerCur = pair ? cur.has(pair.partner) : false;
+      const hadPairedOther = pair ? pairedTo.has(pair.other) : false;
+      const prevPairedOther = pair ? pairedTo.get(pair.other) : undefined;
+      const hadPassed = pair ? passed.has(e.change) : false;
       if (pair) {
         let want = pairedTo.get(e.change);
         let theirs = null;
@@ -4164,26 +4381,52 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         passed.add(e.change);
       }
       const own = e.token !== null ? scaffoldHp(rec, i) : null;
-      const h2 = options.includes(own) ? own : options[0];
-      // A change read only as a band or with both roundings hands on no roll,
-      // and under a new guess can deal another amount even where its path kept
-      // the scaffold's own HP. It and what follows are still the HPs the
-      // display allows, handed on as what a rebuild must reach, but proved no
-      // further than the line before it.
+      const first = options.includes(own) ? own : options[0];
+      const choices = idx <= (lastCoupled.get(rec) ?? -1)
+        ? [first, ...new Set(options.filter(x => x !== first))]
+        : [first];
+      const prevCutAt = cutAt;
       if (((e.change.band && !e.change.proved) || e.change.uncertain)) {
         cutAt = Math.min(cutAt, secretAt.get(`${rec.id}|${i}`) ?? e.change.logAt ?? Infinity);
       }
-      // What the scaffold's change dealt is known where its HP before and
-      // after were both shown; a change the path made deal anything else, or
-      // whose amount the scaffold did not show, drifted.
-      const was = scaffoldWas.get(rec);
-      if (own === null || was === undefined || was === null || h - h2 !== was - own) drifted.add(e.change);
-      scaffoldWas.set(rec, own);
-      chosen.get(rec)[i] = h2;
-      cur.set(rec, [k, h2]);
-      if (tagOf.has(h2)) dealtBy.set(e.change, { amount: h - h2, v: tagOf.get(h2) });
-      if (e.change.rollAt !== null && e.change.rollAt !== undefined && rollOf.has(h2)) rolls.set(e.change.rollAt, rollOf.get(h2));
-    }
+      const prevChosen = chosen.get(rec)[i];
+      const hadDealt = dealtBy.has(e.change);
+      const prevDealt = dealtBy.get(e.change);
+      const hasRollSlot = e.change.rollAt !== null && e.change.rollAt !== undefined;
+      const hadRoll = hasRollSlot && rolls.has(e.change.rollAt);
+      const prevRoll = hadRoll ? rolls.get(e.change.rollAt) : undefined;
+      for (let cIdx = 0; cIdx < choices.length; cIdx++) {
+        if (cIdx > 0) {
+          if (backtracks <= 0) break;
+          backtracks--;
+        }
+        const h2 = choices[cIdx];
+        chosen.get(rec)[i] = h2;
+        cur.set(rec, [k, h2]);
+        if (tagOf.has(h2)) dealtBy.set(e.change, { amount: h - h2, v: tagOf.get(h2) });
+        else dealtBy.delete(e.change);
+        if (hasRollSlot) {
+          if (rollOf.has(h2)) rolls.set(e.change.rollAt, rollOf.get(h2));
+          else rolls.delete(e.change.rollAt);
+        }
+        if (step(idx + 1)) return true;
+      }
+      chosen.get(rec)[i] = prevChosen;
+      if (hadCur) cur.set(rec, prevCur); else cur.delete(rec);
+      if (hadDealt) dealtBy.set(e.change, prevDealt); else dealtBy.delete(e.change);
+      if (hasRollSlot) {
+        if (hadRoll) rolls.set(e.change.rollAt, prevRoll); else rolls.delete(e.change.rollAt);
+      }
+      cutAt = prevCutAt;
+      coupled = prevCoupled;
+      if (pair) {
+        if (!hadPartnerCur) cur.delete(pair.partner);
+        if (hadPairedOther) pairedTo.set(pair.other, prevPairedOther); else pairedTo.delete(pair.other);
+        if (!hadPassed) passed.delete(e.change);
+      }
+      return false;
+    };
+    if (!step(0)) return null;
 
     const tokens = new Map();
     for (const rec of recs) {
