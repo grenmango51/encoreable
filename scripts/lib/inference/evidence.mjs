@@ -1187,8 +1187,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const modified = clamp(hit.real) !== clamp(dealt);
     const table = new Map();
     const rolls = new Map();
-    let shown = provenLines(ctx.lines, ctx.dice);
-    if (shown && typeof ctx.before === 'number'
+    let shown = ctx.shown !== undefined ? ctx.shown : provenLines(ctx.lines, ctx.dice);
+    if (shown && ctx.shown === undefined && typeof ctx.before === 'number'
       && !sameLines(damageEvent(hit, ctx, T, T.pokemon.maxhp, ctx.before, clamp(hit.real)).lines, ctx.lines.lines)) {
       note(hit.what || `${named(hit.S)}'s ${hit.clone.name} hit ${named(T)}`,
         'its Damage event run again at its own Stat Points did not print what the real one did, so what it printed was not read');
@@ -2076,11 +2076,19 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         const src = ctx.source && ctx.source !== rec.pokemon ? byPokemon.get(ctx.source) : null;
         if (src && src.moveHits?.move !== effect) src.moveHits = { move: effect, all: [] };
         const hitsOn = src ? src.moveHits.all.filter(x => x.victim === rec).length + 1 : 1;
-        change = hit?.supported ? moveChange(rec, hit, info.d, { ...ctx, effect })
-          : hit?.carried ? carriedChange(rec, hit, { ...ctx, effect })
-            : band('down', `${effect.name} hit ${named(rec)}`);
+        if (hit?.cutoff) {
+          const dmg = cutoffDamageEvent(rec.pokemon, ctx.source, effect, Math.max(1, hit.real), ctx.items, info.before);
+          const cutCtx = { ...ctx, effect, dice: dmg.failDraws, lines: null, shown: !hit.cutoff.survived && !dmg.failDraws.length ? [] : null };
+          change = hit.supported ? moveChange(rec, hit, dmg.value, cutCtx)
+            : hit.carried ? carriedChange(rec, hit, cutCtx)
+              : band('down', `${effect.name} hit ${named(rec)}`);
+        } else {
+          change = hit?.supported ? moveChange(rec, hit, info.d, { ...ctx, effect })
+            : hit?.carried ? carriedChange(rec, hit, { ...ctx, effect })
+              : band('down', `${effect.name} hit ${named(rec)}`);
+        }
         change.hitsOn = hitsOn;
-        if (src) src.moveHits.all.push({ victim: rec, dealt: info.dealt, change });
+        if (src && !hit?.cutoff) src.moveHits.all.push({ victim: rec, dealt: info.dealt, change });
       } else {
         change = effectChange(rec, 'damage', ctx.raw ?? info.d, effect, ctx.source, ctx.direct, ctx.oozed, ctx.dice, null, info.before);
       }
@@ -2173,7 +2181,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     // Without a tie the HPs a key goes to depend on its list, its max HP and
     // the value the change reads alone: worked out once for each and shared,
     // as the list it came from may be.
-    const shared = tied ? null : new Map();
+    const shared = tied || change.perKey ? null : new Map();
     for (const [k, hs] of rec.chain) {
       const hp = KEY_HP[k];
       const M = maxHp(rec, hp);
@@ -2200,10 +2208,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       for (const h of hs) {
         const g = (hp * SPAN + d) * HP_BITS + h;
         let res = done.get(g);
-        if (!res) {
+        if (!res || change.perKey) {
           res = { hs: [], via: [] };
           if (change.same) {
-            const fits = (!change.allowSet || change.allowSet.has(M * HP_BITS + h)) && (!change.allow || change.allow(M, h));
+            const fits = (!change.allowSet || change.allowSet.has(M * HP_BITS + h)) && (!change.allow || change.allow(M, h, k));
             if (fits && (!allow || (h >= allow[0] && h <= allow[1]))) res.hs.push(h);
           } else if (change.band) {
             let lo = change.band === 'up' ? h : 0;
@@ -2539,16 +2547,55 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     return null;
   }
 
+  /**
+   * Run `Damage` dry at the scaffold's own stats for a hit read ahead of the
+   * cutoff, with every random chance in it failing so Focus Band stays silent
+   * when no survival line was shown.
+   */
+  function cutoffDamageEvent(pokemon, source, effect, x, items, before) {
+    return guarded(() => {
+      const undo = patchAll([{ pokemon, hp: before }]);
+      try {
+        restoreItems(items);
+        const { value, thrown } = withDice(st, () => withRoll(0, () => battle.runEvent('Damage', pokemon, source, effect, x, true)));
+        const failDraws = thrown.map(d => ({ from: d.from, to: d.to, value: d.to === -1 ? d.from - 1 : d.to - 1 }));
+        if (!failDraws.length) return { value, failDraws };
+        restoreItems(items);
+        pokemon.hp = before;
+        return { value: withRoll(0, () => battle.runEvent('Damage', pokemon, source, effect, x, true), failDraws), failDraws };
+      } finally {
+        undo();
+      }
+    });
+  }
+
   let survived = null;
   // A Pokemon the rebuild announced at the cutoff as surviving a lethal hit
   // where the replay shows it simply taking the hit: the rebuild's HP line for
   // it, right after, is read against the replay's, and a candidate whose hit
   // would have been lethal is left on the 1 HP the replay does not show.
   let awaited = null;
+  // A hit whose scaffold rolled `|-crit|` at the cutoff where the replay went
+  // straight on to its non-critical `-damage` line.
+  let critAwait = null;
   function sync() {
     if (state.dry || state.hold) return;
     while (!state.ended && viewPos < view.length && view[viewPos].at < battle.log.length) {
       const entry = view[viewPos++];
+      if (critAwait && entry.at >= critAwait.from) {
+        if (entry.at === critAwait.from || entry.at === critAwait.skipAt) continue;
+        const mine = hpLine(entry.line);
+        if (entry.at < critAwait.damageAt) {
+          if (mine) observe(mine, mine.token, entry.at, true, survived === `${mine.side}:${mine.name}`);
+          survived = mine ? null : survivor(entry.line) || survived;
+          continue;
+        }
+        const ca = critAwait;
+        critAwait = null;
+        if (mine) observe(mine, ca.token, entry.at, true, ca.survived);
+        state.ended = true;
+        break;
+      }
       if (entry.at > prefix.cutoffAt) {
         const mine = hpLine(entry.line);
         const want = awaited && hpLine(prefix.observedLine);
@@ -2597,6 +2644,58 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
   }
 
+  /**
+   * Where a hit rolled `|-crit|` at `prefix.cutoffAt` and the replay matches
+   * every line after that `|-crit|` up to the target's own `-damage` line,
+   * proving the hit landed without critting.
+   */
+  function cutoffNonCrit(target, from, to) {
+    if (!(from <= prefix.cutoffAt && prefix.cutoffAt < to)) return null;
+    const vi = view.findIndex(e => e.at === prefix.cutoffAt);
+    if (vi < 0 || view[vi].line !== `|-crit|${target}`) return null;
+    if (view.some((e, idx) => idx > vi && e.at < to)) return null;
+    const ident = `${identSide(String(target))}:${identName(String(target))}`;
+    const obs = [prefix.observedLine, ...prefix.observedAfter].filter(Boolean);
+    let vj = vi + 1;
+    let oi = 0;
+    while (vj < view.length && oi < obs.length) {
+      const mine = hpLine(view[vj].line);
+      if (mine?.kind === '-damage' && `${mine.side}:${mine.name}` === ident) {
+        const want = hpLine(obs[oi]);
+        if (want?.kind === '-damage' && `${want.side}:${want.name}` === ident) {
+          return { from: prefix.cutoffAt, damageAt: view[vj].at, token: want.token, survived: false };
+        }
+        if (survivor(obs[oi]) === ident) {
+          const after = hpLine(obs[oi + 1]);
+          if (after?.kind === '-damage' && `${after.side}:${after.name}` === ident) {
+            return { from: prefix.cutoffAt, damageAt: view[vj].at, token: after.token, survived: true };
+          }
+        }
+        return null;
+      }
+      if (survivor(view[vj].line) === ident) {
+        const mineAfter = hpLine(view[vj + 1]?.line);
+        if (mineAfter?.kind === '-damage' && `${mineAfter.side}:${mineAfter.name}` === ident) {
+          const want = hpLine(obs[oi]);
+          if (want?.kind === '-damage' && `${want.side}:${want.name}` === ident) {
+            return { from: prefix.cutoffAt, damageAt: view[vj + 1].at, skipAt: view[vj].at, token: want.token, survived: false };
+          }
+          if (survivor(obs[oi]) === ident) {
+            const after = hpLine(obs[oi + 1]);
+            if (after?.kind === '-damage' && `${after.side}:${after.name}` === ident) {
+              return { from: prefix.cutoffAt, damageAt: view[vj + 1].at, skipAt: view[vj].at, token: after.token, survived: true };
+            }
+          }
+          return null;
+        }
+      }
+      if (battleLines([view[vj].line])[0] !== obs[oi]) return null;
+      vj++;
+      oi++;
+    }
+    return null;
+  }
+
   // ------------------------------------------------------------ the hooks
 
   // The ordinal of the draw a real hit's damage roll took, so the roll an
@@ -2611,14 +2710,16 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
 
   const origGetDamage = actions.getDamage;
   actions.getDamage = function (source, target, move, suppress) {
-    if (state.dry || state.ended || typeof move !== 'object' || !move || move.category === 'Status'
+    if (state.dry || state.ended || critAwait || typeof move !== 'object' || !move || move.category === 'Status'
       || !byPokemon.has(source) || !byPokemon.has(target)) {
       return origGetDamage.call(this, source, target, move, suppress);
     }
     sync();
+    if (state.ended || critAwait) return origGetDamage.call(this, source, target, move, suppress);
     const clone = cloneMove(move);
     const pre = snapItems([source, target]);
     const hpBefore = new Map([[source, source.hp], [target, target.hp]]);
+    const from = battle.log.length;
     const draws = [];
     rollDraws = draws;
     // Every die the real calculation throws, for the dry ones to throw alike.
@@ -2631,16 +2732,41 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
     if (typeof real !== 'number' || state.ended) return real;
     const crit = !!target.getMoveHitData(move).crit;
+    const sub = target.volatiles.substitute;
+    const blockedBySub = !!(sub && source !== target && !move.flags?.bypasssub && !move.infiltrates);
     const post = snapItems([source, target]);
     try {
-      const hit = analyseHit(source, target, move, clone, crit, real, pre, origGetDamage, thrown, hpBefore);
-      hit.rollAt = draws.length === 1 ? draws[0] : null;
+      const nonCrit = crit && !blockedBySub ? cutoffNonCrit(target, from, battle.log.length) : null;
+      let hit;
+      if (nonCrit) {
+        const probe = guarded(() => {
+          const undo = patchAll([...hpBefore].filter(([p, hp]) => p.hp !== hp).map(([pokemon, hp]) => ({ pokemon, hp })));
+          restoreItems(pre);
+          const c = cloneMove(clone);
+          c.moveHitData = carriedHitData(move, target);
+          c.willCrit = false;
+          try {
+            return withDice(st, () => withRoll(0, () => origGetDamage.call(actions, source, target, c, true)));
+          } finally {
+            undo();
+          }
+        });
+        if (typeof probe.value === 'number' && probe.thrown.every(d => d.from === ROLLS && d.to === -1)) {
+          hit = analyseHit(source, target, move, clone, false, probe.value, pre, origGetDamage, probe.thrown, hpBefore);
+          hit.rollAt = null;
+          hit.cutoff = nonCrit;
+          critAwait = nonCrit;
+        }
+      }
+      if (!hit) {
+        hit = analyseHit(source, target, move, clone, crit, real, pre, origGetDamage, thrown, hpBefore);
+        hit.rollAt = draws.length === 1 ? draws[0] : null;
+      }
       // A hit a Substitute takes moves no HP; the line after it says whether it
       // broke. Only the first hit on a Substitute is read, while it still holds
       // the number its `onStart` stored: after a hit, what it holds depends on
       // the damage it already took.
-      const sub = target.volatiles.substitute;
-      if (sub && source !== target && !move.flags?.bypasssub && !move.infiltrates) {
+      if (blockedBySub) {
         const T = byPokemon.get(target);
         const hold = sub[STORED]?.hp;
         const fresh = T.sub !== sub && !!hold && sub.hp === hold.start;
@@ -2847,6 +2973,72 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
   }
 
+  /**
+   * Where `confusion`'s `onBeforeMove` printed `|-activate|...|confusion` right
+   * before `prefix.cutoffAt` without self-hitting in the scaffold, and the
+   * replay shows `|-damage|...|[from] confusion` at the cutoff instead: ask the
+   * handler dry for the self-hit it would have made and read it ahead.
+   */
+  function cutoffConfusion(effect, pokemon, fn, args, from) {
+    const rec = pokemon && byPokemon.get(pokemon);
+    if (!rec || rec.kn.known) return;
+    sync();
+    if (state.ended) return;
+    const actEntry = view.find(e => e.at >= from && e.at < battle.log.length && /^\|-activate\|[^|]+\|confusion(\||$)/.test(e.line));
+    if (!actEntry || actEntry.at >= prefix.cutoffAt) return;
+    const next = view.find(e => e.at > actEntry.at);
+    if (next && next.at !== prefix.cutoffAt) return;
+    const confHp = line => (/^\|-damage\|[^|]+\|[^|]+\|\[from\] confusion(\||$)/.test(String(line || '')) ? hpLine(line) : null);
+    const ident = String(actEntry.line.split('|')[2] || '');
+    const who = `${identSide(ident)}:${identName(ident)}`;
+    let want = confHp(prefix.observedLine);
+    let surv = false;
+    if (!want && survivor(prefix.observedLine) === who) {
+      want = confHp(prefix.observedAfter[0]);
+      surv = true;
+    }
+    if (!want || `${want.side}:${want.name}` !== who) return;
+    const pre = snapItems([pokemon]);
+    const beforeHp = pokemon.hp;
+    const probed = guarded(() => {
+      let got = null;
+      const offConf = override(actions, 'getConfusionDamage', function (p, bp) {
+        const d = origConfusion.call(this, p, bp);
+        if (p === pokemon && typeof d === 'number') got = { bp, d, effect: null };
+        return d;
+      });
+      const offDmg = override(battle, 'damage', function (d, target, source, eff) {
+        if (got && target === pokemon) got.effect = typeof eff === 'string' ? battle.dex.conditions.getByID(eff) : eff;
+        return d;
+      });
+      try {
+        if (pokemon.volatiles.confusion) pokemon.volatiles.confusion.time++;
+        battle.effect = effect;
+        battle.effectState = pokemon.volatiles.confusion;
+        withRoll(0, () => fn.apply(battle, args));
+      } finally {
+        offDmg();
+        offConf();
+      }
+      return got;
+    });
+    if (!probed?.effect) return;
+    const hit = selfHit(pokemon, probed.bp, probed.d, pre, origConfusion);
+    hit.rollAt = null;
+    rec.moved = (rec.moved || 0) + 1;
+    if (!rec.chain) initChain(rec);
+    for (const c of rec.pending.splice(0)) apply(rec, c, null);
+    const dmg = cutoffDamageEvent(pokemon, pokemon, probed.effect, Math.max(1, probed.d), pre, beforeHp);
+    const ctx = { effect: probed.effect, source: pokemon, items: pre, dice: dmg.failDraws, lines: null, before: beforeHp, shown: !surv && !dmg.failDraws.length ? [] : null };
+    const change = hit.supported ? moveChange(rec, hit, dmg.value, ctx) : band('down', hit.what);
+    change.turn = battle.turn;
+    change.logAt = battle.log.length;
+    changeOrdinal++;
+    rec.pending.push(change);
+    observe(want, want.token, next ? next.at : battle.log.length, true, surv);
+    state.ended = true;
+  }
+
   // Every handler an event applies is built by `resolvePriority`: `runEvent`
   // calls it, and `fieldEvent` hands it to `singleEvent` as its callback.
   const origResolve = battle.resolvePriority;
@@ -2857,7 +3049,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const { effect, effectHolder } = handler;
     handler.callback = function (...args) {
       if (state.dry || state.ended) return fn.apply(this, args);
-      return framed({ kind: 'handler', effect, holder: effectHolder, args, fn }, () => fn.apply(this, args));
+      const from = effect?.id === 'confusion' && callbackName === 'onBeforeMove' ? battle.log.length : -1;
+      const out = framed({ kind: 'handler', effect, holder: effectHolder, args, fn }, () => fn.apply(this, args));
+      if (from >= 0 && out !== false && !state.ended) cutoffConfusion(effect, effectHolder, fn, args, from);
+      return out;
     };
     return handler;
   };
@@ -2874,8 +3069,14 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   const origRunAction = battle.runAction;
   battle.runAction = function (action) {
     if (state.dry || state.ended) return origRunAction.call(this, action);
-    return framed({ kind: 'action', effect: null, holder: action.pokemon || null, args: [action], fn: origRunAction },
-      () => origRunAction.call(this, action));
+    const steps = recs.map(r => r.actionStep);
+    for (const r of recs) r.actionStep = r.history.length;
+    try {
+      return framed({ kind: 'action', effect: null, holder: action.pokemon || null, args: [action], fn: origRunAction },
+        () => origRunAction.call(this, action));
+    } finally {
+      recs.forEach((r, i) => { r.actionStep = steps[i]; });
+    }
   };
 
   // A move's HP cost - Substitute's quarter, Belly Drum's half - goes through
@@ -3005,6 +3206,115 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       gate.fired = target.item !== held;
       gate.what = `${name} ${gate.fired ? 'fired' : 'did not fire'} on ${named(rec)}`;
     }
+  };
+  // An ability that acts on `EmergencyExit` - Emergency Exit, Wimp Out - fires
+  // or not on the HP the Pokemon entered the step on (`originalHp`) and the HP
+  // it stands on now. Asked of `runEvent('EmergencyExit')` itself, dry, after
+  // the damage's own display is settled: bisected over HP and over the HP
+  // before, per candidate max HP.
+  let exitChecks = 0;
+  const origExit = battle.runEvent;
+  battle.runEvent = function (eventid, target, source, sourceEffect, originalHp, ...rest) {
+    const rec = eventid === 'EmergencyExit' && !state.dry && !state.ended && target && typeof target === 'object' ? byPokemon.get(target) : null;
+    const ability = rec && !rec.exact && rec.moved && rec.exitChecked !== rec.moved ? target.getAbility() : null;
+    if (!ability?.onEmergencyExit) return origExit.call(this, eventid, target, source, sourceEffect, originalHp, ...rest);
+    rec.exitChecked = rec.moved;
+    sync();
+    if (state.ended || !rec.chain) return origExit.call(this, eventid, target, source, sourceEffect, originalHp, ...rest);
+    for (const c of rec.pending.splice(0)) apply(rec, c, null);
+    const ord = exitChecks++;
+    const fires = (M, orig, h) => guarded(() => {
+      const undo = patchAll([{ pokemon: target, maxhp: M, hp: h }]);
+      const from = battle.log.length;
+      try {
+        origExit.call(battle, 'EmergencyExit', target, source, sourceEffect, orig, ...rest);
+        return shownLines(battle.log.slice(from)).length > 0;
+      } finally {
+        undo();
+      }
+    });
+    const boundsOf = (M) => {
+      if (!fires(M, M, 1)) return null;
+      let hpEdge = 1;
+      if (fires(M, M, M)) hpEdge = M;
+      else {
+        let [lo, hi] = [1, M];
+        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (fires(M, M, mid)) lo = mid; else hi = mid; }
+        hpEdge = lo;
+      }
+      let origMin = M;
+      if (fires(M, 1, 1)) origMin = 1;
+      else {
+        let [lo, hi] = [1, M];
+        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (fires(M, mid, 1)) hi = mid; else lo = mid; }
+        origMin = hi;
+      }
+      return { hpEdge, origMin, atZero: fires(M, M, 0) };
+    };
+    const bounds = new Map();
+    for (const k of rec.chain.keys()) {
+      const M = maxHp(rec, KEY_HP[k]);
+      if (!bounds.has(M)) bounds.set(M, memo(`exit|${ord}|${rec.id}|${M}`, () => boundsOf(M)));
+    }
+    const from = battle.log.length;
+    const out = origExit.call(this, eventid, target, source, sourceEffect, originalHp, ...rest);
+    const printed = view.find(e => e.at >= from && e.at < battle.log.length);
+    let replayFired = null;
+    let atCutExit = false;
+    if (printed) {
+      if (printed.at < prefix.cutoffAt) replayFired = true;
+      else if (printed.at === prefix.cutoffAt && prefix.observedLine && !/^\|(win|tie|-message)\|/.test(prefix.observedLine)) {
+        replayFired = false;
+        atCutExit = true;
+      }
+    } else {
+      const next = view.find(e => e.at >= from);
+      const expected = battleLines([`|-activate|${target}|ability: ${ability.name}`])[0];
+      if (prefix.cutoffAt === Infinity || (next && next.at < prefix.cutoffAt)) replayFired = false;
+      else if ((!next || next.at === prefix.cutoffAt) && expected && prefix.observedLine === expected) {
+        replayFired = true;
+        atCutExit = true;
+      }
+    }
+    if (replayFired === null || (!replayFired && [...bounds.values()].every(b => !b))) return out;
+    const steps = rec.history.slice(rec.actionStep ?? 0).filter(e => !e.change.same);
+    const origRange = new Map();
+    const byM = new Map();
+    let perKey = false;
+    for (const k of rec.chain.keys()) {
+      const M = maxHp(rec, KEY_HP[k]);
+      let lo = Infinity;
+      let hi = 0;
+      for (const s of steps) {
+        for (const x of s.pre.get(k) || []) {
+          if (x < lo) lo = x;
+          if (x > hi) hi = x;
+        }
+      }
+      if (lo === Infinity) [lo, hi] = [0, M];
+      else if (steps.length > 1) hi = M;
+      origRange.set(k, [lo, hi]);
+      const sig = `${lo}:${hi}`;
+      if (!byM.has(M)) byM.set(M, sig);
+      else if (byM.get(M) !== sig) perKey = true;
+    }
+    const gate = {
+      same: true,
+      gate: true,
+      perKey,
+      turn: battle.turn,
+      what: `${ability.name} ${replayFired ? 'fired' : 'did not fire'} on ${named(rec)}`,
+      allow(M, h, k) {
+        const b = bounds.get(M);
+        if (!b) return !replayFired;
+        const [loOrig, hiOrig] = origRange.get(k) || [0, M];
+        if (replayFired) return (h > 0 ? h <= b.hpEdge : b.atZero) && hiOrig >= b.origMin;
+        return (h > 0 ? h > b.hpEdge : !b.atZero) || loOrig < b.origMin;
+      },
+    };
+    apply(rec, gate, null);
+    if (atCutExit) state.ended = true;
+    return out;
   };
   const runEventBefore = battle.runEvent;
   battle.runEvent = function (eventid, target, ...rest) {
@@ -3719,6 +4029,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   override(battle, 'add', function (...args) {
     const at = battle.log.length;
     const result = add.apply(this, args);
+    if (critAwait && !state.dry && !state.ended && battle.log.length > critAwait.damageAt) sync();
     const open = bestOpen;
     if (!open || battle.event !== open.event || battle.effect !== open.effect || state.dry || state.ended) return result;
     for (let i = viewPos; i < view.length && view[i].at <= at; i++) {
@@ -3911,7 +4222,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
           // Without a per-key tie or filter, what a key keeps depends on its
           // list, its later states, its max HP and the value the change reads
           // alone: worked out once for each and shared.
-          const shareable = !held && !byKey && !(change.same && (change.allowDims || change.allowGrid));
+          const shareable = !held && !byKey && !(change.same && (change.allowDims || change.allowGrid || change.perKey));
           const shared = shareable ? new Map() : null;
           for (const [k, hs] of pre) {
             const later = alive.get(k);
@@ -3954,7 +4265,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             for (const h of hs) {
               let m = 0;
               if (change.same) {
-                if (later.has(h) && dimAllowed(change, k) && (!change.allowSet || change.allowSet.has(M * HP_BITS + h)) && (!change.allow || change.allow(M, h))) m = later.get(h);
+                if (later.has(h) && dimAllowed(change, k) && (!change.allowSet || change.allowSet.has(M * HP_BITS + h)) && (!change.allow || change.allow(M, h, k))) m = later.get(h);
               } else if (span) {
                 m = span(h);
               } else {
@@ -4138,7 +4449,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       // roll handed on for it was found under.
       const tagOf = new Map();
       if (e.change.same) {
-        if (later.includes(h) && dimAllowed(e.change, k) && (!e.change.allowSet || e.change.allowSet.has(M * HP_BITS + h)) && (!e.change.allow || e.change.allow(M, h))) options.push(h);
+        if (later.includes(h) && dimAllowed(e.change, k) && (!e.change.allowSet || e.change.allowSet.has(M * HP_BITS + h)) && (!e.change.allow || e.change.allow(M, h, k))) options.push(h);
       } else if (e.change.band) {
         const lo = e.change.band === 'up' ? h : 0;
         const hi = e.change.band === 'down' ? h : M;

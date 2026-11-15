@@ -1706,6 +1706,35 @@ const entries = {
       why: "Swept over HP: where Incinerate stops being lethal, Sturdy stops announcing itself, and one Stat Point above that edge the hidden Forretress is left on 1 HP with no ability line.",
     }],
   },
+  'ability:emergencyexit': {
+    templates: [[30, 31], 'sweep'].map(worlds => ({
+      name: worlds === 'sweep' ? 'fixed-chip-sweep' : 'fixed-chip',
+      role: 'holder-hidden',
+      stat: 'hp',
+      worlds,
+      p1: [withMoves('known', ['Dragon Rage', 'Splash']), withMoves('knownAlly', ['Seismic Toss', 'Splash']), 'knownBench'],
+      p2: [set('Golisopod', 'M', 'Emergency Exit', 'Smooth Rock', {}, ['Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move dragonrage 1, move seismictoss 1', p2: 'move splash, move splash' }, QUIET],
+      control: { p2: [{ ability: 'Run Away' }] },
+      why: 'Dragon Rage and Seismic Toss take a fixed 90 off the hidden Golisopod from full HP: up to 180 max HP (HP Stat Points 0 to 30) that reaches half its bar and Emergency Exit switches it out, while at 181 and 182 it stays in.',
+    })),
+  },
+  'ability:supremeoverlord': {
+    templates: [{
+      name: 'fallen-ally',
+      role: 'holder-hidden',
+      stat: 'atk',
+      p1: [withMoves('known', ['Fissure', 'Splash']), 'knownAlly', 'knownBench'],
+      p2: [set('Kingambit', 'M', 'Supreme Overlord', 'Smooth Rock', {}, ['Kowtow Cleave', 'Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [
+        { p1: 'move fissure 2, move splash', p2: 'switch 3, move splash' },
+        { p1: 'move splash, move splash', p2: 'move splash, move kowtowcleave 1' },
+        QUIET,
+      ],
+      control: { p2: [{ ability: 'Run Away' }] },
+      why: "Switched out while the known Snorlax's Fissure knocks out its ally Avalugg, the hidden Kingambit comes back in under Supreme Overlord (`fallen1`), making its Kowtow Cleave 1.1 times as strong; Snorlax's exact HP shows its Attack.",
+    }],
+  },
   'move:shedtail': {
     templates: [{
       name: 'cost',
@@ -2038,6 +2067,9 @@ const cells = {
   },
   'ability:galewings': {
     'read:HP': 'onModifyPriority asks whether the holder is at full HP (data/abilities.ts:1590), which its own percentage already says: the Champions display prints 100/100 only at hp === maxhp (Math.floor in getHealth, sim/pokemon.ts:2068), so the gate depends on no Stat Point; the Spe channel is USED.',
+  },
+  'move:destinybond': {
+    'read:HP': 'condition.onFaint reads source.hp only to ask whether the attacker is still alive (data/moves.ts:3501) before fainting it, which prints 0 fnt at every max HP.',
   },
 };
 for (const [key, cell] of Object.entries(cells)) entries[key] = { ...(entries[key] || {}), cells: cell };
