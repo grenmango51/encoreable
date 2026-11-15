@@ -489,9 +489,27 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
     if (value === undefined) { value = make(); cache.set(key, value); }
     return value;
   };
+  const MAX_SIM_SIGS = 2048;
+  const MAX_SIM_CACHE = 32768;
+  const internHitSig = (sig) => {
+    if (simCache === cache) return sig;
+    const ids = (simCache.__sigIds ||= new Map());
+    let id = ids.get(sig);
+    if (id === undefined) {
+      if (ids.size >= MAX_SIM_SIGS) ids.delete(ids.keys().next().value);
+      id = (simCache.__nextSigId = (simCache.__nextSigId || 0) + 1);
+      ids.set(sig, id);
+    }
+    return id;
+  };
   const simMemo = (key, make) => {
     let value = simCache.get(key);
-    if (value === undefined) { value = make(); simCache.set(key, value); }
+    if (value !== undefined) return value;
+    value = make();
+    if (simCache !== cache && simCache.size >= MAX_SIM_CACHE) {
+      simCache.delete(simCache.keys().next().value);
+    }
+    simCache.set(key, value);
     return value;
   };
 
@@ -1595,7 +1613,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
         : hit.sStates.map(s => s.join(':')).join(',');
 
     if (!hit.backSets && hit.readers.every(r => r.bys.length === 1)) {
-      const hitSig = !hit.onReal ? memo(`hsig|${ord}`, () => buildHitSig(source, target, hit)) : null;
+      const hitSig = !hit.onReal ? memo(`hsig|${ord}`, () => internHitSig(buildHitSig(source, target, hit))) : null;
       const cacheSim = (key, make) => (!hit.onReal ? simMemo(`${hitSig}|${key}`, make) : memo(`row|${ord}|${key}`, make));
 
       const readerDeps = hit.readers.map(r => ({ ...r, by: r.bys[0], dep: depOf(r.who === 'source' ? S : T, r.key) }));
