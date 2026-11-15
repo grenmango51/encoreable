@@ -1458,12 +1458,14 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
     // `cap` marks a turn our own guard gave up on, which no refusal decided.
     const diff = state.unsatisfied && !finished
       ? (early || { index: -1, expected: state.unsatisfied, actual: '', ...(state.cap ? { cap: state.cap } : {}) }) : found;
+    const stalled = !battle.ended && !finished && (k >= 1 ? battle.turn <= k : battle.turn < 1);
 
     if (diff) {
       diffs.push({ turn: k, ...diff });
       badTurn = k;
-      if (!tolerant) break;
+      if (!tolerant || stalled) break;
     }
+    if (stalled) break;
     if (stopAt !== undefined && k >= stopAt) break;
   }
 
