@@ -9,7 +9,7 @@
 function countedAs(dex, set) {
   const given = dex.species.get(set.species || set.name);
   const from = Array.isArray(given.battleOnly) ? given.battleOnly[0] : given.battleOnly;
-  return from && given.requiredItem ? from : given.name;
+  return from ? dex.species.get(from).name : given.name;
 }
 
 /** The spreads people run with this set's species and nature, most run first. */
