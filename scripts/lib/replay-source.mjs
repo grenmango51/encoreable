@@ -325,9 +325,11 @@ function parseDetails(details) {
 function standInMove(dex, species) {
   for (const id of [species.id, toID(species.baseSpecies)]) {
     const pool = [...(dex.species.getMovePool(id) || [])].sort();
-    const move = pool.map(m => dex.moves.get(m)).find(m => m.exists && !m.isNonstandard && m.category !== 'Status'
+    const valid = pool.map(m => dex.moves.get(m)).filter(m => m.exists && !m.isNonstandard);
+    const move = valid.find(m => m.category !== 'Status'
       && m.priority === 0 && m.target === 'normal' && !m.selfSwitch && !m.onDisableMove
-      && !['sound', 'heal', 'charge', 'recharge', 'gravity'].some(f => m.flags[f]));
+      && !['sound', 'heal', 'charge', 'recharge', 'gravity'].some(f => m.flags[f]))
+      || (valid.length === 1 ? valid[0] : null);
     if (move) return move.name;
   }
   return null;
@@ -436,6 +438,12 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
     const mon = monOf(a?.origin);
     if (mon && ability && mon.ability === null && canHave(mon, ability)) mon.ability = dex.abilities.get(ability).name || ability;
   };
+  const movesets = new Map();
+  const movesetOf = (key) => {
+    if (!key) return null;
+    if (!movesets.has(key)) movesets.set(key, { origin: key });
+    return movesets.get(key);
+  };
   const addMove = (mon, name) => {
     const move = dex.moves.get(name);
     if (mon && move.exists && move.id !== 'struggle' && !mon.moves.includes(move.name)) mon.moves.push(move.name);
@@ -467,12 +475,15 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
     const from = tags.from || '';
     const sKey = keyOf(identOf(p[2]));
     const oKey = keyOf(identOf(tags.of));
-    const subject = monOf(sKey);
     if (['switch', 'drag', 'replace', 'detailschange'].includes(kind) && sKey) shownAs.set(sKey, parseDetails(p[3]).species);
 
-    // A Pokemon switched in has the ability it brought, or once it has Mega
-    // Evolved, the Mega's: what a move or another ability gave it is gone.
-    if ((kind === 'switch' || kind === 'drag') && sKey) abilities.set(sKey, switchedIn.get(sKey) || { origin: sKey });
+    // A Pokemon switched in has the ability and moveset it brought, or once it
+    // has Mega Evolved, the Mega's ability: what Transform or another ability
+    // gave it is gone.
+    if ((kind === 'switch' || kind === 'drag') && sKey) {
+      abilities.set(sKey, switchedIn.get(sKey) || { origin: sKey });
+      movesets.set(sKey, { origin: sKey });
+    }
     if ((kind === '-mega' || (kind === 'detailschange' && isMega(p[3]))) && sKey && !switchedIn.has(sKey)) {
       switchedIn.set(sKey, { origin: null });
       abilities.set(sKey, switchedIn.get(sKey));
@@ -480,13 +491,13 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
 
     if (kind === 'move') {
       lastMover = sKey;
-      if (!from || from === 'lockedmove') addMove(subject, p[3]);
+      if (!from || from === 'lockedmove') addMove(monOf(movesetOf(sKey)?.origin), p[3]);
     }
     // `|cant|X|ability: A|Move|[of] Y` - Armor Tail, Queenly Majesty, Dazzling,
     // Damp: X's ability stopped Y's move, which Y's own move line already named.
     if (kind === 'cant' && p[4]) {
       if (/^ability: /.test(p[3] || '')) nameAbility(abilityOf(sKey), p[3].slice(9));
-      else addMove(subject, p[4]);
+      else addMove(monOf(movesetOf(sKey)?.origin), p[4]);
     }
 
     // Items. Trick and Switcheroo swap what two Pokemon hold, then name what each
@@ -584,7 +595,8 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
     if (kind === '-transform' && sKey) {
       if (/^ability: /.test(from)) nameAbility(abilityOf(sKey), from.slice(9));
       const target = keyOf(identOf(p[3]));
-      if (target) abilities.set(sKey, abilityOf(target));
+      abilities.set(sKey, target ? abilityOf(target) : { origin: null });
+      movesets.set(sKey, target ? movesetOf(target) : { origin: null });
     }
     // An effect credited to an ability. With `[of]` naming another Pokemon, that
     // one holds it - Rough Skin, Static, Cursed Body, Poison Touch, Liquid Ooze,
