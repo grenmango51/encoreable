@@ -44,7 +44,7 @@ const { Battle, BattleStream, Dex, Teams, toID } = require('pokemon-showdown');
 const { extractChannelMessages } = require('pokemon-showdown/dist/sim/battle.js');
 
 /** Move targets the chooser must name explicitly (sim/battle-actions.ts:3). */
-const CHOOSABLE_TARGETS = new Set(['normal', 'any', 'adjacentFoe', 'adjacentAlly', 'adjacentAllyOrSelf']);
+export const CHOOSABLE_TARGETS = new Set(['normal', 'any', 'adjacentFoe', 'adjacentAlly', 'adjacentAllyOrSelf']);
 
 /**
  * Pre-turn protocol lines allowed to differ without failing the reconstruction.
@@ -2559,7 +2559,51 @@ async function reconstructOnce({
   let dieBacktracks = 0;
   let forcedDraws = 0;
 
+  // Every variant walked on a turn: up to `maxVariants`, and when unseen
+  // choices fill the low digits (`radices`), each visible target choice at
+  // `low = 0` (`h * unseen`) too, so unseen moves never starve a target.
+  const variantList = (all, unseen) => {
+    const w = Math.min(all, maxVariants);
+    const out = [...Array(w).keys()];
+    if (unseen > 1) {
+      for (let v = unseen; v < all && out.length < w + maxVariants; v += unseen) {
+        if (v >= w) out.push(v);
+      }
+    }
+    return out;
+  };
+
   let run = await playThrough({ ...common, subs });
+  // Before judging or dropping handed-in pins on a turn with unseen choices,
+  // try its other variants: a choice the replay never showed - a fainted or
+  // flinched Pokemon's move - can need another slot once a Speed moves, while
+  // every die settled on and after that turn still stands.
+  if (pins) {
+    const recovered = new Set();
+    while (run.badTurn !== null && !recovered.has(run.badTurn) && Date.now() < deadline) {
+      const t = run.badTurn;
+      recovered.add(t);
+      const known = localExact?.get(t);
+      if (known?.partial && run.diffs[0]?.index >= compareTurn(common, t, []).exactUpTo) break;
+      const hasDownstreamPins = Object.keys(subs).some(i => subTurn[i] >= t) || variants.slice(t + 1).some(Boolean);
+      if (!hasDownstreamPins && !pins.proof) break;
+      const keep = variants[t] || 0;
+      const tVariants = variantList(run.widths?.[t] || 1, common.radices[t] || 0);
+      let advanced = false;
+      for (const v of tVariants) {
+        if (advanced || Date.now() >= deadline) break;
+        if (v === keep) continue;
+        variants[t] = v;
+        const probe = await runTo(common, subs, t);
+        advanced = probe.badTurn === null || probe.badTurn > t;
+      }
+      if (!advanced) {
+        variants[t] = keep;
+        break;
+      }
+      run = await playThrough({ ...common, subs });
+    }
+  }
   const broken = brokenProof(common, run, pins?.proof);
   // A handed-in pin is only as good as the turn it rebuilds: a spread that
   // throws a different sequence of dice there moves every ordinal after it. On
@@ -2647,9 +2691,10 @@ async function reconstructOnce({
       Object.assign(subTurn, enteringSubTurn);
     };
     const allVariants = run.widths?.[t] || 1;
-    const width = Math.min(allVariants, maxVariants);
+    const turnVariants = variantList(allVariants, common.radices[t] || 0);
     const ranked = [{ v: entering, score: walked[0].score, rejected: run.diffs[0]?.index === -1 }];
-    for (let v = 0; v < width && !solved; v++) {
+    for (const v of turnVariants) {
+      if (solved) break;
       if (v === entering) continue;
       variants[t] = v;
       forget(t);
@@ -2699,7 +2744,7 @@ async function reconstructOnce({
     // stopped on is searched on with its share of what the turn's budget has left.
     let rewalkedFrom = null;
     const rewalk = async () => {
-      if (solved || !partial || width <= 1 || partial === rewalkedFrom) return false;
+      if (solved || !partial || turnVariants.length <= 1 || partial === rewalkedFrom) return false;
       rewalkedFrom = partial;
       const held = { subs: { ...partial.subs }, subTurn: { ...partial.subTurn } };
       const hold = () => {
@@ -2709,7 +2754,8 @@ async function reconstructOnce({
         Object.assign(subTurn, held.subTurn);
       };
       let better = null;
-      for (let v = 0; v < width && !solved; v++) {
+      for (const v of turnVariants) {
+        if (solved) break;
         if (v === partial.variant) continue;
         variants[t] = v;
         hold();
@@ -2803,14 +2849,15 @@ async function reconstructOnce({
       if ((run.party || []).includes(t) && !carriers.includes(0)) carriers.push(0);
       for (const k of carriers) {
         const keep = variants[k] || 0;
-        const width = Math.min(run.widths?.[k] || 1, maxVariants);
-        for (let v = 0; v < width && !carried; v++) {
+        const kVariants = variantList(run.widths?.[k] || 1, common.radices[k] || 0);
+        for (const v of kVariants) {
+          if (carried) break;
           if (v === keep || takenCarry.has(`${t}|${k}|${v}`)) continue;
           variants[k] = v;
           const probe = await runTo(common, subs, t);
           carried = probe.badTurn === null || probe.badTurn > t || (probe.badTurn === t && outranks(scoreOf(probe, t), from));
         }
-          if (carried) { takenCarry.add(`${t}|${k}|${variants[k]}`); break; }
+        if (carried) { takenCarry.add(`${t}|${k}|${variants[k]}`); break; }
         variants[k] = keep;
         if ((run.widths?.[k] || 1) > maxVariants) common.limits.add('variants');
       }
