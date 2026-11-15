@@ -155,7 +155,7 @@ function channelView(raw, channel) {
  * Compared exactly the way `playThrough` compares, so the verified prefix here
  * is the one the reconstruction report means.
  */
-function verifiedPrefix(view, observed) {
+function verifiedPrefix(view, observed, beforeTurn = Infinity) {
   const want = splitTurns(observed.filter(l => typeof l === 'string'));
   const got = [[]];
   for (const entry of view) {
@@ -163,6 +163,9 @@ function verifiedPrefix(view, observed) {
     if (/^\|turn\|\d+/.test(entry.line)) got.push([]);
   }
   for (let k = 0; k < want.length; k++) {
+    if (k >= beforeTurn) {
+      return { cutoffAt: got[k]?.[0]?.at ?? Infinity, observedLine: null, observedAfter: [], turn: k };
+    }
     const soft = (line) => {
       const kind = String(line).split('|')[1];
       return kind === 'player' || (k === 0 && SOFT_PRETURN.has(kind));
@@ -228,14 +231,14 @@ async function replayRaw(lines) {
  * Replay one input log and remove every spread the verified part of it rules
  * out. `knowledge` is read, never written; the caller intersects the result.
  */
-export async function evidencePass({ inputLog, observed, channel, knowledge, cache, record, exact = false, truth = null }) {
+export async function evidencePass({ inputLog, observed, channel, knowledge, cache, simCache = cache, record, exact = false, truth = null, beforeTurn = Infinity }) {
   const lines = (Array.isArray(inputLog) ? inputLog : String(inputLog).split('\n'))
     .map(l => String(l).trimEnd())
     .filter(l => l.startsWith('>'));
   let pre = cache.get('raw');
   if (!pre) { pre = await replayRaw(lines); cache.set('raw', pre); }
   const view = channelView(pre, channel);
-  const prefix = verifiedPrefix(view, observed);
+  const prefix = verifiedPrefix(view, observed, beforeTurn);
 
   const stream = new BattleStream({ keepAlive: true });
   const drain = (async () => { for await (const chunk of stream) { /* discard */ } })();
@@ -248,21 +251,22 @@ export async function evidencePass({ inputLog, observed, channel, knowledge, cac
   try {
     for (const line of lines) {
       if (thrown) throw thrown;
+      if (ctx && stream.battle.turn >= beforeTurn) break;
       if (!ctx && /^>p[1-4] /.test(line)) {
-        ctx = attachInference(stream.battle, { view, prefix, channel, knowledge, cache, record, exact, truth });
+        ctx = attachInference(stream.battle, { view, prefix, channel, knowledge, cache, simCache, record, exact, truth });
       }
       await stream.write(line);
       // Draw ordinals count from installation, and `playThrough` installs right
       // after `>start`, so a roll found here is addressed the way a pin is.
       if (line.startsWith('>start')) install(stream.battle);
-      if (ctx?.state.ended) break;
+      if (ctx?.state.ended || (ctx && stream.battle.turn >= beforeTurn)) break;
     }
     if (thrown) throw thrown;
     if (!ctx) throw new Error('the input log makes no choices, so there is nothing to infer from');
     ctx.finish();
     if (exact) {
       const found = ctx.paths(pre);
-      ctx.coupled = Math.min(ctx.state.coupled, found?.coupled ?? Infinity);
+      ctx.coupled = Math.min(ctx.state.coupled, found?.coupled ?? Infinity, beforeTurn);
       ctx.exact = found && exactTurns(pre, found.tokens, prefix, ctx.coupled, found.cutAt);
       ctx.rolls = found?.rolls || null;
     }
@@ -428,7 +432,7 @@ function snapshot(battle, extra = []) {
   };
 }
 
-function attachInference(battle, { view, prefix, channel, knowledge, cache, record, exact = false, truth = null }) {
+function attachInference(battle, { view, prefix, channel, knowledge, cache, simCache = cache, record, exact = false, truth = null }) {
   const st = install(battle);
   const actions = battle.actions;
   // `coupled`: the first turn with a Pain Split between two Pokemon both shown
@@ -452,6 +456,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   const memo = (key, make) => {
     let value = cache.get(key);
     if (value === undefined) { value = make(); cache.set(key, value); }
+    return value;
+  };
+  const simMemo = (key, make) => {
+    let value = simCache.get(key);
+    if (value === undefined) { value = make(); simCache.set(key, value); }
     return value;
   };
 
@@ -858,14 +867,94 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
     if (!atkVar) hit.off = null;
     hit.aVals = atkVar ? aliveOf(T.flat.atk) : [0];
-    const dVals = new Set([...T.chain.keys()].map(k => KEY_DIM[def][k]));
-    hit.rows = new Map();
-    for (const a of hit.aVals) {
-      for (const d of dVals) hit.rows.set(rowKey(a, d, null, null, 0), rowAt(a, d));
+    const dList = [...new Set([...T.chain.keys()].map(k => KEY_DIM[def][k]))];
+    const aIdxOf = new Int32Array(SPAN).fill(-1);
+    hit.aVals.forEach((a, i) => { aIdxOf[a] = i; });
+    const dIdxOf = new Int32Array(SPAN).fill(-1);
+    dList.forEach((d, i) => { dIdxOf[d] = i; });
+    const classRows = new Array(hit.aVals.length * dList.length);
+    for (let ai = 0; ai < hit.aVals.length; ai++) {
+      for (let di = 0; di < dList.length; di++) {
+        classRows[ai * dList.length + di] = rowAt(hit.aVals[ai], dList[di]);
+      }
     }
+    hit.classInfo = {
+      nTC: 1, nSC: 1, nAC: hit.aVals.length, nDC: dList.length,
+      tIdxOf: () => 0, sIdxOf: Int32Array.of(0), aIdxOf, dIdxOf, classRows,
+    };
+    hit.rowAt = (a, d) => {
+      const ai = aIdxOf[a];
+      const di = dIdxOf[d];
+      return ai >= 0 && di >= 0 ? classRows[ai * dList.length + di] : null;
+    };
+    hit.sStatesSig = '-';
     return hit;
   }
   const sameRow = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+
+  function serState(val, seen = new Set()) {
+    if (val === null || val === undefined) return val === null ? 'n' : 'u';
+    const t = typeof val;
+    if (t === 'number' || t === 'boolean' || t === 'string') return JSON.stringify(val);
+    if (t === 'function') return 'f';
+    if (t !== 'object') return '';
+    if (val === battle) return 'B';
+    if (val.fullname && val.side?.pokemon) return `P:${val.fullname}`;
+    if (val.id && Array.isArray(val.pokemon) && val.battle) return `S:${val.id}`;
+    if (val.effectType && val.id !== undefined && !Object.prototype.hasOwnProperty.call(val, 'duration')) {
+      return `E:${val.effectType}:${val.id}`;
+    }
+    if (seen.has(val)) return '@';
+    seen.add(val);
+    let out;
+    if (Array.isArray(val)) {
+      out = `[${val.map(x => serState(x, seen)).join(',')}]`;
+    } else {
+      const keys = Object.keys(val).filter(k => k !== 'battle').sort();
+      out = `{${keys.map(k => `${k}:${serState(val[k], seen)}`).join(',')}}`;
+    }
+    seen.delete(val);
+    return out;
+  }
+
+  function buildHitSig(source, target, hit) {
+    const patchedStats = new Set(hit.readers.map(r => `${r.who}|${r.key}`));
+    const parts = [
+      battle.format, battle.gen, battle.gameType, battle.turn, battle.midTurn ? 1 : 0,
+      battle.lastDamage, battle.lastMove?.id || '', battle.lastSuccessfulMoveThisTurn || '',
+      battle.activePokemon?.fullname || '', battle.activeTarget?.fullname || '', battle.quickClawRoll ? 1 : 0,
+      source.fullname, target.fullname, hit.crit ? 1 : 0,
+      serState(battle.field), serState(hit.clone), serState(hit.hitData), serState(hit.draws),
+    ];
+    for (const side of battle.sides) {
+      parts.push(
+        side.id, side.totalFainted, side.faintedLastTurn ? 1 : 0, side.faintedThisTurn ? 1 : 0,
+        side.active.map(p => (p ? p.fullname : '')).join(','),
+        serState(side.sideConditions), serState(side.slotConditions),
+      );
+      for (const p of side.pokemon) {
+        const who = p === source ? 'source' : p === target ? 'target' : '';
+        const patchHp = (p === target && hit.targetHp) || (p === source && hit.sourceHp);
+        const st = ['atk', 'def', 'spa', 'spd', 'spe']
+          .map(s => (who && patchedStats.has(`${who}|${s}`) ? '?' : p.storedStats[s]))
+          .join(',');
+        parts.push(
+          p.fullname, p.species.id, p.baseSpecies.id, p.level, p.gender,
+          p.terastallized || '', p.stellarBoostedTypes.join(','), p.types.join(','),
+          p.addedType || '', p.knownType ? 1 : 0, p.apparentType || '', p.weighthg,
+          p.isActive ? 1 : 0, p.position, p.fainted ? 1 : 0, p.faintQueued ? 1 : 0, p.subFainted ? 1 : 0,
+          p.activeTurns, p.activeMoveActions, p.previouslySwitchedIn, p.newlySwitched ? 1 : 0,
+          p.hurtThisTurn === null ? 'n' : p.hurtThisTurn, p.statsRaisedThisTurn ? 1 : 0, p.statsLoweredThisTurn ? 1 : 0, p.timesAttacked,
+          p.ability, p.baseAbility, serState(p.abilityState),
+          p.item, p.lastItem, p.ateBerry ? 1 : 0, serState(p.itemState),
+          p.status, serState(p.statusState), serState(p.boosts), serState(p.volatiles),
+          patchHp ? `?/${p.set?.evs ? p.set.evs.hp - p.baseMaxhp : 0}` : `${p.hp}/${p.maxhp}/${p.baseMaxhp}`,
+          st,
+        );
+      }
+    }
+    return parts.join('|');
+  }
 
   /**
    * What one real damage calculation depends on, and its value for every
@@ -910,15 +999,65 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
 
     const shape = memo(`hit|${ord}`, () => {
-      // Which stats the calculation reads, observed rather than assumed: Body
-      // Press, Foul Play and Psyshock read something else, and Wonder Room swaps.
+      // Which stats and HP stages the calculation reads, observed rather than
+      // assumed: Body Press, Foul Play and Psyshock read something else, and
+      // Wonder Room swaps.
       const reads = [];
+      const readStages = [];
+      const sStages = new Set();
+      const tStages = new Set();
+      let stage = 'bp';
+      let enteredMod = false;
+      let allEnteredMod = true;
+      let trackingReads = true;
       const undo = [];
+      const origRunEvent = battle.runEvent;
+      undo.push(override(battle, 'runEvent', function (eventid, ...rest) {
+        if (!calculating) return origRunEvent.call(this, eventid, ...rest);
+        const prev = stage;
+        if (eventid === 'BasePower') stage = 'bp';
+        else if (eventid === 'ModifyAtk' || eventid === 'ModifySpA') stage = 'atk';
+        else if (eventid === 'ModifyDef' || eventid === 'ModifySpD') stage = 'def';
+        else if (stage !== 'mod' && stage !== 'bp' && stage !== 'atk' && stage !== 'def') stage = 'other';
+        try {
+          return origRunEvent.call(this, eventid, ...rest);
+        } finally {
+          stage = eventid === 'BasePower' && prev === 'bp' ? 'between' : prev;
+        }
+      }));
+      const origActMod = actions.modifyDamage;
+      undo.push(override(actions, 'modifyDamage', function (...args) {
+        enteredMod = true;
+        const prev = stage;
+        stage = 'mod';
+        try { return origActMod.call(this, ...args); } finally { stage = prev; }
+      }));
       for (const p of new Set([source, target])) {
         const calc = p.calculateStat;
         const get = p.getStat;
-        undo.push(override(p, 'calculateStat', function (stat, ...rest) { reads.push([p, toID(stat)]); return calc.call(this, stat, ...rest); }));
-        undo.push(override(p, 'getStat', function (stat, ...rest) { reads.push([p, toID(stat)]); return get.call(this, stat, ...rest); }));
+        undo.push(override(p, 'calculateStat', function (stat, ...rest) {
+          const id = toID(stat);
+          if (trackingReads) reads.push([p, id]);
+          if (calculating) readStages.push([p, id, stage]);
+          return calc.call(this, stat, ...rest);
+        }));
+        undo.push(override(p, 'getStat', function (stat, ...rest) {
+          const id = toID(stat);
+          if (trackingReads) reads.push([p, id]);
+          if (calculating) readStages.push([p, id, stage]);
+          return get.call(this, stat, ...rest);
+        }));
+        for (const prop of ['hp', 'maxhp', 'baseMaxhp']) {
+          const desc = Object.getOwnPropertyDescriptor(p, prop);
+          if (!desc || !('value' in desc)) continue;
+          let cur = desc.value;
+          Object.defineProperty(p, prop, {
+            configurable: true, enumerable: desc.enumerable,
+            get() { if (calculating) (p === source ? sStages : tStages).add(stage); return cur; },
+            set(v) { cur = v; },
+          });
+          undo.push(() => Object.defineProperty(p, prop, { ...desc, value: cur }));
+        }
       }
       // Beat Up's power is read off the set of each Pokemon it calls on, and
       // who stands in the back of the party, and where, is a choice the
@@ -930,22 +1069,36 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         Object.defineProperty(p, 'set', { configurable: true, enumerable: own.enumerable, get() { if (calculating) back.add(p); return own.value; }, set(v) { own.value = v; } });
         undo.push(() => Object.defineProperty(p, 'set', own));
       }
+      const runShape = (patches) => {
+        stage = 'bp';
+        enteredMod = false;
+        const out = dryRow(hit, patches, new Map());
+        if (!enteredMod) allEnteredMod = false;
+        return out;
+      };
       let base;
-      try { base = dryRow(hit, [], new Map()); } finally { for (const u of undo.reverse()) u(); }
+      let targetHp = false;
+      let sourceHp = false;
+      try {
+        base = runShape([]);
+        trackingReads = false;
+        // HP matters to Water Spout, Multiscale, Brine, pinch abilities, and max
+        // HP to a one-hit knockout. Ask rather than list: the row either moves
+        // with them or it does not.
+        const probe = (p) => [...new Set([p.maxhp, p.maxhp - 1, Math.ceil(p.maxhp / 2),
+          Math.floor(p.maxhp / 2), Math.floor(p.maxhp / 3), Math.floor(p.maxhp / 4), 1])].filter(h => h >= 1);
+        const moves = (p) => {
+          let movedHp = false;
+          for (const h of probe(p)) if (!sameRow(runShape([{ pokemon: p, hp: h }]), base)) movedHp = true;
+          if (!sameRow(runShape([{ pokemon: p, maxhp: p.maxhp + 1 }]), base)) movedHp = true;
+          return movedHp;
+        };
+        targetHp = moves(target);
+        sourceHp = moves(source);
+      } finally {
+        for (const u of undo.reverse()) u();
+      }
 
-      // Whose stat attacks, and which, is the move's to say: Foul Play attacks
-      // with the target's Attack, Body Press with the user's Defence, Psyshock
-      // hits Defence with a special move. Under Wonder Room a stat asked for as
-      // one defence is read from the other (`calculateStat`), so the Stat Points
-      // that matter are the other defence's.
-      //
-      // Each stat read stands on one candidate value at most (`depOf`): the
-      // Pokemon's own Stat Points, or after Power Split the average's other
-      // side, or none once Transform copied a known Pokemon's. A hit's rows
-      // vary two of them: the target's defence, a dimension of its joint key,
-      // and one more - the attacking stat as a flat domain, or for Body Press a
-      // dimension of the attacker's key. The target's Speed, which Gyro Ball and
-      // Electro Ball read, is that one more when no hidden attacking stat is.
       const physical = clone.category === 'Physical';
       const wantDef = clone.overrideDefensiveStat || (physical ? 'def' : 'spd');
       const shaped = source !== target && clone.overrideDefensivePokemon !== 'source';
@@ -962,12 +1115,6 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         const reader = { who: p === source ? 'source' : 'target', key };
         if (!vars.get(v).readers.some(r => r.who === reader.who && r.key === reader.key)) vars.get(v).readers.push(reader);
       }
-      // One more candidate value can come beside those two, of any Pokemon: a
-      // hidden user of Gyro Ball brings its Speed beside its Attack; after Guard
-      // Split your Defence stands on the hidden attacker's, and after your
-      // Imposter copied the opponent's other Pokemon, on that one's. It is
-      // carried like the attacker's HP, as a source state the victim's line
-      // narrows.
       const isDim = x => x.stat === 'def' || x.stat === 'spd';
       const dims = [...vars.values()].filter(x => x.owner === T.id && isDim(x));
       const others = [...vars.values()].filter(x => !dims.includes(x));
@@ -979,15 +1126,24 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const off = offVar ? offVar.stat : null;
       const readers = [...vars.values()].flatMap(x => x.readers.map(r => ({ ...r, by: x === offVar ? 'a' : x === extraVar ? 'x' : 'd' })));
 
-      // HP matters to Water Spout, Multiscale, Brine, pinch abilities, and max
-      // HP to a one-hit knockout. Ask rather than list: the row either moves
-      // with them or it does not.
-      const probe = (p) => [...new Set([p.maxhp, p.maxhp - 1, Math.ceil(p.maxhp / 2),
-        Math.floor(p.maxhp / 2), Math.floor(p.maxhp / 3), Math.floor(p.maxhp / 4), 1])].filter(h => h >= 1);
-      const moves = p => probe(p).some(h => !sameRow(dryRow(hit, [{ pokemon: p, hp: h }], new Map()), base))
-        || !sameRow(dryRow(hit, [{ pokemon: p, maxhp: p.maxhp + 1 }], new Map()), base);
-      const targetHp = moves(target);
-      const sourceHp = moves(source);
+      const statStages = { a: new Set(), d: new Set(), x: new Set() };
+      for (const [p, s, st] of readStages) {
+        const who = p === source ? 'source' : 'target';
+        const key = roomStat(s);
+        const r = readers.find(q => q.who === who && q.key === key);
+        if (r) statStages[r.by].add(st);
+      }
+      const usesModify = allEnteredMod;
+      const sHasAtk = sStages.has('atk');
+      const sPurePre = usesModify
+        && [...sStages].every(st => st === 'bp' || st === 'atk')
+        && (!sStages.has('bp') || (!tStages.has('bp') && !statStages.a.has('bp') && !statStages.d.has('bp')))
+        && (!sHasAtk || (!tStages.has('atk') && !statStages.a.has('atk') && !statStages.d.has('atk')));
+      const modReadsSourceOrStat = sStages.has('mod') || statStages.a.has('mod') || statStages.d.has('mod') || statStages.x.has('mod');
+      const tOnlyMod = usesModify && !modReadsSourceOrStat && [...tStages].every(st => st === 'mod');
+      const tPureBp = usesModify && [...tStages].every(st => st === 'bp')
+        && !sStages.has('bp') && !statStages.a.has('bp') && !statStages.d.has('bp') && !statStages.x.has('bp');
+
       // A damage callback that reads no stat and no HP hands on an amount the
       // battle kept from earlier - Counter, Mirror Coat, Metal Burst and
       // Comeuppance return what the user was dealt. That amount was the
@@ -997,6 +1153,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         off, offOwner: offVar?.owner ?? null, extra: extraVar ? { owner: extraVar.owner, stat: extraVar.stat } : null,
         def, readers, supported: supported && !carried && !back.size, carried,
         moved: [...unmapped], targetHp, sourceHp, back: back.size > 0,
+        usesModify, sHasAtk, sPurePre, modReadsSourceOrStat, tOnlyMod, tPureBp,
       };
     });
     Object.assign(hit, shape);
@@ -1017,7 +1174,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const tStates = new Map();
     for (const [k, hs] of T.chain) {
       dVals.add(KEY_DIM[hit.def][k]);
-      if (hit.targetHp) for (const h of hs) tStates.set(`${KEY_HP[k]}|${h}`, [KEY_HP[k], h]);
+      if (hit.targetHp) for (const h of hs) tStates.set(KEY_HP[k] * HP_BITS + h, [KEY_HP[k], h]);
     }
     // The source states: the HP the attacker could be on, when the hit reads
     // it, and the value of the one more candidate, when there is one - each as
@@ -1046,35 +1203,274 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const targetStates = hit.targetHp ? [...tStates.values()] : [null];
     // An attacker no spread fits has no states, and its hit narrows no attacker.
     hit.sStates = sStates.length ? sStates : [null];
+    hit.sStatesSig = hit.sStates[0] === null ? '-' : hit.sStates.map(s => `${s[0]}:${s[1]}:${s[2]}`).join(',');
 
-    hit.rows = new Map();
-    for (const t of targetStates) {
-      for (const [si, s] of hit.sStates.entries()) {
-        const hpKey = `${t ? t.join(':') : '-'}|${s ? s.join(':') : '-'}`;
-        const post = new Map();
-        for (const a of hit.aVals) {
-          for (const d of dVals) {
-            const row = memo(`row|${ord}|${a}|${d}|${hpKey}`, () => {
+    const hitSig = !hit.onReal ? memo(`hsig|${ord}`, () => buildHitSig(source, target, hit)) : null;
+    const cacheSim = (key, make) => (!hit.onReal ? simMemo(`${hitSig}|${key}`, make) : memo(`row|${ord}|${key}`, make));
+
+    const readerDeps = hit.readers.map(r => ({ ...r, dep: depOf(r.who === 'source' ? S : T, r.key) }));
+    const aReaders = readerDeps.filter(r => r.by === 'a');
+    const dReaders = readerDeps.filter(r => r.by === 'd');
+    const xReaders = readerDeps.filter(r => r.by === 'x');
+
+    const watchHp = (p, onRead) => {
+      const undoHp = [];
+      for (const prop of ['hp', 'maxhp', 'baseMaxhp']) {
+        const desc = Object.getOwnPropertyDescriptor(p, prop);
+        if (!desc || !('value' in desc)) continue;
+        let cur = desc.value;
+        Object.defineProperty(p, prop, {
+          configurable: true, enumerable: desc.enumerable,
+          get() { if (calculating) onRead(); return cur; },
+          set(v) { cur = v; },
+        });
+        undoHp.push(() => Object.defineProperty(p, prop, { ...desc, value: cur }));
+      }
+      return () => { for (const u of undoHp.reverse()) u(); };
+    };
+
+    const probeSourceSig = (sM, sH, xVec, xSig) => guarded(() => {
+      const sp = { pokemon: source, maxhp: sM, hp: sH, stats: {} };
+      const tp = { pokemon: target, stats: {} };
+      for (let i = 0; i < xReaders.length; i++) (xReaders[i].who === 'source' ? sp : tp).stats[xReaders[i].key] = xVec[i];
+      const undoPatch = patchAll([sp, tp]);
+      let stage = 'bp';
+      let bad = false;
+      let gotBp = false;
+      let bpVal = null;
+      let atkPure = true;
+      let atkMod = 1;
+      let enteredMod = false;
+      let lastMod = null;
+      const origModifyFn = battle.modify;
+      const undoBattleMod = override(battle, 'modify', function (val, num, den) {
+        const res = origModifyFn.call(this, val, num, den);
+        if (calculating) lastMod = { val, mod: battle.event?.modifier, res };
+        return res;
+      });
+      const origRun = battle.runEvent;
+      const undoRun = override(battle, 'runEvent', function (eventid, tArg, sArg, eff, relayVar, ...rest) {
+        if (!calculating) return origRun.call(this, eventid, tArg, sArg, eff, relayVar, ...rest);
+        const prev = stage;
+        if (eventid === 'BasePower') stage = 'bp';
+        else if (eventid === 'ModifyAtk' || eventid === 'ModifySpA') stage = 'atk';
+        else if (eventid === 'ModifyDef' || eventid === 'ModifySpD') stage = 'def';
+        else if (stage !== 'mod' && stage !== 'bp' && stage !== 'atk' && stage !== 'def') stage = 'other';
+        const prevLast = lastMod;
+        lastMod = null;
+        try {
+          const out = origRun.call(this, eventid, tArg, sArg, eff, relayVar, ...rest);
+          if (eventid === 'BasePower' && prev === 'bp') { gotBp = true; bpVal = out; }
+          if ((eventid === 'ModifyAtk' || eventid === 'ModifySpA') && prev === 'between') {
+            if (typeof relayVar === 'number' && lastMod && lastMod.val === relayVar && lastMod.res === out) atkMod = lastMod.mod;
+            else atkPure = false;
+          }
+          return out;
+        } finally {
+          lastMod = prevLast;
+          stage = eventid === 'BasePower' && prev === 'bp' ? 'between' : prev;
+        }
+      });
+      const undoActMod = override(actions, 'modifyDamage', () => { enteredMod = true; return 0; });
+      const undoHp = watchHp(source, () => {
+        if (stage !== 'bp' && stage !== 'atk') bad = true;
+        if (stage === 'atk' && !hit.sHasAtk) bad = true;
+      });
+      try {
+        restoreItems(hit.items);
+        withRoll(0, () => onMove(hit, m => {
+          calculating++;
+          try { return hit.getDamage.call(actions, source, target, m, true); } finally { calculating--; }
+        }), hit.draws);
+        const sameIt = hit.items.every(it => it.pokemon.item === it.item && it.pokemon.ateBerry === it.ateBerry);
+        if (bad || !sameIt || !enteredMod || !gotBp || (hit.sHasAtk && !atkPure)) return `raw:${sM}:${sH}:${xSig}`;
+        return hit.sHasAtk ? `s:${bpVal}:${atkMod}:${xSig}` : `s:${bpVal}:${xSig}`;
+      } finally {
+        undoHp();
+        undoActMod();
+        undoRun();
+        undoBattleMod();
+        undoPatch();
+        restoreItems(hit.items);
+      }
+    });
+
+    const probeTargetModSig = (M, h) => guarded(() => {
+      const undoPatch = patchAll([{ pokemon: target, maxhp: M, hp: h }]);
+      let modPure = true;
+      let modVal = 1;
+      let lastMod = null;
+      let seenModEvent = false;
+      const origModifyFn = battle.modify;
+      const undoBattleMod = override(battle, 'modify', function (val, num, den) {
+        const res = origModifyFn.call(this, val, num, den);
+        if (calculating) lastMod = { val, mod: battle.event?.modifier, res };
+        return res;
+      });
+      const origRun = battle.runEvent;
+      const undoRun = override(battle, 'runEvent', function (eventid, tArg, sArg, eff, relayVar, ...rest) {
+        if (!calculating || eventid !== 'ModifyDamage') return origRun.call(this, eventid, tArg, sArg, eff, relayVar, ...rest);
+        seenModEvent = true;
+        lastMod = null;
+        const out = origRun.call(this, eventid, tArg, sArg, eff, relayVar, ...rest);
+        if (typeof relayVar === 'number' && lastMod && lastMod.val === relayVar && lastMod.res === out) modVal = lastMod.mod;
+        else modPure = false;
+        return out;
+      });
+      const origActMod = actions.modifyDamage;
+      try {
+        restoreItems(hit.items);
+        let typeMod = 0;
+        withRoll(0, () => onMove(hit, m => {
+          target.getMoveHitData(m).crit = hit.crit;
+          calculating++;
+          try { origActMod.call(actions, 100, source, target, m, true); } finally { calculating--; }
+          typeMod = target.getMoveHitData(m).typeMod ?? 0;
+        }), hit.draws);
+        const sameIt = hit.items.every(it => it.pokemon.item === it.item && it.pokemon.ateBerry === it.ateBerry);
+        return seenModEvent && modPure && sameIt ? `tm:${typeMod}:${modVal}` : `raw:${M}:${h}`;
+      } finally {
+        undoRun();
+        undoBattleMod();
+        undoPatch();
+        restoreItems(hit.items);
+      }
+    });
+
+    const probeTargetBpSig = (M, h) => guarded(() => {
+      const undoPatch = patchAll([{ pokemon: target, maxhp: M, hp: h }]);
+      let stage = 'bp';
+      let bad = false;
+      let gotBp = false;
+      let bpVal = null;
+      let enteredMod = false;
+      const origRun = battle.runEvent;
+      const undoRun = override(battle, 'runEvent', function (eventid, ...rest) {
+        if (!calculating) return origRun.call(this, eventid, ...rest);
+        const prev = stage;
+        if (eventid === 'BasePower') stage = 'bp';
+        else if (stage !== 'bp') stage = 'other';
+        try {
+          const out = origRun.call(this, eventid, ...rest);
+          if (eventid === 'BasePower' && prev === 'bp') { gotBp = true; bpVal = out; }
+          return out;
+        } finally {
+          stage = eventid === 'BasePower' && prev === 'bp' ? 'between' : prev;
+        }
+      });
+      const undoActMod = override(actions, 'modifyDamage', () => { enteredMod = true; return 0; });
+      const undoHp = watchHp(target, () => { if (stage !== 'bp') bad = true; });
+      try {
+        restoreItems(hit.items);
+        withRoll(0, () => onMove(hit, m => {
+          calculating++;
+          try { return hit.getDamage.call(actions, source, target, m, true); } finally { calculating--; }
+        }), hit.draws);
+        const sameIt = hit.items.every(it => it.pokemon.item === it.item && it.pokemon.ateBerry === it.ateBerry);
+        return !bad && sameIt && enteredMod && gotBp ? `tbp:${bpVal}` : `raw:${M}:${h}`;
+      } finally {
+        undoHp();
+        undoActMod();
+        undoRun();
+        undoPatch();
+        restoreItems(hit.items);
+      }
+    });
+
+    const uAs = [];
+    const aMap = new Map();
+    const aIdxOf = new Int32Array(SPAN).fill(-1);
+    for (const a of hit.aVals) {
+      const vec = aReaders.map(r => r.dep.at(a));
+      const sig = vec.join(',');
+      let idx = aMap.get(sig);
+      if (idx === undefined) { idx = uAs.length; aMap.set(sig, idx); uAs.push({ sig, vec }); }
+      aIdxOf[a] = idx;
+    }
+
+    const uDs = [];
+    const dMap = new Map();
+    const dIdxOf = new Int32Array(SPAN).fill(-1);
+    for (const d of dVals) {
+      const vec = dReaders.map(r => r.dep.at(d));
+      const sig = vec.join(',');
+      let idx = dMap.get(sig);
+      if (idx === undefined) { idx = uDs.length; dMap.set(sig, idx); uDs.push({ sig, vec }); }
+      dIdxOf[d] = idx;
+    }
+
+    const uSs = [];
+    const sMap = new Map();
+    const sIdxOf = new Int32Array(hit.sStates.length);
+    for (let si = 0; si < hit.sStates.length; si++) {
+      const s = hit.sStates[si];
+      const xVec = xReaders.map(r => r.dep.at(s ? s[2] : ownValue(r.dep)));
+      const xSig = xVec.join(',');
+      const sig = !hit.sourceHp || !s || s[0] === null ? xSig
+        : hit.sPurePre ? cacheSim(`ssig|${s[0]}:${s[1]}|${xSig}`, () => probeSourceSig(s[0], s[1], xVec, xSig))
+          : `raw:${s[0]}:${s[1]}:${xSig}`;
+      let idx = sMap.get(sig);
+      if (idx === undefined) { idx = uSs.length; sMap.set(sig, idx); uSs.push({ sig, s, xVec }); }
+      sIdxOf[si] = idx;
+    }
+
+    const uTs = [];
+    const tMap = new Map();
+    const tIdxMap = hit.targetHp ? new Map() : null;
+    if (!hit.targetHp) {
+      uTs.push({ sig: '-', t: null });
+    } else {
+      for (const t of targetStates) {
+        const M = maxHp(T, t[0]);
+        const h = t[1];
+        const sig = hit.tOnlyMod ? cacheSim(`tmod|${M}:${h}`, () => probeTargetModSig(M, h))
+          : hit.tPureBp ? cacheSim(`tbp|${M}:${h}`, () => probeTargetBpSig(M, h))
+            : `raw:${M}:${h}`;
+        let idx = tMap.get(sig);
+        if (idx === undefined) { idx = uTs.length; tMap.set(sig, idx); uTs.push({ sig, t, M, h }); }
+        tIdxMap.set(t[0] * HP_BITS + h, idx);
+      }
+    }
+
+    const nTC = uTs.length;
+    const nSC = uSs.length;
+    const nAC = uAs.length;
+    const nDC = uDs.length;
+    const classRows = new Array(nTC * nSC * nAC * nDC);
+    for (let ti = 0; ti < nTC; ti++) {
+      const uT = uTs[ti];
+      const sharedPost = !hit.modReadsSourceOrStat ? cacheSim(`post|${uT.sig}`, () => new Map()) : null;
+      for (let si = 0; si < nSC; si++) {
+        const uS = uSs[si];
+        const post = sharedPost || new Map();
+        for (let ai = 0; ai < nAC; ai++) {
+          const uA = uAs[ai];
+          for (let di = 0; di < nDC; di++) {
+            const uD = uDs[di];
+            const row = cacheSim(`r|${uT.sig}|${uS.sig}|${uA.sig}|${uD.sig}`, () => {
               const sp = { pokemon: source, stats: {} };
               const tp = { pokemon: target, stats: {} };
-              for (const r of hit.readers) {
-                const pokemon = r.who === 'source' ? source : target;
-                const dep = depOf(byPokemon.get(pokemon), r.key);
-                // The one more candidate has a value per source state; where its
-                // owner is left no spread at all there is none, and the stat is
-                // the scaffold's own.
-                (r.who === 'source' ? sp : tp).stats[r.key] = dep.at(r.by === 'a' ? a : r.by === 'x' ? (s ? s[2] : ownValue(dep)) : d);
-              }
-              if (t) { tp.maxhp = maxHp(T, t[0]); tp.hp = t[1]; }
-              const patches = [sp, tp];
-              if (s && s[0] !== null) patches.push({ pokemon: source, maxhp: s[0], hp: s[1] });
-              return dryRow(hit, patches, post);
+              for (let i = 0; i < aReaders.length; i++) (aReaders[i].who === 'source' ? sp : tp).stats[aReaders[i].key] = uA.vec[i];
+              for (let i = 0; i < dReaders.length; i++) (dReaders[i].who === 'source' ? sp : tp).stats[dReaders[i].key] = uD.vec[i];
+              for (let i = 0; i < xReaders.length; i++) (xReaders[i].who === 'source' ? sp : tp).stats[xReaders[i].key] = uS.xVec[i];
+              if (uT.t) { tp.maxhp = uT.M; tp.hp = uT.h; }
+              if (uS.s && uS.s[0] !== null) { sp.maxhp = uS.s[0]; sp.hp = uS.s[1]; }
+              return dryRow(hit, [sp, tp], post);
             });
-            hit.rows.set(rowKey(a, d, t && t[0], t && t[1], si), row);
+            classRows[((ti * nSC + si) * nAC + ai) * nDC + di] = row;
           }
         }
       }
     }
+    const tIdxOf = hit.targetHp ? (hp, h) => (tIdxMap.get(hp * HP_BITS + h) ?? -1) : () => 0;
+    hit.classInfo = { nTC, nSC, nAC, nDC, tIdxOf, sIdxOf, aIdxOf, dIdxOf, classRows };
+    hit.rowAt = (a, d, hp, h, si) => {
+      const ti = tIdxOf(hp, h);
+      const ai = aIdxOf[a];
+      const di = dIdxOf[d];
+      if (ti < 0 || ai < 0 || di < 0) return null;
+      return classRows[((ti * nSC + sIdxOf[si]) * nAC + ai) * nDC + di] || null;
+    };
     return hit;
   }
 
@@ -1201,25 +1597,24 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     // whatever this replay's die did. Such a pair is left on 1 HP.
     const lethal = new Map();
     const nS = hit.sStates.length;
-    // Without the target's HP in the calculation, a row depends on the
-    // defence value alone: looked up once per value, not once per HP.
-    const rowsByD = new Map();
-    const rowsOf = (d, hp, h) => {
-      if (hit.targetHp) return hit.aVals.flatMap(a => hit.sStates.map((_, si) => hit.rows.get(rowKey(a, d, hp, h, si)) || null));
-      let list = rowsByD.get(d);
-      if (!list) {
-        list = hit.aVals.flatMap(a => hit.sStates.map((_, si) => hit.rows.get(rowKey(a, d, null, null, si)) || null));
-        rowsByD.set(d, list);
-      }
-      return list;
-    };
+    const { nSC, nAC, nDC, tIdxOf, sIdxOf, aIdxOf, dIdxOf, classRows } = hit.classInfo;
+    const mcPrefix = `mc|${hit.ord}|${dealt}|${shown ? shown.join('\u0000') : '-'}|${hit.aVals.join(',')}|${hit.sStatesSig}`;
     let cap = 64;
     let pairs = new Int32Array(cap);
     let rs = new Uint8Array(cap);
     let fatal = new Uint8Array(cap);
     for (const [g, [hp, d, h]] of groupsOf(T, hit.def)) {
+      const mcKey = `${mcPrefix}|${g}`;
+      const hitCached = cache.get(mcKey);
+      if (hitCached) {
+        table.set(g, hitCached.pairs);
+        rolls.set(g, hitCached.rs);
+        lethal.set(g, hitCached.fatal);
+        continue;
+      }
       const M = maxHp(T, hp);
-      const rows = rowsOf(d, hp, h);
+      const tIdx = tIdxOf(hp, h);
+      const dIdx = dIdxOf[d];
       // What one rolled amount leaves the target on, from this HP: the HP
       // after (null: its Damage event printed what the replay does not), and
       // whether the display that says it survived allows it. The same for
@@ -1246,41 +1641,62 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         outcomes.set(value, o);
         return o;
       };
+      const decoded = new Array(nAC * nSC);
       let n = 0;
       for (let ai = 0; ai < hit.aVals.length; ai++) {
         const a = hit.aVals[ai];
+        const aIdx = aIdxOf[a];
+        if (aIdx < 0 || tIdx < 0 || dIdx < 0) continue;
         for (let si = 0; si < nS; si++) {
-          const row = rows[ai * nS + si];
-          if (!row) continue;
-          const v = (a + SPAN * si) * HP_BITS;
-          // Every reader takes these as a set of pairs, each with its lethal
-          // bit, and the first roll that gave it: a repeat within one value and
-          // state adds nothing (other values and states pack differently).
-          const start = n;
-          for (let r = 0; r < row.length; r++) {
-            const o = outcome(row[r]);
-            if (o.left === null) continue;
-            const packed = v + o.left;
-            let repeat = false;
-            for (let j = start; j < n; j++) if (pairs[j] === packed && fatal[j] === o.fatal) { repeat = true; break; }
-            if (repeat) continue;
-            if (n === cap) {
-              cap *= 2;
-              const grow = (arr, Type) => { const out = new Type(cap); out.set(arr); return out; };
-              pairs = grow(pairs, Int32Array);
-              rs = grow(rs, Uint8Array);
-              fatal = grow(fatal, Uint8Array);
+          const sIdx = sIdxOf[si];
+          const ci = aIdx * nSC + sIdx;
+          let dec = decoded[ci];
+          if (dec === undefined) {
+            const row = classRows[((tIdx * nSC + sIdx) * nAC + aIdx) * nDC + dIdx];
+            if (!row) {
+              dec = null;
+            } else {
+              const lefts = new Int32Array(row.length);
+              const fatals = new Uint8Array(row.length);
+              const firstRs = new Uint8Array(row.length);
+              let len = 0;
+              for (let r = 0; r < row.length; r++) {
+                const o = outcome(row[r]);
+                if (o.left === null) continue;
+                let repeat = false;
+                for (let j = 0; j < len; j++) if (lefts[j] === o.left && fatals[j] === o.fatal) { repeat = true; break; }
+                if (repeat) continue;
+                lefts[len] = o.left;
+                fatals[len] = o.fatal;
+                firstRs[len] = r;
+                len++;
+              }
+              dec = { lefts, fatals, firstRs, len };
             }
-            pairs[n] = packed;
-            rs[n] = r;
-            fatal[n] = o.fatal;
+            decoded[ci] = dec;
+          }
+          if (!dec || !dec.len) continue;
+          const v = (a + SPAN * si) * HP_BITS;
+          while (n + dec.len > cap) {
+            cap *= 2;
+            const grow = (arr, Type) => { const out = new Type(cap); out.set(arr); return out; };
+            pairs = grow(pairs, Int32Array);
+            rs = grow(rs, Uint8Array);
+            fatal = grow(fatal, Uint8Array);
+          }
+          for (let u = 0; u < dec.len; u++) {
+            pairs[n] = v + dec.lefts[u];
+            rs[n] = dec.firstRs[u];
+            fatal[n] = dec.fatals[u];
             n++;
           }
         }
       }
-      table.set(g, pairs.slice(0, n));
-      rolls.set(g, rs.slice(0, n));
-      lethal.set(g, fatal.slice(0, n));
+      const entry = { pairs: pairs.slice(0, n), rs: rs.slice(0, n), fatal: fatal.slice(0, n) };
+      cache.set(mcKey, entry);
+      table.set(g, entry.pairs);
+      rolls.set(g, entry.rs);
+      lethal.set(g, entry.fatal);
     }
     const via = !hit.off || hit.A.kn.known ? null
       : hit.offDim ? { rec: hit.A, dim: hit.off } : { rec: hit.A, stat: hit.off };
@@ -2134,17 +2550,31 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   /** Keep, for each key in `byKey`, only the values of `stat` it lists. */
   function tie(rec, stat, byKey) {
     let t = rec.ties[stat];
+    const wordMemo = new Map();
+    const wordsOf = (vs) => {
+      let w = wordMemo.get(vs);
+      if (!w) { w = tieWords(vs); wordMemo.set(vs, w); }
+      return w;
+    };
     if (!t) {
       t = newTie();
       rec.ties[stat] = t;
-      for (const [k, vs] of byKey) [t[2 * k], t[2 * k + 1]] = tieWords(vs);
+      for (const [k, vs] of byKey) [t[2 * k], t[2 * k + 1]] = wordsOf(vs);
+      rec.tieVer = (rec.tieVer || 0) + 1;
       return;
     }
+    let changed = false;
     for (const [k, vs] of byKey) {
-      const [lo, hi] = tieWords(vs);
-      t[2 * k] &= lo;
-      t[2 * k + 1] &= hi;
+      const [lo, hi] = wordsOf(vs);
+      const n0 = (t[2 * k] & lo) >>> 0;
+      const n1 = (t[2 * k + 1] & hi) >>> 0;
+      if (n0 !== t[2 * k] || n1 !== t[2 * k + 1]) {
+        t[2 * k] = n0;
+        t[2 * k + 1] = n1;
+        changed = true;
+      }
     }
+    if (changed) rec.tieVer = (rec.tieVer || 0) + 1;
   }
 
   function apply(rec, change, token, survived = false) {
@@ -2170,10 +2600,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const tied = tiedStat(rec, change);
     const held = tied ? rec.ties[tied] : null;
     const byKey = tied && token !== null ? new Map() : null;
-    // Without a tie the HPs a key goes to depend on its list, its max HP and
-    // the value the change reads alone: worked out once for each and shared,
-    // as the list it came from may be.
-    const shared = tied ? null : new Map();
+    // Keys with the same list, tie mask, max HP and dimension value share the
+    // HPs and tied values they keep.
+    const shared = new Map();
     for (const [k, hs] of rec.chain) {
       const hp = KEY_HP[k];
       const M = maxHp(rec, hp);
@@ -2185,15 +2614,16 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
       if (!dimAllowed(change, k)) continue;
       const d = change.dim ? KEY_DIM[change.dim][k] : 0;
-      let group = null;
-      if (shared) {
-        group = shared.get(hs);
-        if (!group) { group = new Map(); shared.set(hs, group); }
-        const had = group.get(hp * SPAN + d);
-        if (had !== undefined) {
-          if (had) next.set(k, had);
-          continue;
+      const gKey = held ? tieMask(held, k) * (SPAN * SPAN) + hp * SPAN + d : hp * SPAN + d;
+      let group = shared.get(hs);
+      if (!group) { group = new Map(); shared.set(hs, group); }
+      const had = group.get(gKey);
+      if (had !== undefined) {
+        if (had) {
+          next.set(k, had.list);
+          if (byKey) byKey.set(k, had.vs);
         }
+        continue;
       }
       const out = new Set();
       const vs = byKey ? new Set() : null;
@@ -2256,7 +2686,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         if (supported) for (const v of res.via) supported[v] = 1;
       }
       const list = out.size ? [...out] : null;
-      if (group) group.set(hp * SPAN + d, list);
+      group.set(gKey, list ? { list, vs } : null);
       if (list) {
         next.set(k, list);
         if (byKey) byKey.set(k, vs);
@@ -2489,7 +2919,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const rs = [];
       for (const a of hit.aVals) {
         for (let si = 0; si < hit.sStates.length; si++) {
-          const row = hit.rows.get(rowKey(a, d, hit.targetHp ? hp : null, hit.targetHp ? h : null, si));
+          const row = hit.rowAt(a, d, hit.targetHp ? hp : null, hit.targetHp ? h : null, si);
           if (!row) continue;
           for (const [r, value] of row.entries()) {
             const x = typeof value === 'number' ? Math.max(1, value) : null;
@@ -3837,10 +4267,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
    * a mask, so two such hits read one value between them, not one each.
    */
   function backward() {
+    const lastSig = new Map();
+    const sigOf = rec => `${rec.chain.size}|${maskOf(rec.flat.atk)},${maskOf(rec.flat.spa)},${maskOf(rec.flat.spe)}|${rec.tieVer || 0}|${rec.history.map(({ change: c }) => `${c.dealtOk ? c.dealtOk.size : -1}:${c.victim?.dealtOk ? c.victim.dealtOk.size : -1}:${c.hits ? c.hits.map(h => (h.dealtOk ? h.dealtOk.size : -1)).join(',') : ''}`).join(';')}`;
     for (let round = 0; round < 4; round++) {
       let shrank = false;
       for (const rec of recs) {
         if (!rec.history.length) continue;
+        if (round > 0 && lastSig.get(rec) === sigOf(rec)) continue;
         const reads = new Map();
         for (const { change } of rec.history) {
           const s = tiedStat(rec, change);
@@ -3864,7 +4297,16 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         // exact turns reads them.
         rec.alive = exact ? [] : null;
         for (let i = rec.history.length - 1; i >= 0; i--) {
-          if (exact) rec.alive[i] = new Map([...alive].map(([k, states]) => [k, [...states.keys()]]));
+          if (exact) {
+            const stateKeys = new Map();
+            const map = new Map();
+            for (const [k, states] of alive) {
+              let ks = stateKeys.get(states);
+              if (!ks) { ks = [...states.keys()]; stateKeys.set(states, ks); }
+              map.set(k, ks);
+            }
+            rec.alive[i] = map;
+          }
           const { change, token, survived, pre } = rec.history[i];
           const seen = change.via && token !== null ? new Uint8Array(SPAN) : null;
           const tied = tiedStat(rec, change);
@@ -3908,11 +4350,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             }
             return row;
           };
-          // Without a per-key tie or filter, what a key keeps depends on its
-          // list, its later states, its max HP and the value the change reads
-          // alone: worked out once for each and shared.
-          const shareable = !held && !byKey && !(change.same && (change.allowDims || change.allowGrid));
-          const shared = shareable ? new Map() : null;
+          // Keys sharing their list, later states, tie mask, max HP and the
+          // dimension value the change reads keep the exact same states and
+          // tied values: worked out once for each tuple and shared.
+          const shared = new Map();
           for (const [k, hs] of pre) {
             const later = alive.get(k);
             if (!later) continue;
@@ -3924,18 +4365,20 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
               allow = allowAt.get(M);
               if (!allow) continue;
             }
+            if (change.same && !dimAllowed(change, k)) continue;
             const d = change.dim ? KEY_DIM[change.dim][k] : 0;
-            let group = null;
-            if (shared) {
-              let byLater = shared.get(hs);
-              if (!byLater) { byLater = new Map(); shared.set(hs, byLater); }
-              group = byLater.get(later);
-              if (!group) { group = new Map(); byLater.set(later, group); }
-              const had = group.get(hp * SPAN + d);
-              if (had !== undefined) {
-                if (had) prev.set(k, had);
-                continue;
+            const gKey = held ? tieMask(held, k) * (SPAN * SPAN) + hp * SPAN + d : hp * SPAN + d;
+            let byLater = shared.get(hs);
+            if (!byLater) { byLater = new Map(); shared.set(hs, byLater); }
+            let group = byLater.get(later);
+            if (!group) { group = new Map(); byLater.set(later, group); }
+            const had = group.get(gKey);
+            if (had !== undefined) {
+              if (had) {
+                prev.set(k, had.keep);
+                if (byKey) byKey.set(k, had.vs);
               }
+              continue;
             }
             const fatalOf = survived ? change.lethal : null;
             const keep = new Map();
@@ -3954,7 +4397,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             for (const h of hs) {
               let m = 0;
               if (change.same) {
-                if (later.has(h) && dimAllowed(change, k) && (!change.allowSet || change.allowSet.has(M * HP_BITS + h)) && (!change.allow || change.allow(M, h))) m = later.get(h);
+                if (later.has(h) && (!change.allowSet || change.allowSet.has(M * HP_BITS + h)) && (!change.allow || change.allow(M, h))) m = later.get(h);
               } else if (span) {
                 m = span(h);
               } else {
@@ -3989,7 +4432,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
               if (m) keep.set(h, m);
             }
             if (byHp) for (const x of later.keys()) if (x <= M + 1) byHp[x] = 0;
-            if (group) group.set(hp * SPAN + d, keep.size ? keep : null);
+            group.set(gKey, keep.size ? { keep, vs } : null);
             if (keep.size) {
               prev.set(k, keep);
               if (byKey) byKey.set(k, vs);
@@ -4014,14 +4457,21 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
         }
         if (track) {
           const byKey = new Map();
+          const valsMemo = new Map();
           for (const [k, states] of alive) {
-            let m = 0;
-            for (const x of states.values()) m = maskOr(m, x);
-            byKey.set(k, maskValues(m));
+            let vs = valsMemo.get(states);
+            if (!vs) {
+              let m = 0;
+              for (const x of states.values()) m = maskOr(m, x);
+              vs = maskValues(m);
+              valsMemo.set(states, vs);
+            }
+            byKey.set(k, vs);
           }
           tie(rec, track, byKey);
         }
         rec.pathKeys = new Set(alive.keys());
+        lastSig.set(rec, sigOf(rec));
       }
       if (!shrank) break;
     }
