@@ -10,7 +10,7 @@
 
 import { battleLines } from '../protocol.mjs';
 import { ACTION_START, SOFT_PRETURN, identName, identSide, override, tagsOf } from '../reconstruct.mjs';
-import { SPAN, cloneKnowledge, intersectKnowledge, orderSpeeds } from './knowledge.mjs';
+import { SPAN, canonicalNatureName, cloneKnowledge, intersectKnowledge, orderSpeeds } from './knowledge.mjs';
 
 const OPENS_MOVE = /^\|(move|cant)\||^\|-activate\|[^|]+\|confusion$|^\|-curestatus\|[^|]+\|(slp|frz)\|\[msg\]$/;
 const MEGA = new Set(['megaEvo', 'megaEvoX', 'megaEvoY']);
@@ -126,28 +126,8 @@ export function attachSpeed(battle, {
    * the pass that made it.
    */
   const speedsOf = (rec, read) => guarded(() => {
-    const dep = depOf(rec, 'spe');
     const p = rec.pokemon;
     const real = read();
-    if (dep && !dep.owner && !dep.deps) return { owner: rec.id, table: new Float64Array(SPAN).fill(real), ownSpeed: real };
-    if (dep && dep.owner && dep.stat === 'spe') {
-      const saved = p.storedStats.spe;
-      const table = new Float64Array(SPAN);
-      let ownSpe;
-      try {
-        for (let s = 0; s < SPAN; s++) { p.storedStats.spe = dep.at(s); table[s] = read(); }
-        const ownIdx = ownValue(dep);
-        if (dep.own !== undefined && dep.own !== dep.at(ownIdx)) {
-          p.storedStats.spe = dep.own;
-          ownSpe = read();
-        } else {
-          ownSpe = table[ownIdx];
-        }
-      } finally {
-        p.storedStats.spe = saved;
-      }
-      if (ownSpe === real) return { owner: dep.owner.id, table, ownSpeed: ownSpe };
-    }
     if (rec.kn.natures && !rec.kn.nature && !rec.unmapped.has('spe') && !rec.deps.spe) {
       const saved = p.storedStats.spe;
       const forme = p.species;
@@ -173,11 +153,49 @@ export function attachSpeed(battle, {
       } finally {
         p.storedStats.spe = saved;
       }
+      note(`${label(rec)}'s Speed`, 'no one candidate value says what it is, so its turn order was not used');
+      return null;
+    }
+    if (rec.kn.natures && !rec.kn.nature && (rec.unmapped.has('spe') || rec.deps.spe)) {
+      rec.needsNaturePass = true;
+    }
+    const dep = depOf(rec, 'spe');
+    if (dep && !dep.owner && !dep.deps) return { owner: rec.id, table: new Float64Array(SPAN).fill(real), ownSpeed: real };
+    if (dep && dep.owner && dep.stat === 'spe') {
+      const saved = p.storedStats.spe;
+      const table = new Float64Array(SPAN);
+      let ownSpe;
+      try {
+        for (let s = 0; s < SPAN; s++) { p.storedStats.spe = dep.at(s); table[s] = read(); }
+        const ownIdx = ownValue(dep);
+        if (dep.own !== undefined && dep.own !== dep.at(ownIdx)) {
+          p.storedStats.spe = dep.own;
+          ownSpe = read();
+        } else {
+          ownSpe = table[ownIdx];
+        }
+      } finally {
+        p.storedStats.spe = saved;
+      }
+      if (ownSpe === real) return { owner: dep.owner.id, table, ownSpeed: ownSpe };
     }
     note(`${label(rec)}'s Speed`, 'no one candidate value says what it is, so its turn order was not used');
     return null;
   });
-  const speedTable = rec => memo(`spe|${sortOrdinal}|${rec.id}${passKey}`, () => speedsOf(rec, () => rec.pokemon.getActionSpeed()));
+  const speedMemo = (prefixKey, rec, read) => {
+    if (!rec.deps.spe && !rec.unmapped.has('spe') && !rec.kn.known) {
+      if (rec.kn.nature) {
+        const multi = memo(`${prefixKey}|${rec.id}|*`, () => undefined);
+        const nat = canonicalNatureName(rec.kn.nature);
+        if (multi?.tables?.[nat]) return { owner: rec.id, table: multi.tables[nat], ownSpeed: multi.ownSpeed };
+      }
+      const key = `${prefixKey}|${rec.id}|${rec.kn.nature ? canonicalNatureName(rec.kn.nature) : (rec.kn.natures ? '*' : '')}`;
+      return memo(key, () => speedsOf(rec, read));
+    }
+    const key = `${prefixKey}|${rec.id}${rec.deps.spe ? passKey : (rec.kn.known ? '|K' : '')}`;
+    return memo(key, () => speedsOf(rec, read));
+  };
+  const speedTable = rec => speedMemo(`spe|${sortOrdinal}`, rec, () => rec.pokemon.getActionSpeed());
 
   // Which moves the simulator's move request lets each active Pokemon choose
   // at the start of the turn (`side.chooseMove`), with each move's
@@ -416,14 +434,14 @@ export function attachSpeed(battle, {
   let speciesUpdates = 0;
   for (const rec of recs) {
     const p = rec.pokemon;
-    rec.cachedSpeed = memo(`init|${rec.id}${passKey}`, () => speedsOf(rec, () => (p.isActive ? p.getActionSpeed() : p.storedStats.spe)));
+    rec.cachedSpeed = speedMemo('init', rec, () => (p.isActive ? p.getActionSpeed() : p.storedStats.spe));
     const setSpecies = p.setSpecies;
     override(p, 'setSpecies', function (...args) {
       const out = setSpecies.apply(this, args);
       if (!state.dry && !state.ended) {
         // A Transform's `setSpecies` is followed by the copied stats.
         const at = speciesUpdates++;
-        rec.cachedSpeed = args[2] ? null : memo(`spc|${at}|${rec.id}${passKey}`, () => speedsOf(rec, () => this.storedStats.spe));
+        rec.cachedSpeed = args[2] ? null : speedMemo(`spc|${at}`, rec, () => this.storedStats.spe);
       }
       return out;
     });
@@ -432,7 +450,7 @@ export function attachSpeed(battle, {
       const out = update.call(this);
       if (!state.dry && !state.ended) {
         const at = speedUpdates++;
-        rec.cachedSpeed = memo(`upd|${at}|${rec.id}${passKey}`, () => speedsOf(rec, () => p.getActionSpeed()));
+        rec.cachedSpeed = speedMemo(`upd|${at}`, rec, () => p.getActionSpeed());
       }
       return out;
     });
@@ -688,7 +706,7 @@ export function attachSpeed(battle, {
         if (!f) continue;
         if (fixed && fixed.has(f.owner)) {
           const [nat, v] = fixed.get(f.owner);
-          const t = (nat && f.tables?.[nat]) || f.table;
+          const t = (nat && f.tables?.[canonicalNatureName(nat)]) || f.table;
           const s = t[v];
           if (s > cap) return false;
           cap = s;
@@ -756,26 +774,29 @@ export function attachSpeed(battle, {
     if (byOrder.size < 2) return;
     const entries = [...byOrder.values()];
     const sortedAt = entries.findIndex(e => e.order.join('\n') === keysSig);
-    const runs = memo(`hsort|${handlerSortCount++}${passKey}`, () => {
-      const kept = list.slice();
-      const run = order => guarded(() => {
-        const at = battle.log.length;
-        forcing = { keys, order };
-        try {
-          frame.rerun();
-          return battle.log.slice(at);
-        } catch {
-          return null;
-        } finally {
-          forcing = null;
-        }
-      });
+    const sortPrefix = `hsort|${battle.turn}|${battle.log.length}|${name}|${keysSig}|`;
+    const kept = list.slice();
+    const run = order => guarded(() => {
+      const at = battle.log.length;
+      forcing = { keys, order };
       try {
-        return entries.map(({ order }) => run(order));
+        frame.rerun();
+        return battle.log.slice(at);
+      } catch {
+        return null;
       } finally {
-        list.splice(0, list.length, ...kept);
+        forcing = null;
       }
     });
+    let runs;
+    try {
+      runs = entries.map(({ order }) => memo(`${sortPrefix}${order.join('\n')}`, () => run(order)));
+    } finally {
+      list.splice(0, list.length, ...kept);
+    }
+    const baseRun = runs[sortedAt];
+    if (baseRun && runs.every(r => r && r.length === baseRun.length && r.every((l, k) => l === baseRun[k]))) return;
+    for (const r of involved) if (r.unpinned) r.needsNaturePass = true;
     handlerSorts.push({ frame, pairs, entries, sortedAt, runs, speeds, turn: battle.turn, name });
   }
 
@@ -821,6 +842,7 @@ export function attachSpeed(battle, {
     return {
       fast: byId.get(fx.owner),
       slow: byId.get(fy.owner),
+      actors: [X.id, Y.id],
       tf: fx.table,
       ts: fy.table,
       ...(fx.tables ? { tfByNature: fx.tables } : {}),
@@ -1398,8 +1420,9 @@ export function attachSpeed(battle, {
   function bound({ fast, slow, tf, ts, tfByNature, tsByNature, strict }) {
     if (fast === slow) {
       if (fast.kn.natures && !fast.kn.nature && (tfByNature || tsByNature)) return false;
-      const tFast = (fast.kn.nature && tfByNature?.[fast.kn.nature]) || tf;
-      const tSlow = (fast.kn.nature && tsByNature?.[fast.kn.nature]) || ts;
+      const fastNat = fast.kn.nature && canonicalNatureName(fast.kn.nature);
+      const tFast = (fastNat && tfByNature?.[fastNat]) || tf;
+      const tSlow = (fastNat && tsByNature?.[fastNat]) || ts;
       let moved = false;
       for (let v = 0; v < SPAN; v++) {
         if (fast.flat.spe[v] && (strict ? tFast[v] <= tSlow[v] : tFast[v] < tSlow[v])) { fast.flat.spe[v] = 0; moved = true; }
@@ -1408,8 +1431,10 @@ export function attachSpeed(battle, {
     }
     const multiFast = fast.kn.natures && !fast.kn.nature && tfByNature;
     const multiSlow = slow.kn.natures && !slow.kn.nature && tsByNature;
-    const tFast = (fast.kn.nature && tfByNature?.[fast.kn.nature]) || tf;
-    const tSlow = (slow.kn.nature && tsByNature?.[slow.kn.nature]) || ts;
+    const fastNat = fast.kn.nature && canonicalNatureName(fast.kn.nature);
+    const slowNat = slow.kn.nature && canonicalNatureName(slow.kn.nature);
+    const tFast = (fastNat && tfByNature?.[fastNat]) || tf;
+    const tSlow = (slowNat && tsByNature?.[slowNat]) || ts;
     let maxFast = -Infinity;
     let minSlow = Infinity;
     if (multiFast) {

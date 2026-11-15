@@ -191,6 +191,11 @@ const PLANTED = [
   'fuzz:1061', // evidence.mjs:161 &&→||, speed.mjs:655 <→<=: remove a real spread
   'fuzz:1070', // evidence.mjs:1780 deleted, evidence.mjs:83 <=→<: remove a real spread
   'fuzz:1086', // knowledge.mjs:632 <→<= keeps more spreads
+  // Hunted on fuzz 301-500 at 1d53882:
+  'fuzz:307', // evidence.mjs fireEdge full-HP check deleted: removes a real spread
+  'fuzz:344', // infer.mjs fallback and build `by` deleted: gives up
+  'fuzz:369', // evidence.mjs Damage runEvent inverted: keeps more spreads
+  'fuzz:407', // knowledge.mjs closestSpread !kn.keys[k] deleted: gives up
 ];
 
 // Games a corpus sweep found the rebuild or the inference failing on

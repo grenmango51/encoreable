@@ -210,7 +210,7 @@ function handOn(built, rolls, coupled = Infinity) {
 // ------------------------------------------------------ closed-sheet hypotheses
 
 const SILENT_ITEM_CACHE = new Map();
-const ITEM_MOD_HOOK = /^on(?:Modify(?:Atk|Def|SpA|SpD|Spe|Damage|Weight|Secondaries)|BasePower|FractionalPriority|TryHeal|Effectiveness|(?:Maybe)?TrapPokemon)/;
+const ITEM_MOD_HOOK = /^on(?:Modify(?:Atk|Def|SpA|SpD|Spe|Damage|Weight|Secondaries|Accuracy|CritRatio|Move)|SourceModifyAccuracy|BasePower|FractionalPriority|TryHeal|Effectiveness|(?:Maybe)?TrapPokemon)/;
 const ITEM_SELF_ANNOUNCE = /\b(?:useItem|eatItem)\s*\(|\bthis\.add\s*\(/;
 const PASSIVE_ABILITY_EVENTS = new Set(['Start', 'SwitchIn', 'AnySwitchIn', 'Update', 'Residual', 'End', 'Weather']);
 const SEARCH_LIMITS = new Set([
@@ -593,19 +593,22 @@ async function probeCandidate(formatid, baseBuilt, baseBattleLines, candSets, ob
         if (acted) break;
       }
     }
-    await stream.writeEnd();
-    await drain;
+    await new Promise(r => setImmediate(r));
   } catch {
     if (!rawLog.length && stream.battle?.log) rawLog = [...stream.battle.log];
+  } finally {
     stream.destroy?.();
+    await Promise.race([drain, Promise.resolve()]);
   }
   const candLines = battleLines(rawLog);
-  const logChanged = candLines.length !== baseBattleLines.length || candLines.some((l, k) => l !== baseBattleLines[k]);
+  const unavailableChoice = chunks.some(c => c.includes('|error|[Unavailable choice]') || c.includes('|error|[Invalid choice]'));
+  const prefixMatches = candLines.length <= baseBattleLines.length && candLines.every((l, k) => l === baseBattleLines[k]);
+  const logChanged = candLines.length !== baseBattleLines.length || !prefixMatches;
   if (logChanged && !(!isAbility && hasItemOnlyIds.has(effectObj.id) && !events.has('hasItem'))) {
     acted = true;
     events.add('log');
   }
-  let impossible = false;
+  let impossible = baseBuilt.report.complete && !(baseBuilt.report.hidden || []).length && unavailableChoice && prefixMatches;
   if (isAbility && (effectObj.onStart || effectObj.onSwitchIn) && rawLog.length) {
     const view = extractChannelMessages(rawLog.join('\n'), [channel])[channel] || [];
     const wantTurns = splitTurns(observed.filter(l => typeof l === 'string'));
@@ -634,6 +637,13 @@ function speOnlyRedundant(best, probe, bestSets, s, i) {
   const all = new Set([...probe.events, ...(probe.calledEvents || [])]);
   if (all.size !== 1 || !all.has('ModifySpe')) return false;
   const monId = `p${s + 1}:${i}`;
+  const isUnknownOther = id => id && id !== monId && !best.knowledge.get(id)?.known;
+  if ((best.orders || []).some((o) => {
+    const ids = [o.fast, o.slow, ...(o.actors || [])];
+    return ids.includes(monId) && ids.some(isUnknownOther);
+  })) {
+    return false;
+  }
   const kn = best.knowledge.get(monId);
   if (!kn || kn.known) return true;
   if (kn.natures) {
@@ -646,7 +656,10 @@ function speOnlyRedundant(best, probe, bestSets, s, i) {
     if (Object.keys(kn.ties || {}).some(k => k === 'spe' || k.includes('spe'))) return false;
   }
   const monName = bestSets[s][i].name || bestSets[s][i].species;
-  if ((best.events || []).some(e => e.what.includes(monName) && e.cuts.some(c => c.id !== monId && c.narrowed.includes('spe')))) {
+  if ((best.events || []).some((e) => {
+    const involvesMon = e.what.includes(monName) || (e.who || []).some(w => w.id === monId);
+    return involvesMon && e.cuts.some(c => c.id !== monId && c.narrowed.includes('spe'));
+  })) {
     return false;
   }
   return true;
@@ -847,8 +860,15 @@ async function inferClosed(options, { absorb, work, warnings, lost, limits, blan
     queue.push(cand);
   };
 
+  const CHANCE_ONLY_EVENTS = new Set(['ModifyAccuracy', 'SourceModifyAccuracy', 'ModifyCritRatio']);
+  const isNonChanceProbe = pr => pr.logChanged
+    || [...pr.events, ...(pr.calledEvents || [])].some(ev => !CHANCE_ONLY_EVENTS.has(ev));
+  const activeBySide = [[], []];
+  const cappedPairSlots = [];
+
   for (const { s, i, key } of fielded) {
     const actA = [bestSets[s][i].ability];
+    const statModA = new Set([toID(bestSets[s][i].ability)]);
     for (const a of legalAbilities(s, i)) {
       if (toID(a) === toID(bestSets[s][i].ability)) continue;
       const pr = await probeCandidate(formatid, best.built, baseLines, bestSets, observed, channel, s, i, { ability: a });
@@ -861,19 +881,59 @@ async function inferClosed(options, { absorb, work, warnings, lost, limits, blan
           )));
         }
       }
-      if (pr.acted && !speOnlyRedundant(best, pr, bestSets, s, i)) actA.push(a);
+      if (pr.acted && !speOnlyRedundant(best, pr, bestSets, s, i)) {
+        actA.push(a);
+        if (isNonChanceProbe(pr)) statModA.add(toID(a));
+      }
     }
     const actI = [bestSets[s][i].item || ''];
+    const statModI = new Set([toID(bestSets[s][i].item || '')]);
     for (const item of candidateItems(s, i)) {
       if (toID(item) === toID(bestSets[s][i].item)) continue;
-      if (item === '') { actI.push(''); continue; }
+      if (item === '') { actI.push(''); statModI.add(''); continue; }
       const pr = await probeCandidate(formatid, best.built, baseLines, bestSets, observed, channel, s, i, { item });
-      if (!pr.impossible && pr.acted && !speOnlyRedundant(best, pr, bestSets, s, i)) actI.push(item);
+      if (!pr.impossible && pr.acted && !speOnlyRedundant(best, pr, bestSets, s, i)) {
+        actI.push(item);
+        if (isNonChanceProbe(pr)) statModI.add(toID(item));
+      }
     }
+    const nonBase = [];
     for (const a of actA) {
       for (const item of actI) {
         enqueue(cloneTeamsWithBoxes(bestSets, (cs, ci) => (cs === s && ci === i ? { ability: a, item } : {})));
+        if (toID(a) !== toID(actA[0]) || toID(item) !== toID(actI[0])) {
+          const changedA = toID(a) !== toID(actA[0]);
+          const changedI = toID(item) !== toID(actI[0]);
+          const statMod = (changedA && statModA.has(toID(a))) || (changedI && statModI.has(toID(item)));
+          nonBase.push({ ability: a, item, statMod });
+        }
       }
+    }
+    if (nonBase.length) activeBySide[s]?.push({ s, i, nonBase });
+  }
+
+  const PAIR_CAP = 32 * budgetScale;
+  for (const s of [0, 1]) {
+    const slots = activeBySide[s] || [];
+    if (slots.length === 2) {
+      const [slotA, slotB] = slots;
+      const crossCands = [];
+      for (const pA of slotA.nonBase) {
+        for (const pB of slotB.nonBase) {
+          if (itemClause && pA.item && pB.item && toID(pA.item) === toID(pB.item)) continue;
+          crossCands.push({
+            prio: Number(pA.statMod) + Number(pB.statMod),
+            cand: cloneTeamsWithBoxes(bestSets, (cs, ci) => (
+              cs === s && ci === slotA.i ? { ability: pA.ability, item: pA.item }
+                : cs === s && ci === slotB.i ? { ability: pB.ability, item: pB.item }
+                  : {}
+            )),
+          });
+        }
+      }
+      crossCands.sort((x, y) => y.prio - x.prio);
+      for (const { cand } of crossCands.slice(0, PAIR_CAP)) enqueue(cand);
+      if (crossCands.length > PAIR_CAP) cappedPairSlots.push(slotA, slotB);
     }
   }
 
@@ -897,6 +957,7 @@ async function inferClosed(options, { absorb, work, warnings, lost, limits, blan
     }
   };
 
+  const isImpossibleKn = knMap => [...knMap.values()].some(kn => !kn.known && !kn.keys.includes(1));
   for (const cand of queue) {
     if (Date.now() >= deadline) {
       limits.add('deadline');
@@ -907,10 +968,10 @@ async function inferClosed(options, { absorb, work, warnings, lost, limits, blan
       ...(sharedPins ? { initialPins: sharedPins } : {}),
       ...(best.complete && best.picks ? { initialPicks: best.picks } : {}),
     });
-    if (variant.ruledOutAbility) continue;
+    if (variant.ruledOutAbility || isImpossibleKn(variant.knowledge)) continue;
     if (!variant.complete && variant.limits.some(l => SEARCH_LIMITS.has(l)) && !wide && start === 'default' && Date.now() < deadline) {
       variant = await runHypothesis(cand, { noRestarts: false });
-      if (variant.ruledOutAbility) continue;
+      if (variant.ruledOutAbility || isImpossibleKn(variant.knowledge)) continue;
     }
     if (variant.complete) {
       if (!best.complete) {
@@ -935,6 +996,19 @@ async function inferClosed(options, { absorb, work, warnings, lost, limits, blan
             tighten(kn);
           }
         }
+      }
+    }
+  }
+
+  if (cappedPairSlots.length) {
+    limits.add('searches');
+    for (const { s, i } of cappedPairSlots) {
+      const id = `p${s + 1}:${i}`;
+      const kn = best.knowledge.get(id);
+      const bkn = blank.get(id);
+      if (kn && bkn) {
+        uniteKnowledge(kn, bkn);
+        tighten(kn);
       }
     }
   }
@@ -1135,7 +1209,8 @@ export async function inferSpreads({
   if (hypotheses && sets.some((team, s) => !known?.[s] && team.some(set => set?.boxes))) {
     return inferClosed(options, { absorb, work, warnings, lost, limits, blank });
   }
-  const sameGuess = (a, b) => sameSpread(a, b) && a.nature === b.nature;
+  const sameGuess = (a, b) => sameSpread(a, b)
+    && (a.nature ? canonicalNatureName(a.nature) : undefined) === (b.nature ? canonicalNatureName(b.nature) : undefined);
   // Each unknown set's first guess, from either start: bulk and the stat its
   // nature boosts, or (`start: 'usage'`) the spread people run most with its
   // species and nature. A guess is only where the search begins.
@@ -1146,7 +1221,7 @@ export async function inferSpreads({
     const hp = max ? max - base - 75 : undefined;
     const usual = from === 'usage' ? usualSpreads(usage, dex, set).find(u => hp === undefined || u.evs.hp === hp) : null;
     if (!set.nature) {
-      if (usual) return { ...usual.evs, nature: usual.nature || 'Serious' };
+      if (usual) return { ...usual.evs, nature: canonicalNatureName(usual.nature) };
       return { ...defaultSpread(dex, set, hp), nature: 'Serious' };
     }
     return usual ? { ...usual.evs } : defaultSpread(dex, set, hp);
@@ -1209,7 +1284,7 @@ export async function inferSpreads({
       }
       if ([...knowledge.values()].some(kn => !kn.known && (!kn.keys.includes(1) || FLAT.some(x => !kn.dom[x].includes(1))))) {
         return {
-          events: [], checks: [], cutoff: null, scaffoldOrders: [], cutoffSpeeds: [],
+          events: [], orders: [], checks: [], cutoff: null, scaffoldOrders: [], cutoffSpeeds: [],
           seen: new Set(), lent: new Map(), initial: null, afterFirst: null, passes: 0,
         };
       }
@@ -1226,7 +1301,7 @@ export async function inferSpreads({
         for (const r of pass.recs) moved = intersectKnowledge(knowledge.get(r.id), r.keys, r.flat, r.ties) || moved;
         if (watch) await report('evidence', before);
         if (learn) for (const o of pass.orders || []) orders.set(`${o.fast}|${o.slow}|${o.strict ? '>' : '>='}|${o.tf}|${o.ts}`, o);
-        moved = orderSpeeds(knowledge, [...orders.values(), ...keptOrders]) || moved;
+        moved = orderSpeeds(knowledge, [...orders.values(), ...(learn ? [] : (pass.orders || [])), ...keptOrders]) || moved;
         if (watch) await report('orders');
         for (const kn of knowledge.values()) moved = tighten(kn) || moved;
         if (watch) await report('budget');
@@ -1253,40 +1328,50 @@ export async function inferSpreads({
         }
         return out;
       };
+      let prevSubMoved = false;
       while (passes < 8 * S) {
         if (passes > 0 && Date.now() >= deadline) { limits.add('deadline'); break; }
         const before = watch ? cloneKnowledge(knowledge) : null;
         const needRecord = record && !first;
+        const preBase = needRecord ? cloneKnowledge(knowledge) : null;
         const startStates = needRecord ? new Map(multiIds.map((id) => {
           const kn = knowledge.get(id);
+          let blankSum = null;
           return [id, new Map([...kn.natures].map(([n, sub]) => {
-            const sum = summarise(sub);
+            const isFull = !Object.keys(sub.ties || {}).length && FLAT.every(s => sub.dom[s].every(v => v === 1));
+            const sum = isFull && blankSum ? blankSum : summarise(sub);
+            if (isFull && !blankSum) blankSum = sum;
             return [n, { count: sum.spreads, stats: sum.stats }];
           }))];
         })) : null;
         const basePass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, simCache, record: needRecord, beforeTurn });
         passes++;
         work.passes++;
-        let moved = false;
-        for (const r of basePass.recs) moved = intersectKnowledge(knowledge.get(r.id), r.keys, r.flat, r.ties) || moved;
+        let baseMoved = false;
+        for (const r of basePass.recs) baseMoved = intersectKnowledge(knowledge.get(r.id), r.keys, r.flat, r.ties) || baseMoved;
         if (learn) for (const o of basePass.orders || []) orders.set(`${o.fast}|${o.slow}|${o.strict ? '>' : '>='}|${o.turn}|${o.tf}|${o.ts}`, o);
-        moved = orderSpeeds(knowledge, [...orders.values(), ...keptOrders]) || moved;
-        for (const kn of knowledge.values()) moved = tighten(kn) || moved;
+        const passOrders = [...orders.values(), ...(learn ? [] : (basePass.orders || [])), ...keptOrders];
+        baseMoved = orderSpeeds(knowledge, passOrders) || baseMoved;
+        for (const kn of knowledge.values()) baseMoved = tighten(kn) || baseMoved;
 
         const seenNow = new Set(basePass.recs.filter(r => r.seen).map(r => r.id));
+        const needNatureSet = new Set(basePass.recs.filter(r => r.seen && r.needsNaturePass).map(r => r.id));
         const activeMulti = multiIds.filter(id => seenNow.has(id));
+        const subTargets = passes > 1 && !baseMoved && !prevSubMoved ? [] : activeMulti.filter(id => needNatureSet.has(id));
         const subEvents = new Map();
         const extraLent = new Map(basePass.recs.map(r => [r.id, new Set(r.lent || [])]));
         const extraChecks = [...(basePass.checks || [])];
         const checkKeys = new Set(extraChecks.map(c => `${c.turn}|${c.what}|${c.reason}`));
+        let anySubMoved = false;
 
-        for (const id of activeMulti) {
+        for (const id of subTargets) {
           if (Date.now() >= deadline) { limits.add('deadline'); break; }
           const kn = knowledge.get(id);
           let subMoved = false;
           const byNat = new Map();
           for (const [n, sub] of kn.natures) {
-            if (!aliveSub(sub)) continue;
+            const seedSub = needRecord ? preBase.get(id).natures.get(n) : sub;
+            if (!aliveSub(seedSub)) continue;
             if (Date.now() >= deadline) { limits.add('deadline'); break; }
             const passKn = new Map(knowledge);
             for (const otherId of activeMulti) {
@@ -1295,13 +1380,13 @@ export async function inferSpreads({
               const aliveOthers = [...otherKn.natures.values()].filter(aliveSub);
               if (aliveOthers.length === 1) passKn.set(otherId, aliveOthers[0]);
             }
-            passKn.set(id, sub);
+            passKn.set(id, seedSub);
             const subPass = await evidencePass({ inputLog, observed: lines, channel, knowledge: passKn, cache, simCache, record: needRecord, beforeTurn });
             work.passes++;
             const r = subPass.recs.find(x => x.id === id);
             if (r) {
               for (const l of r.lent || []) extraLent.get(id)?.add(l);
-              if (intersectKnowledge(sub, r.keys, r.flat, r.ties)) { tighten(sub); subMoved = true; }
+              if (aliveSub(sub) && intersectKnowledge(sub, r.keys, r.flat, r.ties)) { tighten(sub); subMoved = true; }
             }
             if (needRecord) byNat.set(n, subPass.events || []);
             for (const c of subPass.checks || []) {
@@ -1309,15 +1394,22 @@ export async function inferSpreads({
               if (!checkKeys.has(ck)) { checkKeys.add(ck); extraChecks.push(c); }
             }
           }
-          if (subMoved) { syncKnowledge(kn); moved = true; }
+          if (subMoved) { syncKnowledge(kn); anySubMoved = true; }
           if (needRecord) subEvents.set(id, byNat);
         }
 
         if (watch) await report('evidence', before);
-        moved = orderSpeeds(knowledge, [...orders.values(), ...keptOrders]) || moved;
-        if (watch) await report('orders');
-        for (const kn of knowledge.values()) moved = tighten(kn) || moved;
-        if (watch) await report('budget');
+        if (anySubMoved) {
+          anySubMoved = orderSpeeds(knowledge, passOrders) || anySubMoved;
+          if (watch) await report('orders');
+          for (const kn of knowledge.values()) anySubMoved = tighten(kn) || anySubMoved;
+          if (watch) await report('budget');
+        } else if (watch) {
+          await report('orders');
+          await report('budget');
+        }
+        prevSubMoved = anySubMoved;
+        const moved = baseMoved || anySubMoved;
 
         if (!first) {
           let mergedEvents = basePass.events || [];
@@ -1325,6 +1417,7 @@ export async function inferSpreads({
             const orderKeys = [];
             const headerByKey = new Map();
             const cutsByKey = new Map();
+            const baseMultiCuts = new Map();
             const indexEvents = (evs, onCut) => {
               const seenOcc = new Map();
               for (const ev of evs) {
@@ -1342,7 +1435,14 @@ export async function inferSpreads({
             };
             const multiSet = new Set(activeMulti);
             indexEvents(basePass.events || [], (key, ev) => {
-              for (const c of ev.cuts) if (!multiSet.has(c.id)) cutsByKey.get(key).set(c.id, c);
+              for (const c of ev.cuts) {
+                if (!multiSet.has(c.id)) {
+                  cutsByKey.get(key).set(c.id, c);
+                } else {
+                  if (!baseMultiCuts.has(key)) baseMultiCuts.set(key, new Map());
+                  baseMultiCuts.get(key).set(c.id, c);
+                }
+              }
             });
             const perIdNatCuts = new Map(activeMulti.map(id => [id, new Map()]));
             for (const [id, byNat] of subEvents) {
@@ -1355,12 +1455,44 @@ export async function inferSpreads({
                 });
               }
             }
+            const noSubIds = activeMulti.filter(id => !subEvents.get(id)?.size);
+            const hasBaseOrders = Boolean(basePass.orders?.length);
             mergedEvents = [];
             for (const key of orderKeys) {
+              const header = headerByKey.get(key);
               const cuts = [...cutsByKey.get(key).values()];
               for (const id of activeMulti) {
                 const natCuts = perIdNatCuts.get(id)?.get(key);
-                if (!natCuts?.size) continue;
+                const baseCut = baseMultiCuts.get(key)?.get(id);
+                if (!natCuts?.size) {
+                  if (!baseCut) continue;
+                  if (header.what.startsWith('every speed order at once') && (subEvents.get(id)?.size || hasBaseOrders)) continue;
+                  const states = startStates.get(id);
+                  let beforeCount = 0;
+                  for (const st of states.values()) beforeCount += st.count;
+                  const beforeStats = unionStats(states);
+                  for (const [n, st] of states) {
+                    if (!st.count) continue;
+                    const nextStats = Object.fromEntries(STAT_IDS.map((s) => {
+                      const a = st.stats?.[s];
+                      const b = baseCut.stats?.[s];
+                      if (!a || !b) return [s, null];
+                      const min = Math.max(a.min, b.min);
+                      const max = Math.min(a.max, b.max);
+                      return [s, min <= max ? { min, max } : null];
+                    }));
+                    const nextCount = st.count === baseCut.before ? baseCut.after : Math.min(st.count, baseCut.after);
+                    states.set(n, { count: nextCount, stats: nextStats });
+                  }
+                  let afterCount = 0;
+                  for (const st of states.values()) afterCount += st.count;
+                  if (afterCount < beforeCount) {
+                    const afterStats = unionStats(states);
+                    const narrowed = STAT_IDS.filter(s => JSON.stringify(beforeStats[s]) !== JSON.stringify(afterStats[s]));
+                    cuts.push({ ...baseCut, before: beforeCount, after: afterCount, narrowed: narrowed.length ? narrowed : baseCut.narrowed, stats: afterStats });
+                  }
+                  continue;
+                }
                 const states = startStates.get(id);
                 let beforeCount = 0;
                 for (const st of states.values()) beforeCount += st.count;
@@ -1378,7 +1510,53 @@ export async function inferSpreads({
                   cuts.push({ id, pokemon: pokeName, before: beforeCount, after: afterCount, narrowed, stats: afterStats });
                 }
               }
-              if (cuts.length) mergedEvents.push({ ...headerByKey.get(key), cuts });
+              if (cuts.length) mergedEvents.push({ ...header, cuts });
+            }
+            if (noSubIds.length && hasBaseOrders) {
+              const pokeNameOf = (id) => {
+                const [side, slot] = id.split(':');
+                const set = sets[Number(side.slice(1)) - 1]?.[Number(slot)];
+                return set?.species || set?.name || id;
+              };
+              const simKn = cloneKnowledge(preBase);
+              for (const r of basePass.recs) {
+                const onlyHpFlat = { atk: new Uint8Array(SPAN).fill(1), spa: new Uint8Array(SPAN).fill(1), spe: new Uint8Array(SPAN).fill(1) };
+                intersectKnowledge(simKn.get(r.id), r.keys, noSubIds.includes(r.id) ? onlyHpFlat : r.flat, r.ties);
+              }
+              for (const id of activeMulti) {
+                if (!noSubIds.includes(id)) simKn.set(id, cloneKnowledge(new Map([[id, knowledge.get(id)]])).get(id));
+                else tighten(simKn.get(id));
+              }
+              const recordOrderStep = (stepOrders, turn, what, who = null) => {
+                if (!orderSpeeds(simKn, stepOrders)) return;
+                const cuts = [];
+                for (const id of noSubIds) {
+                  tighten(simKn.get(id));
+                  const states = startStates.get(id);
+                  let beforeCount = 0;
+                  for (const st of states.values()) beforeCount += st.count;
+                  const beforeStats = unionStats(states);
+                  for (const [n, sub] of simKn.get(id).natures) {
+                    const sum = summarise(sub);
+                    states.set(n, { count: sum.spreads, stats: sum.stats });
+                  }
+                  let afterCount = 0;
+                  for (const st of states.values()) afterCount += st.count;
+                  if (afterCount < beforeCount) {
+                    const afterStats = unionStats(states);
+                    const narrowed = STAT_IDS.filter(s => JSON.stringify(beforeStats[s]) !== JSON.stringify(afterStats[s]));
+                    cuts.push({ id, pokemon: pokeNameOf(id), before: beforeCount, after: afterCount, narrowed: narrowed.length ? narrowed : ['spe'], stats: afterStats });
+                  }
+                }
+                if (cuts.length) mergedEvents.push({ turn, what, ...(who ? { who } : {}), cuts });
+              };
+              for (const o of basePass.orders) {
+                recordOrderStep([o], o.turn, o.what || `${pokeNameOf(o.fast)} acted before ${pokeNameOf(o.slow)}`, o.who);
+              }
+              if (basePass.orders.length > 1) {
+                const lastTurn = Math.max(...basePass.orders.map(o => o.turn ?? 0));
+                recordOrderStep(basePass.orders, lastTurn, 'every speed order at once, each bound passed on to the Pokemon ordered against it');
+              }
             }
           }
           first = {
@@ -1395,6 +1573,7 @@ export async function inferSpreads({
     }
     return {
       events: first.events,
+      orders: first.orders || [],
       checks: first.checks,
       cutoff: first.cutoff,
       scaffoldOrders: first.scaffoldOrders || [],
@@ -1500,8 +1679,8 @@ export async function inferSpreads({
       const ef = evOf(chosen, o.fast);
       const ew = evOf(chosen, o.slow);
       if (!ef || !ew) continue;
-      const tf = (ef.nature && o.tfByNature?.[ef.nature]) || o.tf;
-      const ts = (ew.nature && o.tsByNature?.[ew.nature]) || o.ts;
+      const tf = (ef.nature && o.tfByNature?.[canonicalNatureName(ef.nature)]) || o.tf;
+      const ts = (ew.nature && o.tsByNature?.[canonicalNatureName(ew.nature)]) || o.ts;
       if (o.strict ? tf[ef.spe] <= ts[ew.spe] : tf[ef.spe] < ts[ew.spe]) return false;
     }
     return true;
@@ -1581,8 +1760,8 @@ export async function inferSpreads({
       const pf = evOf(chosen, o.fast);
       const ps = evOf(chosen, o.slow);
       if (!pf || !ps) continue;
-      const tf = (pf.nature && o.tfByNature?.[pf.nature]) || o.tf;
-      const ts = (ps.nature && o.tsByNature?.[ps.nature]) || o.ts;
+      const tf = (pf.nature && o.tfByNature?.[canonicalNatureName(pf.nature)]) || o.tf;
+      const ts = (ps.nature && o.tsByNature?.[canonicalNatureName(ps.nature)]) || o.ts;
       if (o.strict ? tf[pf.spe] <= ts[ps.spe] : tf[pf.spe] < ts[ps.spe]) limit = Math.min(limit, o.turn);
     }
     return limit;
@@ -2209,7 +2388,9 @@ export async function inferSpreads({
       if (moves.length >= 4 || moves.some(c => c.stat !== 'spe') || (!earlier && !swapped) || !isOrder(stop.actual, stop.expected)) return;
       for (const id of namedIn(`|${who(stop.expected)}|${who(stop.actual)}`)) {
         if (moves.some(c => c.id === id)) continue;
-        const o = dimOf(unknown.find(u => u.id === id), 'spe');
+        const u = unknown.find(x => x.id === id);
+        if (!u) continue;
+        const o = dimOf(u, 'spe');
         const ends = [...new Set([o.alive[0], o.alive[o.alive.length - 1]])].filter(v => v !== undefined && v !== o.now)
           .sort((x, y) => Math.abs(y - o.now) - Math.abs(x - o.now));
         for (const ov of ends) {
@@ -2304,8 +2485,8 @@ export async function inferSpreads({
           }
           const colA = collateralOf(da);
           const colB = collateralOf(db);
-          const natA = start[da.s][da.i].nature;
-          const natB = start[db.s][db.i].nature;
+          const natA = start[da.s][da.i].nature && canonicalNatureName(start[da.s][da.i].nature);
+          const natB = start[db.s][db.i].nature && canonicalNatureName(start[db.s][db.i].nature);
           const pairRules = [...orders.values()].filter(o => (o.fast === da.id && o.slow === db.id) || (o.fast === db.id && o.slow === da.id));
           const okOrders = (va, vb) => pairRules.every((o) => {
             const tf = o.fast === da.id ? ((natA && o.tfByNature?.[natA]) || o.tf) : ((natB && o.tfByNature?.[natB]) || o.tf);
@@ -3056,6 +3237,11 @@ export async function inferSpreads({
     evidenceTurn = Math.max(evidenceTurn, diff?.turn ?? 0);
     const { seen, lent: lentNow, passes: read, scaffoldOrders, cutoffSpeeds } = await settle(built.inputLog, knowledge, cache, false, true);
     lent = lentNow;
+    if (sets.some((team, s) => !known?.[s] && team.some(x => x?.boxes))
+      && [...knowledge.values()].some(kn => !kn.known && emptied(kn))) {
+      stop = 'impossible';
+      break;
+    }
     for (const [id, hn] of [...heldNature]) {
       const sub = knowledge.get(id)?.natures?.get(canonicalNatureName(hn.nature));
       if (!sub || emptied(sub)) heldNature.delete(id);
@@ -3114,7 +3300,9 @@ export async function inferSpreads({
       if (spreadsLeft(kn) === 1) {
         const only = closestSpread(kn, picks[s][i]);
         if (!only) return null;
-        const found = await choose(n + 1, cond, beforeTurn, preferPrev);
+        const pinnedCond = cloneKnowledge(cond);
+        pinKnowledge(pinnedCond.get(id), only);
+        const found = await choose(n + 1, pinnedCond, beforeTurn, preferPrev);
         if (found) next[s][i] = only;
         return found;
       }
@@ -3510,7 +3698,7 @@ export async function inferSpreads({
   if (!stop) {
     stop = built.report.complete ? 'complete' : stalled >= maxRounds ? 'stalled' : rounds >= 4 * maxRounds ? 'rounds' : 'deadline';
   }
-  if (stop !== 'complete') limits.add(stop);
+  if (stop !== 'complete' && stop !== 'impossible') limits.add(stop);
 
   // A side with an Illusion user can have sent it in disguised as a teammate,
   // and the line that gives it away can be one only its own Stat Points
@@ -3557,16 +3745,20 @@ export async function inferSpreads({
   const final = cloneKnowledge(blank);
   watched = final;
   const result = await settle(built.inputLog, final, new Map(), true);
+  const finalOrders = [...new Map(
+    [...orders.values(), ...(result.orders || [])]
+      .map(o => [`${o.fast}|${o.slow}|${o.strict ? '>' : '>='}|${o.turn}|${o.tf}|${o.ts}`, o]),
+  ).values()];
   let narrowedFinal = false;
   for (const [id, kn] of final) {
     const had = knowledge.get(id);
     narrowedFinal = intersectKnowledge(kn, maskKeys(had.keys), had.dom, had.ties, had.natures) || narrowedFinal;
   }
-  orderSpeeds(final, [...orders.values()]);
+  orderSpeeds(final, finalOrders);
   for (const kn of final.values()) tighten(kn);
   if (narrowedFinal && ![...final.values()].some(kn => !kn.known && emptied(kn))) {
     await settle(built.inputLog, final, new Map(), false);
-    orderSpeeds(final, [...orders.values()]);
+    orderSpeeds(final, finalOrders);
     for (const kn of final.values()) tighten(kn);
   }
 
@@ -3613,6 +3805,7 @@ export async function inferSpreads({
     picks,
     pokemon,
     events: result.events,
+    orders: finalOrders,
     checks: [...result.checks],
     cutoff: result.cutoff,
     passes: result.passes,
@@ -3638,7 +3831,8 @@ export async function inferSpreads({
   // runs `default` and `usage` once more with every limit `WIDE` times wider
   // (`widest`), as `--budget` widens them, and no wider after that: a battle
   // any earlier start rebuilds never gets there.
-  if (plain.complete || noRestarts || wide || start !== 'default' || Date.now() >= deadline) {
+  const provedImpossible = plain.stop === 'impossible' && [...plain.knowledge.values()].some(kn => !kn.known && emptied(kn));
+  if (plain.complete || provedImpossible || noRestarts || wide || start !== 'default' || Date.now() >= deadline) {
     ahead?.cancel();
     if (plain.complete || (!wide && start === 'default' && readings)) await resolvePlainChecks(plain);
     return plain;
@@ -3792,7 +3986,10 @@ export async function inferSpreads({
         if (stays.valid && !stays.valid([...given, ...ats])) continue;
         const other = late() ? null : await read(ats);
         const otherImpossible = other && [...other.knowledge.values()].some(kn => !kn.known && emptied(kn));
-        if (!otherImpossible) merge(other ? other.knowledge : blank, [0, 1]);
+        if (!otherImpossible) {
+          merge(other ? other.knowledge : blank, [0, 1]);
+          if (other?.orders?.length) res.orders = [...(res.orders || []), ...other.orders];
+        }
         if (other?.complete && !res.complete) {
           Object.assign(res, { complete: true, built: other.built, sets: other.sets, picks: other.picks, stop: other.stop });
           for (const p of res.pokemon) p.used = other.pokemon.find(q => q.id === p.id)?.used ?? p.used;

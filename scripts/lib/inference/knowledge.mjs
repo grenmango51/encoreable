@@ -135,11 +135,17 @@ export function supported(keys, dom, ties = {}) {
 
 // ------------------------------------------------------------ what is known
 
-const NEUTRAL_NATURES = new Set(['Hardy', 'Docile', 'Serious', 'Bashful', 'Quirky', 'hardy', 'docile', 'serious', 'bashful', 'quirky']);
+const NEUTRAL_NATURES = new Set(['hardy', 'docile', 'serious', 'bashful', 'quirky']);
+const CANONICAL_NATURE_CACHE = new Map();
 
 export const canonicalNatureName = (nature) => {
-  if (!nature || NEUTRAL_NATURES.has(nature)) return 'Serious';
-  return `${nature[0].toUpperCase()}${nature.slice(1).toLowerCase()}`;
+  if (!nature) return 'Serious';
+  const hit = CANONICAL_NATURE_CACHE.get(nature);
+  if (hit !== undefined) return hit;
+  const low = String(nature).trim().toLowerCase();
+  const out = !low || NEUTRAL_NATURES.has(low) ? 'Serious' : `${low[0].toUpperCase()}${low.slice(1)}`;
+  CANONICAL_NATURE_CACHE.set(nature, out);
+  return out;
 };
 
 export const candidateNatures = dex => ['Serious', ...dex.natures.all().filter(n => n.exists && n.plus).map(n => n.name)];
@@ -482,8 +488,9 @@ export function uniteKnowledge(kn, other) {
     return;
   }
   if (kn.natures && other.nature) {
-    if (kn.natures.has(other.nature)) uniteSingleKnowledge(kn.natures.get(other.nature), other);
-    else kn.natures.set(other.nature, cloneSingle(other));
+    const nat = canonicalNatureName(other.nature);
+    if (kn.natures.has(nat)) uniteSingleKnowledge(kn.natures.get(nat), other);
+    else kn.natures.set(nat, cloneSingle({ ...other, nature: nat }));
     syncKnowledge(kn);
     return;
   }
@@ -548,7 +555,7 @@ export function tighten(kn) {
 export function orderSpeeds(map, orders) {
   const slicesFor = (kn) => {
     if (!kn) return null;
-    if (!kn.natures) return kn.dom?.spe ? [{ sub: null, dom: kn.dom.spe, nat: kn.nature || null }] : null;
+    if (!kn.natures) return kn.dom?.spe ? [{ sub: null, dom: kn.dom.spe, nat: kn.nature ? canonicalNatureName(kn.nature) : null }] : null;
     const out = [];
     for (const [nat, sub] of kn.natures) {
       if (sub.keys.includes(1) && sub.dom.spe.includes(1)) out.push({ sub, dom: sub.dom.spe, nat });
@@ -558,8 +565,12 @@ export function orderSpeeds(map, orders) {
   const tableFor = (nat, table, byNature) => (nat && byNature?.[nat]) || table;
   const self = [];
   const byPair = new Map();
+  const seenRule = new Set();
   for (const o of orders) {
     if (!o.tf || !o.ts) continue;
+    const rk = `${o.fast}|${o.slow}|${o.strict ? '>' : '>='}|${o.tfByNature || o.tsByNature ? `${o.turn ?? ''}|` : ''}${o.tf}|${o.ts}`;
+    if (seenRule.has(rk)) continue;
+    seenRule.add(rk);
     if (o.fast === o.slow) { self.push(o); continue; }
     const [a, b] = o.fast < o.slow ? [o.fast, o.slow] : [o.slow, o.fast];
     let entry = byPair.get(`${a}|${b}`);
