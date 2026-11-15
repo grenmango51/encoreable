@@ -123,8 +123,8 @@ export function attachSpeed(battle, {
     const dep = depOf(rec, 'spe');
     const p = rec.pokemon;
     const real = read();
-    if (dep && !dep.owner) return { owner: rec.id, table: new Float64Array(SPAN).fill(real) };
-    if (dep && dep.stat === 'spe') {
+    if (dep && !dep.owner && !dep.deps) return { owner: rec.id, table: new Float64Array(SPAN).fill(real) };
+    if (dep && dep.owner && dep.stat === 'spe') {
       const saved = p.storedStats.spe;
       const table = new Float64Array(SPAN);
       try {
