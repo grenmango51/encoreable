@@ -299,9 +299,13 @@ function carriedInto(plans, t) {
  * in the back of the party: Beat Up's allies, or `BeforeSwitchIn` choosing an
  * Illusion user's disguise from the last unfainted slot.
  */
-function watchParty(battle, at, out) {
-  const note = () => {
+function watchParty(battle, at, out, sideOut = null) {
+  const note = (sideId = null) => {
     if (at.k > 0 && !out.includes(at.k)) out.push(at.k);
+    if (at.k > 0 && sideId && sideOut) {
+      const tag = `${at.k}:${sideId}`;
+      if (!sideOut.includes(tag)) sideOut.push(tag);
+    }
   };
   for (const side of battle.sides) {
     for (const pokemon of side.pokemon) {
@@ -310,7 +314,7 @@ function watchParty(battle, at, out) {
         configurable: true,
         enumerable: true,
         get() {
-          if (!this.isActive && battle.activeMove) note();
+          if (!this.isActive && battle.activeMove) note(side.id);
           return set;
         },
         set(value) { set = value; },
@@ -320,13 +324,13 @@ function watchParty(battle, at, out) {
   const origRunEvent = battle.runEvent;
   battle.runEvent = function (eventid, target, ...rest) {
     const res = origRunEvent.call(this, eventid, target, ...rest);
-    if (eventid === 'BeforeSwitchIn' && (target?.ability === 'illusion' || target?.baseAbility === 'illusion')) note();
+    if (eventid === 'BeforeSwitchIn' && (target?.ability === 'illusion' || target?.baseAbility === 'illusion')) note(target.side?.id);
     return res;
   };
   const origRandomSwitch = battle.getRandomSwitchable;
   if (typeof origRandomSwitch === 'function') {
     battle.getRandomSwitchable = function (side, ...rest) {
-      note();
+      note(side?.id);
       return origRandomSwitch.call(this, side, ...rest);
     };
   }
@@ -1002,10 +1006,13 @@ function choiceFor(side, plan, state, notes) {
   }
 
   if (request.forceSwitch) {
-    const bench = request.side.pokemon.map(p => identName(p.ident));
+    const pokemon = request.side.pokemon;
     const queue = state.forced[sideId];
+    const used = new Set();
+    let passesLeft = Math.max(0, request.forceSwitch.filter(Boolean).length - side.battle.canSwitch(side));
     return request.forceSwitch.map((needed, i) => {
       if (!needed) return 'pass';
+      const reviving = !!side.slotConditions[i]?.revivalblessing;
       // Match the slot the log names, not merely the order. When both actives
       // faint but only one Pokemon is left, the real choice is `pass, switch N`
       // - and which slot passes is a fact the observed switch records.
@@ -1016,14 +1023,36 @@ function choiceFor(side, plan, state, notes) {
         // to send (a legal `pass`), or our rolls knocked out someone who
         // survived in reality - in which case the write is rejected and the
         // search hears about it.
+        if (!reviving && passesLeft > 0) passesLeft--;
         return 'pass';
       }
-      const [entry] = queue.splice(at, 1);
-      const to = bench.indexOf(entry.name);
+      const entry = queue[at];
+      const to = pokemon.findIndex((p, idx) => !used.has(idx) && identName(p.ident) === entry.name
+        && (reviving ? p.condition.endsWith(' fnt') : !p.active && !p.condition.endsWith(' fnt')));
       if (to < 0) {
+        // When both an unfainted pivot (Emergency Exit, Eject Pack) and a
+        // fainted slot must switch at once with fewer bench Pokemon left than
+        // switching slots, the simulator requires `pass` now and raises a
+        // second forceSwitch once the pivot reaches the bench.
+        const deferrable = !reviving && passesLeft > 0 && pokemon.some((p, idx) =>
+          idx !== i && p.active && !p.condition.endsWith(' fnt') && request.forceSwitch[idx]
+          && identName(p.ident) === entry.name
+          && (idx < i ? used.size > 0 : queue.some((e, q) => q !== at && (e.slot === idx || e.slot === undefined))));
+        if (deferrable) {
+          passesLeft--;
+          return 'pass';
+        }
+        queue.splice(at, 1);
+        const deadBench = !reviving ? pokemon.findIndex((p, idx) => !used.has(idx) && !p.active && identName(p.ident) === entry.name) : -1;
+        if (deadBench >= 0) {
+          used.add(deadBench);
+          return `switch ${deadBench + 1}`;
+        }
         state.unsatisfied = `${sideId} switched in ${entry.name}, which is not on the bench`;
         return 'pass';
       }
+      queue.splice(at, 1);
+      used.add(to);
       return `switch ${to + 1}`;
     }).join(', ');
   }
@@ -2213,7 +2242,7 @@ const pinsBefore = (subs, draws) => Object.keys(subs || {})
  * refuses, and it is installed again on restore. A battle the serializer cannot
  * take gets no snapshot, and its probes replay from the start as before.
  */
-function takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes, hidden, party }) {
+function takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes, hidden, party, partySides }) {
   const st = battle.__rng;
   let json;
   delete battle.__rng;
@@ -2240,6 +2269,7 @@ function takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes,
     notes: notes.slice(),
     hidden: hidden.slice(),
     party: party.slice(),
+    partySides: partySides ? partySides.slice() : [],
   };
 }
 
@@ -2290,7 +2320,7 @@ function restoreSnapshot(snap, subs) {
  *
  * `tally.plays` counts the run, on the thread the search runs on.
  */
-async function playThrough({ header, segments, plans, reseeds, variants, radices = null, maxVariants = Infinity, subs, channel, exact, state0, dex, stopAt, tolerant, steer = null, snaps = null, from = null, tally = null }) {
+async function playThrough({ header, segments, plans, reseeds, variants, radices = null, maxVariants = Infinity, subs, channel, exact, state0, dex, cutEarly = false, stopAt, tolerant, steer = null, snaps = null, from = null, tally = null }) {
   if (tally) tally.plays++;
   const stream = new BattleStream({ keepAlive: true });
   const sink = [];
@@ -2351,7 +2381,8 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
   // The turns on which a move read a Pokemon in the back of the party: who
   // stands there, and where, is the team preview's hidden choice.
   const party = from ? from.party.slice() : [];
-  watchParty(battle, at, party);
+  const partySides = from?.partySides ? from.partySides.slice() : [];
+  watchParty(battle, at, party, partySides);
   // Each choice written, with how long the log was when it was: like a die, a
   // choice cannot change a line written before it.
   const choices = [];
@@ -2364,7 +2395,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
 
   for (let k = from ? from.turn : 0; k < segments.length; k++) {
     if (snaps && !from && k === stopAt && k >= 1) {
-      const snap = takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes, hidden, party });
+      const snap = takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes, hidden, party, partySides });
       if (snap) snaps.set(k, snap);
     }
     markDraws(battle, k);
@@ -2417,7 +2448,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
     // Drive this turn until the simulator moves past it. A battle that ended
     // without a Pokemon deciding it ends here once everything before its
     // `|win|` has been printed.
-    const ending = k === segments.length - 1 ? forcedEnding(segments[k], battle.sides) : null;
+    const ending = !cutEarly && k === segments.length - 1 ? forcedEnding(segments[k], battle.sides) : null;
     let guard = 0;
     while (!battle.ended) {
       if (k >= 1 && battle.turn > k) break;
@@ -2475,7 +2506,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
     // reproduced, whatever the simulator is still waiting for.
     const found = firstDivergence(wantHard, gotHard);
     const early = found && found.index < gotHard.length ? found : null;
-    const finished = !found && k === segments.length - 1;
+    const finished = !found && !cutEarly && k === segments.length - 1;
     // `cap` marks a turn our own guard gave up on, which no refusal decided.
     const diff = state.unsatisfied && !finished
       ? (early || { index: -1, prefix: gotHard.length, expected: state.unsatisfied, actual: '', ...(state.cap ? { cap: state.cap } : {}) }) : found;
@@ -2497,6 +2528,7 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
     notes,
     hidden,
     party,
+    partySides,
     trace,
     choices,
     steer: steered,
@@ -2554,8 +2586,8 @@ let snapshotCount = 0;
 let workers = null;
 
 /** What a worker needs to replay one reconstruction's turns. */
-const contextPayload = ({ formatid, header, segments, plans, reseeds, channel, exact, state0 }) =>
-  ({ formatid, header, segments, plans, reseeds, channel, exact, state0 });
+const contextPayload = ({ formatid, header, segments, plans, reseeds, channel, exact, state0, cutEarly }) =>
+  ({ formatid, header, segments, plans, reseeds, channel, exact, state0, cutEarly });
 
 function probePool(threads, formatid) {
   const size = Math.max(0, Math.floor(threads) - 1);
@@ -3744,6 +3776,7 @@ async function reconstructOnce({
   playerNames,
   observed,
   forced = null,
+  throughTurn = null,
   channel = -1,
   seed = null,
   seedPlan = null,
@@ -3760,15 +3793,19 @@ async function reconstructOnce({
 }) {
   const dex = Dex.forFormat(formatid);
   const lines = observed.filter(l => typeof l === 'string');
-  const segments = splitTurns(lines);
-  if (segments.length < 2) throw new Error('observed log has no complete turn');
+  const fullSegments = splitTurns(lines);
+  if (fullSegments.length < 2) throw new Error('observed log has no complete turn');
 
   // Who was really sent in, and who really acted, is planned from the log with
   // every Illusion seen through; the turns are still compared as shown.
   const sheets = sheetsOf(formatid, packedTeams, channel, guessed);
   const unmasked = unmaskWithSheet(lines, sheets, forced);
-  const plans = splitTurns(unmasked.lines).map(s => planSegment(s, dex));
-  recoverChargeTargets(plans);
+  const fullPlans = splitTurns(unmasked.lines).map(s => planSegment(s, dex));
+  recoverChargeTargets(fullPlans);
+  const segLimit = throughTurn === null ? fullSegments.length : Math.min(fullSegments.length, throughTurn + 1);
+  const segments = fullSegments.slice(0, segLimit);
+  const plans = fullPlans.slice(0, segLimit);
+  const cutEarly = segLimit < fullSegments.length;
 
   const sample = sampler(sampleSeed);
   const avatar = avatars(lines);
@@ -3817,7 +3854,7 @@ async function reconstructOnce({
   }
   const localExact = exact ? new Map(exact) : null;
   const common = {
-    header, segments, plans, reseeds, variants, channel, exact: localExact, state0, dex, formatid, deadline,
+    header, segments, plans, reseeds, variants, channel, exact: localExact, state0, dex, formatid, cutEarly, deadline,
     id: ++contextCount, snaps: new Map(), pool: probePool(threads, formatid), tally: { plays: 0 }, radices: {}, maxVariants,
     // Every limit that cut a search short somewhere in this rebuild, even one
     // that later got past the turn some other way (`report.limits`).
@@ -4253,23 +4290,94 @@ async function reconstructOnce({
     if (!solved && run.diffs[0]?.index !== -1) {
       const from = scoreOf(run, t);
       let carried = false;
+      let carryHitProbes = false;
       // The team preview chose who stands in the back of the party, and
       // where; a move that reads them there carries that choice out.
       const carriers = carriedInto(plans, t);
       if ((run.party || []).includes(t) && !carriers.includes(0)) carriers.push(0);
+      const readSides = (() => {
+        const sides = ['p1', 'p2'].filter(s => (run.partySides || []).some((tag) => {
+          const [tk, ts] = String(tag).split(':');
+          return ts === s && Number(tk) <= t;
+        }));
+        return sides.length ? sides : ['p1', 'p2'];
+      })();
+      const carrySigOf = (r, k, v) => (k === 0
+        ? readSides.map(s => (r.choices || []).find(c => c.turn === 0 && c.side === s)?.choice || '').join('|')
+        : String(v));
+      const savedSnap = carriers.length ? common.snaps.get(t) : null;
+      let carrySpent = 0;
       for (const k of carriers) {
+        if (carried) break;
         const keep = variants[k] || 0;
+        const keepSig = carrySigOf(run, k, keep);
         const kVariants = variantList(run.widths?.[k] || 1, common.radices[k] || 0);
+        const rawProbed = [];
         for (const v of kVariants) {
           if (carried) break;
           if (v === keep || takenCarry.has(`${t}|${k}|${v}`)) continue;
           variants[k] = v;
           const probe = await runTo(common, subs, t);
           carried = probe.badTurn === null || probe.badTurn > t || (probe.badTurn === t && outranks(scoreOf(probe, t), from));
+          if (!carried) rawProbed.push({ v, sig: carrySigOf(probe, k, v) });
         }
-        if (carried) { takenCarry.add(`${t}|${k}|${variants[k]}`); break; }
+        if (carried) { takenCarry.add(`${t}|${k}|${variants[k]}`); spent[t] = 0; break; }
+        // `from` was reached after `resolveTurn` settled turn `t`'s dice for
+        // `keep`, leaving `subs` tailored to `keep` (Beat Up's per-slot base
+        // powers, a crit on a later strike) while another carried choice needs
+        // turn `t`'s dice settled for itself.
+        const seenSigs = new Set([keepSig]);
+        const cands = rawProbed.filter(({ sig }) => {
+          if (!sig || seenSigs.has(sig) || takenCarry.has(`${t}|${k}|sig:${sig}`)) return false;
+          seenSigs.add(sig);
+          return true;
+        });
+        if (cands.length && carrySpent < maxProbes && Date.now() < deadline) {
+          for (let idx = 0; idx < cands.length; idx++) {
+            if (carried || carrySpent >= maxProbes || Date.now() >= deadline) break;
+            const { v, sig } = cands[idx];
+            variants[k] = v;
+            variants[t] = partial ? partial.variant : entering;
+            restoreEntering();
+            const pre = await runTo(common, subs, t);
+            if (pre.badTurn === null || pre.badTurn > t) {
+              carried = true;
+              takenCarry.add(`${t}|${k}|${v}`);
+              takenCarry.add(`${t}|${k}|sig:${sig}`);
+              break;
+            }
+            if (pre.badTurn < t || pre.diffs[0]?.index === -1) continue;
+            const rem = maxProbes - carrySpent;
+            const left = cands.length - idx;
+            const slice = Math.min(rem, Math.max(16, Math.ceil(rem / left)));
+            const got = await resolveTurn(t, common, subs, subTurn, sample, slice, { deferProbeLimit: slice < rem });
+            carrySpent += got.probes;
+            forcedDraws += got.forced;
+            if (got.ended === 'probes') carryHitProbes = true;
+            if (got.solved || outranks(got.score, from)) {
+              carried = true;
+              takenCarry.add(`${t}|${k}|${v}`);
+              takenCarry.add(`${t}|${k}|sig:${sig}`);
+              break;
+            }
+          }
+          if (!carried) {
+            variants[t] = partial ? partial.variant : 0;
+            forget(t);
+            if (partial) {
+              Object.assign(subs, partial.subs);
+              Object.assign(subTurn, partial.subTurn);
+            }
+          }
+        }
+        if (carried) { spent[t] = 0; break; }
         variants[k] = keep;
         if ((run.widths?.[k] || 1) > maxVariants) common.limits.add('variants');
+      }
+      if (!carried && carriers.length) {
+        if (savedSnap) common.snaps.set(t, savedSnap);
+        else common.snaps.delete(t);
+        if (carryHitProbes) common.limits.add('probes');
       }
       if (carried) {
         onProgress(`turn ${t}: a choice made on an earlier turn and carried out here gets it further`);
@@ -4453,7 +4561,7 @@ export async function reconstruct(options) {
     let bestTrial = null;
     let bestAt = null;
     for (const { at, turn } of stays) {
-      if (forced.has(at) || (baseValid && turn > failing)) continue;
+      if (forced.has(at) || (options.throughTurn != null && turn > options.throughTurn) || (baseValid && turn > failing)) continue;
       const nextForced = new Set([...forced, at]);
       if (!analysis.canExtend(nextForced)) continue;
       const tried = await once({ ...options, exact: null, pins: null, forced: nextForced });
