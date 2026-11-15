@@ -3121,6 +3121,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       }
     }
   }
+  let sapCount = 0;
   const origSingle = battle.singleEvent;
   battle.singleEvent = function (eventid, effect, effectState, target, source, ...rest) {
     if (eventid !== 'Hit' || state.dry || state.ended || !effect || typeof target !== 'object' || typeof source !== 'object') {
@@ -3129,11 +3130,12 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const T = byPokemon.get(target);
     const S = byPokemon.get(source);
     if (effect.id === 'strengthsap' && T && S && !T.kn.known) {
-      const sapAt = a => guarded(() => {
+      const ord = sapCount++;
+      const sapAt = a => memo(`sap|${ord}|${a}`, () => guarded(() => {
         const undo = patchAll([{ pokemon: target, stats: { atk: T.stat('atk', a) } }]);
         try { return target.getStat('atk', false, true); } finally { undo(); }
-      });
-      const real = guarded(() => target.getStat('atk', false, true));
+      }));
+      const real = memo(`sap|${ord}|real`, () => guarded(() => target.getStat('atk', false, true)));
       if (plain(T, 'atk') && sapAt(fullEvs(target.set.evs).atk) === real) {
         const amounts = new Map();
         for (const a of aliveOf(T.flat.atk)) amounts.set(a, sapAt(a));
@@ -3726,6 +3728,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     }
     return result;
   });
+  let bestCount = 0;
   for (const rec of recs) {
     if (rec.kn.known) continue;
     const getBestStat = rec.pokemon.getBestStat;
@@ -3745,19 +3748,23 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       if (!bestAhead(rec, battle.log.length)) return real;
       // Which of two stats wins, for every pair of their values, asked now,
       // while the Pokemon stands as it did for the pick.
-      const pairWins = new Map();
-      guarded(() => {
-        const zero = Object.fromEntries(MOVABLE.map(s => [s, 0]));
-        for (const [x, y] of MOVABLE.flatMap((s, i) => MOVABLE.slice(i + 1).map(t => [s, t]))) {
-          const w = new Uint8Array(SPAN * SPAN);
-          for (let a = 0; a < SPAN; a++) {
-            for (let b = 0; b < SPAN; b++) {
-              const undo = patchAll([{ pokemon: rec.pokemon, stats: { ...zero, [x]: rec.stat(x, a), [y]: rec.stat(y, b) } }]);
-              try { w[a * SPAN + b] = getBestStat.call(rec.pokemon, unboosted, unmodified) === x ? 1 : 0; } finally { undo(); }
+      const ord = bestCount++;
+      const pairWins = memo(`best|${ord}|${rec.id}`, () => {
+        const wins = new Map();
+        guarded(() => {
+          const zero = Object.fromEntries(MOVABLE.map(s => [s, 0]));
+          for (const [x, y] of MOVABLE.flatMap((s, i) => MOVABLE.slice(i + 1).map(t => [s, t]))) {
+            const w = new Uint8Array(SPAN * SPAN);
+            for (let a = 0; a < SPAN; a++) {
+              for (let b = 0; b < SPAN; b++) {
+                const undo = patchAll([{ pokemon: rec.pokemon, stats: { ...zero, [x]: rec.stat(x, a), [y]: rec.stat(y, b) } }]);
+                try { w[a * SPAN + b] = getBestStat.call(rec.pokemon, unboosted, unmodified) === x ? 1 : 0; } finally { undo(); }
+              }
             }
+            wins.set(`${x} ${y}`, w);
           }
-          pairWins.set(`${x} ${y}`, w);
-        }
+        });
+        return wins;
       });
       bestOpen = { rec, real, event: battle.event, effect: battle.effect, narrow: best => narrowBest(rec, best, pairWins, what) };
       return real;
