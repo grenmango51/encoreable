@@ -1705,7 +1705,8 @@ export async function inferSpreads({
     if (spend.rebuilds <= 0) { limits.add('fallbackTotal'); return null; }
     // A line before the first turn - the order the leads' abilities came in -
     // is rebuilt through turn 1: a rebuild needs a whole turn.
-    const through = cutAt(Math.max(t, 1));
+    const throughTurn = Math.max(t, 1);
+    const through = cutAt(throughTurn);
     const exactBefore = (chosen) => {
       if (!proven?.exact || !sameTeam(chosen, proven.picks)) return null;
       const m = new Map([...proven.exact].filter(([k, v]) => k < t && !v.partial && v.proved === undefined));
@@ -1714,11 +1715,11 @@ export async function inferSpreads({
     let handed = prefixPins(proven && sameTeam(start, proven.picks) ? proven.pins : handOn(built, null), t - 1);
     const began = Date.now();
     let spent = 0;
-    const rebuild = async (chosen, budget, { upTo = through, given = handed, exact: ex = null, resample: rs = 0 } = {}) => {
+    const rebuild = async (chosen, budget, { upToTurn = throughTurn, given = handed, exact: ex = null, resample: rs = 0 } = {}) => {
       spent++;
       spend.rebuilds--;
       return counted(await reconstruct({
-        formatid, packedTeams: packOf(chosen), playerNames, observed: upTo, channel, exact: ex, forced: built.forced,
+        formatid, packedTeams: packOf(chosen), playerNames, observed, throughTurn: upToTurn, channel, exact: ex, forced: built.forced,
         seed: roundSeed, pins: given, sampleSeed: roundSample + rs, maxProbes: budget.maxProbes, maxBacktracks: budget.maxBacktracks, threads, deadline, ...searchLimits,
       }), true, ex);
     };
@@ -2788,7 +2789,7 @@ export async function inferSpreads({
             if (Date.now() >= deadline) return false;
             const runCheck = async (chosen, given, ex, maxP, maxB) => {
               const b = counted(await reconstruct({
-                formatid, packedTeams: packOf(chosen), playerNames, observed: through, channel, exact: ex, forced: forcedNow,
+                formatid, packedTeams: packOf(chosen), playerNames, observed, throughTurn, channel, exact: ex, forced: forcedNow,
                 seed: seedNow, pins: given, sampleSeed: sampleNow, maxProbes: maxP, maxBacktracks: maxB,
                 threads, deadline, ...searchLimits,
               }), true, ex);
@@ -2870,7 +2871,7 @@ export async function inferSpreads({
         if (wrong || !affordable()) break;
         const got = await probe([{ ...d, value }], blank);
         if (!got?.b?.report.complete) continue;
-        const full = evidenceTurn > t ? await rebuild(got.chosen, budget, { upTo: cutAt(evidenceTurn) }) : got.b;
+        const full = evidenceTurn > t ? await rebuild(got.chosen, budget, { upToTurn: evidenceTurn }) : got.b;
         if (full.report.complete) wrong = { d, value };
       }
     }
