@@ -36,7 +36,7 @@ import {
   orderSpeeds, tighten, uniteKnowledge, unpackKnowledge, valuesOf,
 } from './knowledge.mjs';
 import { usualSpreads } from './usage.mjs';
-import { evidencePass } from './evidence.mjs';
+import { SURVIVAL, evidencePass } from './evidence.mjs';
 
 const require = createRequire(import.meta.url);
 const { BattleStream, Dex, Teams, toID } = require('pokemon-showdown');
@@ -721,12 +721,16 @@ export async function inferSpreads({
     const plain = await replayWith(built.inputLog, packOf(start), t, channel);
     const actorOf = l => [...namedIn(`|x|${(/^p[1-4][a-d]?: /.test(String(l || '').split('|')[2] || '') ? String(l).split('|')[2] : '')}`)][0];
     const disputed = (built.report.hidden || []).includes(t) ? new Set([actorOf(diff.expected), actorOf(diff.actual)].filter(Boolean)) : new Set();
+    // A Focus Sash, Sturdy or Endure clamps every lethal roll onto one line, so
+    // a spread that survives only on another roll still prints the same on the
+    // scaffold's own.
+    const survival = SURVIVAL.test(diff.actual) || SURVIVAL.test(diff.expected);
     const done = new Set([signature(start)]);
     const probe = async (changes, from = knowledge) => {
       const chosen = build(changes, from);
       if (!chosen || done.has(signature(chosen))) return null;
       done.add(signature(chosen));
-      const same = !!plain && !changes.some(c => disputed.has(c.id))
+      const same = !!plain && !changes.some(c => disputed.has(c.id) || (survival && rank(c) <= 2))
         && JSON.stringify(await replayWith(built.inputLog, packOf(chosen), t, channel)) === JSON.stringify(plain);
       let b = same ? null : await rebuild(chosen, budget);
       // Stopped on a turn the guess gets through, under the dice handed on
@@ -891,6 +895,32 @@ export async function inferSpreads({
             const changes = [{ ...a, value: va }, { ...b, value: vb }];
             const got = await probe(changes);
             if (got?.b) judge(changes, got);
+          }
+        }
+      }
+    }
+    // Two stats can have to move together to cross a survival threshold - a
+    // holder's HP and defence under the 66-point cap, or an attacker's stat
+    // beside its target's bulk - while every single-stat probe stays on the
+    // lethal side of it and leaves `moved` without them.
+    if (survival && !found && !ahead) {
+      const heldUp = SURVIVAL.test(diff.actual);
+      const endsOf = (d) => {
+        const ends = [...new Set([d.alive[0], d.alive[d.alive.length - 1]])];
+        return (near[0].has(d.id) ? heldUp : !heldUp) ? ends.reverse() : ends;
+      };
+      const pairDims = dims.filter(d => d.alive.length > 1
+        && (near[0].has(d.id) ? ['hp', 'def', 'spd'].includes(d.stat) : rank(d) <= 2 && ['atk', 'spa'].includes(d.stat)));
+      for (let x = 0; x < pairDims.length && !found && !ahead; x++) {
+        for (let y = x + 1; y < pairDims.length && !found && !ahead; y++) {
+          const [a, b] = [pairDims[x], pairDims[y]];
+          for (const va of endsOf(a)) {
+            for (const vb of endsOf(b)) {
+              if (found || ahead || !affordable()) break;
+              const changes = [{ ...a, value: va }, { ...b, value: vb }];
+              const got = await probe(changes);
+              if (got?.b) judge(changes, got);
+            }
           }
         }
       }
