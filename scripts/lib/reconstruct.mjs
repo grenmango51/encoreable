@@ -870,8 +870,10 @@ function compareTurn({ segments, exact, channel }, k, slice) {
  * (roll 0 is full damage), so the rolls that print the observed line are one
  * run of the sixteen, and a bisection finds its two ends.
  *
- * The crit die and each target's accuracy die are read the same way: the
- * observed turn shows a `|-crit|` or a `|-miss|` for the target or it does not.
+ * The crit die, each target's accuracy die and an unchosen move target's
+ * `getRandomTarget` die are read the same way: the observed turn shows a
+ * `|-crit|` or `|-miss|` for the target or it does not, and names the target
+ * `|move|` wrote.
  *
  * `out` maps a draw's ordinal to `{ reps, groups, wrong }`: the faces worth
  * probing, each standing for the faces that play out the same as it (`groups`),
@@ -883,6 +885,7 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
   const st = battle.__rng;
   const actions = battle.actions;
   let draws = null;
+  let frame = null;
   const origRandomizer = battle.randomizer;
   battle.randomizer = function (base) {
     if (draws && !st.dry) draws.push(st.draws);
@@ -913,20 +916,43 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
     }
   };
 
+  // A target that hit where the observed turn missed it, or a multi-hit loop
+  // past the observed hit count, has not yet written the line that disagrees -
+  // `spreadDamage` and `-hitcount` come after `getDamage` - so the log alone
+  // still looks right while every draw after it is thrown for a hit that never
+  // happened, at an ordinal the real turn gave to a later draw.
+  let diverged = false;
+  let counting = null;
+
   /**
    * The observed lines still to come in this action, or null if the rebuilt
    * turn already disagrees with the observed one.
    */
   function standing() {
+    if (diverged || (counting?.want != null && battle.activeMove?.hit > counting.want)) {
+      diverged = true;
+      return null;
+    }
     const { wantHard, gotHard, exactUpTo } = compare(at.k, battle.log.slice(at.logAt));
     // The move in flight has not had its `[spread]`, `[miss]` or `[still]`
     // appended yet (`attrLastMove`), so its line is only a prefix of the one
-    // it will become.
+    // it will become. A spread move whose random display target has not been
+    // flipped yet differs only in that slot while it is in flight.
     let moving = -1;
-    for (let i = gotHard.length - 1; i >= 0 && moving < 0; i--) if (gotHard[i].startsWith('|move|')) moving = i;
+    for (let i = gotHard.length - 1; i >= 0 && moving < 0; i--) if (/^\|(move|-anim)\|/.test(gotHard[i])) moving = i;
     for (let i = 0; i < gotHard.length; i++) {
       if (gotHard[i] === wantHard[i]) continue;
-      if (i === moving && String(wantHard[i]).startsWith(`${gotHard[i]}|`)) continue;
+      if (i === moving || (frame?.retarget && i === frame.retarget.at)) {
+        let head = gotHard[i];
+        if (frame?.retarget && i === frame.retarget.at) {
+          const parts = head.split('|');
+          if (parts[4] === frame.retarget.from) {
+            parts[4] = frame.retarget.to;
+            head = parts.join('|');
+          }
+        }
+        if (head === wantHard[i] || (i === moving && String(wantHard[i]).startsWith(`${head}|`))) continue;
+      }
       return null;
     }
     let end = gotHard.length;
@@ -946,8 +972,11 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
     let line = -1;
     for (let i = now.from; i < now.end && line < 0; i++) {
       const parts = now.wantHard[i].split('|');
-      if (parts[1] === '-crit' && parts[2] === ident) crit = true;
-      if (parts[1] === '-damage' && parts[2] === ident && parts.length === 4) line = i;
+      if (parts[2] !== ident) continue;
+      if (parts[1] === '-crit') crit = true;
+      if ((parts[1] === '-end' && parts[3] === 'Substitute')
+        || (parts[1] === '-activate' && parts[3] === 'move: Substitute' && parts[4] === '[damage]')) break;
+      if (parts[1] === '-damage' && parts.length === 4) line = i;
     }
     return { ...now, crit, line };
   }
@@ -1066,17 +1095,165 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
     }
   }
 
+  // The observed lines belonging to the hit that just dealt damage, stopping
+  // before the next strike of a multi-hit move.
+  const NEXT_HIT = new Set(['-anim', '-supereffective', '-resisted', '-crit', '-hitcount']);
+  const hitSlice = (now) => {
+    let end = now.from;
+    while (end < now.end) {
+      const parts = now.wantHard[end].split('|');
+      if (NEXT_HIT.has(parts[1]) || (parts[1] === '-damage' && parts.length === 4)) break;
+      end++;
+    }
+    return now.wantHard.slice(now.from, end);
+  };
+
+  // Whether `ident` flinched on its action later in this turn, or null when the
+  // log never reached its flinch check or another hit landed before it flinched.
+  function flinchOutcome(now, ident) {
+    let hitAgain = false;
+    let moving = null;
+    for (let i = now.end; i < now.wantHard.length; i++) {
+      const line = now.wantHard[i];
+      const parts = line.split('|');
+      const k = parts[1];
+      if (k === 'upkeep' || k === 'turn') return null;
+      if (k === 'move') moving = parts[2];
+      else if (ACTION_START.has(k)) moving = null;
+      if ((k === '-damage' && parts.length === 4 && parts[2] === ident && moving && moving !== ident)
+        || (k === '-activate' && parts[2] === ident && parts[3] === 'move: Substitute' && parts[4] === '[damage]')
+        || (k === '-end' && parts[2] === ident && parts[3] === 'Substitute')) {
+        hitAgain = true;
+      }
+      if (parts[2] !== ident) continue;
+      if (k === 'faint' || k === 'drag' || k === 'switch' || k === 'replace') return null;
+      if (k === 'cant') {
+        if (tagsOf(line).of) continue;
+        if (parts[3] === 'flinch') return hitAgain ? null : true;
+        if (parts[3] === 'slp' || parts[3] === 'frz' || (parts[3] || '').startsWith('ability:')) return null;
+        return false;
+      }
+      if (k === 'move') {
+        const from = tagsOf(line).from;
+        if (!from || from === 'lockedmove') return false;
+      }
+      if (k === '-activate' && (parts[3] === 'confusion' || parts[3] === 'move: Attract')) return false;
+    }
+    return null;
+  }
+
   // The crit is the one chance `getDamage` takes before it rolls damage; the
-  // accuracy step takes one per target, with that target active.
+  // accuracy step takes one per target, with that target active; pre-action
+  // priority, contact abilities and status checks before a move take their own.
   let chances = null;
   let aiming = null;
+  let fracRolls = null;
+  let hitRolls = null;
   const origChance = battle.randomChance;
   battle.randomChance = function (n, d) {
     if (!st.dry) {
       if (chances && !draws.length) chances.push({ i: st.draws, n, d });
       else if (aiming) aiming.push({ i: st.draws, n, d, target: battle.activeTarget });
+      else if (at.k === turn && fracRolls && battle.event?.id === 'FractionalPriority') {
+        fracRolls.push({ i: st.draws, n, d, eff: battle.effect, holder: battle.effectState?.target });
+      } else if (at.k === turn && hitRolls && battle.event?.id === 'DamagingHit' && battle.effect?.effectType === 'Ability') {
+        const holder = battle.effectState?.target;
+        const victim = holder === battle.event.target ? battle.event.source : battle.event.target;
+        hitRolls.push({ i: st.draws, n, d, eff: battle.effect, holder, victim });
+      } else if (at.k === turn && battle.event?.id === 'BeforeMove') {
+        const ord = st.draws;
+        const now = standing();
+        const holder = battle.effectState?.target;
+        const eff = battle.effect;
+        const res = origChance.call(this, n, d);
+        if (now && holder && eff) {
+          const ident = String(holder);
+          const next = now.wantHard[now.from] || '';
+          const slice = now.wantHard.slice(now.from, now.end);
+          let want = null;
+          if (eff.id === 'par' || eff.id === 'attract') {
+            const cant = `|cant|${ident}|${eff.id === 'par' ? 'par' : eff.name}`;
+            if (next === cant) want = true;
+            else if (next.startsWith(`|move|${ident}|`) || next.startsWith(`|cant|${ident}|`) || next.startsWith(`|-activate|${ident}|`)) want = false;
+          } else if (eff.id === 'frz') {
+            if (next.startsWith(`|-curestatus|${ident}|frz`)) want = true;
+            else if (next === `|cant|${ident}|frz`) want = false;
+          } else if (eff.id === 'confusion') {
+            want = slice.some(l => l.startsWith(`|-damage|${ident}|`) && tagsOf(l).from === 'confusion');
+          }
+          if (want !== null) {
+            const entry = chanceEntry({ i: ord, n, d }, want);
+            if (entry) out.set(ord, entry);
+          }
+        }
+        return res;
+      }
     }
     return origChance.call(this, n, d);
+  };
+
+  let secondaryScope = null;
+  const origRunEvent = battle.runEvent;
+  battle.runEvent = function (eventid, target, source, sourceEffect, relayVar, onEffect, fastExit) {
+    if (at.k === turn && !st.dry) {
+      if (eventid === 'ModifySecondaries' && secondaryScope && !secondaryScope.inHit) {
+        const list = origRunEvent.call(this, eventid, target, source, sourceEffect, relayVar, onEffect, fastExit);
+        if (Array.isArray(list)) {
+          for (const sec of list) {
+            const rec = { target, source, sec, self: false, roll: null, sample: null, emitted: [], hadFlinch: false, gotFlinch: false, willMove: false };
+            secondaryScope.pending.push(rec);
+            secondaryScope.records.push(rec);
+          }
+        }
+        return list;
+      }
+      if (eventid === 'FractionalPriority' && !fracRolls) {
+        const now = standing();
+        const rolls = [];
+        fracRolls = rolls;
+        try {
+          return origRunEvent.call(this, eventid, target, source, sourceEffect, relayVar, onEffect, fastExit);
+        } finally {
+          fracRolls = null;
+          if (now) {
+            const slice = now.wantHard.slice(now.from, now.end);
+            for (const roll of rolls) {
+              if (!roll.holder || (roll.eff?.effectType !== 'Ability' && roll.eff?.effectType !== 'Item')) continue;
+              const prefix = roll.eff.effectType === 'Ability' ? 'ability' : 'item';
+              const entry = chanceEntry(roll, slice.includes(`|-activate|${roll.holder}|${prefix}: ${roll.eff.name}`));
+              if (entry) out.set(roll.i, entry);
+            }
+          }
+        }
+      }
+      if (eventid === 'DamagingHit' && !hitRolls) {
+        const now = standing();
+        const slice = now ? hitSlice(now) : null;
+        const logStart = battle.log.length;
+        const rolls = [];
+        hitRolls = rolls;
+        try {
+          return origRunEvent.call(this, eventid, target, source, sourceEffect, relayVar, onEffect, fastExit);
+        } finally {
+          hitRolls = null;
+          if (now && slice && rolls.length) {
+            const emitted = battleLines(onChannel(battle.log.slice(logStart), channel));
+            for (const roll of rolls) {
+              const face = faceOf(roll.i);
+              if (face === undefined || !roll.holder || !roll.victim) continue;
+              const hasProc = lines => lines.some(l =>
+                l.split('|')[2] === String(roll.victim) && tagsOf(l).from === `ability: ${roll.eff.name}` && tagsOf(l).of === String(roll.holder));
+              if (face < roll.n && !hasProc(emitted)) out.set(roll.i, none(false));
+              else {
+                const entry = chanceEntry(roll, hasProc(slice));
+                if (entry) out.set(roll.i, entry);
+              }
+            }
+          }
+        }
+      }
+    }
+    return origRunEvent.call(this, eventid, target, source, sourceEffect, relayVar, onEffect, fastExit);
   };
 
   // A target the observed turn shows `|-miss|` for was missed; every other
@@ -1092,12 +1269,20 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
     } finally {
       aiming = null;
       if (now) {
+        const missed = (target) => {
+          const line = `|-miss|${pokemon}|${target}`;
+          for (let i = now.from; i < now.end; i++) if (now.wantHard[i] === line) return true;
+          return false;
+        };
         for (const roll of rolls) {
-          const missed = `|-miss|${pokemon}|${roll.target}`;
-          let shown = false;
-          for (let i = now.from; i < now.end && !shown; i++) shown = now.wantHard[i] === missed;
-          const entry = chanceEntry(roll, !shown);
-          if (entry) out.set(roll.i, entry);
+          const want = !missed(roll.target);
+          const entry = chanceEntry(roll, want);
+          if (entry) out.set(roll.i, { ...entry, accuracy: true, shifts: entry.wrong });
+          const face = faceOf(roll.i);
+          if (face !== undefined && (face < roll.n) !== want) diverged = true;
+        }
+        for (const target of targets) {
+          if (missed(target) && !rolls.some(r => r.target === target)) diverged = true;
         }
       }
     }
@@ -1136,38 +1321,221 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
     return real;
   };
 
+  function steerSecondary(cur, now, slice) {
+    const face = cur.roll === null ? undefined : faceOf(cur.roll);
+    if (face === undefined) return;
+    const chance = cur.sec.chance;
+    if (chance === undefined || chance >= 100) out.set(cur.roll, none(false));
+    if (!now || !slice) return;
+    const recipient = cur.self || cur.sec.self ? cur.source : cur.target;
+    if (!recipient || !recipient.hp) {
+      out.set(cur.roll, none(false));
+      return;
+    }
+    const ident = String(recipient);
+    const procced = chance === undefined || face < chance;
+    const moveStatusOf = (lines) => {
+      for (const l of lines) {
+        const p = l.split('|');
+        if (p[1] !== '-status' || p[2] !== ident) continue;
+        const from = tagsOf(l).from || '';
+        if (!from || from.startsWith('move:')) return p[3];
+      }
+      return null;
+    };
+    const boosts = cur.sec.boosts || cur.sec.self?.boosts;
+    if (cur.sec.status && !boosts && !cur.sec.volatileStatus && !cur.sec.onHit) {
+      if (chance !== undefined && chance < 100) {
+        const want = moveStatusOf(slice) === cur.sec.status;
+        if (procced && moveStatusOf(cur.emitted) !== cur.sec.status) out.set(cur.roll, none(false));
+        else {
+          const entry = chanceEntry({ i: cur.roll, n: chance, d: 100 }, want);
+          if (entry) out.set(cur.roll, entry);
+        }
+      }
+    } else if (cur.sec.volatileStatus === 'flinch' && !cur.sec.status && !boosts && !cur.sec.onHit) {
+      if (chance !== undefined && chance < 100) {
+        if (!cur.willMove || cur.hadFlinch || (procced && !cur.gotFlinch)) out.set(cur.roll, none(false));
+        else {
+          const want = flinchOutcome(now, ident);
+          if (want !== null) {
+            const entry = chanceEntry({ i: cur.roll, n: chance, d: 100 }, want);
+            if (entry) out.set(cur.roll, entry);
+          }
+        }
+      }
+    } else if (cur.sec.volatileStatus === 'confusion' && !cur.sec.status && !boosts && !cur.sec.onHit) {
+      if (chance !== undefined && chance < 100) {
+        const hasConf = lines => lines.some((l) => {
+          const p = l.split('|');
+          const from = tagsOf(l).from || '';
+          return p[1] === '-start' && p[2] === ident && p[3] === 'confusion' && !from.startsWith('ability:') && !l.includes('[fatigue]');
+        });
+        if (procced && !hasConf(cur.emitted)) out.set(cur.roll, none(false));
+        else {
+          const entry = chanceEntry({ i: cur.roll, n: chance, d: 100 }, hasConf(slice));
+          if (entry) out.set(cur.roll, entry);
+        }
+      }
+    } else if (boosts && !cur.sec.status && !cur.sec.volatileStatus && !cur.sec.onHit) {
+      if (chance !== undefined && chance < 100) {
+        const stats = Object.keys(boosts);
+        const hasBoost = (lines) => {
+          for (let i = 0; i < lines.length; i++) {
+            const l = lines[i];
+            const p = l.split('|');
+            if (p[2] === ident && (p[1] === '-boost' || p[1] === '-unboost') && stats.includes(p[3]) && !tagsOf(l).from) {
+              const prev = lines[i - 1]?.split('|');
+              if (!(prev && prev[1] === '-ability')) return true;
+            }
+            if (p[1] === '-fail' && p[2] === ident && p[3] === 'unboost') return true;
+            if (p[1] === '-ability' && p[2] === ident && p[3] === 'Mirror Armor') return true;
+          }
+          return false;
+        };
+        if (procced) {
+          if (!cur.emitted.length) out.set(cur.roll, none(false));
+          else if (!slice.includes(cur.emitted[0])) {
+            const entry = chanceEntry({ i: cur.roll, n: chance, d: 100 }, false);
+            if (entry) out.set(cur.roll, entry);
+          } else if (cur.emitted.every(l => slice.includes(l))) {
+            out.set(cur.roll, none(false));
+          }
+        } else {
+          const entry = chanceEntry({ i: cur.roll, n: chance, d: 100 }, hasBoost(slice));
+          if (entry) out.set(cur.roll, entry);
+        }
+      }
+    } else if (cur.sec.onHit) {
+      const wantStatus = moveStatusOf(slice);
+      if (cur.sample) {
+        const sFace = faceOf(cur.sample.i);
+        if (sFace !== undefined && wantStatus && cur.sample.items.includes(wantStatus)) {
+          const wantIdx = cur.sample.items.indexOf(wantStatus);
+          out.set(cur.sample.i, { reps: sFace === wantIdx ? [] : [wantIdx], groups: new Map(), wrong: sFace !== wantIdx });
+          if (chance !== undefined && chance < 100) out.set(cur.roll, none(false));
+        } else if (chance !== undefined && chance < 100 && !wantStatus && cur.emitted.length) {
+          const entry = chanceEntry({ i: cur.roll, n: chance, d: 100 }, false);
+          if (entry) out.set(cur.roll, entry);
+        }
+      } else if (chance !== undefined && chance < 100 && !procced && wantStatus) {
+        const entry = chanceEntry({ i: cur.roll, n: chance, d: 100 }, true);
+        if (entry) out.set(cur.roll, entry);
+      }
+    }
+  }
+
+  const origMoveHit = actions.moveHit;
+  actions.moveHit = function (targets, pokemon, moveOrMoveName, moveData, isSecondary, isSelf) {
+    if (secondaryScope && (isSecondary || isSelf) && moveData === secondaryScope.current?.sec && !secondaryScope.inHit) {
+      const cur = secondaryScope.current;
+      const logStart = battle.log.length;
+      secondaryScope.inHit = true;
+      try {
+        return origMoveHit.call(this, targets, pokemon, moveOrMoveName, moveData, isSecondary, isSelf);
+      } finally {
+        secondaryScope.inHit = false;
+        cur.gotFlinch = !!cur.target?.volatiles?.flinch;
+        cur.emitted = battleLines(onChannel(battle.log.slice(logStart), channel));
+      }
+    }
+    return origMoveHit.call(this, targets, pokemon, moveOrMoveName, moveData, isSecondary, isSelf);
+  };
+
+  const origSecondaries = actions.secondaries;
+  actions.secondaries = function (targets, source, move, moveData, isSelf) {
+    if (at.k !== turn || st.dry || secondaryScope || !moveData?.secondaries) {
+      return origSecondaries.call(this, targets, source, move, moveData, isSelf);
+    }
+    const now = standing();
+    const slice = now ? hitSlice(now) : null;
+    const scope = { pending: [], records: [], current: null, inHit: false };
+    secondaryScope = scope;
+    try {
+      return origSecondaries.call(this, targets, source, move, moveData, isSelf);
+    } finally {
+      secondaryScope = null;
+      for (const cur of scope.records) steerSecondary(cur, now, slice);
+    }
+  };
+
+  const origSelfDrops = actions.selfDrops;
+  actions.selfDrops = function (targets, source, move, moveData, isSecondary) {
+    if (at.k !== turn || st.dry || secondaryScope || isSecondary || !moveData?.self?.boosts || move.selfDropped) {
+      return origSelfDrops.call(this, targets, source, move, moveData, isSecondary);
+    }
+    const now = standing();
+    const slice = now ? hitSlice(now) : null;
+    const pending = [];
+    for (const target of targets) {
+      if (target === false) continue;
+      pending.push({ target: source, source, sec: moveData.self, self: true, roll: null, sample: null, emitted: [], hadFlinch: false, gotFlinch: false, willMove: false });
+      if (!move.multihit) break;
+    }
+    const scope = { pending, records: pending.slice(), current: null, inHit: false };
+    secondaryScope = scope;
+    try {
+      return origSelfDrops.call(this, targets, source, move, moveData, isSecondary);
+    } finally {
+      secondaryScope = null;
+      for (const cur of scope.records) steerSecondary(cur, now, slice);
+    }
+  };
+
   // A move that hits a number of times drawn from a range throws that number
   // first, before its first hit; the observed turn's `|-hitcount|` for its
   // target says which faces of that die print it. Loaded Dice throws another
   // die after a low count, so its holder's count is searched in full.
-  let counting = null;
+  let samplingTarget = null;
   const origSample = battle.sample;
   battle.sample = function (items) {
-    if (counting && !st.dry && counting.i === null) Object.assign(counting, { i: st.draws, faces: items });
+    if (!st.dry) {
+      if (counting && counting.i === null) Object.assign(counting, { i: st.draws, faces: items });
+      else if (samplingTarget && samplingTarget.i === null && Array.isArray(items) && items.length > 1) {
+        Object.assign(samplingTarget, { i: st.draws, items: items.slice() });
+      } else if (secondaryScope?.inHit && secondaryScope.current && !secondaryScope.current.sample && Array.isArray(items) && items.every(x => typeof x === 'string')) {
+        secondaryScope.current.sample = { i: st.draws, items: items.slice() };
+      }
+    }
     return origSample.call(this, items);
   };
   const origRandom = battle.random;
   battle.random = function (m, n) {
-    if (counting && !st.dry && counting.i === null && n !== undefined) Object.assign(counting, { i: st.draws, faces: Array.from({ length: n - m }, (_, f) => m + f), off: m });
+    if (!st.dry) {
+      if (counting && counting.i === null && n !== undefined) {
+        Object.assign(counting, { i: st.draws, faces: Array.from({ length: n - m }, (_, f) => m + f), off: m });
+      } else if (secondaryScope && !secondaryScope.inHit && m === 100 && n === undefined && secondaryScope.pending.length) {
+        const cur = secondaryScope.pending.shift();
+        cur.roll = st.draws;
+        cur.hadFlinch = !!cur.target?.volatiles?.flinch;
+        cur.willMove = !!cur.target && !!battle.queue.willMove(cur.target);
+        secondaryScope.current = cur;
+      }
+    }
     return origRandom.call(this, m, n);
   };
   const origHitLoop = actions.hitStepMoveHitLoop;
   actions.hitStepMoveHitLoop = function (targets, pokemon, move) {
-    if (at.k !== turn || st.dry || !Array.isArray(move.multihit) || pokemon.hasItem('loadeddice')) return origHitLoop.call(this, targets, pokemon, move);
+    if (at.k !== turn || st.dry || !move.multihit || typeof move.smartTarget === 'boolean') {
+      return origHitLoop.call(this, targets, pokemon, move);
+    }
     const now = standing();
+    const target0 = targets[0];
+    const targetNames = new Set([String(target0), target0?.fullname, `${target0?.side?.id}: ${identName(String(target0))}`].filter(Boolean));
     let want = null;
     for (let i = now ? now.from : 0; now && i < now.end && want === null; i++) {
       const parts = now.wantHard[i].split('|');
-      if (parts[1] === '-hitcount' && parts[2] === String(targets[0])) want = Number(parts[3]);
+      if (parts[1] === '-hitcount' && targetNames.has(parts[2])) want = Number(parts[3]);
     }
-    counting = { i: null, faces: null, off: 0 };
+    const singleDie = Array.isArray(move.multihit) && !pokemon.hasItem('loadeddice');
+    counting = { i: singleDie ? null : false, faces: null, off: 0, want };
     let count;
     try {
       return origHitLoop.call(this, targets, pokemon, move);
     } finally {
       count = counting;
       counting = null;
-      const face = count.i === null ? undefined : faceOf(count.i);
+      const face = typeof count.i === 'number' ? faceOf(count.i) : undefined;
       if (want !== null && face !== undefined) {
         const reps = [];
         const groups = new Map();
@@ -1177,9 +1545,138 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
           if (!reps.length) { reps.push(v); groups.set(v, []); }
           groups.get(reps[0]).push(v);
         }
-        out.set(count.i, { reps, groups, wrong: count.faces[face - count.off] !== want });
+        const wrongCount = count.faces[face - count.off] !== want;
+        out.set(count.i, { reps, groups, wrong: wrongCount, shifts: wrongCount });
+        if (wrongCount) diverged = true;
       }
     }
+  };
+
+  // A move with no chosen target - every spread move over foes, Outrage, a move
+  // Encore or Sleep Talk chose - draws one in `getRandomTarget` before `addMove`
+  // writes its `|move|` line. Each face of that `sample` is run dry through
+  // `getMoveTargets`: where they all write a plain `|move|` line and only one
+  // writes the target the observed line names, that face is the only one the
+  // replay allows. Where both faces also hit the same targets in the same order
+  // with the same move, the move in flight differs only in that display slot,
+  // so its accuracy and damage dice are read on the same pass too.
+  const sameList = (a, b) => a.length === b.length && a.every((x, idx) => x === b[idx]);
+  const modifiedMove = (pokemon, item) => dry(() => {
+    const snap = snapItems([pokemon, item]);
+    try {
+      const copy = cloneMove(frame.preMove);
+      battle.singleEvent('ModifyType', copy, null, pokemon, item, copy, copy);
+      battle.singleEvent('ModifyMove', copy, null, pokemon, item, copy, copy);
+      return `${copy.type}|${copy.category}|${copy.accuracy}|${copy.target}`;
+    } finally {
+      restoreItems(snap);
+    }
+  }, 0);
+  const sameModifiedMove = (pokemon, a, b) => !frame.preMove
+    || (!frame.preMove.onModifyType && !frame.preMove.onModifyMove)
+    || modifiedMove(pokemon, a) === modifiedMove(pokemon, b);
+
+  const origRunMove = actions.runMove;
+  actions.runMove = function (moveOrMoveName, pokemon, targetLoc, options) {
+    if (at.k !== turn || st.dry) return origRunMove.call(this, moveOrMoveName, pokemon, targetLoc, options);
+    const prev = frame;
+    frame = { emitted: false, draw: null, preMove: null, retarget: null };
+    try {
+      return origRunMove.call(this, moveOrMoveName, pokemon, targetLoc, options);
+    } finally {
+      frame = prev;
+    }
+  };
+
+  const origUseMoveInner = actions.useMoveInner;
+  actions.useMoveInner = function (moveOrMoveName, pokemon, options) {
+    if (at.k !== turn || st.dry) return origUseMoveInner.call(this, moveOrMoveName, pokemon, options);
+    const nested = !frame || frame.emitted;
+    const prev = frame;
+    if (nested) frame = { emitted: false, draw: null, preMove: null, retarget: null };
+    frame.preMove = cloneMove(this.dex.getActiveMove(moveOrMoveName));
+    try {
+      return origUseMoveInner.call(this, moveOrMoveName, pokemon, options);
+    } finally {
+      if (frame) frame.retarget = null;
+      frame = prev;
+    }
+  };
+
+  const origRandomTarget = battle.getRandomTarget;
+  battle.getRandomTarget = function (pokemon, move) {
+    if (at.k !== turn || st.dry || !frame || frame.emitted || samplingTarget) {
+      return origRandomTarget.call(this, pokemon, move);
+    }
+    const picked = { i: null, items: null };
+    samplingTarget = picked;
+    try {
+      const target = origRandomTarget.call(this, pokemon, move);
+      frame.draw = picked.i !== null && target ? { i: picked.i, pokemon, items: picked.items, target } : null;
+      return target;
+    } finally {
+      samplingTarget = null;
+    }
+  };
+
+  const origAddMove = battle.addMove;
+  battle.addMove = function (...args) {
+    if (args[0] !== 'move' || at.k !== turn || st.dry || !frame || frame.emitted) {
+      return origAddMove.apply(this, args);
+    }
+    frame.emitted = true;
+    const [, pokemon, movename, rest = ''] = args;
+    const drawn = frame.draw;
+    const move = battle.activeMove;
+    const gotTarget = String(rest).split('|')[0];
+    if (drawn && move && drawn.pokemon === pokemon && gotTarget === String(drawn.target)
+      && typeof move.smartTarget !== 'boolean' && !move.onModifyTarget) {
+      const now = standing();
+      const wantLine = now?.wantHard[now.from];
+      const wantParts = wantLine ? wantLine.split('|') : null;
+      const wantTarget = wantParts && wantParts[1] === 'move' && wantParts[2] === String(pokemon)
+        && wantParts[3] === String(movename) ? (wantParts[4] || '') : '';
+      const current = faceOf(drawn.i);
+      if (wantTarget && current !== undefined) {
+        try {
+          const tail = String(rest).slice(gotTarget.length);
+          const fits = [];
+          const plans = [];
+          let clean = true;
+          for (const [f, item] of drawn.items.entries()) {
+            if (!item || typeof item !== 'object') { clean = false; break; }
+            const logLen = battle.log.length;
+            const probed = dry(() => {
+              const copy = cloneMove(move);
+              origAddMove.call(battle, 'move', pokemon, movename, `${item}${tail}`);
+              const plan = pokemon.getMoveTargets(copy, item);
+              const added = battle.log.slice(logLen).filter(l => !l.startsWith('|debug|'));
+              return added.length === 1 ? { target: added[0].split('|')[4], plan } : null;
+            }, 0);
+            if (!probed) { clean = false; break; }
+            plans[f] = probed.plan;
+            if (probed.target === wantTarget) fits.push(f);
+          }
+          if (clean && fits.length === 1) {
+            const wantIdx = fits[0];
+            const retargeted = current !== wantIdx && Boolean(plans[current]?.targets.length
+              && sameList(plans[current].targets, plans[wantIdx].targets)
+              && sameList(plans[current].pressureTargets, plans[wantIdx].pressureTargets)
+              && sameModifiedMove(pokemon, drawn.items[current], drawn.items[wantIdx]));
+            out.set(drawn.i, {
+              reps: current === wantIdx ? [] : [wantIdx],
+              groups: new Map(),
+              wrong: current !== wantIdx,
+              shifts: current !== wantIdx && !retargeted,
+            });
+            if (retargeted) {
+              frame.retarget = { at: now.from, from: gotTarget, to: wantTarget };
+            }
+          }
+        } catch { /* leave unsteered */ }
+      }
+    }
+    return origAddMove.apply(this, args);
   };
 }
 
