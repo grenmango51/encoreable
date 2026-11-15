@@ -20,7 +20,7 @@ import { battleLines, firstDivergence } from '../../scripts/lib/protocol.mjs';
 import { reconstruct, unpackTeams } from '../../scripts/lib/reconstruct.mjs';
 import { combineGames, inferSpreads, inferenceRecord } from '../../scripts/lib/inference/infer.mjs';
 import {
-  STAT_IDS, containsSpread, rangesOfValues, spreadAt, typicalSpread, unpackKnowledge, valuesOf, maskKeys,
+  STAT_IDS, containsSpread, rangesOfValues, spreadAt, typicalSpread, unpackKnowledge, valuesOfKnowledge,
 } from '../../scripts/lib/inference/knowledge.mjs';
 import {
   alignSpeciesToSheet, bestOfFromLog, crossCheckLog, crossCheckSheet, loadSource, maxHpFromLog, setsFromLog, setsFromSheet,
@@ -428,7 +428,9 @@ export async function reconstructReplay({ source: input, teams = [null, null], i
         observed, channel, sampleSeed, maxProbes, allSpent: false, threads, deadline: started + INFER_MS,
       });
       built = inference.built;
-      packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: inference.picks[s][i] }))));
+      packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({
+        ...set, ...(set.nature ? {} : { nature: inference.picks[s][i]?.nature || 'Serious' }), evs: inference.picks[s][i],
+      }))));
     } else {
       built = await reconstruct({
         formatid: source.formatid, packedTeams, playerNames: source.players, observed, channel,
@@ -507,7 +509,7 @@ export function combineSet(game, others) {
 const panels = new Map();
 let nextPanel = 0;
 
-const valuesList = kn => Object.fromEntries(Object.entries(valuesOf(maskKeys(kn.keys), kn.dom, kn.spent, kn.ties).values)
+const valuesList = kn => Object.fromEntries(Object.entries(valuesOfKnowledge(kn).values)
   .map(([s, mask]) => [s, [...mask.keys()].filter(v => mask[v])]));
 
 /** Per stat, the values it can move to with every other stat staying where `spread` has it. */
@@ -550,7 +552,7 @@ export function spreadPanel(key, inference) {
         const values = valuesList(kn);
         panels.set(`${handle}|${id}`, { kn, values });
         const spread = typicalSpread(kn, species.baseStats, nature) || used;
-        const all = valuesOf(maskKeys(kn.keys), kn.dom, kn.spent, kn.ties);
+        const all = valuesOfKnowledge(kn);
         Object.assign(entry, {
           inferred: true, spreads: p.spreads, ranges: rangesOfValues(all.values), grids: all.grids,
           values, typical: spread, spread, reach: reachFrom(kn, values, spread), usedFits: containsSpread(kn, used),
@@ -576,8 +578,9 @@ export function spreadMove(handle, id, stat, value, current) {
   const panel = panels.get(`${handle}|${id}`);
   if (!panel) throw new Error(`no Stat Point panel for ${id}`);
   const wanted = { ...current, [stat]: Number(value) };
-  const spread = containsSpread(panel.kn, wanted) ? wanted : spreadAt(panel.kn, stat, Number(value), current);
-  if (!spread) return null;
+  const found = containsSpread(panel.kn, wanted) ? wanted : spreadAt(panel.kn, stat, Number(value), current);
+  if (!found) return null;
+  const spread = Object.fromEntries(STAT_IDS.map(s => [s, found[s]]));
   return { spread, reach: reachFrom(panel.kn, panel.values, spread) };
 }
 
@@ -616,7 +619,7 @@ function evidenceText(teams, inference, read = null) {
     const p = inference?.pokemon?.find(p => p.id === `p${side + 1}:${i}`);
     const inferred = inference?.inferred?.includes(`p${side + 1}`);
     const known = read?.[side]?.[i];
-    const ranges = p?.knowledge ? rangesOfValues(valuesOfKnowledge(unpackKnowledge(p.knowledge))) : null;
+    const ranges = p?.knowledge ? rangesOfValues(valuesOfKnowledge(unpackKnowledge(p.knowledge)).values) : null;
     const name = set.name && set.name !== set.species ? `${set.name} (${set.species})` : set.species;
     const stat = (s) => {
       const r = ranges?.[s];
@@ -633,10 +636,6 @@ function evidenceText(teams, inference, read = null) {
       `${named('natures', nature) || 'Unknown'} Nature`, ...Array.from({ length: 4 }, (_, j) => `- ${named('moves', moves?.[j]) || 'Unknown'}`),
     ].join('\n');
   }).join('\n\n'));
-}
-
-function valuesOfKnowledge(kn) {
-  return valuesOf(maskKeys(kn.keys), kn.dom, kn.spent, kn.ties).values;
 }
 
 export function teamEditor(key, inference = null, evidence = null, read = null) {

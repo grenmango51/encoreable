@@ -31,11 +31,11 @@ import {
 } from '../reconstruct.mjs';
 import { sameSheet } from '../replay-source.mjs';
 import {
-  BUDGET, FLAT, SPAN, STAT_IDS, aimFor, aliveOf, cloneKnowledge, closestSpread, containsSpread, defaultSpread, freshKnowledge, fullEvs,
+  BUDGET, FLAT, SPAN, STAT_IDS, aimFor, aliveOf, canonicalNatureName, cloneKnowledge, closestSpread, containsSpread, defaultSpread, freshKnowledge, fullEvs,
   intersectKnowledge, keyOf, maskKeys, packKnowledge, pinKnowledge, restrictKnowledge, sameSpread, spreadAt, spreadsLeft, summarise,
-  orderSpeeds, tighten, uniteKnowledge, unpackKnowledge, valuesOf,
+  orderSpeeds, syncKnowledge, tighten, uniteKnowledge, unpackKnowledge, valuesOf, valuesOfKnowledge,
 } from './knowledge.mjs';
-import { usualSpreads } from './usage.mjs';
+import { orderedNatures, usualSpreads } from './usage.mjs';
 import { evidencePass } from './evidence.mjs';
 
 const require = createRequire(import.meta.url);
@@ -335,9 +335,15 @@ export async function inferSpreads({
   }
 
   const blank = new Map();
+  const natureOrder = new Map();
   for (const [s, team] of sets.entries()) {
-    for (const [i, set] of team.entries()) blank.set(`p${s + 1}:${i}`, freshKnowledge(set, known[s], allSpent));
+    for (const [i, set] of team.entries()) {
+      const id = `p${s + 1}:${i}`;
+      blank.set(id, freshKnowledge(set, known[s], allSpent, dex));
+      if (!known[s] && !set.nature) natureOrder.set(id, orderedNatures(usage, dex, set));
+    }
   }
+  const sameGuess = (a, b) => sameSpread(a, b) && a.nature === b.nature;
   // Each unknown set's first guess, from either start: bulk and the stat its
   // nature boosts, or (`start: 'usage'`) the spread people run most with its
   // species and nature. A guess is only where the search begins.
@@ -347,6 +353,10 @@ export async function inferSpreads({
     const base = dex.species.get(set.species || set.name).baseStats.hp;
     const hp = max ? max - base - 75 : undefined;
     const usual = from === 'usage' ? usualSpreads(usage, dex, set).find(u => hp === undefined || u.evs.hp === hp) : null;
+    if (!set.nature) {
+      if (usual) return { ...usual.evs, nature: usual.nature || 'Serious' };
+      return { ...defaultSpread(dex, set, hp), nature: 'Serious' };
+    }
     return usual ? { ...usual.evs } : defaultSpread(dex, set, hp);
   }));
   let picks = firstGuesses(start);
@@ -407,25 +417,180 @@ export async function inferSpreads({
         };
       }
     }
-    while (passes < 8 * S) {
-      const before = watch ? cloneKnowledge(knowledge) : null;
-      const pass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, record: record && !first });
-      passes++;
-      work.passes++;
-      let moved = false;
-      for (const r of pass.recs) moved = intersectKnowledge(knowledge.get(r.id), r.keys, r.flat, r.ties) || moved;
-      if (watch) await report('evidence', before);
-      if (learn) for (const o of pass.orders || []) orders.set(`${o.fast}|${o.slow}|${o.strict ? '>' : '>='}|${o.tf}|${o.ts}`, o);
-      moved = orderSpeeds(knowledge, [...orders.values(), ...kept]) || moved;
-      if (watch) await report('orders');
-      for (const kn of knowledge.values()) moved = tighten(kn) || moved;
-      if (watch) await report('budget');
-      if (!first) {
-        first = pass;
-        if (record) afterFirst = counts();
+    const multiIds = [...knowledge].filter(([, kn]) => !kn.known && kn.natures).map(([id]) => id);
+    if (!multiIds.length) {
+      while (passes < 8 * S) {
+        const before = watch ? cloneKnowledge(knowledge) : null;
+        const pass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, record: record && !first });
+        passes++;
+        work.passes++;
+        let moved = false;
+        for (const r of pass.recs) moved = intersectKnowledge(knowledge.get(r.id), r.keys, r.flat, r.ties) || moved;
+        if (watch) await report('evidence', before);
+        if (learn) for (const o of pass.orders || []) orders.set(`${o.fast}|${o.slow}|${o.strict ? '>' : '>='}|${o.tf}|${o.ts}`, o);
+        moved = orderSpeeds(knowledge, [...orders.values(), ...kept]) || moved;
+        if (watch) await report('orders');
+        for (const kn of knowledge.values()) moved = tighten(kn) || moved;
+        if (watch) await report('budget');
+        if (!first) {
+          first = pass;
+          if (record) afterFirst = counts();
+        }
+        if (!moved) break;
+        if (passes === 8 * S) limits.add('evidencePasses');
       }
-      if (!moved) break;
-      if (passes === 8 * S) limits.add('evidencePasses');
+    } else {
+      const aliveSub = sub => sub.keys.includes(1) && FLAT.every(x => sub.dom[x].includes(1));
+      const unionStats = (states) => {
+        const out = {};
+        for (const s of STAT_IDS) {
+          let lo = Infinity;
+          let hi = -Infinity;
+          for (const st of states.values()) {
+            if (!st.count || !st.stats?.[s]) continue;
+            lo = Math.min(lo, st.stats[s].min);
+            hi = Math.max(hi, st.stats[s].max);
+          }
+          out[s] = lo <= hi ? { min: lo, max: hi } : null;
+        }
+        return out;
+      };
+      while (passes < 8 * S) {
+        const before = watch ? cloneKnowledge(knowledge) : null;
+        const needRecord = record && !first;
+        const startStates = needRecord ? new Map(multiIds.map((id) => {
+          const kn = knowledge.get(id);
+          return [id, new Map([...kn.natures].map(([n, sub]) => {
+            const sum = summarise(sub);
+            return [n, { count: sum.spreads, stats: sum.stats }];
+          }))];
+        })) : null;
+        const basePass = await evidencePass({ inputLog, observed: lines, channel, knowledge, cache, record: needRecord });
+        passes++;
+        work.passes++;
+        let moved = false;
+        for (const r of basePass.recs) moved = intersectKnowledge(knowledge.get(r.id), r.keys, r.flat, r.ties) || moved;
+        if (learn) for (const o of basePass.orders || []) orders.set(`${o.fast}|${o.slow}|${o.strict ? '>' : '>='}|${o.turn}|${o.tf}|${o.ts}`, o);
+        moved = orderSpeeds(knowledge, [...orders.values(), ...kept]) || moved;
+        for (const kn of knowledge.values()) moved = tighten(kn) || moved;
+
+        const seenNow = new Set(basePass.recs.filter(r => r.seen).map(r => r.id));
+        const activeMulti = multiIds.filter(id => seenNow.has(id));
+        const subEvents = new Map();
+        const extraLent = new Map(basePass.recs.map(r => [r.id, new Set(r.lent || [])]));
+        const extraChecks = [...(basePass.checks || [])];
+        const checkKeys = new Set(extraChecks.map(c => `${c.turn}|${c.what}|${c.reason}`));
+
+        for (const id of activeMulti) {
+          const kn = knowledge.get(id);
+          let subMoved = false;
+          const byNat = new Map();
+          for (const [n, sub] of kn.natures) {
+            if (!aliveSub(sub)) continue;
+            const passKn = new Map(knowledge);
+            for (const otherId of activeMulti) {
+              if (otherId === id) continue;
+              const otherKn = knowledge.get(otherId);
+              const aliveOthers = [...otherKn.natures.values()].filter(aliveSub);
+              if (aliveOthers.length === 1) passKn.set(otherId, aliveOthers[0]);
+            }
+            passKn.set(id, sub);
+            const subPass = await evidencePass({ inputLog, observed: lines, channel, knowledge: passKn, cache, record: needRecord });
+            work.passes++;
+            const r = subPass.recs.find(x => x.id === id);
+            if (r) {
+              for (const l of r.lent || []) extraLent.get(id)?.add(l);
+              if (intersectKnowledge(sub, r.keys, r.flat, r.ties)) { tighten(sub); subMoved = true; }
+            }
+            if (needRecord) byNat.set(n, subPass.events || []);
+            for (const c of subPass.checks || []) {
+              const ck = `${c.turn}|${c.what}|${c.reason}`;
+              if (!checkKeys.has(ck)) { checkKeys.add(ck); extraChecks.push(c); }
+            }
+          }
+          if (subMoved) { syncKnowledge(kn); moved = true; }
+          if (needRecord) subEvents.set(id, byNat);
+        }
+
+        if (watch) await report('evidence', before);
+        moved = orderSpeeds(knowledge, [...orders.values(), ...kept]) || moved;
+        if (watch) await report('orders');
+        for (const kn of knowledge.values()) moved = tighten(kn) || moved;
+        if (watch) await report('budget');
+
+        if (!first) {
+          let mergedEvents = basePass.events || [];
+          if (needRecord && activeMulti.length) {
+            const orderKeys = [];
+            const headerByKey = new Map();
+            const cutsByKey = new Map();
+            const indexEvents = (evs, onCut) => {
+              const seenOcc = new Map();
+              for (const ev of evs) {
+                const sig = `${ev.turn}|${ev.what}`;
+                const occ = (seenOcc.get(sig) || 0) + 1;
+                seenOcc.set(sig, occ);
+                const key = `${sig}|${occ}`;
+                if (!headerByKey.has(key)) {
+                  orderKeys.push(key);
+                  headerByKey.set(key, { turn: ev.turn, what: ev.what, ...(ev.who ? { who: ev.who } : {}), ...(ev.shown ? { shown: ev.shown } : {}) });
+                  cutsByKey.set(key, new Map());
+                }
+                onCut(key, ev);
+              }
+            };
+            const multiSet = new Set(activeMulti);
+            indexEvents(basePass.events || [], (key, ev) => {
+              for (const c of ev.cuts) if (!multiSet.has(c.id)) cutsByKey.get(key).set(c.id, c);
+            });
+            const perIdNatCuts = new Map(activeMulti.map(id => [id, new Map()]));
+            for (const [id, byNat] of subEvents) {
+              for (const [n, evs] of byNat) {
+                indexEvents(evs, (key, ev) => {
+                  const cut = ev.cuts.find(c => c.id === id);
+                  if (!cut) return;
+                  if (!perIdNatCuts.get(id).has(key)) perIdNatCuts.get(id).set(key, new Map());
+                  perIdNatCuts.get(id).get(key).set(n, cut);
+                });
+              }
+            }
+            mergedEvents = [];
+            for (const key of orderKeys) {
+              const cuts = [...cutsByKey.get(key).values()];
+              for (const id of activeMulti) {
+                const natCuts = perIdNatCuts.get(id)?.get(key);
+                if (!natCuts?.size) continue;
+                const states = startStates.get(id);
+                let beforeCount = 0;
+                for (const st of states.values()) beforeCount += st.count;
+                const beforeStats = unionStats(states);
+                let pokeName = id;
+                for (const [n, cut] of natCuts) {
+                  pokeName = cut.pokemon || pokeName;
+                  states.set(n, { count: cut.after, stats: cut.stats });
+                }
+                let afterCount = 0;
+                for (const st of states.values()) afterCount += st.count;
+                if (afterCount < beforeCount) {
+                  const afterStats = unionStats(states);
+                  const narrowed = STAT_IDS.filter(s => JSON.stringify(beforeStats[s]) !== JSON.stringify(afterStats[s]));
+                  cuts.push({ id, pokemon: pokeName, before: beforeCount, after: afterCount, narrowed, stats: afterStats });
+                }
+              }
+              if (cuts.length) mergedEvents.push({ ...headerByKey.get(key), cuts });
+            }
+          }
+          first = {
+            ...basePass,
+            events: mergedEvents,
+            checks: extraChecks,
+            recs: basePass.recs.map(r => ({ ...r, lent: [...(extraLent.get(r.id) || [])] })),
+          };
+          if (record) afterFirst = counts();
+        }
+        if (!moved) break;
+        if (passes === 8 * S) limits.add('evidencePasses');
+      }
     }
     return {
       events: first.events,
@@ -485,8 +650,9 @@ export async function inferSpreads({
   const held = new Map();
   const aimed = (id, kn, prev) => held.get(id) || aimFor(kn, prev);
   let evidenceTurn = 0;
-  const packOf = chosen => sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: chosen[s][i] }))));
-  const signature = chosen => JSON.stringify(chosen.map(team => team.map(e => STAT_IDS.map(x => e[x]))));
+  const setWith = (set, pick) => ({ ...set, ...(set.nature ? {} : { nature: pick?.nature || 'Serious' }), evs: pick });
+  const packOf = chosen => sets.map((team, s) => Teams.pack(team.map((set, i) => setWith(set, chosen[s][i]))));
+  const signature = chosen => JSON.stringify(chosen.map(team => team.map(e => (e.nature ? [...STAT_IDS.map(x => e[x]), e.nature] : STAT_IDS.map(x => e[x])))));
   const markOf = d => (d ? `${d.turn}|${d.index}|${d.expected}` : null);
 
   /**
@@ -692,7 +858,7 @@ export async function inferSpreads({
     const dims = [];
     for (const u of cast) {
       const kn = knowledge.get(u.id);
-      const values = valuesOf(maskKeys(kn.keys), kn.dom, kn.spent, kn.ties).values;
+      const values = valuesOfKnowledge(kn).values;
       for (const stat of STAT_IDS) {
         dims.push({ ...u, stat, alive: aliveOf(values[stat]), now: start[u.s][u.i][stat], sides: new Map(), best: null, moved: false, passed: false });
       }
@@ -712,7 +878,13 @@ export async function inferSpreads({
       for (const [id, list] of by) {
         const { s, i } = list[0];
         let kn = from.get(id);
-        const aim = { ...start[s][i] };
+        const wantNat = list.find(c => c.nature)?.nature;
+        if (wantNat && kn.natures) {
+          const sub = kn.natures.get(canonicalNatureName(wantNat));
+          if (!sub) return null;
+          kn = sub;
+        }
+        const aim = { ...start[s][i], ...(wantNat ? { nature: wantNat } : {}) };
         for (const c of list) {
           kn = restrictKnowledge(kn, c.stat, c.value);
           aim[c.stat] = c.value;
@@ -723,7 +895,7 @@ export async function inferSpreads({
           : null;
         if (!ok(spread)) spread = closestSpread(kn, aim);
         if (!ok(spread)) return null;
-        out[s][i] = spread;
+        out[s][i] = wantNat && !spread.nature ? { ...spread, nature: canonicalNatureName(wantNat) } : spread;
       }
       return out;
     };
@@ -747,7 +919,7 @@ export async function inferSpreads({
       if (!chosen) return null;
       const sig = signature(chosen);
       if (done.has(sig)) return done.get(sig);
-      const speMoved = chosen.some((team, s) => team.some((e, i) => e.spe !== start[s][i].spe));
+      const speMoved = chosen.some((team, s) => team.some((e, i) => e.spe !== start[s][i].spe || e.nature !== start[s][i].nature));
       const same = !!plain && !(hiddenTurn && (speMoved || (order && changes.some(c => disputed.has(c.id)))))
         && JSON.stringify(await replayWith(built.inputLog, packOf(chosen), t, channel)) === plainJson;
       let b = same ? null : await rebuild(chosen, budget);
@@ -794,7 +966,7 @@ export async function inferSpreads({
     // line names; the other's far end first, then its near one.
     const dimOf = (u, stat) => dims.find(x => x.id === u.id && x.stat === stat) || (() => {
       const kn = knowledge.get(u.id);
-      const values = valuesOf(maskKeys(kn.keys), kn.dom, kn.spent, kn.ties).values;
+      const values = valuesOfKnowledge(kn).values;
       return { ...u, stat, alive: aliveOf(values[stat]), now: start[u.s][u.i][stat] };
     })();
     // `moves`: the Speeds that stopped it there, one or a pair; the other
@@ -930,6 +1102,40 @@ export async function inferSpreads({
       if (found || ahead || !affordable()) break;
       await halving(h);
     }
+    // When a Pokemon's nature is unknown, the +10% and -10% ends of each stat
+    // lie outside any neutral nature's Stat Points: try one surviving boosting
+    // and lowering nature per stat when no spread under the current nature
+    // moved past the line.
+    if (!found && !ahead) {
+      const statSeq = order ? ['spe', 'atk', 'spa', 'def', 'spd'] : ['atk', 'spa', 'def', 'spd', 'spe'];
+      for (const u of cast) {
+        const kn = knowledge.get(u.id);
+        if (!kn?.natures || found || ahead || !affordable()) continue;
+        const ordered = natureOrder.get(u.id) || [...kn.natures.keys()];
+        for (const stat of statSeq) {
+          if (found || ahead || !affordable()) break;
+          for (const dir of ['plus', 'minus']) {
+            if (found || ahead || !affordable()) break;
+            const nat = ordered.find((n) => {
+              if (dex.natures.get(n)[dir] !== stat) return false;
+              const sub = kn.natures.get(n);
+              return sub && sub.keys.includes(1) && FLAT.every(x => sub.dom[x].includes(1));
+            });
+            if (!nat) continue;
+            const sub = kn.natures.get(nat);
+            const vals = aliveOf(valuesOf(maskKeys(sub.keys), sub.dom, sub.spent, sub.ties).values[stat]);
+            if (!vals.length) continue;
+            const extreme = dir === 'plus' ? vals[vals.length - 1] : vals[0];
+            for (const value of new Set([extreme, vals.includes(start[u.s][u.i][stat]) ? start[u.s][u.i][stat] : extreme])) {
+              if (found || ahead || !affordable()) break;
+              const changes = [{ ...u, stat, value, nature: nat }];
+              const got = await probe(changes);
+              if (got?.b) judge(changes, got);
+            }
+          }
+        }
+      }
+    }
 
     // A spread found under the dice of the turns before can owe the line to
     // dice that land differently under it; the guess itself, with those dice
@@ -1022,9 +1228,9 @@ export async function inferSpreads({
   // `order` that differs takes its spread from `a` or `b`, then each stat that
   // differs its value from one or the other, fewest taken from `b` first.
   const mixOf = (a, b, order) => {
-    const allowed = (m, list) => list.every(([s, i]) => containsSpread(knowledge.get(`p${s + 1}:${i}`), m[s][i]));
+    const allowed = (m, list) => list.every(([s, i]) => containsSpread(knowledge.get(`p${s + 1}:${i}`), m[s][i], m[s][i].nature));
     const label = ([s, i]) => sets[s][i].name || sets[s][i].species;
-    const differ = order.filter(([s, i]) => !sameSpread(a[s][i], b[s][i]));
+    const differ = order.filter(([s, i]) => !sameGuess(a[s][i], b[s][i]));
     const byCount = n => [...Array(2 ** n).keys()].slice(1, -1).sort((x, y) => bits(x) - bits(y) || x - y);
     const bits = x => { let c = 0; for (; x; x &= x - 1) c++; return c; };
     if (differ.length > 1 && differ.length <= 6) {
@@ -1053,7 +1259,7 @@ export async function inferSpreads({
     rounds++;
     work.rounds++;
     visited.add(signature(picks));
-    const packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
+    const packedTeams = packOf(picks);
     const searchStart = Date.now();
     const resample = budgets[level].resample || 0;
     built = counted(await reconstruct({
@@ -1125,6 +1331,62 @@ export async function inferSpreads({
       const evKn = knowledge.get(id);
       const tried = [];
       const byKey = new Map();
+      if (kn.natures) {
+        const pref = [held.get(id)?.nature, picks[s][i]?.nature, ...(natureOrder.get(id) || []), ...kn.natures.keys()].filter(Boolean);
+        const candNatures = [...new Set(pref.map(canonicalNatureName))].filter((nat) => {
+          const sub = kn.natures.get(nat);
+          return sub && sub.keys.includes(1) && FLAT.every(x => sub.dom[x].includes(1));
+        });
+        for (const [ni, nat] of candNatures.entries()) {
+          const subKn = kn.natures.get(nat);
+          const evSub = evKn.natures?.get(nat) || evKn;
+          const fixed = held.get(id)?.nature === nat ? [held.get(id)] : [];
+          const mid = aimFor(subKn, picks[s][i]);
+          if (keep.length && !evSub.dom.spe.includes(0) && subKn.dom.spe[picks[s][i].spe]) mid.spe = picks[s][i].spe;
+          const aims = ni === 0
+            ? [...fixed, mid, picks[s][i], aimFor(subKn, picks[s][i], 0.25), aimFor(subKn, picks[s][i], 0.75)]
+            : [...fixed, mid, picks[s][i]];
+          for (const aim of aims) {
+            if (tries <= 0) { limits.add('guessTries'); return null; }
+            const first = closestSpread(subKn, aim);
+            if (!first) continue;
+            const k = keyOf(first.hp, first.def, first.spd);
+            const entryKey = `${nat}|${k}`;
+            let entry = byKey.get(entryKey);
+            if (!entry) {
+              const keyed = cloneKnowledge(cond);
+              const pinned = cloneKnowledge(new Map([['x', subKn]])).get('x');
+              pinned.nature = nat;
+              pinned.keys.fill(0);
+              pinned.keys[k] = 1;
+              keyed.set(id, pinned);
+              tries--;
+              const settled = await settle(built.inputLog, keyed, cache, false, false, keep);
+              if (!settled.passes) tries++;
+              const flatFixed = FLAT.every(x => aliveOf(pinned.dom[x]).length === 1);
+              entry = { keyed, pinned, flatFixed, blocked: blocks(keyed, n) || isDead(keyed) };
+              byKey.set(entryKey, entry);
+            }
+            if (entry.blocked) continue;
+            const rawPick = closestSpread(entry.pinned, aim);
+            if (!rawPick) continue;
+            const pick = { ...rawPick, nature: nat };
+            if (tried.some(t => sameGuess(t, pick))) continue;
+            tried.push(pick);
+            const narrowed = cloneKnowledge(entry.keyed);
+            pinKnowledge(narrowed.get(id), pick);
+            if (n < seq.length - 1 && !entry.flatFixed) {
+              tries--;
+              const settled = await settle(built.inputLog, narrowed, cache, false, false, keep);
+              if (!settled.passes) tries++;
+              if (blocks(narrowed, n) || isDead(narrowed)) continue;
+            }
+            const found = await choose(n + 1, narrowed);
+            if (found) { next[s][i] = pick; return found; }
+          }
+        }
+        return null;
+      }
       const fixed = held.has(id) ? [held.get(id)] : [];
       const mid = aimFor(kn, picks[s][i]);
       if (keep.length && !evKn.dom.spe.includes(0) && kn.dom.spe[picks[s][i].spe]) mid.spe = picks[s][i].spe;
@@ -1180,7 +1442,7 @@ export async function inferSpreads({
       if (keep.length) {
         orderSpeeds(cond, keep);
         for (const kn of cond.values()) tighten(kn);
-        const losesHeld = [...held].some(([id, sp]) => cond.has(id) && !containsSpread(cond.get(id), sp));
+        const losesHeld = [...held].some(([id, sp]) => cond.has(id) && !containsSpread(cond.get(id), sp, sp.nature));
         if (losesHeld || [...cond.values()].some(emptied)) { keep = []; return cloneKnowledge(knowledge); }
       }
       return cond;
@@ -1206,7 +1468,7 @@ export async function inferSpreads({
       return found;
     };
     let proof = await pickGuesses();
-    const isUnchanged = () => next.every((team, s) => team.every((e, i) => sameSpread(e, picks[s][i])));
+    const isUnchanged = () => next.every((team, s) => team.every((e, i) => sameGuess(e, picks[s][i])));
     if (keep.length && (!proof || isUnchanged())) {
       keep = [];
       next = picks.map(team => team.map(e => ({ ...e })));
@@ -1217,16 +1479,25 @@ export async function inferSpreads({
     }
     exact = proof?.exact || null;
     let coupledAt = proof?.coupled ?? Infinity;
+    if (proof) {
+      for (const [s, i] of order) {
+        if (next[s][i].nature !== picks[s][i].nature && /getNature/.test(String(dex.items.get(sets[s][i].item).onEat || ''))) {
+          coupledAt = 0;
+        }
+      }
+    }
     if (proof && !keep.length && scaffoldOrders.length) {
-      const speOf = (id) => {
+      const pickOf = (id) => {
         const [s, i] = id.slice(1).split(':').map(Number);
-        return next[s - 1][i].spe;
+        return next[s - 1][i];
       };
       for (const o of scaffoldOrders) {
         if (!(o.turn >= 0)) continue;
-        const vf = speOf(o.fast);
-        const vs = speOf(o.slow);
-        if (o.strict ? o.tf[vf] <= o.ts[vs] : o.tf[vf] < o.ts[vs]) coupledAt = Math.min(coupledAt, o.turn);
+        const pf = pickOf(o.fast);
+        const ps = pickOf(o.slow);
+        const tf = (pf.nature && o.tfByNature?.[pf.nature]) || o.tf;
+        const ts = (ps.nature && o.tsByNature?.[ps.nature]) || o.ts;
+        if (o.strict ? tf[pf.spe] <= ts[ps.spe] : tf[pf.spe] < ts[ps.spe]) coupledAt = Math.min(coupledAt, o.turn);
       }
       if (exact && coupledAt < Infinity) {
         for (const k of [...exact.keys()]) if (k >= coupledAt) exact.delete(k);
@@ -1238,11 +1509,24 @@ export async function inferSpreads({
       for (const [s, i] of order) {
         const id = `p${s + 1}:${i}`;
         const kn = knowledge.get(id);
-        next[s][i] = closestSpread(kn, aimed(id, kn, picks[s][i])) || next[s][i];
+        if (kn.natures) {
+          const pref = [held.get(id)?.nature, picks[s][i]?.nature, ...(natureOrder.get(id) || []), ...kn.natures.keys()].filter(Boolean);
+          const nat = pref.map(canonicalNatureName).find((n) => {
+            const sub = kn.natures.get(n);
+            return sub && sub.keys.includes(1) && FLAT.every(x => sub.dom[x].includes(1));
+          });
+          if (nat) {
+            const sub = kn.natures.get(nat);
+            const sp = closestSpread(sub, aimed(id, sub, picks[s][i]));
+            if (sp) next[s][i] = { ...sp, nature: nat };
+          }
+        } else {
+          next[s][i] = closestSpread(kn, aimed(id, kn, picks[s][i])) || next[s][i];
+        }
       }
     }
     onProgress(`  evidence and new guesses, ${((Date.now() - evidenceStart) / 1000).toFixed(1)}s, ${work.passes - passesBefore} passes${exact ? `, ${exact.size} turns exact` : ''}${pins ? `, ${Object.keys(pins.subs).length} dice handed on` : ''}`);
-    const unchanged = next.every((team, s) => team.every((e, i) => sameSpread(e, picks[s][i])));
+    const unchanged = next.every((team, s) => team.every((e, i) => sameGuess(e, picks[s][i])));
     // The evidence accepts this guess, or it learned nothing from this
     // rebuild, or a line stops a rebuild again after the guess moved. Either
     // the line is one no hook reads, and the fallback finds a guess that
@@ -1250,7 +1534,7 @@ export async function inferSpreads({
     const again = failed.has(markOf(diff));
     failed.add(markOf(diff));
     if (unchanged || again || read < 2) {
-      const start = picks.map((team, s) => team.map((e, i) => (containsSpread(knowledge.get(`p${s + 1}:${i}`), e) ? e : next[s][i])));
+      const start = picks.map((team, s) => team.map((e, i) => (containsSpread(knowledge.get(`p${s + 1}:${i}`), e, e.nature) ? e : next[s][i])));
       const found = await fallback(seen, start, exact ? { picks: next, exact, pins } : null);
       if (found) {
         for (const [id, spread] of found.held) held.set(id, spread);
@@ -1303,7 +1587,7 @@ export async function inferSpreads({
   // plain reading's search ran out without proving it wrong (audit A50), so
   // every Pokemon also keeps what the plain reading left it.
   if (!built.report.complete && readings && Date.now() < deadline) {
-    const packed = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
+    const packed = packOf(picks);
     const failing = built.report.diffs[0]?.turn ?? Infinity;
     for (const { at, turn } of disguisableStays(formatid, packed, channel, observed, guessed)) {
       if (turn > failing || (built.forced || []).includes(at)) continue;
@@ -1328,7 +1612,7 @@ export async function inferSpreads({
   const result = await settle(built.inputLog, final, new Map(), true);
   for (const [id, kn] of final) {
     const had = knowledge.get(id);
-    intersectKnowledge(kn, maskKeys(had.keys), had.dom, had.ties);
+    intersectKnowledge(kn, maskKeys(had.keys), had.dom, had.ties, had.natures);
   }
   orderSpeeds(final, [...orders.values()]);
   for (const kn of final.values()) tighten(kn);
@@ -1348,7 +1632,7 @@ export async function inferSpreads({
         afterEvents: result.afterFirst.get(id),
         ...summarise(kn),
         used: picks[s][i],
-        contains: evs => containsSpread(kn, evs),
+        contains: (evs, nature = null) => containsSpread(kn, evs, nature),
       });
     }
   }
@@ -1409,9 +1693,9 @@ export async function inferSpreads({
       const kn = kept.knowledge.get(p.id);
       const other = partner.knowledge.get(p.id);
       if (!kn || !other) continue;
-      intersectKnowledge(kn, maskKeys(other.keys), other.dom, other.ties);
+      intersectKnowledge(kn, maskKeys(other.keys), other.dom, other.ties, other.natures);
       tighten(kn);
-      Object.assign(p, summarise(kn), { contains: evs => containsSpread(kn, evs) });
+      Object.assign(p, summarise(kn), { contains: (evs, nature = null) => containsSpread(kn, evs, nature) });
     }
   }
   return Object.assign(kept, { work, warnings, lost, limits: [...limits].sort() });
@@ -1424,7 +1708,7 @@ export async function inferSpreads({
    */
   function restarts() {
     const from = { plain: firstGuesses('default'), usual: usage ? firstGuesses('usage') : null };
-    const differs = from.usual && sets.some((team, s) => team.some((set, i) => !sameSpread(from.usual[s][i], from.plain[s][i])));
+    const differs = from.usual && sets.some((team, s) => team.some((set, i) => !sameGuess(from.usual[s][i], from.plain[s][i])));
     const list = [];
     if (differs) {
       list.push({
@@ -1466,7 +1750,7 @@ export async function inferSpreads({
     // The readings below add to `limits`, which `res` carries a copy of.
     const done = () => Object.assign(res, { limits: [...limits].sort() });
     if (!readings) return done();
-    const packed = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
+    const packed = packOf(picks);
     const given = [...(forced || [])];
     const base = res.built.forced || [];
     const late = () => {
@@ -1627,7 +1911,7 @@ export function combineGames(game, others) {
       const q = o.inference.pokemon.find(x => x.id === p.id);
       if (!q?.knowledge) continue;
       const other = unpackKnowledge(q.knowledge);
-      intersectKnowledge(kn, maskKeys(other.keys), other.dom, other.ties);
+      intersectKnowledge(kn, maskKeys(other.keys), other.dom, other.ties, other.natures);
       seen ||= q.seen;
     }
     tighten(kn);
@@ -1671,12 +1955,14 @@ export async function certifyRanges(inf, {
 }) {
   const seed = sampler(sampleSeed ^ 0x5eed).seed();
   const tried = new Map();
-  const signature = picks => JSON.stringify(picks.map(team => team.map(e => STAT_IDS.map(s => e[s]))));
+  const signature = picks => JSON.stringify(picks.map(team => team.map(e => (e.nature ? [...STAT_IDS.map(s => e[s]), e.nature] : STAT_IDS.map(s => e[s])))));
   if (inf.complete) tried.set(signature(inf.picks), true);
   const witness = async (picks) => {
     const sig = signature(picks);
     if (!tried.has(sig)) {
-      const packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: picks[s][i] }))));
+      const packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({
+        ...set, ...(set.nature ? {} : { nature: picks[s][i]?.nature || 'Serious' }), evs: picks[s][i],
+      }))));
       const built = await reconstruct({
         formatid, packedTeams, playerNames, observed, channel, forced: inf.built.forced, seed, sampleSeed, maxProbes, maxBacktracks: 2, threads,
       });

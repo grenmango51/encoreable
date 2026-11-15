@@ -12,16 +12,50 @@ function countedAs(dex, set) {
   return from && given.requiredItem ? from : given.name;
 }
 
-/** The spreads people run with this set's species and nature, most run first. */
+/**
+ * The spreads people run with this set's species and nature - or across every
+ * nature when the set's nature is unknown - most run first.
+ */
 export function usualSpreads(usage, dex, set) {
   if (!usage) return [];
-  const nature = set.nature || 'Serious';
-  return (usage[countedAs(dex, set)] || [])
-    .filter(([n]) => n === nature)
-    .map(([, sp, weight]) => {
-      const v = sp.split('/').map(Number);
-      return { evs: { hp: v[0], atk: v[1], def: v[2], spa: v[3], spd: v[4], spe: v[5] }, weight };
-    });
+  const rows = usage[countedAs(dex, set)] || [];
+  const matching = set.nature ? rows.filter(([n]) => n === set.nature) : rows;
+  return matching.map(([n, sp, weight]) => {
+    const v = sp.split('/').map(Number);
+    const data = dex.natures.get(n);
+    const nature = data.exists && data.plus ? data.name : 'Serious';
+    return {
+      evs: { hp: v[0], atk: v[1], def: v[2], spa: v[3], spd: v[4], spe: v[5] },
+      ...(set.nature ? {} : { nature }),
+      weight,
+    };
+  });
+}
+
+/**
+ * Every distinct nature class for `dex`, ordered by how often people run it on
+ * this species when `usage` is given, else `'Serious'` first and then the
+ * natures boosting this species' higher base stats.
+ */
+export function orderedNatures(usage, dex, set) {
+  const classes = ['Serious', ...dex.natures.all().filter(n => n.exists && n.plus).map(n => n.name)];
+  const weights = new Map();
+  if (usage) {
+    for (const [n, , weight] of usage[countedAs(dex, set)] || []) {
+      const data = dex.natures.get(n);
+      const canonical = data.exists && data.plus ? data.name : 'Serious';
+      weights.set(canonical, (weights.get(canonical) || 0) + weight);
+    }
+  }
+  const base = dex.species.get(set.species || set.name).baseStats;
+  const statScore = (n) => {
+    const data = dex.natures.get(n);
+    if (!data.plus) return 1e6; // 'Serious' first when no usage distinguishes
+    return (base[data.plus] || 0) * 100 - (base[data.minus] || 0);
+  };
+  return classes.slice().sort((a, b) => (weights.get(b) || 0) - (weights.get(a) || 0)
+    || statScore(b) - statScore(a)
+    || a.localeCompare(b));
 }
 
 /**
@@ -31,10 +65,10 @@ export function usualSpreads(usage, dex, set) {
  */
 export function likelySpreads(usual, contains) {
   const total = usual.reduce((t, u) => t + u.weight, 0);
-  const alive = usual.filter(u => contains(u.evs));
+  const alive = usual.filter(u => contains(u.evs, u.nature));
   const left = alive.reduce((t, u) => t + u.weight, 0);
   return {
-    likely: alive.map(u => ({ evs: u.evs, share: u.weight / left })),
+    likely: alive.map(u => ({ evs: u.evs, ...(u.nature ? { nature: u.nature } : {}), share: u.weight / left })),
     covered: total ? left / total : 0,
   };
 }

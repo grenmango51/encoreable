@@ -293,7 +293,7 @@ export function setsFromSheet(sheet) {
     item: row.item,
     ability: row.ability,
     moves: row.moves,
-    nature: row.nature,
+    nature: row.nature || 'Serious',
     gender: row.gender,
     level: Number(row.level) || 50,
     evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
@@ -356,9 +356,10 @@ function standInMove(dex, species) {
  *
  * Everything the log never showed is filled with a stated assumption, listed
  * per Pokemon in `assumed`: an ability the species has only one of is known by
- * elimination, an unseen item is none, and an unseen nature is neutral.
- * `boxes` says per Pokemon whether its item and ability were `read` or
- * `assumed` (`only` for a species with one ability), and its nature `assumed`.
+ * elimination, an unseen item is none, and an unseen nature is left blank so
+ * inference keeps every legal nature. `boxes` says per Pokemon whether its item
+ * and ability were `read` or `assumed` (`only` for a species with one ability),
+ * and its nature `unknown`.
  *
  * `ruledOut`, by the name a Pokemon is shown under, lists abilities the
  * simulator has shown this log cannot have come from (`{ ability, why }`): the
@@ -626,7 +627,7 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
     boxes.push({
       item: mon.item === null ? 'assumed' : 'read',
       ability: ability ? 'read' : abilities.length === 1 ? 'only' : 'assumed',
-      nature: 'assumed',
+      nature: 'unknown',
       ruledOut: ability ? [] : ruled,
     });
     if (!ability && abilities.length === 1) ability = abilities[0];
@@ -636,7 +637,7 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
       notes.push(`ability ${ability || 'none'} (one of ${abilities.join(', ')}${out})`);
     }
     if (mon.item === null) notes.push('no item');
-    notes.push('a neutral nature');
+    notes.push('any nature');
     if (mon.moves.length < 4) notes.push(`${mon.moves.length} move${mon.moves.length === 1 ? '' : 's'} seen`);
     const moves = mon.moves.length || !standIn ? mon.moves : [standInMove(dex, species)].filter(Boolean);
     if (!mon.moves.length && moves.length) {
@@ -649,7 +650,7 @@ export function setsFromLog(lines, side, formatid, { ruledOut = {}, standIn = fa
       item: mon.item || '',
       ability,
       moves,
-      nature: 'Serious',
+      nature: '',
       gender: mon.gender,
       shiny: mon.shiny,
       level: mon.level || 50,

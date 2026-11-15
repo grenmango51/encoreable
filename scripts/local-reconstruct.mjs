@@ -206,7 +206,7 @@ const isNeutral = (dex, nature) => !nature || !dex.natures.get(nature).plus;
  * published sheet), whether it is right. `wrong` lists every assumption or
  * reading the truth contradicts.
  */
-function setReport(read, truth, formatid, side) {
+function setReport(read, truth, formatid, side, inference = null) {
   const dex = Dex.forFormat(formatid);
   const lines = [];
   const wrong = [];
@@ -229,8 +229,19 @@ function setReport(read, truth, formatid, side) {
     row(name(), 'ability', boxes.ability === 'only' ? 'only one' : boxes.ability, set.ability,
       `${verdict('ability', set.ability, real?.ability && dex.abilities.get(real.ability).name, toID(set.ability) === toID(real?.ability))}${ruled}`);
     const natureOf = n => (isNeutral(dex, n) ? 'neutral' : dex.natures.get(n).name);
-    row(name(), 'nature', boxes.nature, natureOf(set.nature),
-      verdict('nature', natureOf(set.nature), real ? natureOf(real.nature) : null, !real || natureOf(set.nature) === natureOf(real.nature)));
+    const kn = inference?.knowledge?.get(`${side}:${j}`);
+    if (kn?.natures) {
+      const alive = [...kn.natures]
+        .filter(([, sub]) => sub.keys.includes(1) && ['atk', 'spa', 'spe'].every(s => sub.dom[s].includes(1)))
+        .map(([n]) => n);
+      const mine = alive.length === 1 ? natureOf(alive[0]) : `any (${alive.length} left)`;
+      const realCanonical = real ? (isNeutral(dex, real.nature) ? 'Serious' : dex.natures.get(real.nature).name) : null;
+      row(name(), 'nature', alive.length === 1 ? 'inferred' : boxes.nature, mine,
+        verdict('nature', mine, real ? natureOf(real.nature) : null, !real || alive.includes(realCanonical)));
+    } else {
+      row(name(), 'nature', boxes.nature, natureOf(set.nature),
+        verdict('nature', natureOf(set.nature), real ? natureOf(real.nature) : null, !real || natureOf(set.nature) === natureOf(real.nature)));
+    }
     const realMoves = (real?.moves || []).map(m => dex.moves.get(m).name);
     for (const move of set.moves) {
       if (move === boxes.standIn) {
@@ -463,13 +474,15 @@ async function runOne({
     for (const i of [0, 1]) {
       if (!reads[i]) continue;
       say(`  p${i + 1}'s sets are read off the log${closed ? ', its team sheet withheld' : ' - it published no team sheet'}:`);
-      const report = setReport(reads[i], truthSets[i] || publishedSheets[i], source.formatid, `p${i + 1}`);
+      const report = setReport(reads[i], truthSets[i] || publishedSheets[i], source.formatid, `p${i + 1}`, inference);
       for (const line of report.lines) say(line);
       setReports.push(report);
     }
     inferSets = sets;
     built = inference.built;
-    packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: inference.picks[s][i] }))));
+    packedTeams = sets.map((team, s) => Teams.pack(team.map((set, i) => ({
+      ...set, ...(set.nature ? {} : { nature: inference.picks[s][i]?.nature || 'Serious' }), evs: inference.picks[s][i],
+    }))));
   } else {
     built = await reconstruct({
       formatid: source.formatid,
@@ -552,7 +565,7 @@ async function runOne({
       const side = Number(p.side[1]) - 1;
       const real = truthSets[side]?.find(s => toID(s.species || s.name).startsWith(toID(p.species))
         || toID(p.species).startsWith(toID(s.species || s.name)));
-      const kept = real ? p.contains(real.evs) : null;
+      const kept = real ? p.contains(real.evs, real.nature) : null;
       if (real) spreadTruth = true;
       if (kept === false) { truthKept = false; removed.push(`${p.side} ${p.species}`); }
       const wrong = Object.entries(certified?.[p.id] || {}).filter(([, c]) => c.outside?.length);
@@ -568,7 +581,7 @@ async function runOne({
       const usual = usualSpreads(usageSpreads()?.spreads, Dex.forFormat(source.formatid), inferSets?.[side]?.[Number(p.id.split(':')[1])] || { species: p.species });
       const { likely, covered } = likelySpreads(usual, p.contains);
       if (likely.length) {
-        const top = likely.slice(0, 3).map(l => `${['hp', 'atk', 'def', 'spa', 'spd', 'spe'].map(x => l.evs[x]).join('/')} ${Math.round(100 * l.share)}%`).join(', ');
+        const top = likely.slice(0, 3).map(l => `${l.nature ? `${l.nature} ` : ''}${['hp', 'atk', 'def', 'spa', 'spd', 'spe'].map(x => l.evs[x]).join('/')} ${Math.round(100 * l.share)}%`).join(', ');
         say(`         likeliest by usage: ${top} (${likely.length} of the spreads people run fit, ${Math.round(100 * covered)}% of their use)`);
       } else if (usual.length) {
         say(`         none of the ${usual.length} spreads people run with this nature fits: an uncommon spread`);
@@ -614,7 +627,7 @@ async function runOne({
         const side = Number(p.side[1]) - 1;
         const real = truthSets[side]?.find(s => toID(s.species || s.name).startsWith(toID(p.species))
           || toID(p.species).startsWith(toID(s.species || s.name)));
-        const kept = real ? containsSpread(unpackKnowledge(p.knowledge), real.evs) : null;
+        const kept = real ? containsSpread(unpackKnowledge(p.knowledge), real.evs, real.nature) : null;
         if (kept === false) truthKept = false;
         const ranges = ['hp', 'atk', 'def', 'spa', 'spd', 'spe']
           .map(s => (p.stats[s] ? `${s} ${p.stats[s].min}-${p.stats[s].max}` : `${s} -`)).join('  ');
