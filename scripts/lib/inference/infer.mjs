@@ -187,9 +187,11 @@ function handOn(built, rolls, coupled = Infinity) {
 // ------------------------------------------------------ closed-sheet hypotheses
 
 const SILENT_ITEM_CACHE = new Map();
-const ITEM_MOD_HOOK = /^on(?:Modify(?:Atk|Def|SpA|SpD|Spe|Damage)|BasePower|TryHeal|Effectiveness)/;
+const ITEM_MOD_HOOK = /^on(?:Modify(?:Atk|Def|SpA|SpD|Spe|Damage|Weight)|BasePower|TryHeal|Effectiveness|(?:Maybe)?TrapPokemon)/;
 const ITEM_SELF_ANNOUNCE = /\b(?:useItem|eatItem)\s*\(|\bthis\.add\s*\(/;
 const PASSIVE_ABILITY_EVENTS = new Set(['Start', 'SwitchIn', 'AnySwitchIn', 'Update', 'Residual', 'End', 'Weather']);
+
+const setsIllusion = (dex, abil) => /\.illusion\s*=/.test(String(dex.abilities.get(abil).onBeforeSwitchIn || ''));
 
 function cloneSetWithBoxes(set, patch = {}) {
   const moves = set?.boxes && !set.moves?.length && set.boxes.fallbackMove ? [set.boxes.fallbackMove] : [...(set.moves || [])];
@@ -214,7 +216,7 @@ function setsForForced(baseSets, known, lines, formatid, forcedAts) {
         name: m.name || m.species,
         moves: new Set((m.moves || []).map(toID)),
         maxhp: 0,
-        illusion: toID(m.ability) === 'illusion',
+        illusion: setsIllusion(dex, m.ability),
       })),
     };
   }
@@ -223,16 +225,16 @@ function setsForForced(baseSets, known, lines, formatid, forcedAts) {
   for (const [s, team] of baseSets.entries()) {
     if (known?.[s] || !team.some(x => x?.boxes)) continue;
     const side = `p${s + 1}`;
-    const zoro = team.find(m => toID(m.ability) === 'illusion');
-    if (!zoro) continue;
+    const disguiser = team.find(m => setsIllusion(dex, m.ability));
+    if (!disguiser) continue;
     const pokeLine = lines.find((l) => {
       const p = l.split('|');
-      return p[1] === 'poke' && p[2] === side && baseOf(p[3].split(',')[0]) === baseOf(zoro.species);
+      return p[1] === 'poke' && p[2] === side && baseOf(p[3].split(',')[0]) === baseOf(disguiser.species);
     });
-    const details = pokeLine ? pokeLine.split('|')[3] : `${zoro.species}, L${zoro.level || 50}${zoro.gender ? `, ${zoro.gender}` : ''}`;
+    const details = pokeLine ? pokeLine.split('|')[3] : `${disguiser.species}, L${disguiser.level || 50}${disguiser.gender ? `, ${disguiser.gender}` : ''}`;
     for (const at of forcedAts) {
       const p = String(patched[at] || '').split('|');
-      if ((p[1] === 'switch' || p[1] === 'drag') && String(p[2] || '').startsWith(side) && identName(p[2]) === (zoro.name || zoro.species)) {
+      if ((p[1] === 'switch' || p[1] === 'drag') && String(p[2] || '').startsWith(side) && identName(p[2]) === (disguiser.name || disguiser.species)) {
         p[3] = details;
         patched[at] = p.join('|');
       }
@@ -259,7 +261,8 @@ function silentItemsForFormat(formatid) {
   });
   const legalSpecies = dex.species.all().filter(s => s.exists && !s.battleOnly && !validator.checkSpecies(blankSet(s), s, s, {}));
   const modifiers = [];
-  let inert = null;
+  const hasItemOnlyIds = new Set();
+  let inertSeen = false;
   for (const item of dex.items.all()) {
     if (!item.exists || item.megaStone || item.isBerry) continue;
     if (!legalSpecies.some(s => !validator.checkItem(blankSet(s, item.name), item, {}))) continue;
@@ -268,47 +271,20 @@ function silentItemsForFormat(formatid) {
       ...Object.entries(item.condition || {}).filter(([, v]) => typeof v === 'function'),
     ];
     if (!fns.length) {
-      if (!inert && !item.itemUser?.length) inert = item;
+      if (!item.itemUser?.length) {
+        modifiers.push(item);
+        if (inertSeen) hasItemOnlyIds.add(item.id);
+        inertSeen = true;
+      }
       continue;
     }
     const src = fns.map(([, fn]) => fn.toString()).join('\n');
     if (ITEM_SELF_ANNOUNCE.test(src)) continue;
     if (fns.some(([k]) => ITEM_MOD_HOOK.test(k))) modifiers.push(item);
   }
-  if (inert) modifiers.push(inert);
-  const out = { modifiers, validator, itemClause };
+  const out = { modifiers, hasItemOnlyIds, validator, itemClause };
   SILENT_ITEM_CACHE.set(formatid, out);
   return out;
-}
-
-function choiceLockViolated(lines, sideIdx, monName, species, hasIllusion) {
-  if (hasIllusion) return false;
-  if (Object.values(species.abilities || {}).some(a => toID(a) === 'klutz')) return false;
-  const side = `p${sideIdx + 1}`;
-  for (const line of lines) {
-    if (/Magic Room|Trick|Switcheroo|Symbiosis|Skill Swap|Entrainment|Role Play|Doodle|Worry Seed|Simple Beam|Gastro Acid|Neutralizing Gas/.test(line)) return false;
-    if (line.startsWith(`|-enditem|${side}`) || line.startsWith(`|-item|${side}`) || line.startsWith(`|-transform|${side}`) || line.startsWith(`|-ability|${side}`)) return false;
-  }
-  const locked = new Map();
-  for (const line of lines) {
-    const p = line.split('|');
-    const slot = String(p[2] || '').split(':')[0];
-    if (!slot.startsWith(side)) continue;
-    const name = identName(p[2]);
-    if (['switch', 'drag', 'replace', 'faint'].includes(p[1])) {
-      locked.delete(slot);
-      continue;
-    }
-    if (p[1] === 'move' && name === monName) {
-      if (line.includes('[from]') && !line.includes('[from] lockedmove')) continue;
-      const move = p[3];
-      if (!move || toID(move) === 'struggle') continue;
-      const prev = locked.get(slot);
-      if (prev && prev !== move) return true;
-      locked.set(slot, move);
-    }
-  }
-  return false;
 }
 
 function tagsOfLine(line) {
@@ -364,23 +340,27 @@ function snapPlain(o) {
 
 async function probeCandidate(formatid, baseBuilt, baseBattleLines, candSets, observed, channel, sideIdx, monIdx, patch) {
   const dex = Dex.forFormat(formatid);
+  const { hasItemOnlyIds } = silentItemsForFormat(formatid);
   const isAbility = patch.ability !== undefined;
   const effectObj = isAbility ? dex.abilities.get(patch.ability) : dex.items.get(patch.item);
   const events = new Set();
+  const calledEvents = new Set();
   const allyQueries = [];
   let acted = false;
   let calledRelevant = false;
   let patchedTeam = null;
 
-  const isOurs = ef => Boolean(ef && (
+  const isOurs = (ef, holder) => Boolean(ef && (
     (ef.id === effectObj.id && (ef.effectType === effectObj.effectType || ef.effectType === 'Condition'))
-    || (effectObj.isChoice && ef.id === 'choicelock')
+    || holder?.volatiles?.[ef.id]?.sourceEffect?.id === effectObj.id
   ));
+  const tagEvent = (battle, evName) => (evName === 'ModifySpe' && battle?.activeMove ? 'ModifySpeInMove' : evName);
 
   const stream = new BattleStream({ keepAlive: true });
   const chunks = [];
   const drain = (async () => { for await (const c of stream) chunks.push(c); })();
   let hookedMons = false;
+  let rawLog = [];
   try {
     const rawInput = Array.isArray(baseBuilt.inputLog) ? baseBuilt.inputLog : String(baseBuilt.inputLog).split('\n');
     for (const raw of rawInput) {
@@ -403,30 +383,38 @@ async function probeCandidate(formatid, baseBuilt, baseBattleLines, candSets, ob
           const evName = fArgs[1];
           if (evName === 'TakeItem') return list;
           for (const h of list) {
-            if (!isOurs(h.effect) || h.__probeWrapped) continue;
+            if (!isOurs(h.effect, h.effectHolder) || h.__probeWrapped) continue;
             h.__probeWrapped = true;
             if (typeof h.callback !== 'function') {
               acted = true;
               calledRelevant = true;
-              events.add(evName);
+              events.add(tagEvent(battle, evName));
               continue;
             }
             const origCb = h.callback;
             h.callback = function (...callArgs) {
-              if (isAbility && !PASSIVE_ABILITY_EVENTS.has(evName)) calledRelevant = true;
+              const tagged = tagEvent(battle, evName);
+              if (isAbility && !PASSIVE_ABILITY_EVENTS.has(evName)) {
+                calledRelevant = true;
+                calledEvents.add(tagged);
+              }
               const modBefore = battle.event?.modifier;
               const logBefore = battle.log.length;
+              const trapBefore = callArgs[0]?.side ? `${callArgs[0].trapped}|${callArgs[0].maybeTrapped}` : null;
               const snaps = callArgs.map(a => (a && typeof a === 'object' && !a.sides && !a.side && !a.pokemon ? snapPlain(a) : null));
               const ret = origCb.apply(this, callArgs);
               if (battle.event?.modifier !== modBefore || battle.log.length !== logBefore) {
                 acted = true;
-                events.add(evName);
+                events.add(tagged);
               } else if (ret !== undefined && (typeof ret === 'boolean' || ret === null || !callArgs.length || ret !== callArgs[0])) {
                 acted = true;
-                events.add(evName);
+                events.add(tagged);
+              } else if (trapBefore !== null && `${callArgs[0].trapped}|${callArgs[0].maybeTrapped}` !== trapBefore) {
+                acted = true;
+                events.add(tagged);
               } else if (snaps.some((s, idx) => s !== null && snapPlain(callArgs[idx]) !== s)) {
                 acted = true;
-                events.add(evName);
+                events.add(tagged);
               }
               return ret;
             };
@@ -435,15 +423,22 @@ async function probeCandidate(formatid, baseBuilt, baseBattleLines, candSets, ob
         };
         const origSingle = battle.singleEvent;
         battle.singleEvent = function (eventid, effect, ...rest) {
-          if (!isOurs(effect) || eventid === 'TakeItem') return origSingle.call(this, eventid, effect, ...rest);
-          if (isAbility && !PASSIVE_ABILITY_EVENTS.has(eventid)) calledRelevant = true;
+          const holder = rest[1]?.volatiles ? rest[1] : rest[0]?.target;
+          if (!isOurs(effect, holder) || eventid === 'TakeItem') return origSingle.call(this, eventid, effect, ...rest);
+          const tagged = tagEvent(battle, eventid);
+          if (isAbility && !PASSIVE_ABILITY_EVENTS.has(eventid)) {
+            calledRelevant = true;
+            calledEvents.add(tagged);
+          }
           const modBefore = battle.event?.modifier;
           const logBefore = battle.log.length;
+          const trapBefore = rest[1]?.side ? `${rest[1].trapped}|${rest[1].maybeTrapped}` : null;
           const ret = origSingle.call(this, eventid, effect, ...rest);
           if (battle.event?.modifier !== modBefore || battle.log.length !== logBefore
-            || (ret !== undefined && (typeof ret === 'boolean' || ret === null || ret !== rest[4]))) {
+            || (ret !== undefined && (typeof ret === 'boolean' || ret === null || ret !== rest[4]))
+            || (trapBefore !== null && `${rest[1].trapped}|${rest[1].maybeTrapped}` !== trapBefore)) {
             acted = true;
-            events.add(eventid);
+            events.add(tagged);
           }
           return ret;
         };
@@ -469,6 +464,15 @@ async function probeCandidate(formatid, baseBuilt, baseBattleLines, candSets, ob
             };
           }
           if (!isAbility) {
+            const origHasItem = mon.hasItem;
+            mon.hasItem = function (item) {
+              const ids = Array.isArray(item) ? item.map(toID) : [toID(item)];
+              if (ids.includes(effectObj.id)) {
+                acted = true;
+                events.add('hasItem');
+              }
+              return origHasItem.call(this, item);
+            };
             const origGrounded = mon.isGrounded;
             mon.isGrounded = function (negateImmunity = false) {
               const withItem = origGrounded.call(this, negateImmunity);
@@ -486,46 +490,47 @@ async function probeCandidate(formatid, baseBuilt, baseBattleLines, candSets, ob
         }
       }
     }
+    rawLog = [...(stream.battle?.log || [])];
     if (!baseBuilt.report.complete && !acted && !isAbility && stream.battle?.sides?.[sideIdx]?.pokemon?.[monIdx]) {
       const battle = stream.battle;
       const mon = battle.sides[sideIdx].pokemon[monIdx];
       const foes = battle.sides[1 - sideIdx]?.pokemon || [];
+      battle.ended = false;
       for (const moveName of candSets[sideIdx][monIdx].moves || []) {
         const activeMove = dex.getActiveMove(moveName);
         if (!activeMove.exists) continue;
-        if (typeof effectObj.onTryHeal === 'function' && (activeMove.drain || activeMove.flags?.heal)) {
-          const prev = battle.event;
-          battle.event = { id: 'TryHeal', modifier: 1 };
-          const r = effectObj.onTryHeal.call(battle, 10, mon, mon, dex.conditions.get('drain'));
-          if (battle.event.modifier !== 1 || r === false) { acted = true; events.add('TryHeal'); }
-          battle.event = prev;
-        }
-        if (activeMove.category === 'Status') continue;
         for (const foe of foes) {
-          for (const [ev, fn] of [['BasePower', effectObj.onBasePower], ['ModifyAtk', effectObj.onModifyAtk], ['ModifySpA', effectObj.onModifySpA]]) {
-            if (typeof fn !== 'function') continue;
-            const prev = battle.event;
-            battle.event = { id: ev, modifier: 1 };
-            const r = fn.call(battle, activeMove.basePower || 100, mon, foe, activeMove);
-            if (battle.event.modifier !== 1 || (r !== undefined && r !== (activeMove.basePower || 100))) { acted = true; events.add(ev); }
-            battle.event = prev;
+          mon.fainted = false;
+          mon.subFainted = null;
+          mon.hp = Math.max(1, Math.floor(mon.maxhp / 2));
+          if (!mon.isActive) {
+            mon.isActive = true;
+            mon.position = 0;
+            battle.sides[sideIdx].active[0] = mon;
           }
-          if (typeof effectObj.onModifyDamage === 'function' && dex.getImmunity(activeMove.type, foe.types) && dex.getEffectiveness(activeMove.type, foe.types) > 0) {
-            acted = true;
-            events.add('ModifyDamage');
+          foe.fainted = false;
+          foe.subFainted = null;
+          foe.hp = foe.maxhp;
+          if (!foe.isActive) {
+            foe.isActive = true;
+            foe.position = 0;
+            battle.sides[1 - sideIdx].active[0] = foe;
           }
+          battle.actions.useMove(moveName, mon, { target: foe });
+          if (acted) break;
         }
+        if (acted) break;
       }
     }
     await stream.writeEnd();
     await drain;
   } catch {
+    if (!rawLog.length && stream.battle?.log) rawLog = [...stream.battle.log];
     stream.destroy?.();
   }
-  const rawLog = stream.battle?.log || [];
   const candLines = battleLines(rawLog);
   const logChanged = candLines.length !== baseBattleLines.length || candLines.some((l, k) => l !== baseBattleLines[k]);
-  if (logChanged) {
+  if (logChanged && !( !isAbility && hasItemOnlyIds.has(effectObj.id) && !events.has('hasItem') )) {
     acted = true;
     events.add('log');
   }
@@ -550,12 +555,13 @@ async function probeCandidate(formatid, baseBuilt, baseBattleLines, candSets, ob
       }
     }
   }
-  return { acted: acted || calledRelevant, logChanged, events, allyQueries, impossible };
+  return { acted: acted || calledRelevant, logChanged, events, calledEvents, allyQueries, impossible };
 }
 
 function speOnlyRedundant(best, probe) {
-  if (!best.complete) return false;
-  if (probe.logChanged || probe.events.size !== 1 || !probe.events.has('ModifySpe')) return false;
+  if (!best.complete || probe.logChanged) return false;
+  const all = new Set([...probe.events, ...(probe.calledEvents || [])]);
+  if (all.size !== 1 || !all.has('ModifySpe')) return false;
   for (const [, kn] of best.knowledge) {
     if (kn.known) continue;
     if (!kn.dom.spe.every(v => v === 1)) return false;
@@ -582,7 +588,10 @@ async function inferClosed(options, { absorb, work, warnings, lost, limits, blan
       const key = `${s}:${i}`;
       const rSet = new Set((set.boxes.ruledOut || []).map(r => toID(r.ability)));
       ruled.set(key, rSet);
-      const entered = toID(set.ability) === 'illusion' || lines.some((l) => {
+      const sp = dex.species.get(set.species);
+      const canDisguise = setsIllusion(dex, set.ability)
+        || (set.boxes?.ability === 'assumed' && Object.values(sp.abilities || {}).some(a => setsIllusion(dex, a)));
+      const entered = canDisguise || lines.some((l) => {
         const p = l.split('|');
         return ['switch', 'drag', 'replace'].includes(p[1]) && identSide(p[2]) === side
           && (identName(p[2]) === (set.name || set.species) || baseOf(p[3]?.split(',')[0]) === baseOf(set.species));
@@ -604,7 +613,6 @@ async function inferClosed(options, { absorb, work, warnings, lost, limits, blan
     const set = currentSets[s][i];
     if (set.boxes?.item !== 'assumed') return [set.item || ''];
     const sp = dex.species.get(set.species);
-    const hasIllusion = currentSets[s].some(m => toID(m.ability) === 'illusion');
     const taken = new Set(itemClause
       ? currentSets[s].filter((m, j) => j !== i && m.boxes?.item === 'read' && m.item).map(m => toID(m.item))
       : []);
@@ -616,7 +624,6 @@ async function inferClosed(options, { absorb, work, warnings, lost, limits, blan
       if (taken.has(item.id)) continue;
       if (item.itemUser?.length && !item.itemUser.some(u => toID(u) === sp.id || toID(u) === toID(sp.baseSpecies))) continue;
       if (validator.checkItem(blankMon(item.name), item, {})) continue;
-      if (item.isChoice && choiceLockViolated(lines, s, set.name || set.species, sp, hasIllusion)) continue;
       out.push(item.name);
     }
     return out;
