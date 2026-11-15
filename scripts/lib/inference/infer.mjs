@@ -1530,9 +1530,9 @@ export async function inferSpreads({
   // removed was removed by evidence, so each Pokemon keeps only what all
   // left, and the rebuild is the one that reproduced the log, if one did:
   // never worse than the first search alone. One that gave up from all three
-  // runs `default` and `usage` once more with every limit `WIDE` times wider
-  // (`widest`), as `--budget` widens them, and no wider after that: a battle
-  // any earlier start rebuilds never gets there.
+  // runs the three once more with every limit `WIDE` times wider (`widest`),
+  // as `--budget` widens them, and no wider after that: a battle any earlier
+  // start rebuilds never gets there.
   if (plain.complete || wide || start !== 'default' || Date.now() >= deadline) {
     ahead?.cancel();
     if (plain.complete || (!wide && start === 'default' && readings)) await resolvePlainChecks(plain);
@@ -1580,13 +1580,13 @@ export async function inferSpreads({
     // Not for the inferences run again under another reading of an Illusion
     // (`readings: false`): a battle that rebuilds keeps its path.
     if (!readings) return list;
+    list.push({
+      key: 'wide', need: 0, note: `the search gave up; searching once more with ${WIDE} times the fallback's rebuilds and the joint guess tries`,
+      options: { ...options, wide: true, spend: { rebuilds: FALLBACK_TOTAL * WIDE * budgetScale, fruitless: new Set() } },
+    });
     if (!widest) {
       list.push({
-        key: 'wide', need: 0, note: `the search gave up; searching once more with ${WIDE} times the fallback's rebuilds and the joint guess tries`,
-        options: { ...options, wide: true, spend: { rebuilds: FALLBACK_TOTAL * WIDE * budgetScale, fruitless: new Set() } },
-      });
-      list.push({
-        key: 'widest', need: differs ? 1 : 0, note: `the search gave up from every start; searching from each again with every limit ${WIDE} times wider`,
+        key: 'widest', need: list.length, note: `the search gave up from every start; searching from each again with every limit ${WIDE} times wider`,
         options: { ...options, widest: true, budgetScale: budgetScale * WIDE, spend: { rebuilds: FALLBACK_TOTAL * WIDE * budgetScale, fruitless: new Set() } },
       });
     }
