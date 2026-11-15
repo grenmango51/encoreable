@@ -354,7 +354,9 @@ async function probeCandidate(formatid, baseBuilt, baseBattleLines, candSets, ob
     (ef.id === effectObj.id && (ef.effectType === effectObj.effectType || ef.effectType === 'Condition'))
     || holder?.volatiles?.[ef.id]?.sourceEffect?.id === effectObj.id
   ));
-  const tagEvent = (battle, evName) => (evName === 'ModifySpe' && battle?.activeMove ? 'ModifySpeInMove' : evName);
+  let inBasePower = 0;
+  let ourDepth = 0;
+  const tagEvent = evName => (evName === 'ModifySpe' && inBasePower > 0 ? 'ModifySpeInMove' : evName);
 
   const stream = new BattleStream({ keepAlive: true });
   const chunks = [];
@@ -377,6 +379,14 @@ async function probeCandidate(formatid, baseBuilt, baseBattleLines, candSets, ob
       if (line.startsWith('>start')) {
         const battle = stream.battle;
         install(battle);
+        const origRunEvent = battle.runEvent;
+        battle.runEvent = function (eventid, ...rArgs) {
+          if (eventid === 'BasePower') {
+            inBasePower++;
+            try { return origRunEvent.call(this, eventid, ...rArgs); } finally { inBasePower--; }
+          }
+          return origRunEvent.call(this, eventid, ...rArgs);
+        };
         const origFind = battle.findEventHandlers;
         battle.findEventHandlers = function (...fArgs) {
           const list = origFind.apply(this, fArgs);
@@ -388,12 +398,12 @@ async function probeCandidate(formatid, baseBuilt, baseBattleLines, candSets, ob
             if (typeof h.callback !== 'function') {
               acted = true;
               calledRelevant = true;
-              events.add(tagEvent(battle, evName));
+              events.add(tagEvent(evName));
               continue;
             }
             const origCb = h.callback;
             h.callback = function (...callArgs) {
-              const tagged = tagEvent(battle, evName);
+              const tagged = tagEvent(evName);
               if (isAbility && !PASSIVE_ABILITY_EVENTS.has(evName)) {
                 calledRelevant = true;
                 calledEvents.add(tagged);
@@ -402,7 +412,9 @@ async function probeCandidate(formatid, baseBuilt, baseBattleLines, candSets, ob
               const logBefore = battle.log.length;
               const trapBefore = callArgs[0]?.side ? `${callArgs[0].trapped}|${callArgs[0].maybeTrapped}` : null;
               const snaps = callArgs.map(a => (a && typeof a === 'object' && !a.sides && !a.side && !a.pokemon ? snapPlain(a) : null));
-              const ret = origCb.apply(this, callArgs);
+              ourDepth++;
+              let ret;
+              try { ret = origCb.apply(this, callArgs); } finally { ourDepth--; }
               if (battle.event?.modifier !== modBefore || battle.log.length !== logBefore) {
                 acted = true;
                 events.add(tagged);
@@ -424,8 +436,11 @@ async function probeCandidate(formatid, baseBuilt, baseBattleLines, candSets, ob
         const origSingle = battle.singleEvent;
         battle.singleEvent = function (eventid, effect, ...rest) {
           const holder = rest[1]?.volatiles ? rest[1] : rest[0]?.target;
-          if (!isOurs(effect, holder) || eventid === 'TakeItem') return origSingle.call(this, eventid, effect, ...rest);
-          const tagged = tagEvent(battle, eventid);
+          const hasHandler = (rest[5] ?? effect?.[`on${eventid}`]) !== undefined;
+          if (!hasHandler || !isOurs(effect, holder) || eventid === 'TakeItem') {
+            return origSingle.call(this, eventid, effect, ...rest);
+          }
+          const tagged = tagEvent(eventid);
           if (isAbility && !PASSIVE_ABILITY_EVENTS.has(eventid)) {
             calledRelevant = true;
             calledEvents.add(tagged);
@@ -433,9 +448,12 @@ async function probeCandidate(formatid, baseBuilt, baseBattleLines, candSets, ob
           const modBefore = battle.event?.modifier;
           const logBefore = battle.log.length;
           const trapBefore = rest[1]?.side ? `${rest[1].trapped}|${rest[1].maybeTrapped}` : null;
-          const ret = origSingle.call(this, eventid, effect, ...rest);
+          const expectedRet = rest[4] === undefined ? true : rest[4];
+          ourDepth++;
+          let ret;
+          try { ret = origSingle.call(this, eventid, effect, ...rest); } finally { ourDepth--; }
           if (battle.event?.modifier !== modBefore || battle.log.length !== logBefore
-            || (ret !== undefined && (typeof ret === 'boolean' || ret === null || ret !== rest[4]))
+            || ret !== expectedRet
             || (trapBefore !== null && `${rest[1].trapped}|${rest[1].maybeTrapped}` !== trapBefore)) {
             acted = true;
             events.add(tagged);
@@ -467,7 +485,7 @@ async function probeCandidate(formatid, baseBuilt, baseBattleLines, candSets, ob
             const origHasItem = mon.hasItem;
             mon.hasItem = function (item) {
               const ids = Array.isArray(item) ? item.map(toID) : [toID(item)];
-              if (ids.includes(effectObj.id)) {
+              if (ourDepth === 0 && ids.includes(effectObj.id)) {
                 acted = true;
                 events.add('hasItem');
               }
@@ -558,14 +576,18 @@ async function probeCandidate(formatid, baseBuilt, baseBattleLines, candSets, ob
   return { acted: acted || calledRelevant, logChanged, events, calledEvents, allyQueries, impossible };
 }
 
-function speOnlyRedundant(best, probe) {
+function speOnlyRedundant(best, probe, bestSets, s, i) {
   if (!best.complete || probe.logChanged) return false;
   const all = new Set([...probe.events, ...(probe.calledEvents || [])]);
   if (all.size !== 1 || !all.has('ModifySpe')) return false;
-  for (const [, kn] of best.knowledge) {
-    if (kn.known) continue;
-    if (!kn.dom.spe.every(v => v === 1)) return false;
-    if (Object.keys(kn.ties || {}).some(k => k === 'spe' || k.includes('spe'))) return false;
+  const monId = `p${s + 1}:${i}`;
+  const kn = best.knowledge.get(monId);
+  if (!kn || kn.known) return true;
+  if (!kn.dom.spe.every(v => v === 1)) return false;
+  if (Object.keys(kn.ties || {}).some(k => k === 'spe' || k.includes('spe'))) return false;
+  const monName = bestSets[s][i].name || bestSets[s][i].species;
+  if ((best.events || []).some(e => e.what.includes(monName) && e.cuts.some(c => c.id !== monId && c.narrowed.includes('spe')))) {
+    return false;
   }
   return true;
 }
@@ -643,6 +665,7 @@ async function inferClosed(options, { absorb, work, warnings, lost, limits, blan
       noRestarts: extra.noRestarts ?? true,
       spend: freshSpend,
       ...(extra.initialPins ? { initialPins: extra.initialPins } : {}),
+      ...(extra.initialPicks ? { initialPicks: extra.initialPicks } : {}),
     }));
     const out = !res.complete && announcedAbilityOf(res.built.report.diffs[0], candSets, observed, formatid);
     if (out) {
@@ -694,8 +717,10 @@ async function inferClosed(options, { absorb, work, warnings, lost, limits, blan
         if (toID(a) === toID(bestSets[s][i].ability)) continue;
         const pr = await probeCandidate(formatid, best.built, baseLines, bestSets, observed, channel, s, i, { ability: a });
         if (pr.impossible) { ruled.get(key)?.add(toID(a)); continue; }
-        actA.push(a);
-        candidates.push(cloneTeamsWithBoxes(bestSets, (cs, ci) => (cs === s && ci === i ? { ability: a } : {})));
+        if (pr.acted) {
+          actA.push(a);
+          candidates.push(cloneTeamsWithBoxes(bestSets, (cs, ci) => (cs === s && ci === i ? { ability: a } : {})));
+        }
         for (const q of pr.allyQueries) {
           const allyAbils = legalAbilities(s, q.allyIndex);
           const match = allyAbils.find(x => toID(x) === q.abilityId);
@@ -776,14 +801,14 @@ async function inferClosed(options, { absorb, work, warnings, lost, limits, blan
           )));
         }
       }
-      if (pr.acted && !speOnlyRedundant(best, pr)) actA.push(a);
+      if (pr.acted && !speOnlyRedundant(best, pr, bestSets, s, i)) actA.push(a);
     }
     const actI = [bestSets[s][i].item || ''];
     for (const item of candidateItems(s, i)) {
       if (toID(item) === toID(bestSets[s][i].item)) continue;
       if (item === '') { actI.push(''); continue; }
       const pr = await probeCandidate(formatid, best.built, baseLines, bestSets, observed, channel, s, i, { item });
-      if (!pr.impossible && pr.acted && !speOnlyRedundant(best, pr)) actI.push(item);
+      if (!pr.impossible && pr.acted && !speOnlyRedundant(best, pr, bestSets, s, i)) actI.push(item);
     }
     const crossAll = actA.length * actI.length <= 8;
     for (const a of actA) {
@@ -820,7 +845,10 @@ async function inferClosed(options, { absorb, work, warnings, lost, limits, blan
       uniteIntoBest(blank);
       break;
     }
-    const variant = await runHypothesis(cand, sharedPins ? { initialPins: sharedPins } : {});
+    const variant = await runHypothesis(cand, {
+      ...(sharedPins ? { initialPins: sharedPins } : {}),
+      ...(best.complete && best.picks ? { initialPicks: best.picks } : {}),
+    });
     if (variant.ruledOutAbility) continue;
     if (variant.complete) {
       if (!best.complete) {
@@ -946,6 +974,7 @@ export async function inferSpreads({
   noRestarts = false,
   hypotheses = true,
   initialPins = null,
+  initialPicks = null,
   spend = { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() },
   parallel = null,
   // The spreads the battle was really played with, by Pokemon (`p2:0`), where
@@ -1036,7 +1065,7 @@ export async function inferSpreads({
     const usual = from === 'usage' ? usualSpreads(usage, dex, set).find(u => hp === undefined || u.evs.hp === hp) : null;
     return usual ? { ...usual.evs } : defaultSpread(dex, set, hp);
   }));
-  let picks = firstGuesses(start);
+  let picks = initialPicks ? initialPicks.map(team => team.map(e => ({ ...e }))) : firstGuesses(start);
   const ahead = parallel && deadline === Infinity && start === 'default' && !wide ? parallel.ahead(restarts()) : null;
 
   // Every speed order a round's own evidence read, by its two Pokemon and
