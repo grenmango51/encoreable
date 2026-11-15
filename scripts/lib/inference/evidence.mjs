@@ -1249,8 +1249,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
     hit.sStates = sStates.length ? sStates : [null];
     hit.sStatesSig = hit.sStates[0] === null ? '-' : hit.sStates.map(s => `${s[0]}:${s[1]}:${s[2]}`).join(',');
 
-    const hitSig = !hit.onReal ? memo(`hsig|${ord}`, () => buildHitSig(source, target, hit)) : null;
-    const cacheSim = (key, make) => (!hit.onReal ? simMemo(`${hitSig}|${key}`, make) : memo(`row|${ord}|${key}`, make));
+    const hitBucket = !hit.onReal ? memo(`hbucket|${ord}`, () => simMemo(buildHitSig(source, target, hit), () => new Map()))
+      : memo(`rbucket|${ord}`, () => new Map());
+    const cacheSim = (key, make) => {
+      let value = hitBucket.get(key);
+      if (value === undefined) { value = make(); hitBucket.set(key, value); }
+      return value;
+    };
 
     const readerDeps = hit.readers.map(r => ({ ...r, dep: depOf(r.who === 'source' ? S : T, r.key) }));
     const aReaders = readerDeps.filter(r => r.by === 'a');
@@ -1694,13 +1699,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
     const nS = hit.sStates.length;
     const { nSC, nAC, nDC, tIdxOf, sIdxOf, aIdxOf, dIdxOf, classRows } = hit.classInfo;
     const mcPrefix = `mc|${channel}|${hit.ord}|${dealt}|${shown ? shown.join('\u0000') : '-'}|${hit.aVals.join(',')}|${hit.sStatesSig}`;
+    const mcBucket = memo(mcPrefix, () => new Map());
     let cap = 64;
     let pairs = new Int32Array(cap);
     let rs = new Uint8Array(cap);
     let fatal = new Uint8Array(cap);
     for (const [g, [hp, d, h]] of groupsOf(T, hit.def)) {
-      const mcKey = `${mcPrefix}|${g}`;
-      const hitCached = cache.get(mcKey);
+      const hitCached = mcBucket.get(g);
       if (hitCached) {
         table.set(g, hitCached.pairs);
         rolls.set(g, hitCached.rs);
@@ -1788,7 +1793,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
         }
       }
       const entry = { pairs: pairs.slice(0, n), rs: rs.slice(0, n), fatal: fatal.slice(0, n) };
-      cache.set(mcKey, entry);
+      mcBucket.set(g, entry);
       table.set(g, entry.pairs);
       rolls.set(g, entry.rs);
       lethal.set(g, entry.fatal);
