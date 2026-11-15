@@ -448,6 +448,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   const subGates = new Map();
   const damageContext = new Map();
   const healContext = new Map();
+  // Each foe hit recorded in `pokemon.attackedBy` -> the change that dealt it,
+  // when that move hit that Pokemon once.
+  const attackOf = new WeakMap();
   let viewPos = 0;
   let hitOrdinal = 0;
   // Inside the simulator's own damage calculation of a dry row, not the
@@ -570,6 +573,22 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
             rec.deps = {};
             rec.unmapped.clear();
             rec.lent = {};
+          }
+        }
+      });
+      const gotAttacked = pokemon.gotAttacked;
+      override(pokemon, 'gotAttacked', function (move, damage, source) {
+        try {
+          return gotAttacked.call(this, move, damage, source);
+        } finally {
+          if (!state.dry && !state.ended && typeof damage === 'number' && source && !this.isAlly(source)) {
+            const entry = this.attackedBy.at(-1);
+            const src = byPokemon.get(source);
+            const id = toID(move);
+            const hits = src?.moveHits && toID(src.moveHits.move) === id
+              ? src.moveHits.all.filter(x => x.victim === rec)
+              : null;
+            if (entry) attackOf.set(entry, hits?.length === 1 ? hits[0].change : null);
           }
         }
       });
@@ -1008,7 +1027,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       // battle kept from earlier - Counter, Mirror Coat, Metal Burst and
       // Comeuppance return what the user was dealt. That amount was the
       // replay's own, and another spread would have been dealt another.
-      const carried = !!clone.damageCallback && !reads.length && !targetHp && !sourceHp;
+      const carried = !!clone.damageCallback && !reads.length && !targetHp && !sourceHp && !draws.length;
       return {
         off, offOwner: offVar?.owner ?? null, extra: extraVar ? { owner: extraVar.owner, stat: extraVar.stat } : null,
         def, readers, supported: supported && !carried && !back.size, carried,
@@ -1339,11 +1358,14 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const M = maxHp(T, hp);
       const out = new Set();
       for (const amount of amounts(M)) {
-        out.add(memo(`amt|${ord}|${M}|${h}|${amount}`, () => dryHp(T, M, h, () => withRoll(0, () => {
-          if (kind === 'heal') battle.heal(amount, T.pokemon, ctx.source, ctx.effect);
-          else if (ctx.direct) battle.directDamage(amount, T.pokemon, ctx.source, ctx.effect);
-          else battle.spreadDamage([amount], [T.pokemon], ctx.source, ctx.effect);
-        }, ctx.dice))));
+        out.add(memo(`amt|${ord}|${M}|${h}|${amount}`, () => dryHp(T, M, h, () => {
+          if (ctx.items) restoreItems(ctx.items);
+          withRoll(0, () => {
+            if (kind === 'heal') battle.heal(amount, T.pokemon, ctx.source, ctx.effect);
+            else if (ctx.direct) battle.directDamage(amount, T.pokemon, ctx.source, ctx.effect);
+            else battle.spreadDamage([amount], [T.pokemon], ctx.source, ctx.effect);
+          }, ctx.dice);
+        })));
       }
       table.set(g, Int32Array.from(out));
     }
@@ -1558,9 +1580,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
    */
   function dealtChange(S, last, what, tag, run) {
     last.change.feedsDealt = true;
+    const A = last.change.dealtBy || S;
     lendVictim(S, last.victim);
+    if (A !== S) lendHp(S, A);
     const ord = changeOrdinal;
-    const known = S.kn.known || !last.off;
+    const known = A.kn.known || !last.off;
     const table = new Map();
     const dealtOf = new Map();
     for (const [g, [hp, , h]] of groupsOf(S, null)) {
@@ -1568,8 +1592,9 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       const pairs = [];
       const amounts = [];
       for (const [a, dealt] of last.byA) {
-        if (!known && !S.flat[last.off][a]) continue;
+        if (!known && !A.flat[last.off][a]) continue;
         for (const d of dealt) {
+          if (last.change.dealtOk && !last.change.dealtOk.has(a * HP_BITS + d)) continue;
           const h2 = memo(`${tag}|${ord}|${M}|${h}|${d}`, () => dryHp(S, M, h, () => run(d)));
           pairs.push(a * HP_BITS + h2);
           amounts.push(d);
@@ -1578,7 +1603,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
       table.set(g, Int32Array.from(pairs));
       dealtOf.set(g, Int32Array.from(amounts));
     }
-    return { dim: null, table, dealtOf, victim: last.change, hurt: last.victim, via: known ? null : { rec: S, stat: last.off }, what };
+    return { dim: null, table, dealtOf, victim: last.change, hurt: last.victim, via: known ? null : { rec: A, stat: last.off }, what };
   }
 
   /** Whether nothing has moved `V`'s HP since `change`: every later change only reads it. */
@@ -1837,14 +1862,16 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     return fixed.get(effect);
   }
 
+  const foeAttacks = p => p.attackedBy.filter(a => a.thisTurn && typeof a.damageValue === 'number' && !p.isAlly(a.source));
+
   /**
    * A hit that hands back damage its user took: Counter and Mirror Coat twice
    * the last such hit, Metal Burst and Comeuppance half as much again. When the
    * user's HP is shown exactly, what it took is the replay's own, the same for
-   * every spread. When it is shown as a percentage and the Pokemon it hits back
-   * is shown exactly, that one's line says what the user took from it: one of
-   * the amounts that one's own hit on it could have dealt, each handed to the
-   * move as the simulator keeps it (`asDealt`). Anything else is not used.
+   * every spread. When it is shown as a percentage, the simulator says which
+   * foe hit on it this turn its callback reads, and the target's line - exact
+   * or a percentage - keeps the amounts that hit could have dealt (`asDealt`),
+   * narrowing both Pokemon and the attacking stat behind the hit.
    */
   function carriedChange(T, hit, ctx) {
     const U = hit.S;
@@ -1854,35 +1881,53 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     if (U.exact && typeof ctx.raw === 'number') {
       return Object.assign(amountChange(T, 'damage', () => [ctx.raw], ctx, what), { dealtBy: U, move: ctx.effect, off: null });
     }
-    const last = T.lastDealt;
-    if (T.exact && last?.byA.size && last.victim === U && last.hitsOn === 1 && last.turn === battle.turn) {
-      return Object.assign(dealtChange(T, last, what, 'ctr', d => asDealt(U.pokemon, d, () => withRoll(0, () => {
-        const amount = hit.clone.damageCallback.call(battle, U.pokemon, T.pokemon);
-        battle.spreadDamage([amount], [T.pokemon], U.pokemon, ctx.effect);
-      }, ctx.dice))), { dealtBy: U, move: ctx.effect, off: null });
+    const attacks = foeAttacks(U.pokemon);
+    const ord = changeOrdinal;
+    const at = attacks.length ? memo(`ctrsrc|${ord}`, () => guarded(() => {
+      const cb = () => hit.clone.damageCallback.call(battle, U.pokemon, T.pokemon);
+      const real = cb();
+      const moving = [];
+      for (let i = 0; i < attacks.length; i++) {
+        const d0 = attacks[i].damage;
+        if (guarded(() => asDealt(U.pokemon, i, d0, cb)) !== real) return -1;
+        if (guarded(() => asDealt(U.pokemon, i, d0 + 2, cb)) !== real) moving.push(i);
+      }
+      return moving.length === 1 ? moving[0] : -1;
+    })) : -1;
+    const sourceChange = at >= 0 ? attackOf.get(attacks[at]) : null;
+    const last = sourceChange?.dealtEntry;
+    if (last?.byA.size && last.victim === U && last.hitsOn === 1 && last.turn === battle.turn) {
+      return Object.assign(dealtChange(T, last, what, 'ctr', d => asDealt(U.pokemon, at, d, () => {
+        if (ctx.items) restoreItems(ctx.items);
+        withRoll(0, () => {
+          const amount = hit.clone.damageCallback.call(battle, U.pokemon, T.pokemon);
+          battle.spreadDamage([amount], [T.pokemon], U.pokemon, ctx.effect);
+        }, ctx.dice);
+      })), { dealtBy: U, move: ctx.effect, off: null });
     }
     note(what, 'its damage was carried over from an earlier hit, so it was not used');
-    // What it hands back follows from what the hit it answers dealt: the
-    // exact path proves it only where that hit kept the scaffold's own HP.
-    const answers = last && last.victim === U && last.turn === battle.turn ? last.change : null;
-    return Object.assign(band('down', what), { carriedFrom: answers ?? 'unknown' });
+    return band('down', what);
   }
 
   /**
-   * Run `run` as if the last hit `p` took from a foe had dealt `d`: the
+   * Run `run` as if the `at`th foe hit `p` took this turn had dealt `d`: the
    * simulator's record of it (`attackedBy`) is rewritten, and every volatile
-   * that keeps its own record is told the hit again through its own
-   * `DamagingHit` handler - Counter's and Mirror Coat's. Run inside a dry run,
-   * which hands all of it back.
+   * that keeps its own record is replayed across the turn's foe hits through
+   * its own `Start` and `DamagingHit` handlers - Counter's and Mirror Coat's.
+   * Run inside a dry run, which hands all of it back.
    */
-  function asDealt(p, d, run) {
-    const entry = p.getLastDamagedBy(true);
+  function asDealt(p, at, d, run) {
+    const attacks = foeAttacks(p);
+    const entry = attacks[at];
     if (!entry) return run();
     entry.damage = d;
-    const move = battle.dex.moves.get(entry.move);
     for (const [id, st] of Object.entries(p.volatiles)) {
       const c = battle.dex.conditions.getByID(id);
-      if (c?.onDamagingHit) battle.singleEvent('DamagingHit', c, st, p, entry.source, move, d);
+      if (!c?.onDamagingHit) continue;
+      if (c.onStart) battle.singleEvent('Start', c, st, p);
+      for (const a of attacks) {
+        battle.singleEvent('DamagingHit', c, st, p, a.source, battle.dex.moves.get(a.move), a.damage);
+      }
     }
     return run();
   }
@@ -2366,6 +2411,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     if (dealt) {
       const S = change.dealtBy;
       S.lastDealt = { move: change.move, off: change.off, hitsOn: change.hitsOn, byA: dealt, change, victim: rec, turn: change.turn };
+      change.dealtEntry = S.lastDealt;
       if (S.dealtHitsMove !== change.move) { S.dealtHitsMove = change.move; S.dealtHits = []; }
       S.dealtHits.push(S.lastDealt);
     }

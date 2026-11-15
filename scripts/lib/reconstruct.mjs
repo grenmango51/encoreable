@@ -1884,10 +1884,12 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
     return true;
   };
   const commit = (i, value, shape = null) => {
-    if (subs[i] === undefined) forced++;
+    const prev = subs[i];
+    const prevShape = ownShape.get(i);
+    if (prev === undefined) forced++;
     subs[i] = value;
     subTurn[i] = t;
-    commits.push(i);
+    commits.push({ i, prev, prevShape });
     moved.push(i);
     if (shape) ownShape.set(i, shape);
     minCommitted = minCommitted === null ? i : Math.min(minCommitted, i);
@@ -1924,14 +1926,21 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
   let tried = null;
   const takeBack = () => {
     tried = {};
-    for (const i of commits.splice(onTrial.at)) {
+    for (const { i, prev, prevShape } of commits.splice(onTrial.at).reverse()) {
       if (subs[i] === undefined) continue;
-      tried[i] = subs[i];
-      delete subs[i];
-      delete subTurn[i];
-      ownShape.delete(i);
-      moved.push(i);
-      forced--;
+      if (prev === undefined) {
+        tried[i] = subs[i];
+        delete subs[i];
+        delete subTurn[i];
+        ownShape.delete(i);
+        moved.push(i);
+        forced--;
+      } else {
+        subs[i] = prev;
+        if (prevShape !== undefined) ownShape.set(i, prevShape);
+        else ownShape.delete(i);
+        moved.push(i);
+      }
     }
     onTrial = null;
   };
@@ -2131,10 +2140,45 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
         }
       }
     }
+    // An earlier hit in this turn on a Pokemon shown as a percentage settled
+    // one of the rolls that print that percentage before a later line in the
+    // same turn read the exact HP or damage it left - Counter, Mirror Coat or
+    // Metal Burst, a recoil or drain, or a second hit on it. Try its other
+    // rolls that print the same line, uniformly first, then any shifted draw,
+    // and last paired with a later settled draw.
+    const settled = !committed ? new Set(commits.map(c => c.i).filter(i => subs[i] !== undefined)) : null;
+    const sameFace = (steer, i, v) => steer?.get(i)?.groups.get(v) || [v];
+    const revisable = settled ? all.filter(d => settled.has(d.i) && reach(d) && !wrong(d) && run.steer?.get(d.i)?.reps.length) : [];
+    if (!committed && revisable.length) {
+      for (const d of revisable.slice().reverse()) {
+        let best = score;
+        const winners = [];
+        for (const v of run.steer.get(d.i).reps) {
+          if (v === subs[d.i]) continue;
+          if (probes >= budget) { cut = 'probes'; break; }
+          const probe = await ask.get({ ...subs, [d.i]: v });
+          probes++;
+          const s = scoreOf(probe, t);
+          if (s[0] > best[0] || (s[0] > score[0] && outranks(s, best))) {
+            best = s;
+            winners.length = 0;
+            winners.push(...sameFace(run.steer, d.i, v));
+          } else if (s[0] > score[0] && ties(s, best)) {
+            winners.push(...sameFace(run.steer, d.i, v));
+          }
+        }
+        if (winners.length) {
+          commit(d.i, winners[sample.pick(winners.length)], shapeOf(d));
+          committed = true;
+          break;
+        }
+        if (cut) break;
+      }
+    }
     // A draw committed earlier in this turn's scan can shift onto a later roll
     // of the same shape once an earlier draw before it changes, or pick a face
     // within a percentage band that blocks a later line in the same turn.
-    if (!committed && ownShape.size) {
+    if (!committed && !cut && ownShape.size) {
       reprobe: for (const d of order) {
         if (!ownShape.has(d.i) || !reach(d)) continue;
         const next = { ...subs };
@@ -2156,6 +2200,39 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget) {
             }
             committed = true;
             break reprobe;
+          }
+        }
+      }
+    }
+    if (!committed && !cut && revisable.length) {
+      paired: for (const a of revisable) {
+        for (const va of run.steer.get(a.i).reps) {
+          if (va === subs[a.i]) continue;
+          if (probes >= budget) { cut = 'probes'; break paired; }
+          const flipped = await runTo(common, { ...subs, [a.i]: va }, t, t);
+          probes++;
+          if (scoreOf(flipped, t)[0] > score[0]) {
+            const faces = sameFace(run.steer, a.i, va);
+            commit(a.i, faces[sample.pick(faces.length)], shapeOf(a));
+            committed = true;
+            break paired;
+          }
+          const later = drawsOf(flipped.trace, t).filter(b => b.i > a.i && settled.has(b.i) && flipped.steer?.get(b.i)?.reps.length);
+          for (const b of later) {
+            for (const vb of flipped.steer.get(b.i).reps) {
+              if (vb === subs[b.i]) continue;
+              if (probes >= budget) { cut = 'probes'; break paired; }
+              const probe = await ask.get({ ...subs, [a.i]: va, [b.i]: vb });
+              probes++;
+              if (scoreOf(probe, t)[0] > score[0]) {
+                const fa = sameFace(run.steer, a.i, va);
+                const fb = sameFace(flipped.steer, b.i, vb);
+                commit(a.i, fa[sample.pick(fa.length)], shapeOf(a));
+                commit(b.i, fb[sample.pick(fb.length)], shapeOf(b));
+                committed = true;
+                break paired;
+              }
+            }
           }
         }
       }
@@ -2468,8 +2545,9 @@ async function reconstructOnce({
   for (const { turn, seed: at } of seedPlan || []) {
     if (turn >= 1 && turn < reseeds.length) reseeds[turn] = at;
   }
+  const localExact = exact ? new Map(exact) : null;
   const common = {
-    header, segments, plans, reseeds, variants, channel, exact, state0, dex, formatid, deadline,
+    header, segments, plans, reseeds, variants, channel, exact: localExact, state0, dex, formatid, deadline,
     id: ++contextCount, snaps: new Map(), pool: probePool(threads, formatid), tally: { plays: 0 }, radices: {}, maxVariants,
     // Every limit that cut a search short somewhere in this rebuild, even one
     // that later got past the turn some other way (`report.limits`).
@@ -2488,7 +2566,7 @@ async function reconstructOnce({
   // a turn proved only in part, the pins stand as long as that part holds.
   if (run.badTurn !== null && (Object.keys(subs).some(i => subTurn[i] >= run.badTurn) || variants.slice(run.badTurn).some(Boolean))) {
     const t = run.badTurn;
-    const known = exact?.get(t);
+    const known = localExact?.get(t);
     const held = known?.partial && run.diffs[0]?.index >= compareTurn(common, t, []).exactUpTo;
     const clearFrom = held ? t + 1 : t;
     forget(clearFrom);
@@ -2745,6 +2823,21 @@ async function reconstructOnce({
     }
 
     if (solved) {
+      run = await playThrough({ ...common, subs });
+      remember();
+      continue;
+    }
+
+    // A partial exact prefix on this turn chose one HP among those its first
+    // half allowed before its second half had been reached; when the second
+    // half needs another, search the whole turn against what the replay shows.
+    if (localExact?.get(t)?.partial && run.diffs[0]?.index !== -1) {
+      localExact.delete(t);
+      common.id = ++contextCount;
+      common.snaps.clear();
+      variants[t] = entering;
+      spent[t] = 0;
+      forget(t);
       run = await playThrough({ ...common, subs });
       remember();
       continue;
