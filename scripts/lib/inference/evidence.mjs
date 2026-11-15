@@ -3039,6 +3039,156 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     state.ended = true;
   }
 
+  // An ability handler that checks `.maxhp` - on `EmergencyExit` (Emergency
+  // Exit, Wimp Out), on `AfterMoveSecondary` (Berserk, Anger Shell), or on
+  // `Residual` (Schooling, Shields Down, Zen Mode) - fires or not on the
+  // Pokemon's HP (and, for the first two, the HP it entered the step on). Asked
+  // of the simulator's own handler, dry, after the preceding display is
+  // settled, and bisected per candidate max HP.
+  const MAXHP_CHECK = /\.maxhp\b/;
+  const maxHpHandlers = new Map();
+  const checksMaxHp = (fn) => {
+    if (!maxHpHandlers.has(fn)) maxHpHandlers.set(fn, MAXHP_CHECK.test(String(fn)));
+    return maxHpHandlers.get(fn);
+  };
+  let thresholdChecks = 0;
+  function runThresholdGate(tag, target, name, hasOrig, needStep, runDry, runReal) {
+    const rec = target && typeof target === 'object' ? byPokemon.get(target) : null;
+    if (!rec || rec.exact || !rec.moved || rec.thresholdMarks?.[tag] === rec.moved) return runReal();
+    sync();
+    if (state.ended || awaited || critAwait || !rec.chain) return runReal();
+    for (const c of rec.pending.splice(0)) apply(rec, c, null);
+    const steps = hasOrig ? rec.history.slice(rec.actionStep ?? 0).filter(e => !e.change.same) : null;
+    if (needStep && !steps.length) return runReal();
+    (rec.thresholdMarks ||= {})[tag] = rec.moved;
+    const ord = thresholdChecks++;
+    const probe = (M, orig, h) => guarded(() => {
+      const beforeBase = target.baseMaxhp;
+      const undo = patchAll([{ pokemon: target, maxhp: M, hp: h }]);
+      const from = battle.log.length;
+      try {
+        runDry(M, orig, h);
+        if (target.baseMaxhp !== M) return null;
+        return shownLines(battle.log.slice(from));
+      } finally {
+        undo();
+        target.baseMaxhp = beforeBase;
+      }
+    });
+    const boundsOf = (M) => {
+      const p1 = probe(M, M, 1);
+      const p0 = probe(M, M, 0);
+      if (!p1 || !p0) return null;
+      if (hasOrig) {
+        if (!p1.length) return null;
+        const pM = probe(M, M, M);
+        if (!pM) return null;
+        let hpEdge = M;
+        if (!pM.length) {
+          let [lo, hi] = [1, M];
+          while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (probe(M, M, mid)?.length) lo = mid; else hi = mid; }
+          hpEdge = lo;
+        }
+        let origMin = 1;
+        if (!probe(M, 1, 1)?.length) {
+          let [lo, hi] = [1, M];
+          while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (probe(M, mid, 1)?.length) hi = mid; else lo = mid; }
+          origMin = hi;
+        }
+        return { kind: 'downOrig', hpEdge, origMin, atZero: p0.length > 0, firstLine: p1[0] };
+      }
+      const pM = probe(M, M, M);
+      if (!pM || (p1.length > 0) === (pM.length > 0)) return null;
+      if (p1.length > 0) {
+        let [lo, hi] = [1, M];
+        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (probe(M, M, mid)?.length) lo = mid; else hi = mid; }
+        return { kind: 'down', hpEdge: lo, atZero: p0.length > 0, firstLine: p1[0] };
+      }
+      let [lo, hi] = [1, M];
+      while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (probe(M, M, mid)?.length) hi = mid; else lo = mid; }
+      return { kind: 'up', hpFirst: hi, atZero: p0.length > 0, firstLine: pM[0] };
+    };
+    const bounds = new Map();
+    let sampleLine = null;
+    for (const k of rec.chain.keys()) {
+      const M = maxHp(rec, KEY_HP[k]);
+      if (!bounds.has(M)) bounds.set(M, memo(`thr|${ord}|${rec.id}|${M}`, () => boundsOf(M)));
+      sampleLine ||= bounds.get(M)?.firstLine || null;
+    }
+    const from = battle.log.length;
+    const out = runReal();
+    const printed = view.find(e => e.at >= from && e.at < battle.log.length);
+    const replayRest = [prefix.observedLine, ...prefix.observedAfter].filter(Boolean);
+    let replayFired = null;
+    let atCutThr = false;
+    if (printed) {
+      if (printed.at < prefix.cutoffAt) replayFired = true;
+      else if (printed.at === prefix.cutoffAt && prefix.observedLine && !/^\|(win|tie|-message)\|/.test(prefix.observedLine)) {
+        const printedLine = battleLines([printed.line])[0];
+        if (printedLine && !replayRest.includes(printedLine)) {
+          replayFired = false;
+          atCutThr = true;
+        }
+      }
+    } else {
+      const next = view.find(e => e.at >= from);
+      const expected = sampleLine ? battleLines([sampleLine])[0] : null;
+      if (prefix.cutoffAt === Infinity) replayFired = false;
+      else if (next && next.at < prefix.cutoffAt && (!expected || !replayRest.includes(expected)
+        || view.some(e => e.at >= from && e.at < prefix.cutoffAt && /^\|(move|switch|drag|cant|upkeep|turn)(\||$)/.test(e.line)))) {
+        replayFired = false;
+      } else if ((!next || next.at === prefix.cutoffAt) && expected && prefix.observedLine === expected) {
+        replayFired = true;
+        atCutThr = true;
+      }
+    }
+    if (replayFired === null || (!replayFired && !sampleLine)) return out;
+    const origRange = new Map();
+    let perKey = false;
+    if (hasOrig) {
+      const byM = new Map();
+      for (const k of rec.chain.keys()) {
+        const M = maxHp(rec, KEY_HP[k]);
+        let lo = Infinity;
+        let hi = 0;
+        for (const s of steps) {
+          for (const x of s.pre.get(k) || []) {
+            if (x < lo) lo = x;
+            if (x > hi) hi = x;
+          }
+        }
+        if (lo === Infinity) [lo, hi] = [0, M];
+        else if (steps.length > 1) hi = M;
+        origRange.set(k, [lo, hi]);
+        const sig = `${lo}:${hi}`;
+        if (!byM.has(M)) byM.set(M, sig);
+        else if (byM.get(M) !== sig) perKey = true;
+      }
+    }
+    const gate = {
+      same: true,
+      gate: true,
+      final: true,
+      perKey,
+      turn: battle.turn,
+      what: `${name} ${replayFired ? 'fired' : 'did not fire'} on ${named(rec)}`,
+      allow(M, h, k) {
+        const b = bounds.get(M);
+        if (!b) return !replayFired;
+        if (b.kind === 'downOrig') {
+          const [loOrig, hiOrig] = origRange.get(k) || [0, M];
+          if (replayFired) return (h > 0 ? h <= b.hpEdge : b.atZero) && hiOrig >= b.origMin;
+          return (h > 0 ? h > b.hpEdge : !b.atZero) || loOrig < b.origMin;
+        }
+        if (b.kind === 'down') return (h > 0 ? h <= b.hpEdge : b.atZero) === replayFired;
+        return (h > 0 ? h >= b.hpFirst : b.atZero) === replayFired;
+      },
+    };
+    apply(rec, gate, null);
+    if (atCutThr) state.ended = true;
+    return out;
+  }
+
   // Every handler an event applies is built by `resolvePriority`: `runEvent`
   // calls it, and `fieldEvent` hands it to `singleEvent` as its callback.
   const origResolve = battle.resolvePriority;
@@ -3047,10 +3197,37 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
     const fn = handler.callback;
     if (state.dry || state.ended || typeof fn !== 'function') return handler;
     const { effect, effectHolder } = handler;
+    const secondaryHp = callbackName === 'onAfterMoveSecondary' && effect?.effectType === 'Ability' && checksMaxHp(fn);
+    const residualHp = callbackName === 'onResidual' && effect?.effectType === 'Ability' && checksMaxHp(fn);
     handler.callback = function (...args) {
       if (state.dry || state.ended) return fn.apply(this, args);
+      const runFramed = () => framed({ kind: 'handler', effect, holder: effectHolder, args, fn }, () => fn.apply(this, args));
+      if (secondaryHp) {
+        const [target, source, move] = args;
+        if (target === effectHolder && source && source !== effectHolder && effectHolder.hp && move?.totalDamage
+          && !move.smartTarget && (move.multihit || effectHolder.attackedBy?.at(-1)?.damage > 0)) {
+          return runThresholdGate('AfterMoveSecondary', effectHolder, effect.name, true, true, (_M, orig, cur) => {
+            const dealt = Math.max(0, orig - cur);
+            const atk = effectHolder.attackedBy?.at(-1);
+            const prevDmg = atk ? atk.damage : undefined;
+            if (atk) atk.damage = dealt;
+            const dryMove = move ? cloneMove(move) : move;
+            if (dryMove) dryMove.totalDamage = dealt;
+            try {
+              battle.singleEvent('AfterMoveSecondary', effect, effectHolder.abilityState, effectHolder, source, dryMove);
+            } finally {
+              if (atk) atk.damage = prevDmg;
+            }
+          }, runFramed);
+        }
+      }
+      if (residualHp && args[0] === effectHolder) {
+        return runThresholdGate('Residual', effectHolder, effect.name, false, false, () => {
+          battle.singleEvent('Residual', effect, effectHolder.abilityState, effectHolder);
+        }, runFramed);
+      }
       const from = effect?.id === 'confusion' && callbackName === 'onBeforeMove' ? battle.log.length : -1;
-      const out = framed({ kind: 'handler', effect, holder: effectHolder, args, fn }, () => fn.apply(this, args));
+      const out = runFramed();
       if (from >= 0 && out !== false && !state.ended) cutoffConfusion(effect, effectHolder, fn, args, from);
       return out;
     };
@@ -3148,24 +3325,26 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   // a bisection finds the edge. Whether the item really fired then keeps only
   // the HP that agrees - checked where the HP last moved, before the berry's
   // own heal is applied.
-  const itemFires = (rec, M, h) => guarded(() => {
+  const itemProbe = (rec, M, h) => guarded(() => {
     const p = rec.pokemon;
     const undo = patchAll([{ pokemon: p, maxhp: M, hp: h }]);
     const held = p.item;
+    const from = battle.log.length;
     try {
       battle.singleEvent('Update', p.getItem(), p.itemState, p);
-      return p.item !== held;
+      return p.item !== held ? (shownLines(battle.log.slice(from))[0] || '') : null;
     } finally {
       undo();
     }
   });
   const fireEdge = (rec, M) => {
-    if (!itemFires(rec, M, 1)) return 0;
-    if (itemFires(rec, M, M)) return M;
+    const p1 = itemProbe(rec, M, 1);
+    if (p1 === null) return { edge: 0, line: null };
+    if (itemProbe(rec, M, M) !== null) return { edge: M, line: p1 };
     let lo = 1;
     let hi = M;
-    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (itemFires(rec, M, mid)) lo = mid; else hi = mid; }
-    return lo;
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (itemProbe(rec, M, mid) !== null) lo = mid; else hi = mid; }
+    return { edge: lo, line: p1 };
   };
   // The dice a real `Damage` event throws - Focus Band's - per Pokemon, for
   // every dry re-run of it to throw alike, and the lines it printed: where in
@@ -3173,148 +3352,102 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, reco
   const damageDice = new Map();
   const damageLines = new Map();
   let itemChecks = 0;
+  let updateBatch = null;
+  function settleUpdateGate({ rec, gate, name, ate, from, to, sampleLine }, batchTo) {
+    const expected = sampleLine ? battleLines([sampleLine])[0] : null;
+    const replayRest = [prefix.observedLine, ...prefix.observedAfter].filter(Boolean);
+    if (ate) {
+      const printed = view.find(e => e.at >= from && e.at < to && (!expected || battleLines([e.line])[0] === expected));
+      if (printed && printed.at < prefix.cutoffAt) gate.fired = true;
+      else if (printed && printed.at === prefix.cutoffAt && prefix.observedLine && !/^\|(win|tie|-message)\|/.test(prefix.observedLine)
+        && expected && !replayRest.includes(expected)) {
+        gate.fired = false;
+      }
+    } else {
+      const divergedInBatch = view.some(e => e.at >= from && e.at < batchTo && e.at >= prefix.cutoffAt);
+      const afterBatch = view.find(e => e.at >= batchTo);
+      const nextFrom = view.find(e => e.at >= from);
+      if (!divergedInBatch && (prefix.cutoffAt === Infinity || (afterBatch && afterBatch.at < prefix.cutoffAt))) {
+        gate.fired = false;
+      } else if (expected && prefix.observedLine === expected
+        && ((!divergedInBatch && (!afterBatch || afterBatch.at === prefix.cutoffAt))
+          || (!view.some(e => e.at >= from && e.at < to && e.at >= prefix.cutoffAt) && (!nextFrom || nextFrom.at === prefix.cutoffAt)))) {
+        gate.fired = true;
+        state.ended = true;
+      }
+    }
+    const idx = rec.pending.indexOf(gate);
+    if (gate.fired !== null) {
+      gate.final = true;
+      gate.what = `${name} ${gate.fired ? 'fired' : 'did not fire'} on ${named(rec)}`;
+      if (idx >= 0) {
+        if (!rec.chain) initChain(rec);
+        for (const c of rec.pending.splice(0, idx + 1)) apply(rec, c, null);
+      }
+    } else if (idx >= 0) {
+      rec.pending.splice(idx, 1);
+    }
+  }
+  const origEachEvent = battle.eachEvent;
+  battle.eachEvent = function (eventid, ...rest) {
+    if (eventid !== 'Update' || state.dry || state.ended || updateBatch) return origEachEvent.call(this, eventid, ...rest);
+    const batch = [];
+    updateBatch = batch;
+    try {
+      return origEachEvent.call(this, eventid, ...rest);
+    } finally {
+      updateBatch = null;
+      const batchTo = battle.log.length;
+      for (const item of batch) settleUpdateGate(item, batchTo);
+    }
+  };
   const origUpdate = battle.runEvent;
   battle.runEvent = function (eventid, target, ...rest) {
     const rec = eventid === 'Update' && !state.dry && !state.ended ? byPokemon.get(target) : null;
     if (!rec || rec.exact || !rec.moved || rec.checked === rec.moved || !target.item || !target.getItem().onUpdate) {
       return origUpdate.call(this, eventid, target, ...rest);
     }
-    rec.checked = rec.moved;
     sync();
-    if (state.ended) return origUpdate.call(this, eventid, target, ...rest);
+    if (state.ended || awaited || critAwait) return origUpdate.call(this, eventid, target, ...rest);
     const ord = itemChecks++;
     const edge = new Map();
     // The edge is found between 1 HP and the whole bar. A Pokemon knocked out
     // is on neither side of it: what its item does at no HP is asked as well.
     const out = new Map();
+    let sampleLine = null;
     for (const k of rec.chain ? rec.chain.keys() : rec.knKeys) {
       const M = maxHp(rec, KEY_HP[k]);
       if (edge.has(M)) continue;
-      edge.set(M, memo(`edge|${ord}|${rec.id}|${M}`, () => fireEdge(rec, M)));
-      out.set(M, memo(`edge0|${ord}|${rec.id}|${M}`, () => itemFires(rec, M, 0)));
+      const found = memo(`edge|${ord}|${rec.id}|${M}`, () => fireEdge(rec, M));
+      edge.set(M, found.edge);
+      sampleLine ||= found.line;
+      out.set(M, memo(`edge0|${ord}|${rec.id}|${M}`, () => itemProbe(rec, M, 0) !== null));
     }
     // An edge of 0 or of the whole bar says nothing about HP.
     if ([...edge].every(([M, t]) => t === 0 || t === M)) return origUpdate.call(this, eventid, target, ...rest);
+    rec.checked = rec.moved;
     const name = target.getItem().name;
     const gate = { same: true, gate: true, turn: battle.turn, what: `${name} on ${named(rec)}`, fired: null };
     gate.allow = (M, h) => gate.fired === null || !edge.has(M) || (h > 0 ? h <= edge.get(M) : out.get(M)) === gate.fired;
+    if (!rec.chain) initChain(rec);
     rec.pending.push(gate);
     const held = target.item;
+    const from = battle.log.length;
     try {
       return origUpdate.call(this, eventid, target, ...rest);
     } finally {
-      gate.fired = target.item !== held;
-      gate.what = `${name} ${gate.fired ? 'fired' : 'did not fire'} on ${named(rec)}`;
+      const entry = { rec, gate, name, ate: target.item !== held, from, to: battle.log.length, sampleLine };
+      if (updateBatch) updateBatch.push(entry);
+      else settleUpdateGate(entry, battle.log.length);
     }
   };
-  // An ability that acts on `EmergencyExit` - Emergency Exit, Wimp Out - fires
-  // or not on the HP the Pokemon entered the step on (`originalHp`) and the HP
-  // it stands on now. Asked of `runEvent('EmergencyExit')` itself, dry, after
-  // the damage's own display is settled: bisected over HP and over the HP
-  // before, per candidate max HP.
-  let exitChecks = 0;
   const origExit = battle.runEvent;
   battle.runEvent = function (eventid, target, source, sourceEffect, originalHp, ...rest) {
-    const rec = eventid === 'EmergencyExit' && !state.dry && !state.ended && target && typeof target === 'object' ? byPokemon.get(target) : null;
-    const ability = rec && !rec.exact && rec.moved && rec.exitChecked !== rec.moved ? target.getAbility() : null;
+    const ability = eventid === 'EmergencyExit' && !state.dry && !state.ended && target && typeof target === 'object' ? target.getAbility() : null;
     if (!ability?.onEmergencyExit) return origExit.call(this, eventid, target, source, sourceEffect, originalHp, ...rest);
-    rec.exitChecked = rec.moved;
-    sync();
-    if (state.ended || !rec.chain) return origExit.call(this, eventid, target, source, sourceEffect, originalHp, ...rest);
-    for (const c of rec.pending.splice(0)) apply(rec, c, null);
-    const ord = exitChecks++;
-    const fires = (M, orig, h) => guarded(() => {
-      const undo = patchAll([{ pokemon: target, maxhp: M, hp: h }]);
-      const from = battle.log.length;
-      try {
-        origExit.call(battle, 'EmergencyExit', target, source, sourceEffect, orig, ...rest);
-        return shownLines(battle.log.slice(from)).length > 0;
-      } finally {
-        undo();
-      }
-    });
-    const boundsOf = (M) => {
-      if (!fires(M, M, 1)) return null;
-      let hpEdge = 1;
-      if (fires(M, M, M)) hpEdge = M;
-      else {
-        let [lo, hi] = [1, M];
-        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (fires(M, M, mid)) lo = mid; else hi = mid; }
-        hpEdge = lo;
-      }
-      let origMin = M;
-      if (fires(M, 1, 1)) origMin = 1;
-      else {
-        let [lo, hi] = [1, M];
-        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (fires(M, mid, 1)) hi = mid; else lo = mid; }
-        origMin = hi;
-      }
-      return { hpEdge, origMin, atZero: fires(M, M, 0) };
-    };
-    const bounds = new Map();
-    for (const k of rec.chain.keys()) {
-      const M = maxHp(rec, KEY_HP[k]);
-      if (!bounds.has(M)) bounds.set(M, memo(`exit|${ord}|${rec.id}|${M}`, () => boundsOf(M)));
-    }
-    const from = battle.log.length;
-    const out = origExit.call(this, eventid, target, source, sourceEffect, originalHp, ...rest);
-    const printed = view.find(e => e.at >= from && e.at < battle.log.length);
-    let replayFired = null;
-    let atCutExit = false;
-    if (printed) {
-      if (printed.at < prefix.cutoffAt) replayFired = true;
-      else if (printed.at === prefix.cutoffAt && prefix.observedLine && !/^\|(win|tie|-message)\|/.test(prefix.observedLine)) {
-        replayFired = false;
-        atCutExit = true;
-      }
-    } else {
-      const next = view.find(e => e.at >= from);
-      const expected = battleLines([`|-activate|${target}|ability: ${ability.name}`])[0];
-      if (prefix.cutoffAt === Infinity || (next && next.at < prefix.cutoffAt)) replayFired = false;
-      else if ((!next || next.at === prefix.cutoffAt) && expected && prefix.observedLine === expected) {
-        replayFired = true;
-        atCutExit = true;
-      }
-    }
-    if (replayFired === null || (!replayFired && [...bounds.values()].every(b => !b))) return out;
-    const steps = rec.history.slice(rec.actionStep ?? 0).filter(e => !e.change.same);
-    const origRange = new Map();
-    const byM = new Map();
-    let perKey = false;
-    for (const k of rec.chain.keys()) {
-      const M = maxHp(rec, KEY_HP[k]);
-      let lo = Infinity;
-      let hi = 0;
-      for (const s of steps) {
-        for (const x of s.pre.get(k) || []) {
-          if (x < lo) lo = x;
-          if (x > hi) hi = x;
-        }
-      }
-      if (lo === Infinity) [lo, hi] = [0, M];
-      else if (steps.length > 1) hi = M;
-      origRange.set(k, [lo, hi]);
-      const sig = `${lo}:${hi}`;
-      if (!byM.has(M)) byM.set(M, sig);
-      else if (byM.get(M) !== sig) perKey = true;
-    }
-    const gate = {
-      same: true,
-      gate: true,
-      perKey,
-      turn: battle.turn,
-      what: `${ability.name} ${replayFired ? 'fired' : 'did not fire'} on ${named(rec)}`,
-      allow(M, h, k) {
-        const b = bounds.get(M);
-        if (!b) return !replayFired;
-        const [loOrig, hiOrig] = origRange.get(k) || [0, M];
-        if (replayFired) return (h > 0 ? h <= b.hpEdge : b.atZero) && hiOrig >= b.origMin;
-        return (h > 0 ? h > b.hpEdge : !b.atZero) || loOrig < b.origMin;
-      },
-    };
-    apply(rec, gate, null);
-    if (atCutExit) state.ended = true;
-    return out;
+    return runThresholdGate('EmergencyExit', target, ability.name, true, false, (_M, orig) => {
+      origExit.call(battle, 'EmergencyExit', target, source, sourceEffect, orig, ...rest);
+    }, () => origExit.call(this, eventid, target, source, sourceEffect, originalHp, ...rest));
   };
   const runEventBefore = battle.runEvent;
   battle.runEvent = function (eventid, target, ...rest) {

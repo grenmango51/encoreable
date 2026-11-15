@@ -1706,6 +1706,19 @@ const entries = {
       why: "Swept over HP: where Incinerate stops being lethal, Sturdy stops announcing itself, and one Stat Point above that edge the hidden Forretress is left on 1 HP with no ability line.",
     }],
   },
+  'ability:berserk': {
+    templates: [[27, 28], 'sweep'].map(worlds => ({
+      name: worlds === 'sweep' ? 'fixed-chip-sweep' : 'fixed-chip',
+      role: 'holder-hidden',
+      stat: 'hp',
+      worlds,
+      p1: [withMoves('known', ['Dragon Rage', 'Splash']), withMoves('knownAlly', ['Seismic Toss', 'Splash']), 'knownBench'],
+      p2: [set('Drampa', 'M', 'Berserk', 'Smooth Rock', {}, ['Splash']), 'hiddenAlly', 'hiddenBench'],
+      turns: [{ p1: 'move dragonrage 1, move seismictoss 1', p2: 'move splash, move splash' }, QUIET],
+      control: { p2: [{ ability: 'Run Away' }] },
+      why: 'Dragon Rage and Seismic Toss take a fixed 90 off the hidden Drampa from full HP, leaving 50/100 on either side of the edge: up to 180 max HP (HP Stat Points 0 to 27) that reaches half its bar and Berserk boosts its Special Attack, while from 181 up it stays silent.',
+    })),
+  },
   'ability:emergencyexit': {
     templates: [[30, 31], 'sweep'].map(worlds => ({
       name: worlds === 'sweep' ? 'fixed-chip-sweep' : 'fixed-chip',
