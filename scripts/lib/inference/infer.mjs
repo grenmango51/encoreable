@@ -27,7 +27,7 @@ import { createRequire } from 'module';
 import { battleLines } from '../protocol.mjs';
 import {
   ACTION_START, DIE_BACKTRACKS, MAX_VARIANTS, disguisableStays, identName, identSide, reconstruct, sampler, splitTurns,
-  unsettledDisguises,
+  tagsOf, unsettledDisguises,
 } from '../reconstruct.mjs';
 import { sameSheet } from '../replay-source.mjs';
 import {
@@ -418,6 +418,7 @@ export async function inferSpreads({
       checks: first.checks,
       cutoff: first.cutoff,
       scaffoldOrders: first.scaffoldOrders || [],
+      cutoffSpeeds: first.cutoffSpeeds || [],
       seen: new Set(first.recs.filter(r => r.seen).map(r => r.id)),
       lent: new Map(first.recs.map(r => [r.id, r.lent || []])),
       initial,
@@ -469,11 +470,16 @@ export async function inferSpreads({
   const searched = new Map();
   const failed = new Set();
   const held = new Map();
+  const heldSpe = new Set();
   const aimed = (id, kn, prev) => held.get(id) || aimFor(kn, prev);
   let evidenceTurn = 0;
   const packOf = chosen => sets.map((team, s) => Teams.pack(team.map((set, i) => ({ ...set, evs: chosen[s][i] }))));
   const signature = chosen => JSON.stringify(chosen.map(team => team.map(e => STAT_IDS.map(x => e[x]))));
   const markOf = d => (d ? `${d.turn}|${d.index}|${d.expected}` : null);
+  const evOf = (chosen, id) => {
+    const [side, slot] = id.split(':');
+    return chosen[Number(side.slice(1)) - 1]?.[Number(slot)];
+  };
 
   /**
    * A guess for a line no evidence hook reads. A round that leaves every
@@ -525,7 +531,7 @@ export async function inferSpreads({
    *          needed - or null, when the turn is the dice search's or nothing
    *          gets past the line.
    */
-  const fallback = async (seen, start, proven) => {
+  const fallback = async (seen, start, proven, cutoffSpeeds = []) => {
     const diff = built.report.diffs[0];
     const t = diff?.turn;
     const mark = markOf(diff);
@@ -720,29 +726,37 @@ export async function inferSpreads({
     // that goes first at any Speed.
     const plain = await replayWith(built.inputLog, packOf(start), t, channel);
     const actorOf = l => [...namedIn(`|x|${(/^p[1-4][a-d]?: /.test(String(l || '').split('|')[2] || '') ? String(l).split('|')[2] : '')}`)][0];
-    const disputed = (built.report.hidden || []).includes(t) ? new Set([actorOf(diff.expected), actorOf(diff.actual)].filter(Boolean)) : new Set();
-    const done = new Set([signature(start)]);
-    const probe = async (changes, from = knowledge) => {
+    const hiddenTurn = (built.report.hidden || []).includes(t);
+    const disputed = hiddenTurn ? new Set([actorOf(diff.expected), actorOf(diff.actual)].filter(Boolean)) : new Set();
+    const done = new Map([[signature(start), null]]);
+    const probe = async (changes, from = knowledge, { tie = false } = {}) => {
       const chosen = build(changes, from);
-      if (!chosen || done.has(signature(chosen))) return null;
-      done.add(signature(chosen));
-      const same = !!plain && !changes.some(c => disputed.has(c.id))
+      if (!chosen) return null;
+      const sig = signature(chosen);
+      if (done.has(sig)) {
+        const cached = done.get(sig);
+        if (!cached || !tie || cached.level >= 1) return cached;
+      }
+      const useBudget = tie ? budgets[1] : budget;
+      const same = !tie && !!plain && !changes.some(c => disputed.has(c.id) || (hiddenTurn && c.stat === 'spe'))
         && JSON.stringify(await replayWith(built.inputLog, packOf(chosen), t, channel)) === JSON.stringify(plain);
-      let b = same ? null : await rebuild(chosen, budget);
+      let b = same ? null : await rebuild(chosen, useBudget);
       // Stopped on a turn the guess gets through, under the dice handed on
       // from it: they are addressed by the order the dice were thrown in, and
       // a Speed that moves an earlier turn's order moves which throw each
       // lands on. The spread with those turns' dice searched again says
       // whether it was the dice, under the search the guess alone gets.
       let fresh = false;
-      if (b && !b.report.complete && reach(b)[0] < t && Object.keys(handed.subs).length && affordable()) {
+      if (b && !b.report.complete && (reach(b)[0] < t || tie) && Object.keys(handed.subs).length && affordable()) {
         const again = await rebuild(chosen, budgets[1], { given: null });
         if (further(reach(again), reach(b))) [b, fresh] = [again, true];
       }
       const stop = b && b.report.diffs[0];
       onProgress(`  fallback on turn ${t}: ${changes.map(c => `${c.name} ${c.stat} ${c.value}`).join(', ')} - ${same ? 'plays out the same'
         : b.report.complete ? 'reproduces it' : `stops at ${reach(b).join('.')}: wanted ${stop?.expected}, got ${stop?.actual}`}${fresh ? ' with the dice before it searched again' : ''}, ${clock()}`);
-      return { chosen, b, same, fresh };
+      const out = { chosen, b, same, fresh, level: useBudget === budgets[0] && !fresh ? 0 : 1 };
+      done.set(sig, out);
+      return out;
     };
 
     const baseReach = reach(base);
@@ -802,6 +816,133 @@ export async function inferSpreads({
       if (escorted && d.sides.get(value) === 'early' && !found && !ahead) await escort([{ ...d, value }], got);
       return d.sides.get(value);
     };
+    // Matched speed pairs at the cutoff sort, read off the simulator's own
+    // speed tables there: first the least-collateral strict inversion allowed
+    // by earlier orders, then exact speed ties (`ta[va] === tb[vb]`), ranked
+    // by Stat Points disturbed outside Speed so the 66-point cap does not
+    // strip bulk or offence before an unintrusive pair is tried.
+    if (order && cutoffSpeeds.length) {
+      const allPokemon = [];
+      for (const [s, team] of sets.entries()) {
+        for (const [i, set] of team.entries()) allPokemon.push({ s, i, id: `p${s + 1}:${i}`, name: set.name || set.species });
+      }
+      const idOfLine = (l) => {
+        const src = kind(l) === 'switch' ? stood.get(String(l || '').split('|')[2]?.slice(0, 3)) : l;
+        const first = String(src || '').split('|')[2] || '';
+        const ident = /^p[1-4][a-d]?: /.test(first) ? first : tagsOf(String(src || '')).of;
+        const m = /^(p[1-4])[a-d]?: (.+)$/.exec(ident || '');
+        return m ? allPokemon.find(p => `p${p.s + 1}` === m[1] && p.name === m[2])?.id : null;
+      };
+      const turnLines = (() => {
+        const from = (plain || []).indexOf(`|turn|${t}`);
+        return from < 0 ? [] : plain.slice(from + 1);
+      })();
+      const at = turnLines.indexOf(diff.actual);
+      const nextLine = at < 0 ? null : turnLines.slice(at + 1).find(l => ['move', 'cant', 'switch', 'drag'].includes(kind(l))
+        && who(l) && who(l) !== who(diff.actual) && who(l) !== who(diff.expected));
+      const prevMove = at > 0 && !ACTION_START.has(kind(diff.actual))
+        ? turnLines.slice(0, at).findLast(l => kind(l) === 'move' && who(l) && who(l) !== who(diff.expected)) : null;
+      const spe = id => dims.find(d => d.id === id && d.stat === 'spe');
+      const collateralOf = (d) => {
+        const map = new Map();
+        const kn = knowledge.get(d.id);
+        const baseEv = start[d.s][d.i];
+        for (const v of d.alive) {
+          const sp = spreadAt(kn, 'spe', v, baseEv);
+          if (!sp) continue;
+          let col = 0;
+          for (const x of STAT_IDS) if (x !== 'spe') col += Math.abs(sp[x] - baseEv[x]);
+          map.set(v, col);
+        }
+        return map;
+      };
+      const idA = idOfLine(diff.expected);
+      const fa = idA && cutoffSpeeds.find(x => x.id === idA);
+      const rivals = [...new Set([idOfLine(diff.actual), nextLine && idOfLine(nextLine), prevMove && idOfLine(prevMove)].filter(Boolean))];
+      for (const idB of rivals) {
+        if (!fa || idB === idA || found || ahead || !affordable()) continue;
+        const fb = cutoffSpeeds.find(x => x.id === idB);
+        if (!fb || fa.owner === fb.owner) continue;
+        const da = spe(fa.owner);
+        const db = spe(fb.owner);
+        if (da && db && da.alive.length && db.alive.length) {
+          if (fa.table[da.now] === fb.table[db.now] && Object.keys(handed.subs).length && affordable()) {
+            const fresh = await rebuild(start, budgets[1], { given: null });
+            if (fresh.report.complete || further(reach(fresh), baseReach)) {
+              onProgress(`  fallback on turn ${t}: the tied guess alone gets past the line with the dice before it searched again, ${clock()}`);
+              return stays(null, 1);
+            }
+          }
+          const colA = collateralOf(da);
+          const colB = collateralOf(db);
+          const pairRules = [...orders.values()].filter(o => (o.fast === da.id && o.slow === db.id) || (o.fast === db.id && o.slow === da.id));
+          const okOrders = (va, vb) => pairRules.every((o) => {
+            const [lhs, rhs] = o.fast === da.id ? [o.tf[va], o.ts[vb]] : [o.tf[vb], o.ts[va]];
+            return o.strict ? lhs > rhs : lhs >= rhs;
+          });
+          const strict = [];
+          const ties = [];
+          for (const va of da.alive) {
+            if (!colA.has(va)) continue;
+            for (const vb of db.alive) {
+              if (!colB.has(vb) || !okOrders(va, vb) || (va === da.now && vb === db.now)) continue;
+              const col = colA.get(va) + colB.get(vb);
+              const dist = Math.abs(va - da.now) + Math.abs(vb - db.now);
+              if (fa.table[va] > fb.table[vb]) strict.push({ va, vb, col, dist });
+              else if (fa.table[va] === fb.table[vb]) ties.push({ va, vb, col, dist, speed: fa.table[va] });
+            }
+          }
+          const rankPair = (x, y) => x.col - y.col || x.dist - y.dist;
+          strict.sort(rankPair);
+          ties.sort(rankPair);
+          if (strict.length && !found && !ahead && affordable()) {
+            const { va, vb } = strict[0];
+            const changes = [{ ...da, value: va }, { ...db, value: vb }];
+            const got = await probe(changes);
+            if (got?.b) judge(changes, got);
+            if (got?.b && !found && !ahead && sideOf(got) === 'early') await escort(changes, got);
+          }
+          const seenSpeeds = new Set();
+          for (const { va, vb, speed } of ties) {
+            if (seenSpeeds.has(speed)) continue;
+            seenSpeeds.add(speed);
+            if (seenSpeeds.size > 3 || found || ahead || !affordable()) break;
+            const changes = [{ ...da, value: va }, { ...db, value: vb }];
+            const got = await probe(changes, knowledge, { tie: true });
+            if (got?.b) judge(changes, got);
+          }
+        } else if ((da && !db) || (!da && db)) {
+          const d = da || db;
+          if (!d.alive.length) continue;
+          const aNow = evOf(start, fa.owner)?.spe ?? 0;
+          const bNow = evOf(start, fb.owner)?.spe ?? 0;
+          const curDiff = da ? fa.table[da.now] - fb.table[bNow] : fa.table[aNow] - fb.table[db.now];
+          if (curDiff === 0 && Object.keys(handed.subs).length && affordable()) {
+            const fresh = await rebuild(start, budgets[1], { given: null });
+            if (fresh.report.complete || further(reach(fresh), baseReach)) {
+              onProgress(`  fallback on turn ${t}: the tied guess alone gets past the line with the dice before it searched again, ${clock()}`);
+              return stays(null, 1);
+            }
+          }
+          const col = collateralOf(d);
+          const candidates = d.alive.filter(v => v !== d.now && col.has(v))
+            .map(v => ({
+              v,
+              col: col.get(v),
+              dist: Math.abs(v - d.now),
+              diff: da ? fa.table[v] - fb.table[bNow] : fa.table[aNow] - fb.table[v],
+            }))
+            .filter(x => x.diff >= 0)
+            .sort((x, y) => x.col - y.col || x.dist - y.dist);
+          for (const [cand, isTie] of [[candidates.find(x => x.diff > 0), false], [candidates.find(x => x.diff === 0), true]]) {
+            if (!cand || found || ahead || !affordable()) continue;
+            const changes = [{ ...d, value: cand.v }];
+            const got = await probe(changes, knowledge, { tie: isTie });
+            if (got?.b) judge(changes, got, d);
+          }
+        }
+      }
+    }
     // An order between two inferred Pokemon on a turn with an unseen choice:
     // their Speeds pushed apart, each way round, before either moves alone -
     // one alone is blocked by the other's guess, as a Rillaboom guessed slow is
@@ -810,7 +951,7 @@ export async function inferSpreads({
     // that goes first at any Speed - and then the order the turn disputes is
     // with whoever acts next in the rebuild: under Trick Room, a Hippowdon
     // guessed slower than the Kingambit the replay has first.
-    if (order && disputed.size) {
+    if (order && disputed.size && !found && !ahead) {
       const actor = l => [...namedIn(`|x|${who(l) || ''}`)][0];
       const turnLines = (() => {
         const from = (plain || []).indexOf(`|turn|${t}`);
@@ -925,7 +1066,8 @@ export async function inferSpreads({
       if (!read) gap(mark, { turn: t, what: text, who: whoIn(text, by), reason: 'no evidence hook reads this line, and the fallback found a spread that reproduces it' }, true);
       onProgress(`  fallback on turn ${t}: ${found ? 'reproduced' : `past the line, stopping at ${reach(ahead.got.b).join('.')}`} in ${spent} rebuilds, ${clock()}`);
       const spreads = new Map(win.by.map(c => [c.id, win.got.chosen[c.s][c.i]]));
-      return { picks: win.got.chosen, pins: win.got.fresh ? null : handed, held: spreads, level: budget === budgets[0] && !win.got.fresh ? 0 : 1 };
+      const speHeld = new Set(win.by.filter(c => c.stat === 'spe').map(c => c.id));
+      return { picks: win.got.chosen, pins: win.got.fresh ? null : handed, held: spreads, heldSpe: speHeld, level: win.got.level };
     }
 
     // No surviving value gets past it: the values just past each range that
@@ -969,13 +1111,21 @@ export async function inferSpreads({
   let deepest = null;
   let stalled = 0;
   let stop = null;
+  const ordersAllow = (chosen, list = orders.values()) => {
+    for (const { fast, slow, tf, ts, strict } of list) {
+      const ef = evOf(chosen, fast);
+      const ew = evOf(chosen, slow);
+      if (ef && ew && (strict ? tf[ef.spe] <= ts[ew.spe] : tf[ef.spe] < ts[ew.spe])) return false;
+    }
+    return true;
+  };
   // Every guess a round has rebuilt from.
   const visited = new Set();
   // The first mix of two guesses no round has rebuilt from: each Pokemon of
   // `order` that differs takes its spread from `a` or `b`, then each stat that
   // differs its value from one or the other, fewest taken from `b` first.
   const mixOf = (a, b, order) => {
-    const allowed = (m, list) => list.every(([s, i]) => containsSpread(knowledge.get(`p${s + 1}:${i}`), m[s][i]));
+    const allowed = (m, list) => list.every(([s, i]) => containsSpread(knowledge.get(`p${s + 1}:${i}`), m[s][i])) && ordersAllow(m);
     const label = ([s, i]) => sets[s][i].name || sets[s][i].species;
     const differ = order.filter(([s, i]) => !sameSpread(a[s][i], b[s][i]));
     const byCount = n => [...Array(2 ** n).keys()].slice(1, -1).sort((x, y) => bits(x) - bits(y) || x - y);
@@ -1035,7 +1185,7 @@ export async function inferSpreads({
     const evidenceStart = Date.now();
     const passesBefore = work.passes;
     evidenceTurn = Math.max(evidenceTurn, diff?.turn ?? 0);
-    const { seen, lent: lentNow, passes: read, scaffoldOrders } = await settle(built.inputLog, knowledge, cache, false, true);
+    const { seen, lent: lentNow, passes: read, scaffoldOrders, cutoffSpeeds } = await settle(built.inputLog, knowledge, cache, false, true);
     lent = lentNow;
 
     // New guesses, chosen together. Each Pokemon is pinned before the next is
@@ -1055,9 +1205,11 @@ export async function inferSpreads({
     let next = picks.map(team => team.map(e => ({ ...e })));
     const emptied = kn => !kn.keys.includes(1) || FLAT.some(x => !kn.dom[x].includes(1));
     let tries = 32 * S * W;
+    let checks = 128 * S * W;
     // The order Pokemon are pinned in, and how often each was left with
     // nothing by a pin before it.
-    const seq = order.slice();
+    const byHeld = list => (heldSpe.size ? list.slice().sort((a, b) => Number(heldSpe.has(`p${b[0] + 1}:${b[1]}`)) - Number(heldSpe.has(`p${a[0] + 1}:${a[1]}`))) : list.slice());
+    const seq = byHeld(order);
     const blocked = new Map();
     const blocks = (map, n) => {
       const out = seq.slice(n + 1).filter(([s2, i2]) => emptied(map.get(`p${s2 + 1}:${i2}`)));
@@ -1081,7 +1233,8 @@ export async function inferSpreads({
       const mid = aimFor(kn, picks[s][i]);
       if (keep.length && !evKn.dom.spe.includes(0) && kn.dom.spe[picks[s][i].spe]) mid.spe = picks[s][i].spe;
       for (const aim of [...fixed, mid, picks[s][i], aimFor(kn, picks[s][i], 0.25), aimFor(kn, picks[s][i], 0.75)]) {
-        if (tries <= 0) { limits.add('guessTries'); return null; }
+        if (tries <= 0 || checks <= 0) { limits.add('guessTries'); return null; }
+        checks--;
         const first = closestSpread(kn, aim);
         if (!first) continue;
         // HP, Defence and Special Defence first, and the flat stats from what
@@ -1094,6 +1247,14 @@ export async function inferSpreads({
           const pinned = keyed.get(id);
           pinned.keys.fill(0);
           pinned.keys[k] = 1;
+          if (tighten(pinned) && orderSpeeds(keyed, [...orders.values(), ...keep])) {
+            for (const [oid, okn] of keyed) if (oid !== id && !okn.known) tighten(okn);
+          }
+          if (emptied(pinned) || blocks(keyed, n)) {
+            entry = { pinned, blocked: true };
+            byKey.set(k, entry);
+            continue;
+          }
           tries--;
           await settle(built.inputLog, keyed, cache, false, false, keep);
           entry = { pinned, blocked: blocks(keyed, n) || emptied(pinned) };
@@ -1106,6 +1267,10 @@ export async function inferSpreads({
         const narrowed = cloneKnowledge(cond);
         pinKnowledge(narrowed.get(id), pick);
         if (n < seq.length - 1) {
+          if (orderSpeeds(narrowed, [...orders.values(), ...keep])) {
+            for (const [oid, okn] of narrowed) if (oid !== id && !okn.known) tighten(okn);
+          }
+          if (blocks(narrowed, n)) continue;
           tries--;
           await settle(built.inputLog, narrowed, cache, false, false, keep);
           if (blocks(narrowed, n)) continue;
@@ -1127,7 +1292,7 @@ export async function inferSpreads({
     const within = () => {
       const cond = cloneKnowledge(knowledge);
       if (keep.length) {
-        orderSpeeds(cond, keep);
+        orderSpeeds(cond, [...orders.values(), ...keep]);
         for (const kn of cond.values()) tighten(kn);
         const losesHeld = [...held].some(([id, sp]) => cond.has(id) && !containsSpread(cond.get(id), sp));
         if (losesHeld || [...cond.values()].some(emptied)) { keep = []; return cloneKnowledge(knowledge); }
@@ -1144,7 +1309,7 @@ export async function inferSpreads({
       // Each Pokemon moves to the front once; the order changes which spreads
       // are tried first, never which survive.
       const moved = new Set();
-      while (!found && tries > 0) {
+      while (!found && tries > 0 && checks > 0) {
         const key = [...blocked].filter(([k]) => !moved.has(k)).sort((a, b) => b[1] - a[1])[0]?.[0];
         if (key === undefined) break;
         moved.add(key);
@@ -1160,7 +1325,8 @@ export async function inferSpreads({
       keep = [];
       next = picks.map(team => team.map(e => ({ ...e })));
       tries = 32 * S * W;
-      seq.splice(0, seq.length, ...order);
+      checks = 128 * S * W;
+      seq.splice(0, seq.length, ...byHeld(order));
       blocked.clear();
       proof = await pickGuesses();
     }
@@ -1189,6 +1355,29 @@ export async function inferSpreads({
         const kn = knowledge.get(id);
         next[s][i] = closestSpread(kn, aimed(id, kn, picks[s][i])) || next[s][i];
       }
+      if (!ordersAllow(next)) {
+        const rules = [...orders.values()];
+        const counts = new Map(order.map(([s, i]) => [`p${s + 1}:${i}`, spreadsLeft(knowledge.get(`p${s + 1}:${i}`))]));
+        const ranked = order.slice().sort((a, b) => {
+          const ia = `p${a[0] + 1}:${a[1]}`;
+          const ib = `p${b[0] + 1}:${b[1]}`;
+          return Number(held.has(ib)) - Number(held.has(ia)) || counts.get(ia) - counts.get(ib);
+        });
+        let cond = cloneKnowledge(knowledge);
+        for (const [k, [s, i]] of ranked.entries()) {
+          const id = `p${s + 1}:${i}`;
+          const kn = cond.get(id);
+          const pick = closestSpread(kn, aimed(id, kn, picks[s][i]));
+          if (!pick) continue;
+          next[s][i] = pick;
+          const step = cloneKnowledge(cond);
+          pinKnowledge(step.get(id), pick);
+          if (orderSpeeds(step, rules)) {
+            for (const rem of ranked.slice(k + 1)) tighten(step.get(`p${rem[0] + 1}:${rem[1]}`));
+          }
+          if (!ranked.slice(k + 1).some(([s2, i2]) => emptied(step.get(`p${s2 + 1}:${i2}`)))) cond = step;
+        }
+      }
     }
     onProgress(`  evidence and new guesses, ${((Date.now() - evidenceStart) / 1000).toFixed(1)}s, ${work.passes - passesBefore} passes${exact ? `, ${exact.size} turns exact` : ''}${pins ? `, ${Object.keys(pins.subs).length} dice handed on` : ''}`);
     const unchanged = next.every((team, s) => team.every((e, i) => sameSpread(e, picks[s][i])));
@@ -1199,10 +1388,12 @@ export async function inferSpreads({
     const again = failed.has(markOf(diff));
     failed.add(markOf(diff));
     if (unchanged || again || read < 2) {
-      const start = picks.map((team, s) => team.map((e, i) => (containsSpread(knowledge.get(`p${s + 1}:${i}`), e) ? e : next[s][i])));
-      const found = await fallback(seen, start, exact ? { picks: next, exact, pins } : null);
+      const rawStart = picks.map((team, s) => team.map((e, i) => (containsSpread(knowledge.get(`p${s + 1}:${i}`), e) ? e : next[s][i])));
+      const start = !ordersAllow(rawStart) && ordersAllow(next) ? next : rawStart;
+      const found = await fallback(seen, start, exact ? { picks: next, exact, pins } : null, cutoffSpeeds);
       if (found) {
         for (const [id, spread] of found.held) held.set(id, spread);
+        if (found.heldSpe) for (const id of found.heldSpe) heldSpe.add(id);
         picks = found.picks;
         exact = null;
         pins = found.pins;

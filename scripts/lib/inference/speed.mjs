@@ -10,7 +10,7 @@
 
 import { battleLines } from '../protocol.mjs';
 import { ACTION_START, identName, identSide, override, tagsOf } from '../reconstruct.mjs';
-import { SPAN } from './knowledge.mjs';
+import { SPAN, orderSpeeds } from './knowledge.mjs';
 
 const OPENS_MOVE = /^\|(move|cant)\||^\|-activate\|[^|]+\|confusion$|^\|-curestatus\|[^|]+\|(slp|frz)\|\[msg\]$/;
 const MEGA = new Set(['megaEvo', 'megaEvoX', 'megaEvoY']);
@@ -28,6 +28,11 @@ const MEGA = new Set(['megaEvo', 'megaEvoX', 'megaEvoY']);
 function opens(line, next) {
   const text = String(line || '');
   const parts = text.split('|');
+  if (parts[1] === 'cant' && tagsOf(text).of) return null;
+  if (parts[1] === 'move') {
+    const from = tagsOf(text).from;
+    return !from || from === 'lockedmove' ? { kind: 'move', ident: parts[2] } : null;
+  }
   if (OPENS_MOVE.test(text)) return { kind: 'move', ident: parts[2] };
   if (parts[1] === 'detailschange') {
     const after = String(next || '').split('|');
@@ -35,7 +40,8 @@ function opens(line, next) {
   }
   if (parts[1] === '-formechange') {
     const after = String(next || '').split('|');
-    return after[1] === 'move' && after[2] === parts[2] && !after.slice(4).some(p => p.startsWith('[from]')) ? { kind: 'move', ident: parts[2] } : null;
+    const from = tagsOf(String(next || '')).from;
+    return after[1] === 'move' && after[2] === parts[2] && (!from || from === 'lockedmove') ? { kind: 'move', ident: parts[2] } : null;
   }
   if (parts[1] === 'switch' && !parts.slice(5).some(p => p.startsWith('[from]'))) return { kind: 'switch', ident: parts[2] };
   return null;
@@ -139,23 +145,81 @@ export function attachSpeed(battle, {
   });
   const speedTable = rec => memo(`spe|${sortOrdinal}|${rec.id}`, () => speedsOf(rec, () => rec.pokemon.getActionSpeed()));
 
-  // The priority a queued move's Pokemon would be sorted at with each move it
-  // has and Struggle, which it uses when none is left to it, asked of the
-  // simulator the way the queue asks it of the move it chose. Run dry, and
-  // keyed by sort so it outlives the pass. Two sorts that give a Pokemon the
-  // same list sorted it at the same priority whatever move it chose.
-  const movePriorities = (a) => memo(`pri|${sortOrdinal}|${a.pokemon.side.id}${a.pokemon.position}`, () => guarded(() => {
-    const off = override(battle, 'randomChance', () => false);
+  // Which moves the simulator's move request lets each active Pokemon choose
+  // at the start of the turn (`side.chooseMove`), with each move's
+  // deterministic fractional priority at `resolveAction` when no proc printed
+  // `|-activate|`: a disabled move - Fake Out after the Pokemon has already
+  // tried a move, Taunt, Disable, an empty PP slot - cannot be queued, and a
+  // lock leaves only the locked move.
+  const detFractionalPriority = (p, move) => {
+    const dry = battle.__rng?.dry;
+    const prevAhead = dry?.ahead;
+    const randomChance = battle.randomChance;
+    const eatItem = p.eatItem;
+    if (dry) dry.ahead = (_f, _t, d, off) => off + d - 1;
+    battle.randomChance = () => false;
+    p.eatItem = () => false;
     try {
-      return [...a.pokemon.moveSlots.map(slot => slot.id), 'struggle'].map((id) => {
-        const move = battle.dex.getActiveMove(id);
-        const asked = { ...a, move, fractionalPriority: battle.runEvent('FractionalPriority', a.pokemon, null, move, 0) };
-        battle.getActionSpeed(asked);
-        return asked.priority;
-      });
+      return battle.runEvent('FractionalPriority', p, null, move, 0) || 0;
     } finally {
-      off();
+      p.eatItem = eatItem;
+      battle.randomChance = randomChance;
+      if (dry) dry.ahead = prevAhead;
     }
+  };
+  let choosableTurn = -1;
+  let choosableByRec = null;
+  const captureChoosable = () => {
+    if (state.dry || state.ended || battle.requestState !== 'move') return;
+    choosableTurn = battle.turn;
+    choosableByRec = memo(`choosable|${battle.turn}`, () => guarded(() => {
+      const out = new Map();
+      for (const side of battle.sides) {
+        for (const p of side.active) {
+          const rec = p && !p.fainted && byPokemon.get(p);
+          if (!rec) continue;
+          const locked = p.getLockedMove() || p.getSemiLockedMove();
+          let ids;
+          if (locked) {
+            ids = [battle.dex.moves.get(locked).id];
+          } else {
+            const moves = p.getMoves();
+            ids = moves.length ? moves.filter(m => !m.disabled).map(m => m.id) : ['struggle'];
+          }
+          const fracs = new Map(ids.map(id => [id, detFractionalPriority(p, battle.dex.getActiveMove(id))]));
+          out.set(rec.id, { ids, fracs });
+        }
+      }
+      return out;
+    }));
+  };
+  const origMakeRequest = battle.makeRequest;
+  override(battle, 'makeRequest', function (...args) {
+    const out = origMakeRequest.apply(this, args);
+    captureChoosable();
+    return out;
+  });
+  captureChoosable();
+
+  // The priority a queued move's Pokemon would be sorted at with each move the
+  // turn's request let it choose, asked of the simulator the way the queue
+  // asks it of the move it chose, its deterministic fractional priority
+  // included when no proc printed `|-activate|` at the start of the turn. Run
+  // dry, and keyed by sort so it outlives the pass.
+  const movePriorities = (a) => memo(`pri|${sortOrdinal}|${a.pokemon.side.id}${a.pokemon.position}`, () => guarded(() => {
+    const rec = byPokemon.get(a.pokemon);
+    const offered = rec && choosableTurn === battle.turn ? choosableByRec?.get(rec.id) : null;
+    const base = offered ? offered.ids : [...a.pokemon.moveSlots.map(slot => slot.id), 'struggle'];
+    const ids = [...new Set([...base, ...(a.move?.id ? [a.move.id] : [])])];
+    return ids.map((id) => {
+      const move = battle.dex.getActiveMove(id);
+      const fractionalPriority = a.fractionalPriority > 0 ? a.fractionalPriority
+        : offered?.fracs.has(id) ? offered.fracs.get(id)
+          : detFractionalPriority(a.pokemon, move);
+      const asked = { ...a, move, fractionalPriority };
+      battle.getActionSpeed(asked);
+      return { id, priority: asked.priority || 0 };
+    });
   }));
 
   const queue = battle.queue;
@@ -181,8 +245,7 @@ export function attachSpeed(battle, {
           return {
             action: a, order: a.order, priority: a.priority || 0, pokemon: a.pokemon || null,
             side: a.pokemon?.side?.id ?? null, slot: a.pokemon ? a.pokemon.position : -1,
-            priorities: moves ? moves.join('/') : null,
-            lowest: moves ? Math.min(...moves) : null,
+            moves,
           };
         }),
         speeds: new Map(),
@@ -577,6 +640,7 @@ export function attachSpeed(battle, {
   };
 
   let scaffoldOrders = [];
+  let cutoffSpeeds = [];
   function speedRules() {
     const upTo = Math.min(prefix.cutoffAt, battle.log.length);
     const firstAt = (at) => {
@@ -688,37 +752,179 @@ export function attachSpeed(battle, {
       return [ex.action, { ex, seen, on: seen && sorted(ex) }];
     }));
     const order = new Map(executed.map((ex, i) => [ex.action, i]));
-    const rules = [];
-    // Each action against those its last sort had after it at the same order
-    // and priority, as that sort had them - never the order an effect wrote on
-    // the action since, as Quash does - unless it was moved to the front after
-    // that sort.
+    // The log diverged on who moved: the observed order is the true one. A
+    // side with Illusion can print one Pokemon's name for another, so a name
+    // the replay's line gives on that side says nobody for certain.
+    const cut = view.find(e => e.at === prefix.cutoffAt);
+    const disguisable = sideId => !!battle.sides.find(side => side.id === sideId)?.pokemon.some(p => p.baseAbility === 'illusion');
+    // Who stood where as the last action begun by the cutoff began: the
+    // battle itself has run on past the cutoff.
+    const standing = [...executed].reverse().find(e => e.start <= prefix.cutoffAt)?.standing || new Map();
+    // Who a line at the cutoff names: the Pokemon then in that slot when it
+    // shows that name, its own or the one it is disguised as; otherwise, on a
+    // side with no Illusion user, the Pokemon of that name.
+    const named = (ident) => {
+      const s = standing.get(String(ident).slice(0, 3));
+      if (s && (s.name === identName(ident) || s.pokemon.name === identName(ident))) return byPokemon.get(s.pokemon) || null;
+      return disguisable(identSide(ident)) ? null : byIdent.get(`${identSide(ident)}:${identName(ident)}`) || null;
+    };
+    const was = opens(prefix.observedLine, prefix.observedAfter?.[0]);
+    const cutAt = cut ? view.indexOf(cut) : -1;
+    const got = cut ? opens(cut.line, view[cutAt + 1]?.line) : null;
+    // The move P really chose this turn: its first own move line from here
+    // to the turn's end, unless an Encore begun on it this turn before then
+    // put another in its place. A rebuild that chose another for it sorted
+    // another priority, and then the order says nothing about speed.
+    const chosen = () => {
+      const P = named(was.ident);
+      if (!P || encoredBefore(P, prefix.cutoffAt)) return null;
+      for (const line of [prefix.observedLine, ...(prefix.observedAfter || [])]) {
+        const parts = String(line || '').split('|');
+        if (parts[1] === 'turn' || encore(line, P)) return null;
+        const from = tagsOf(String(line)).from;
+        if (parts[1] === 'move' && parts[2] === was.ident && (!from || from === 'lockedmove')) return String(parts[3]).toLowerCase().replace(/[^a-z0-9]/g, '');
+      }
+      return null;
+    };
+    // The queued action the replay's line at the cutoff opens: P's move, P's
+    // Mega Evolution, or the switch out of the slot the line names. A move P
+    // never showed - it flinched, or was fully paralysed - is still its one
+    // queued move action in that sort when no Encore rewrote the queue.
+    const diverged = !!(was && got && (was.ident !== got.ident || was.kind !== got.kind));
+    const cutEx = diverged ? executed.find(e => e.start <= prefix.cutoffAt && prefix.cutoffAt < e.end && !shown.get(e.action)?.seen) : null;
+    const cutIndex = cutEx ? executed.indexOf(cutEx) : -1;
+    const cutSort = cutEx?.sort;
+    const cutItem = cutSort?.list.find(item => item.action === cutEx.action) || null;
+    const chosenMove = diverged && was.kind === 'move' ? chosen() : null;
+    const yo = (() => {
+      if (!diverged || !cutSort || tainted.has(cutSort.turn)) return null;
+      if (was.kind === 'switch') {
+        return cutSort.list.find(it => it !== cutItem && ofKind(it.action, 'switch') && !movedAfter(it.action, cutSort)
+          && it.side === identSide(was.ident) && it.slot === 'abcd'.indexOf(String(was.ident)[2])) || null;
+      }
+      const P = named(was.ident);
+      if (!P) return null;
+      if (was.kind === 'mega') {
+        return cutSort.list.find(it => it !== cutItem && ofKind(it.action, 'mega') && !movedAfter(it.action, cutSort)
+          && it.pokemon === P.pokemon) || null;
+      }
+      if (chosenMove) {
+        return cutSort.list.find(it => it !== cutItem && it.action?.choice === 'move' && !movedAfter(it.action, cutSort)
+          && it.pokemon === P.pokemon && it.action.move?.id === chosenMove) || null;
+      }
+      if (encoredBefore(P, prefix.cutoffAt)) return null;
+      const cands = cutSort.list.filter(it => it !== cutItem && it.action?.choice === 'move' && !movedAfter(it.action, cutSort)
+        && it.pokemon === P.pokemon);
+      return cands.length === 1 ? cands[0] : null;
+    })();
+    // Which moves each queued move action could have chosen: the one the replay
+    // shows it using of its own choice, or every move the request offered it
+    // unless an Encore begun on it earlier in the turn rewrote the queue. An
+    // action that ran before another at the same order had no lower priority,
+    // so any move of the second above the first's highest, or of the first
+    // below the second's lowest, could not have been chosen; when the first's
+    // highest equals the second's lowest, both ran at that priority and speed
+    // ordered them.
+    const feasible = new Map();
+    const movesFor = (item, S) => {
+      if (item.action?.choice !== 'move') return null;
+      let set = feasible.get(item.action);
+      if (set) return set;
+      const rec = item.pokemon && byPokemon.get(item.pokemon);
+      const sh = shown.get(item.action);
+      const at = sh?.seen ? sh.ex.start : prefix.cutoffAt;
+      if (!rec || !item.moves || encoredBefore(rec, at)) {
+        set = new Set();
+      } else if (sh?.on || (yo && item.action === yo.action && chosenMove)
+        || (!sh?.seen && (!yo || item.action !== yo.action) && S.turn === prefix.turn && realLater(rec, item.action.move?.id))) {
+        set = new Set([item.action.move.id]);
+      } else {
+        set = new Set(item.moves.map(m => m.id));
+      }
+      feasible.set(item.action, set);
+      return set;
+    };
+    const prioritiesIn = (item, S) => {
+      if (item.action?.choice !== 'move') return [item.priority];
+      const set = movesFor(item, S);
+      return item.moves ? item.moves.filter(m => set.has(m.id)).map(m => m.priority) : [];
+    };
+    const pairs = [];
+    // Each action against those its last sort had after it at the same order,
+    // as that sort had them - never the order an effect wrote on the action
+    // since, as Quash does - unless it was moved to the front after that sort.
     for (const [i, ex] of executed.entries()) {
       const S = ex.sort;
-      if (!S || tainted.has(S.turn) || movedAfter(ex.action, S) || !shown.get(ex.action)?.on) continue;
+      if (!S || tainted.has(S.turn) || movedAfter(ex.action, S) || !shown.get(ex.action)?.seen) continue;
       const at = S.list.findIndex(item => item.action === ex.action);
       if (at < 0) continue;
       const x = S.list[at];
       for (const y of S.list.slice(at + 1)) {
-        if (!y.pokemon || y.pokemon === x.pokemon || y.order !== x.order || y.priority !== x.priority) continue;
+        if (!y.pokemon || y.pokemon === x.pokemon || y.order !== x.order) continue;
         const later = order.get(y.action);
-        // The one that went second need not show its move: X went first, so
-        // its real priority was no higher than X's, and no move it has sorts
-        // below that.
         const second = shown.get(y.action);
         // Or it went past the cutoff, and the replay shows it using, later in
         // the turn, the very move the rebuild queued for it.
         const shownLater = () => y.action?.choice === 'move' && S.turn === prefix.turn && realLater(byPokemon.get(y.pokemon), y.action.move?.id);
-        const knockedOut = () => y.lowest !== null && y.lowest >= x.priority && !movedAfter(y.action, S) && faintedLater(y, ex.start);
+        const knockedOut = () => !movedAfter(y.action, S) && faintedLater(y, ex.start);
+        const atCut = S.turn === prefix.turn && cutIndex >= 0 && i < cutIndex && yo && y.action === yo.action && !movedAfter(yo.action, S);
         // A rebuild stops at the cutoff, so one the replay shows only past it
         // may never have run.
-        if (later === undefined ? !(shownLater() || knockedOut()) : later <= i || !(second?.on || (second?.seen && y.lowest !== null && y.lowest >= x.priority) || knockedOut() || shownLater())) continue;
-        const X = byPokemon.get(x.pokemon);
-        const Y = byPokemon.get(y.pokemon);
-        const rule = ruleOf(X, Y, S.speeds, S.turn, `${label(X)} ${verbOf(x.action)} before ${label(Y)}`);
-        if (rule) rules.push(rule);
+        if (later === undefined ? (shownLater() || knockedOut()) : later > i && (second?.seen || knockedOut() || shownLater())) {
+          pairs.push({ u: x, v: y, S, atCutoff: false });
+        } else if (atCut) {
+          pairs.push({ u: x, v: y, S, atCutoff: true });
+        }
       }
     }
+    if (yo && cutSort && !tainted.has(cutSort.turn) && !movedAfter(yo.action, cutSort)) {
+      if (cutItem && cutItem !== yo && ofKind(cutItem.action, got.kind) && cutItem.pokemon && cutItem.pokemon !== yo.pokemon
+        && cutItem.order === yo.order && !movedAfter(cutItem.action, cutSort)) {
+        pairs.push({ u: yo, v: cutItem, S: cutSort, atCutoff: true });
+      }
+      for (const z of cutSort.list) {
+        if (z === yo || z === cutItem || !z.pokemon || z.pokemon === yo.pokemon || z.order !== yo.order) continue;
+        if (z.action?.choice !== 'move' || movedAfter(z.action, cutSort) || shown.get(z.action)?.seen) continue;
+        const Z = byPokemon.get(z.pokemon);
+        if (Z && cutSort.turn === prefix.turn && realLater(Z, z.action.move?.id)) {
+          pairs.push({ u: yo, v: z, S: cutSort, atCutoff: true });
+        }
+      }
+    }
+    let narrowed = true;
+    while (narrowed) {
+      narrowed = false;
+      for (const { u, v, S } of pairs) {
+        const pu = prioritiesIn(u, S);
+        const pv = prioritiesIn(v, S);
+        if (!pu.length || !pv.length) continue;
+        const maxU = Math.max(...pu);
+        const minV = Math.min(...pv);
+        if (v.action?.choice === 'move' && v.moves) {
+          const sv = movesFor(v, S);
+          for (const m of v.moves) {
+            if (sv.has(m.id) && m.priority > maxU) { sv.delete(m.id); narrowed = true; }
+          }
+        }
+        if (u.action?.choice === 'move' && u.moves) {
+          const su = movesFor(u, S);
+          for (const m of u.moves) {
+            if (su.has(m.id) && m.priority < minV) { su.delete(m.id); narrowed = true; }
+          }
+        }
+      }
+    }
+    const pushPairRule = ({ u, v, S }) => {
+      const pu = prioritiesIn(u, S);
+      const pv = prioritiesIn(v, S);
+      if (!pu.length || !pv.length || Math.max(...pu) !== Math.min(...pv)) return;
+      const X = byPokemon.get(u.pokemon);
+      const Y = byPokemon.get(v.pokemon);
+      const rule = X && Y && X !== Y ? ruleOf(X, Y, S.speeds, S.turn, `${label(X)} ${verbOf(u.action)} before ${label(Y)}`) : null;
+      if (rule) rules.push(rule);
+    };
+    const rules = [];
+    for (const pair of pairs) if (!pair.atCutoff) pushPairRule(pair);
 
     // Handlers of one event sorted at the same order and priority ran in speed
     // order, so a Pokemon whose handler wrote a line first had at least the
@@ -802,126 +1008,7 @@ export function attachSpeed(battle, {
       }
     }
 
-    // The log diverged on who moved: the observed order is the true one. A
-    // side with Illusion can print one Pokemon's name for another, so a name
-    // the replay's line gives on that side says nobody for certain.
-    const cut = view.find(e => e.at === prefix.cutoffAt);
-    const disguisable = sideId => !!battle.sides.find(side => side.id === sideId)?.pokemon.some(p => p.baseAbility === 'illusion');
-    // Who stood where as the last action begun by the cutoff began: the
-    // battle itself has run on past the cutoff.
-    const standing = [...executed].reverse().find(e => e.start <= prefix.cutoffAt)?.standing || new Map();
-    // Who a line at the cutoff names: the Pokemon then in that slot when it
-    // shows that name, its own or the one it is disguised as; otherwise, on a
-    // side with no Illusion user, the Pokemon of that name.
-    const named = (ident) => {
-      const s = standing.get(String(ident).slice(0, 3));
-      if (s && (s.name === identName(ident) || s.pokemon.name === identName(ident))) return byPokemon.get(s.pokemon) || null;
-      return disguisable(identSide(ident)) ? null : byIdent.get(`${identSide(ident)}:${identName(ident)}`) || null;
-    };
-    const was = opens(prefix.observedLine, prefix.observedAfter?.[0]);
-    const cutAt = cut ? view.indexOf(cut) : -1;
-    const got = cut ? opens(cut.line, view[cutAt + 1]?.line) : null;
-    // The move P really chose this turn: its first own move line from here
-    // to the turn's end, unless an Encore begun on it this turn before then
-    // put another in its place. A rebuild that chose another for it sorted
-    // another priority, and then the order says nothing about speed.
-    const chosen = () => {
-      const P = named(was.ident);
-      if (!P || encoredBefore(P, prefix.cutoffAt)) return null;
-      for (const line of [prefix.observedLine, ...(prefix.observedAfter || [])]) {
-        const parts = String(line || '').split('|');
-        if (parts[1] === 'turn' || encore(line, P)) return null;
-        if (parts[1] === 'move' && parts[2] === was.ident && !String(line).includes('[from]')) return String(parts[3]).toLowerCase().replace(/[^a-z0-9]/g, '');
-      }
-      return null;
-    };
-    // The queued action the replay's line opens: P's move, P's Mega
-    // Evolution, or the switch out of the slot the line names. A move P never
-    // used - it flinched, or was fully paralysed - or one an Encore replaced
-    // shows no move to say which it chose; `between` then says whether its
-    // priority is proved anyway.
-    const opened = (item, between) => {
-      if (!ofKind(item.action, was.kind)) return false;
-      if (was.kind === 'switch') return item.side === identSide(was.ident) && item.slot === 'abcd'.indexOf(String(was.ident)[2]);
-      const P = named(was.ident);
-      if (!P || item.pokemon !== P.pokemon) return false;
-      if (was.kind === 'mega') return true;
-      const move = chosen();
-      return move ? item.action?.move?.id === move : between(item);
-    };
-    if (was && got && (was.ident !== got.ident || was.kind !== got.kind)) {
-      const ex = executed.find(e => e.start <= prefix.cutoffAt && prefix.cutoffAt < e.end);
-      const S = ex?.sort;
-      const x = S?.list.find(item => item.action === ex.action);
-      // P's action came after the action the replay shows just before it, and
-      // before Q's. When those two were sorted at the same order and priority,
-      // so was P's, whatever move it chose - provided every move P has would
-      // be sorted at the same priority in both sorts.
-      const before = x ? executed[executed.indexOf(ex) - 1] : null;
-      const a = before?.sort && before.sort.turn === S.turn && shown.get(before.action)?.on && !movedAfter(before.action, before.sort)
-        ? before.sort.list.find(item => item.action === before.action) : null;
-      const between = item => !!a && a.order === x.order && a.priority === x.priority && item.priorities !== null
-        && before.sort.list.find(it => it.action === item.action)?.priorities === item.priorities;
-      const unseen = was.kind === 'move' && !chosen();
-      const y = x && ofKind(x.action, got.kind)
-        ? S.list.find(item => item !== x && item.pokemon && item.order === x.order
-          && (item.priority === x.priority || unseen) && opened(item, between)) : null;
-      const P = y && byPokemon.get(y.pokemon);
-      const Q = x && byPokemon.get(x.pokemon);
-      // Q's real priority is the one the rebuild sorted it at when the replay
-      // shows it using the move the rebuild queued, or when P's move is seen
-      // and no move Q has sorts below P's priority: P went first, so Q's real
-      // priority was no higher than P's.
-      const real = x && (x.action?.choice !== 'move' || realLater(Q, x.action.move?.id)
-        || (!unseen && y && x.lowest !== null && x.lowest >= y.priority));
-      const rule = P && Q && P !== Q && real && !tainted.has(S.turn) && !movedAfter(x.action, S) && !movedAfter(y.action, S) ? ruleOf(P, Q, S.speeds, S.turn, `${label(P)} ${verbOf(y.action)} before ${label(Q)}`) : null;
-      if (rule) rules.push(rule);
-      // P's action went before every action of the sort the replay shows
-      // later in the turn using the very move the rebuild queued, of its own
-      // choice: one at the same order and priority as P's went no faster.
-      // P's queued action found by its own move, whatever priority the
-      // rebuild's action at the cutoff had.
-      const yo = !S ? null : !unseen ? S.list.find(item => item.pokemon && opened(item, between)) : y;
-      const PO = yo && byPokemon.get(yo.pokemon);
-      // The rebuild's action at the cutoff sorted at another priority than
-      // P's - a Protect the replay never shows, its user knocked out first -
-      // yet no move Q has sorts below P's: Q's real action went after P's at
-      // P's own priority, so P went at least as fast.
-      if (PO && Q && PO !== Q && x && x !== yo && x.order === yo.order && !unseen && x.lowest !== null && x.lowest >= yo.priority
-        && !tainted.has(S.turn) && !movedAfter(x.action, S) && !movedAfter(yo.action, S)) {
-        const low = ruleOf(PO, Q, S.speeds, S.turn, `${label(PO)} ${verbOf(yo.action)} before ${label(Q)}`);
-        if (low) rules.push(low);
-      }
-      if (PO && yo && !unseen && !tainted.has(S.turn) && !movedAfter(yo.action, S)) {
-        for (const z of S.list) {
-          if (z === yo || z === x || !z.pokemon || z.pokemon === yo.pokemon || z.order !== yo.order || z.priority !== yo.priority) continue;
-          if (z.action?.choice !== 'move' || movedAfter(z.action, S) || shown.get(z.action)?.on) continue;
-          const Z = byPokemon.get(z.pokemon);
-          if (!Z || Z === PO || S.turn !== prefix.turn || !realLater(Z, z.action.move?.id)) continue;
-          // The replay's own line at the cutoff is P's, so Z's comes after it.
-          const later = ruleOf(PO, Z, S.speeds, S.turn, `${label(PO)} ${verbOf(yo.action)} before ${label(Z)}`);
-          if (later) rules.push(later);
-        }
-      }
-      // Every action the replay shows before P's, as the rebuild ran it too,
-      // went before P's in the real battle: one its own last sort had at the
-      // same order and priority as P's went at least as fast. P's priority is
-      // the one sorted when its move is seen, and otherwise no higher than
-      // the earlier one's, as no move it has sorts below that.
-      const cutIndex = ex ? executed.indexOf(ex) : -1;
-      for (const [k, zx] of executed.entries()) {
-        if (!PO || !yo || k >= cutIndex) break;
-        const Sz = zx.sort;
-        if (!Sz || tainted.has(Sz.turn) || movedAfter(zx.action, Sz) || movedAfter(yo.action, Sz) || !shown.get(zx.action)?.on) continue;
-        const z = Sz.list.find(item => item.action === zx.action);
-        const w = Sz.list.find(item => item.action === yo.action);
-        if (!z || !w || !z.pokemon || z.pokemon === yo.pokemon || Sz.list.indexOf(w) < Sz.list.indexOf(z)) continue;
-        if (w.order !== z.order || !(w.priority === z.priority && (!unseen || (w.lowest !== null && w.lowest >= z.priority)))) continue;
-        const Z = byPokemon.get(z.pokemon);
-        const earlier = Z && Z !== PO ? ruleOf(Z, PO, Sz.speeds, Sz.turn, `${label(Z)} ${verbOf(z.action)} before ${label(PO)}`) : null;
-        if (earlier) rules.push(earlier);
-      }
-    }
+    for (const pair of pairs) if (pair.atCutoff) pushPairRule(pair);
 
     // The log diverged inside an event sort: the rebuild's handler for Q wrote
     // its line where the replay shows P's. That proves P went first only if
@@ -1046,6 +1133,18 @@ export function attachSpeed(battle, {
         }
       }
     }
+    cutoffSpeeds = [];
+    if (prefix.cutoffAt < Infinity) {
+      const ev = eventSorts.find(entry => entry.items && matched(entry).some(m => m.span.start <= prefix.cutoffAt && prefix.cutoffAt < m.span.end));
+      const hs = handlerSorts.find(h => h.frame.logAt !== undefined && h.frame.logEnd !== undefined && h.frame.logAt <= prefix.cutoffAt && prefix.cutoffAt < h.frame.logEnd);
+      const ex = executed.find(e => e.start <= prefix.cutoffAt && prefix.cutoffAt < e.end);
+      const map = ev?.speeds || hs?.speeds || ex?.sort?.speeds || null;
+      if (map) {
+        for (const [rec, fx] of map) {
+          if (fx) cutoffSpeeds.push({ id: rec.id, owner: fx.owner, table: Array.from(fx.table) });
+        }
+      }
+    }
     return rules;
   }
 
@@ -1059,6 +1158,13 @@ export function attachSpeed(battle, {
    * paralysis and boosts are already in them. Returns whether anything went.
    */
   function bound({ fast, slow, tf, ts, strict }) {
+    if (fast === slow) {
+      let moved = false;
+      for (let v = 0; v < SPAN; v++) {
+        if (fast.flat.spe[v] && (strict ? tf[v] <= ts[v] : tf[v] < ts[v])) { fast.flat.spe[v] = 0; moved = true; }
+      }
+      return moved;
+    }
     let maxFast = -Infinity;
     let minSlow = Infinity;
     for (let v = 0; v < SPAN; v++) {
@@ -1090,16 +1196,15 @@ export function attachSpeed(battle, {
     }
     const linked = [...new Set(rules.flatMap(rule => [rule.fast, rule.slow]))];
     const before = record ? new Map(linked.map(rec => [rec, measure(rec)])) : null;
-    let moved = true;
-    while (moved) {
-      moved = false;
-      for (const rule of rules) moved = bound(rule) || moved;
-    }
+    orderSpeeds(
+      new Map(linked.map(rec => [rec.id, { dom: rec.flat }])),
+      rules.map(r => ({ fast: r.fast.id, slow: r.slow.id, tf: r.tf, ts: r.ts, ...(r.strict ? { strict: true } : {}) })),
+    );
     if (before) {
       const cuts = linked.map(rec => cutOf(rec, before.get(rec))).filter(Boolean);
       if (cuts.length) events.push({ turn: battle.turn, what: 'every speed order at once, each bound passed on to the Pokemon ordered against it', cuts });
     }
   }
 
-  return { rules: speedRules, apply: applySpeed, scaffold: () => scaffoldOrders };
+  return { rules: speedRules, apply: applySpeed, scaffold: () => scaffoldOrders, cutoff: () => cutoffSpeeds };
 }
