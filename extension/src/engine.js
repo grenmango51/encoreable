@@ -447,6 +447,7 @@ export async function reconstructReplay({ source: input, teams = [null, null], i
       const read = setsFromLog(observed, `p${i + 1}`, source.formatid);
       return read.sets.map((set, j) => ({
         ...set, nature: null,
+        moves: set.moves.filter(m => !read.boxes[j].assumedMoves?.includes(m)),
         item: read.boxes[j].item === 'assumed' ? null : set.item,
         ability: read.boxes[j].ability === 'assumed' ? null : set.ability,
       }));

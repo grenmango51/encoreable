@@ -131,27 +131,42 @@ export function illusionStays(lines, sheets) {
 
 /**
  * The switch-ins `illusionStays` lists that nothing settles, as
- * `{ at, turn, side, name }`. A stay is the Pokemon shown when it took a hit
- * from another Pokemon's move and stood, with no `|replace|` after it - a hit
- * always breaks Illusion - used a move only its own sheet has, showed its own
- * exact max HP and one no spread of the Illusion user gives, or came in while the Illusion user
- * was seen elsewhere or had fainted. None is the Illusion user once as many
- * other Pokemon have been shown on its side as the side brought: it copies only
- * a Pokemon brought with it, so it was not brought. One read as the Illusion
- * user is not listed. Any other could have been either, so what it showed is
- * evidence for neither.
+ * `{ at, end, turn, slot, side, name }`. A stay is the Pokemon shown when it
+ * took a hit from another Pokemon's move while Illusion was unsuppressed and
+ * stood, with no `|replace|` after it - a hit always breaks Illusion - used a
+ * move only its own sheet has, triggered an ability or Mega forme the Illusion
+ * user cannot have, showed its own exact max HP and one no spread of the
+ * Illusion user gives, or came in while the Illusion user was seen elsewhere or
+ * had fainted. None is the Illusion user once as many other Pokemon have been
+ * shown on its side as the side brought: it copies only a Pokemon brought with
+ * it, so it was not brought. One read as the Illusion user is not listed. Any
+ * other could have been either, so what it showed is evidence for neither.
  */
 export function unsettledStays(lines, sheets) {
   const seen = unmaskIllusion(lines, sheets).lines.map(String);
+  const revived = seen.some(l => l.includes('Revival Blessing'));
+  const hasGas = seen.some(l => l.includes('Neutralizing Gas'));
   const brought = {};
   const others = { p1: new Set(), p2: new Set() };
   for (const line of seen) {
     const q = line.split('|');
     if (q[1] === 'teamsize') brought[q[2]] = Number(q[3]);
     const who = /^(p[1-4])[a-d]: (.+)$/.exec(q[2] || '');
-    const zoroark = who && sheets[who[1]]?.members.find(p => p.illusion);
+    const zoroark = who && sheets?.[who[1]]?.members.find(p => p.illusion);
     if ((q[1] === 'switch' || q[1] === 'drag') && zoroark && who[2] !== zoroark.name) others[who[1]]?.add(who[2]);
   }
+  const activeAt = (limit, side) => {
+    const active = new Map();
+    for (let i = 0; i < limit; i++) {
+      const q = seen[i].split('|');
+      const who = /^((p[1-4])[a-d]): (.+)$/.exec(q[2] || '');
+      if (!who || who[2] !== side) continue;
+      if (q[1] === 'faint') active.delete(who[1]);
+      else if (q[1] === 'swap') active.clear();
+      else if (['switch', 'drag', 'replace'].includes(q[1])) active.set(who[1], who[3]);
+    }
+    return active;
+  };
   const out = [];
   for (const stay of illusionStays(lines, sheets)) {
     const parts = seen[stay.at].split('|');
@@ -169,22 +184,53 @@ export function unsettledStays(lines, sheets) {
     // A max HP settles it only when no spread of the Illusion user gives it:
     // the sheets carry guesses, and the guess is not the Pokemon.
     const zoroarkCould = n => (zoroark.hpSpan ? n >= zoroark.hpSpan[0] && n <= zoroark.hpSpan[1] : n === zoroark.maxhp);
-    let settled = !!(sheets[side].exact && hp && Number(hp[1]) === shown.maxhp && !zoroarkCould(Number(hp[1])))
-      || seen.slice(0, stay.at).some(line => line.startsWith('|faint|') && zoroarkIs(line));
+    const shownCould = n => (shown.hpSpan ? n >= shown.hpSpan[0] && n <= shown.hpSpan[1] : n === shown.maxhp);
+    const active = activeAt(stay.at, side);
+    let settled = !!(sheets[side].exact && hp && shownCould(Number(hp[1])) && !zoroarkCould(Number(hp[1])))
+      || [...active.entries()].some(([s, n]) => s !== slot && n === zoroark.name)
+      || (!revived && seen.slice(0, stay.at).some(line => line.startsWith('|faint|') && zoroarkIs(line)));
     let mover = null;
-    for (let j = stay.at + 1; j < seen.length && !settled; j++) {
+    let suppressed = hasGas;
+    let abilitySpoiled = false;
+    let moveSpoiled = false;
+    let end = seen.length;
+    for (let j = stay.at + 1; j < seen.length; j++) {
       const q = seen[j].split('|');
       if (q[1] === 'move') mover = q[2];
-      if (zoroarkIs(seen[j])) settled = true;
+      if (!settled && zoroarkIs(seen[j])) settled = true;
+      if (q[1] === 'swap' && String(q[2] || '').startsWith(side)) { end = j; break; }
+      if (!abilitySpoiled && zoroark.abilities && (q[1] === '-weather' || q[1] === '-fieldstart')) {
+        const ab = /\[from\] ability: ([^|]+)/.exec(seen[j]);
+        if (ab && seen[j].includes(`[of] ${slot}: `) && !zoroark.abilities.has(idOf(ab[1]))) settled = true;
+      }
       if (!String(q[2] || '').startsWith(`${slot}: `)) continue;
-      if (['switch', 'drag', 'replace', 'faint'].includes(q[1])) break;
-      if (q[1] === '-damage' && !seen[j].includes('[from]') && !/^0\b/.test(q[3] || '') && mover && mover !== q[2]) settled = true;
-      if (q[1] === 'move' && !seen[j].includes('[from]')) {
+      if (['switch', 'drag', 'replace', 'faint'].includes(q[1])) { end = j; break; }
+      if (q[1] === '-activate') {
+        abilitySpoiled = true;
+        if (/^move: (Mimic|Sketch)$/.test(q[3] || '')) moveSpoiled = true;
+      }
+      if (['-transform', '-formechange', '-terastallize', '-endability', 'detailschange'].includes(q[1])) {
+        if (q[1] === 'detailschange' && zoroark.canMega === false && /-Mega\b/.test(q[3] || '')) settled = true;
+        abilitySpoiled = true;
+        if (q[1] === '-transform') moveSpoiled = true;
+        if (q[1] === '-endability') suppressed = true;
+      }
+      if (q[1] === '-mega' && zoroark.canMega === false) settled = true;
+      if (q[1] === '-ability') {
+        if (seen[j].includes('[from]')) abilitySpoiled = true;
+        else if (!abilitySpoiled && zoroark.abilities && q[3] && !zoroark.abilities.has(idOf(q[3]))) settled = true;
+      }
+      if (!abilitySpoiled && zoroark.abilities) {
+        const ab = /\[from\] ability: ([^|]+)/.exec(seen[j]);
+        if (ab && !seen[j].includes('[of]') && !zoroark.abilities.has(idOf(ab[1]))) settled = true;
+      }
+      if (!settled && !suppressed && q[1] === '-damage' && !seen[j].includes('[from]') && !/^0\b/.test(q[3] || '') && mover && mover !== q[2]) settled = true;
+      if (!settled && !moveSpoiled && q[1] === 'move' && !seen[j].includes('[from]')) {
         const move = idOf(q[3]);
         if (move !== 'struggle' && shown.moves.has(move) && !zoroark.moves.has(move)) settled = true;
       }
     }
-    if (!settled) out.push({ ...stay, side, name });
+    if (!settled) out.push({ ...stay, end, slot, side, name });
   }
   return out;
 }

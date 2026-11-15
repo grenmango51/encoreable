@@ -48,9 +48,9 @@ import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 
-import { battleLines } from './lib/protocol.mjs';
+import { battleLines, unmaskIllusion, unsettledStays } from './lib/protocol.mjs';
 import { inferSpreads } from './lib/inference/infer.mjs';
-import { setsFromLog } from './lib/replay-source.mjs';
+import { illusionSheetsFromLog, setsFromLog } from './lib/replay-source.mjs';
 import { FUZZ_TURNS, FuzzPlayer, fuzzRecipe, fuzzTeams, playFuzz, randomSpread, seedFor } from './lib/fuzz.mjs';
 
 const require = createRequire(import.meta.url);
@@ -1368,6 +1368,10 @@ const nameIn = (line, name) => String(line).split('|')
  */
 function readBoxes(template, raw) {
   const lines = battleLines(raw);
+  const sheets = illusionSheetsFromLog(lines, FORMAT);
+  const unmasked = unmaskIllusion(lines, sheets).lines.map(String);
+  const unsettled = unsettledStays(lines, sheets);
+  const ambiguousAt = (idx, side, name) => unsettled.some(u => u.side === side && u.name === name && idx >= u.at && idx < u.end);
   const out = [];
   for (const [s, side] of ['p1', 'p2'].entries()) {
     const read = setsFromLog(lines, side, FORMAT);
@@ -1375,28 +1379,33 @@ function readBoxes(template, raw) {
     for (const [j, set] of read.sets.entries()) {
       const real = truth.find(t => t.name === set.name);
       if (!real) continue;
+      const boxes = read.boxes[j];
       const ident = `${side}`;
-      const names = line => new RegExp(`\\|${ident}[a-d]: ${set.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\||$)`).test(line)
-        || line.includes(`[of] ${ident}a: ${set.name}`) || line.includes(`[of] ${ident}b: ${set.name}`);
-      const namedBy = name => (name ? lines.find(l => nameIn(l, name) && names(l)) || null : null);
+      const names = (line, idx) => !ambiguousAt(idx, side, set.name)
+        && (new RegExp(`\\|${ident}[a-d]: ${set.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\||$)`).test(line)
+          || line.includes(`[of] ${ident}a: ${set.name}`) || line.includes(`[of] ${ident}b: ${set.name}`));
+      const namedBy = name => (name ? unmasked.find((l, idx) => nameIn(l, name) && names(l, idx)) || null : null);
+      const anyNamedBy = name => (name ? lines.find(l => nameIn(l, name)) || null : null);
       const box = (kind, value, truthValue, verdict, line) => out.push({ side, pokemon: set.name, box: kind, value, truth: truthValue, verdict, line });
       const same = (a, b, table) => toID(table.get(a).name || a) === toID(table.get(b).name || b);
 
-      if (set.item) box('item', set.item, real.item || null, real.item && same(set.item, real.item, dex.items) ? 'READ' : 'MISREAD', namedBy(set.item));
+      if (boxes.item === 'read' && set.item) box('item', set.item, real.item || null, real.item && same(set.item, real.item, dex.items) ? 'READ' : 'MISREAD', namedBy(set.item) || anyNamedBy(set.item));
       else if (real.item && namedBy(real.item)) box('item', null, real.item, 'MISSED', namedBy(real.item));
 
       // An ability `setsFromLog` assumed is not a reading; one it read is.
       const assumed = read.assumed[j].notes.some(n => n.startsWith('ability '));
       const species = dex.species.get(real.species);
       const single = Object.keys(species.abilities).length === 1;
-      if (!assumed && !single) box('ability', set.ability, real.ability, same(set.ability, real.ability, dex.abilities) ? 'READ' : 'MISREAD', namedBy(set.ability));
+      if (!assumed && !single) box('ability', set.ability, real.ability, same(set.ability, real.ability, dex.abilities) ? 'READ' : 'MISREAD', namedBy(set.ability) || anyNamedBy(set.ability));
       else if (assumed && namedBy(real.ability)) box('ability', null, real.ability, 'MISSED', namedBy(real.ability));
 
+      const assumedMoves = new Set([boxes.standIn, ...(boxes.assumedMoves || [])].filter(Boolean));
+      const readMoves = set.moves.filter(m => !assumedMoves.has(m));
       const realMoves = new Set(real.moves.map(toID));
-      for (const m of set.moves) if (!realMoves.has(toID(m))) box('move', m, null, 'MISREAD', namedBy(m));
+      for (const m of readMoves) if (!realMoves.has(toID(m))) box('move', m, null, 'MISREAD', namedBy(m) || anyNamedBy(m));
       for (const m of real.moves) {
-        const used = lines.find(l => l.startsWith(`|move|${side}`) && names(l) && l.split('|')[3] === m && !l.includes('[from]'));
-        if (used) box('move', set.moves.includes(m) ? m : null, m, set.moves.includes(m) ? 'READ' : 'MISSED', used);
+        const used = unmasked.find((l, idx) => l.startsWith(`|move|${side}`) && names(l, idx) && l.split('|')[3] === m && !l.includes('[from]'));
+        if (used) box('move', readMoves.includes(m) ? m : null, m, readMoves.includes(m) ? 'READ' : 'MISSED', used);
       }
     }
   }

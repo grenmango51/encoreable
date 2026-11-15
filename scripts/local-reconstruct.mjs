@@ -232,15 +232,20 @@ function setReport(read, truth, formatid, side) {
     row(name(), 'nature', boxes.nature, natureOf(set.nature),
       verdict('nature', natureOf(set.nature), real ? natureOf(real.nature) : null, !real || natureOf(set.nature) === natureOf(real.nature)));
     const realMoves = (real?.moves || []).map(m => dex.moves.get(m).name);
+    const assumedMoves = new Set([boxes.standIn, ...(boxes.assumedMoves || [])].filter(Boolean));
     for (const move of set.moves) {
       if (move === boxes.standIn) {
         row(name(), 'move', 'assumed', move, 'it never used a move; this one stands in for the choices it made');
         continue;
       }
+      if (boxes.assumedMoves?.includes(move)) {
+        row(name(), 'move', 'assumed', move, 'used under a switch-in that could have been an Illusion');
+        continue;
+      }
       const has = realMoves.some(m => toID(m) === toID(move));
       row(name(), 'move', 'read', move, real ? (has ? 'truth has it' : verdict('move', move, realMoves.join(', '), false)) : '');
     }
-    const unseen = realMoves.filter(m => !set.moves.some(s => s !== boxes.standIn && toID(s) === toID(m)));
+    const unseen = realMoves.filter(m => !set.moves.some(s => !assumedMoves.has(s) && toID(s) === toID(m)));
     if (real && unseen.length) row(name(), 'move', 'unseen', '', `truth ${unseen.join(', ')}`);
   }
   return { lines, wrong };
