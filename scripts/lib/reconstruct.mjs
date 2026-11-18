@@ -33,7 +33,7 @@ import os from 'os';
 import { createRequire } from 'module';
 import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 
-import { battleLines, firstDivergence, illusionStays, unmaskIllusion } from './protocol.mjs';
+import { battleLines, firstDivergence, illusionStays, restoreOverriddenTargets, unmaskIllusion } from './protocol.mjs';
 import { install, traceOn, markDraws, atLine } from './rng-control.mjs';
 
 const require = createRequire(import.meta.url);
@@ -2359,8 +2359,8 @@ async function playThrough({ header, segments, plans, reseeds, variants, radices
   battle.inputLog.push = function (line, ...rest) {
     const m = /^>(p[1-4]) (.*)$/.exec(String(line));
     const raw = m && written[m[1]];
-    const fixed = raw && /\bmove struggle\b/.test(m[2]) && !/\bstruggle\b/.test(raw) ? `>${m[1]} ${raw}` : line;
-    return recordInput.call(this, fixed, ...rest);
+    const replaced = raw && /\bmove struggle\b/.test(m[2]) && !/\bstruggle\b/.test(raw) ? `>${m[1]} ${raw}` : line;
+    return recordInput.call(this, restoreOverriddenTargets(replaced, battle), ...rest);
   };
   const trace = traceOn(battle);
   // Each draw also records how long the log was when it was thrown: a die

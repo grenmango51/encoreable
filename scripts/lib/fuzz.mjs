@@ -10,6 +10,7 @@ import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
 
+import { restoreOverriddenTargets } from './protocol.mjs';
 import { traceOn, markDraws } from './rng-control.mjs';
 import { loadSource, setsFromSheet } from './replay-source.mjs';
 
@@ -202,8 +203,8 @@ export async function playFuzz(recipe, players = recipe.ai.map(seed => new FuzzP
     battle.inputLog.push = function (line, ...rest) {
       const m = /^>(p[1-4]) (.*)$/.exec(String(line));
       const raw = m && written[m[1]];
-      const fixed = raw && /\bmove struggle\b/.test(m[2]) && !/\bstruggle\b/.test(raw) ? `>${m[1]} ${raw}` : line;
-      return recordInput.call(this, fixed, ...rest);
+      const replaced = raw && /\bmove struggle\b/.test(m[2]) && !/\bstruggle\b/.test(raw) ? `>${m[1]} ${raw}` : line;
+      return recordInput.call(this, restoreOverriddenTargets(replaced, battle), ...rest);
     };
     // Install before >player: even gender rolls belong to the ordinal stream.
     const dice = traceOn(battle);

@@ -312,3 +312,31 @@ export function allDivergences(a, b) {
   }
   return rows;
 }
+
+/**
+ * A move forced into an override (a lock, or a hidden disable) is written to
+ * the input log as the choice that was pressed. For a locked move that choice
+ * has no target: the target was picked on the turn the lock began and is kept
+ * only on the action. A fresh simulator refuses such a line ("needs a target"),
+ * so put that target back before the line is recorded. `commitChoices()` writes
+ * the line while `choice.actions` is still intact, and `getChoice()` emits one
+ * comma-separated segment per action, in the same order. A no-op on pins that
+ * already record the target.
+ */
+export function restoreOverriddenTargets(line, battle) {
+  const m = /^>(p[1-4]) (.*)$/.exec(String(line));
+  if (!m) return line;
+  const actions = battle.sides[Number(m[1][1]) - 1]?.choice?.actions;
+  if (!actions?.length || battle.activePerHalf <= 1) return line;
+  let changed = false;
+  const fixed = m[2].split(', ').map((seg, i) => {
+    const action = actions[i];
+    if (action?.choice !== 'move' || !action.originalChoice || !action.targetLoc || seg !== action.originalChoice) return seg;
+    const parts = seg.split(' ');
+    if (/^[+-]?\d+$/.test(parts[2] || '')) return seg;
+    parts.splice(2, 0, `${action.targetLoc > 0 ? '+' : ''}${action.targetLoc}`);
+    changed = true;
+    return parts.join(' ');
+  });
+  return changed ? `>${m[1]} ${fixed.join(', ')}` : line;
+}
