@@ -1,0 +1,2330 @@
+[
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2696773301",
+  "view": "both@spectator",
+  "battle": "e23ad12b07c55896",
+  "result": "GAVE UP",
+  "sound": true,
+  "complete": false,
+  "limitHit": true,
+  "asSaved": null,
+  "stop": "searches",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "probes",
+   "searches"
+  ],
+  "pokemon": [
+   {
+    "id": "p1:0",
+    "species": "Charizard",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 1,
+    "miscounted": null
+   },
+   {
+    "id": "p1:1",
+    "species": "Annihilape",
+    "seen": true,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 12,
+    "likely": 15,
+    "miscounted": null
+   },
+   {
+    "id": "p1:2",
+    "species": "Armarouge",
+    "seen": true,
+    "kept": true,
+    "spreads": 136661133,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p1:3",
+    "species": "Indeedee-F",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 17,
+    "miscounted": null
+   },
+   {
+    "id": "p1:4",
+    "species": "Torkoal",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p1:5",
+    "species": "Kingambit",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 45,
+    "miscounted": null
+   },
+   {
+    "id": "p2:0",
+    "species": "Toxapex",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 5,
+    "likely": 6,
+    "miscounted": null
+   },
+   {
+    "id": "p2:1",
+    "species": "Sylveon",
+    "seen": true,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p2:2",
+    "species": "Garchomp",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 11,
+    "miscounted": null
+   },
+   {
+    "id": "p2:3",
+    "species": "Incineroar",
+    "seen": true,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 3,
+    "likely": 20,
+    "miscounted": null
+   },
+   {
+    "id": "p2:4",
+    "species": "Venusaur",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 18,
+    "likely": 38,
+    "miscounted": null
+   },
+   {
+    "id": "p2:5",
+    "species": "Charizard",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   }
+  ],
+  "work": {
+   "rounds": 23,
+   "rebuilds": 319,
+   "probes": 193786,
+   "passes": 263
+  },
+  "broken": 0,
+  "stoppedOn": {
+   "turn": 1,
+   "expected": "|cant|p1b: Armarouge|flinch",
+   "actual": "|move|p1a: Annihilape|Close Combat|p2b: Incineroar",
+   "kind": "cant where the rebuild has move"
+  },
+  "seconds": 1362.1
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2694048488",
+  "view": "both@spectator",
+  "battle": "499db9d4e09d6e9b",
+  "result": "GAVE UP",
+  "sound": true,
+  "complete": false,
+  "limitHit": true,
+  "asSaved": null,
+  "stop": "searches",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "fallbackTotal",
+   "guessTries",
+   "probes",
+   "searches"
+  ],
+  "pokemon": [
+   {
+    "id": "p1:0",
+    "species": "Gengar",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 12,
+    "likely": 29,
+    "miscounted": null
+   },
+   {
+    "id": "p1:1",
+    "species": "Golisopod",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 29,
+    "miscounted": null
+   },
+   {
+    "id": "p1:2",
+    "species": "Rillaboom",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 2,
+    "miscounted": null
+   },
+   {
+    "id": "p1:3",
+    "species": "Incineroar",
+    "seen": true,
+    "kept": true,
+    "spreads": 52048608,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 3,
+    "miscounted": null
+   },
+   {
+    "id": "p1:4",
+    "species": "Politoed",
+    "seen": true,
+    "kept": true,
+    "spreads": 64954929,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p1:5",
+    "species": "Farigiraf",
+    "seen": true,
+    "kept": true,
+    "spreads": 68760492,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p2:0",
+    "species": "Whimsicott",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 28,
+    "miscounted": null
+   },
+   {
+    "id": "p2:1",
+    "species": "Indeedee-F",
+    "seen": true,
+    "kept": true,
+    "spreads": 1618757,
+    "witness": true,
+    "exact": [],
+    "rank": 17,
+    "likely": 17,
+    "miscounted": null
+   },
+   {
+    "id": "p2:2",
+    "species": "Garchomp",
+    "seen": true,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 21,
+    "miscounted": null
+   },
+   {
+    "id": "p2:3",
+    "species": "Gardevoir",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 23,
+    "likely": 39,
+    "miscounted": null
+   },
+   {
+    "id": "p2:4",
+    "species": "Sneasler",
+    "seen": true,
+    "kept": true,
+    "spreads": 106875894,
+    "witness": true,
+    "exact": [],
+    "rank": 31,
+    "likely": 37,
+    "miscounted": null
+   },
+   {
+    "id": "p2:5",
+    "species": "Basculegion",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   }
+  ],
+  "work": {
+   "rounds": 93,
+   "rebuilds": 549,
+   "probes": 455785,
+   "passes": 33020
+  },
+  "broken": 0,
+  "stoppedOn": {
+   "turn": 5,
+   "expected": "|-damage|p2a: Indeedee|76/100",
+   "actual": "|-damage|p2a: Indeedee|79/100",
+   "kind": "-damage: another amount"
+  },
+  "seconds": 6590.4
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2693949366",
+  "view": "both@spectator",
+  "battle": "cdf4a8ed4d33d40e",
+  "result": "GAVE UP",
+  "sound": true,
+  "complete": false,
+  "limitHit": true,
+  "asSaved": null,
+  "stop": "searches",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "guessTries",
+   "probes",
+   "searches"
+  ],
+  "pokemon": [
+   {
+    "id": "p1:0",
+    "species": "Garchomp",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 21,
+    "miscounted": null
+   },
+   {
+    "id": "p1:1",
+    "species": "Farigiraf",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 7,
+    "likely": 18,
+    "miscounted": null
+   },
+   {
+    "id": "p1:2",
+    "species": "Incineroar",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p1:3",
+    "species": "Politoed",
+    "seen": true,
+    "kept": true,
+    "spreads": 3280851,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 4,
+    "miscounted": null
+   },
+   {
+    "id": "p1:4",
+    "species": "Golisopod",
+    "seen": true,
+    "kept": true,
+    "spreads": 12251073,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 20,
+    "miscounted": null
+   },
+   {
+    "id": "p1:5",
+    "species": "Archaludon",
+    "seen": true,
+    "kept": true,
+    "spreads": 65682,
+    "witness": true,
+    "exact": [],
+    "rank": 6,
+    "likely": 8,
+    "miscounted": null
+   },
+   {
+    "id": "p2:0",
+    "species": "Grimmsnarl",
+    "seen": true,
+    "kept": true,
+    "spreads": 119148401,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p2:1",
+    "species": "Annihilape",
+    "seen": true,
+    "kept": true,
+    "spreads": 12962095,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 1,
+    "miscounted": null
+   },
+   {
+    "id": "p2:2",
+    "species": "Sinistcha",
+    "seen": true,
+    "kept": true,
+    "spreads": 22048894,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 3,
+    "miscounted": null
+   },
+   {
+    "id": "p2:3",
+    "species": "Rillaboom",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 1,
+    "miscounted": null
+   },
+   {
+    "id": "p2:4",
+    "species": "Gengar",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 6,
+    "likely": 21,
+    "miscounted": null
+   },
+   {
+    "id": "p2:5",
+    "species": "Lucario",
+    "seen": true,
+    "kept": true,
+    "spreads": 116631679,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   }
+  ],
+  "work": {
+   "rounds": 71,
+   "rebuilds": 295,
+   "probes": 388560,
+   "passes": 20721
+  },
+  "broken": 0,
+  "stoppedOn": {
+   "turn": 9,
+   "expected": "|-heal|p1b: Golisopod|31/100 brn|[from] drain|[of] p2a: Sinistcha",
+   "actual": "|-heal|p1b: Golisopod|32/100 brn|[from] drain|[of] p2a: Sinistcha",
+   "kind": "-heal from drain: another amount"
+  },
+  "seconds": 12899.7
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2701447205",
+  "view": "both@spectator",
+  "battle": "844aa07f18dbb9a2",
+  "result": "GAVE UP",
+  "sound": true,
+  "complete": false,
+  "limitHit": true,
+  "asSaved": null,
+  "stop": "searches",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "probes",
+   "searches"
+  ],
+  "pokemon": [
+   {
+    "id": "p1:0",
+    "species": "Indeedee-F",
+    "seen": true,
+    "kept": true,
+    "spreads": 90685481,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 8,
+    "miscounted": null
+   },
+   {
+    "id": "p1:1",
+    "species": "Gardevoir",
+    "seen": true,
+    "kept": true,
+    "spreads": 63848597,
+    "witness": true,
+    "exact": [],
+    "rank": 3,
+    "likely": 34,
+    "miscounted": null
+   },
+   {
+    "id": "p1:2",
+    "species": "Kommo-o",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 32,
+    "likely": 43,
+    "miscounted": null
+   },
+   {
+    "id": "p1:3",
+    "species": "Excadrill",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 4,
+    "miscounted": null
+   },
+   {
+    "id": "p1:4",
+    "species": "Tyranitar",
+    "seen": true,
+    "kept": true,
+    "spreads": 62481298,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p1:5",
+    "species": "Corviknight",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 3,
+    "likely": 8,
+    "miscounted": null
+   },
+   {
+    "id": "p2:0",
+    "species": "Raichu",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 7,
+    "likely": 47,
+    "miscounted": null
+   },
+   {
+    "id": "p2:1",
+    "species": "Froslass",
+    "seen": true,
+    "kept": true,
+    "spreads": 63883374,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 2,
+    "miscounted": null
+   },
+   {
+    "id": "p2:2",
+    "species": "Indeedee-F",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 17,
+    "miscounted": null
+   },
+   {
+    "id": "p2:3",
+    "species": "Armarouge",
+    "seen": true,
+    "kept": true,
+    "spreads": 62565159,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 17,
+    "miscounted": null
+   },
+   {
+    "id": "p2:4",
+    "species": "Milotic",
+    "seen": true,
+    "kept": true,
+    "spreads": 34855725,
+    "witness": true,
+    "exact": [],
+    "rank": 6,
+    "likely": 8,
+    "miscounted": null
+   },
+   {
+    "id": "p2:5",
+    "species": "Sneasler",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   }
+  ],
+  "work": {
+   "rounds": 46,
+   "rebuilds": 342,
+   "probes": 71846,
+   "passes": 693
+  },
+  "broken": 0,
+  "stoppedOn": {
+   "turn": 4,
+   "expected": "|move|p1b: Gardevoir|Expanding Force|p2b: Milotic|[spread] p2a,p2b",
+   "actual": "|-unboost|p1a: Tyranitar|accuracy|1",
+   "kind": "move where the rebuild has -unboost"
+  },
+  "seconds": 1109.6
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2701492838",
+  "view": "both@spectator",
+  "battle": "2201f5dfb82c22e1",
+  "result": "GAVE UP",
+  "sound": true,
+  "complete": false,
+  "limitHit": true,
+  "asSaved": null,
+  "stop": "searches",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "probes",
+   "searches"
+  ],
+  "pokemon": [
+   {
+    "id": "p1:0",
+    "species": "Froslass",
+    "seen": true,
+    "kept": true,
+    "spreads": 108755706,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 5,
+    "miscounted": null
+   },
+   {
+    "id": "p1:1",
+    "species": "Annihilape",
+    "seen": true,
+    "kept": true,
+    "spreads": 45450648,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 19,
+    "miscounted": null
+   },
+   {
+    "id": "p1:2",
+    "species": "Rillaboom",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 18,
+    "likely": 45,
+    "miscounted": null
+   },
+   {
+    "id": "p1:3",
+    "species": "Incineroar",
+    "seen": true,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 10,
+    "likely": 20,
+    "miscounted": null
+   },
+   {
+    "id": "p1:4",
+    "species": "Glimmora",
+    "seen": true,
+    "kept": true,
+    "spreads": 117858413,
+    "witness": true,
+    "exact": [],
+    "rank": 3,
+    "likely": 16,
+    "miscounted": null
+   },
+   {
+    "id": "p1:5",
+    "species": "Garchomp",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 3,
+    "likely": 21,
+    "miscounted": null
+   },
+   {
+    "id": "p2:0",
+    "species": "Golisopod",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 7,
+    "likely": 29,
+    "miscounted": null
+   },
+   {
+    "id": "p2:1",
+    "species": "Raichu",
+    "seen": true,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 1,
+    "miscounted": null
+   },
+   {
+    "id": "p2:2",
+    "species": "Basculegion-F",
+    "seen": true,
+    "kept": true,
+    "spreads": 23647273,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 7,
+    "miscounted": null
+   },
+   {
+    "id": "p2:3",
+    "species": "Archaludon",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 13,
+    "likely": 17,
+    "miscounted": null
+   },
+   {
+    "id": "p2:4",
+    "species": "Sneasler",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 3,
+    "likely": 41,
+    "miscounted": null
+   },
+   {
+    "id": "p2:5",
+    "species": "Pelipper",
+    "seen": true,
+    "kept": true,
+    "spreads": 87859379,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   }
+  ],
+  "work": {
+   "rounds": 48,
+   "rebuilds": 387,
+   "probes": 333881,
+   "passes": 861
+  },
+  "broken": 0,
+  "stoppedOn": {
+   "turn": 3,
+   "expected": "|cant|p2b: Pelipper|flinch",
+   "actual": "|move|p2a: Basculegion|Muddy Water|p1a: Annihilape|[spread] p1a,p1b",
+   "kind": "cant where the rebuild has move"
+  },
+  "seconds": 3273.5
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2704557458",
+  "view": "p2@p1",
+  "battle": "2afc430570e43adf",
+  "result": "GAVE UP",
+  "sound": true,
+  "complete": false,
+  "limitHit": true,
+  "asSaved": null,
+  "stop": "searches",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "probes",
+   "searches"
+  ],
+  "pokemon": [
+   {
+    "id": "p2:0",
+    "species": "Incineroar",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 7,
+    "likely": 15,
+    "miscounted": null
+   },
+   {
+    "id": "p2:1",
+    "species": "Kommo-o",
+    "seen": true,
+    "kept": true,
+    "spreads": 25685357,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 16,
+    "miscounted": null
+   },
+   {
+    "id": "p2:2",
+    "species": "Rillaboom",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 45,
+    "miscounted": null
+   },
+   {
+    "id": "p2:3",
+    "species": "Gengar",
+    "seen": true,
+    "kept": true,
+    "spreads": 1996,
+    "witness": true,
+    "exact": [
+     "spe"
+    ],
+    "rank": 1,
+    "likely": 4,
+    "miscounted": null
+   },
+   {
+    "id": "p2:4",
+    "species": "Hippowdon",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 16,
+    "miscounted": null
+   },
+   {
+    "id": "p2:5",
+    "species": "Primarina",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   }
+  ],
+  "work": {
+   "rounds": 28,
+   "rebuilds": 252,
+   "probes": 233994,
+   "passes": 158
+  },
+  "broken": 0,
+  "stoppedOn": {
+   "turn": 4,
+   "expected": "|-damage|p1a: Raichu|22/137 psn|[from] Recoil",
+   "actual": "|-damage|p1a: Raichu|20/137 psn|[from] Recoil",
+   "kind": "-damage from Recoil: another amount"
+  },
+  "seconds": 1701.9
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2704557458",
+  "view": "both@spectator",
+  "battle": "2afc430570e43adf",
+  "result": "GAVE UP",
+  "sound": true,
+  "complete": false,
+  "limitHit": true,
+  "asSaved": null,
+  "stop": "searches",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "probes",
+   "searches"
+  ],
+  "pokemon": [
+   {
+    "id": "p1:0",
+    "species": "Arcanine-Hisui",
+    "seen": true,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p1:1",
+    "species": "Kingambit",
+    "seen": true,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 45,
+    "miscounted": null
+   },
+   {
+    "id": "p1:2",
+    "species": "Salamence",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 3,
+    "likely": 20,
+    "miscounted": null
+   },
+   {
+    "id": "p1:3",
+    "species": "Azumarill",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 14,
+    "likely": 24,
+    "miscounted": null
+   },
+   {
+    "id": "p1:4",
+    "species": "Raichu",
+    "seen": true,
+    "kept": true,
+    "spreads": 6852419,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 1,
+    "miscounted": null
+   },
+   {
+    "id": "p1:5",
+    "species": "Sneasler",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p2:0",
+    "species": "Incineroar",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 7,
+    "likely": 15,
+    "miscounted": null
+   },
+   {
+    "id": "p2:1",
+    "species": "Kommo-o",
+    "seen": true,
+    "kept": true,
+    "spreads": 96502032,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 29,
+    "miscounted": null
+   },
+   {
+    "id": "p2:2",
+    "species": "Rillaboom",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 45,
+    "miscounted": null
+   },
+   {
+    "id": "p2:3",
+    "species": "Gengar",
+    "seen": true,
+    "kept": true,
+    "spreads": 7459940,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 6,
+    "miscounted": null
+   },
+   {
+    "id": "p2:4",
+    "species": "Hippowdon",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 16,
+    "miscounted": null
+   },
+   {
+    "id": "p2:5",
+    "species": "Primarina",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   }
+  ],
+  "work": {
+   "rounds": 28,
+   "rebuilds": 252,
+   "probes": 173983,
+   "passes": 370
+  },
+  "broken": 0,
+  "stoppedOn": {
+   "turn": 4,
+   "expected": "|-damage|p1a: Raichu|16/100 psn|[from] Recoil",
+   "actual": "|-damage|p1a: Raichu|15/100 psn|[from] Recoil",
+   "kind": "-damage from Recoil: another amount"
+  },
+  "seconds": 1987.3
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2705102747",
+  "view": "both@spectator",
+  "battle": "1ec2b4d08219c7c7",
+  "result": "GAVE UP",
+  "sound": true,
+  "complete": false,
+  "limitHit": true,
+  "asSaved": null,
+  "stop": "searches",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "guessTries",
+   "probes",
+   "searches"
+  ],
+  "pokemon": [
+   {
+    "id": "p1:0",
+    "species": "Farigiraf",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 5,
+    "miscounted": null
+   },
+   {
+    "id": "p1:1",
+    "species": "Camerupt",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 13,
+    "miscounted": null
+   },
+   {
+    "id": "p1:2",
+    "species": "Rillaboom",
+    "seen": true,
+    "kept": true,
+    "spreads": 31767428,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 1,
+    "miscounted": null
+   },
+   {
+    "id": "p1:3",
+    "species": "Sylveon",
+    "seen": true,
+    "kept": true,
+    "spreads": 124644319,
+    "witness": true,
+    "exact": [],
+    "rank": 6,
+    "likely": 40,
+    "miscounted": null
+   },
+   {
+    "id": "p1:4",
+    "species": "Raichu",
+    "seen": true,
+    "kept": true,
+    "spreads": 124427618,
+    "witness": true,
+    "exact": [],
+    "rank": 4,
+    "likely": 46,
+    "miscounted": null
+   },
+   {
+    "id": "p1:5",
+    "species": "Incineroar",
+    "seen": true,
+    "kept": true,
+    "spreads": 10890857,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 11,
+    "miscounted": null
+   },
+   {
+    "id": "p2:0",
+    "species": "Azumarill",
+    "seen": true,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p2:1",
+    "species": "Gyarados",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p2:2",
+    "species": "Pelipper",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 2,
+    "miscounted": null
+   },
+   {
+    "id": "p2:3",
+    "species": "Dragalge",
+    "seen": true,
+    "kept": true,
+    "spreads": 63963208,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 13,
+    "miscounted": null
+   },
+   {
+    "id": "p2:4",
+    "species": "Farigiraf",
+    "seen": true,
+    "kept": true,
+    "spreads": 39522,
+    "witness": true,
+    "exact": [],
+    "rank": 3,
+    "likely": 3,
+    "miscounted": null
+   },
+   {
+    "id": "p2:5",
+    "species": "Spiritomb",
+    "seen": true,
+    "kept": true,
+    "spreads": 35912802,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   }
+  ],
+  "work": {
+   "rounds": 37,
+   "rebuilds": 263,
+   "probes": 308355,
+   "passes": 25672
+  },
+  "broken": 0,
+  "stoppedOn": {
+   "turn": 4,
+   "expected": "|-damage|p1a: Incineroar|50/100y|[from] Recoil",
+   "actual": "|-damage|p1a: Incineroar|50/100g|[from] Recoil",
+   "kind": "-damage from Recoil: another amount"
+  },
+  "seconds": 5176
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2712822452",
+  "view": "p2@p1",
+  "battle": "41162bd6dd358426",
+  "result": "GAVE UP",
+  "sound": true,
+  "complete": false,
+  "limitHit": true,
+  "asSaved": null,
+  "stop": "searches",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "probes",
+   "searches"
+  ],
+  "pokemon": [
+   {
+    "id": "p2:0",
+    "species": "Charizard",
+    "seen": true,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p2:1",
+    "species": "Garchomp",
+    "seen": true,
+    "kept": true,
+    "spreads": 17880394,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 10,
+    "miscounted": null
+   },
+   {
+    "id": "p2:2",
+    "species": "Pelipper",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 25,
+    "miscounted": null
+   },
+   {
+    "id": "p2:3",
+    "species": "Grimmsnarl",
+    "seen": true,
+    "kept": true,
+    "spreads": 1460154,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p2:4",
+    "species": "Archaludon",
+    "seen": true,
+    "kept": true,
+    "spreads": 2777936,
+    "witness": true,
+    "exact": [],
+    "rank": 5,
+    "likely": 16,
+    "miscounted": null
+   },
+   {
+    "id": "p2:5",
+    "species": "Metagross",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 26,
+    "miscounted": null
+   }
+  ],
+  "work": {
+   "rounds": 36,
+   "rebuilds": 226,
+   "probes": 163302,
+   "passes": 322
+  },
+  "broken": 0,
+  "stoppedOn": {
+   "turn": 4,
+   "expected": "|move|p2a: Archaludon|Electro Shot|p1b: Archaludon|[from] lockedmove",
+   "actual": "|move|p2a: Archaludon|Electro Shot|p1a: Basculegion|[from] lockedmove",
+   "kind": "move from lockedmove: another target"
+  },
+  "seconds": 841.5
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2715363192",
+  "view": "both@spectator",
+  "battle": "f32dfbf4255f2c04",
+  "result": "GAVE UP",
+  "sound": true,
+  "complete": false,
+  "limitHit": true,
+  "asSaved": null,
+  "stop": "searches",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "probes",
+   "searches"
+  ],
+  "pokemon": [
+   {
+    "id": "p1:0",
+    "species": "Whimsicott",
+    "seen": true,
+    "kept": true,
+    "spreads": 1243984,
+    "witness": true,
+    "exact": [
+     "def"
+    ],
+    "rank": 1,
+    "likely": 4,
+    "miscounted": null
+   },
+   {
+    "id": "p1:1",
+    "species": "Charizard",
+    "seen": true,
+    "kept": true,
+    "spreads": 89808558,
+    "witness": true,
+    "exact": [],
+    "rank": 10,
+    "likely": 12,
+    "miscounted": null
+   },
+   {
+    "id": "p1:2",
+    "species": "Kingambit",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 40,
+    "likely": 45,
+    "miscounted": null
+   },
+   {
+    "id": "p1:3",
+    "species": "Sneasler",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p1:4",
+    "species": "Garchomp",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p1:5",
+    "species": "Basculegion",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p2:0",
+    "species": "Charizard",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 4,
+    "likely": 13,
+    "miscounted": null
+   },
+   {
+    "id": "p2:1",
+    "species": "Floette-Eternal",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 43,
+    "miscounted": null
+   },
+   {
+    "id": "p2:2",
+    "species": "Basculegion",
+    "seen": true,
+    "kept": true,
+    "spreads": 1227499,
+    "witness": true,
+    "exact": [],
+    "rank": 6,
+    "likely": 13,
+    "miscounted": null
+   },
+   {
+    "id": "p2:3",
+    "species": "Whimsicott",
+    "seen": true,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p2:4",
+    "species": "Garchomp",
+    "seen": true,
+    "kept": true,
+    "spreads": 78867662,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 12,
+    "miscounted": null
+   },
+   {
+    "id": "p2:5",
+    "species": "Kingambit",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 40,
+    "likely": 45,
+    "miscounted": null
+   }
+  ],
+  "work": {
+   "rounds": 40,
+   "rebuilds": 376,
+   "probes": 330337,
+   "passes": 540
+  },
+  "broken": 0,
+  "stoppedOn": {
+   "turn": 2,
+   "expected": "|move|p2a: Garchomp|Rock Slide|p1b: Charizard|[spread] p1a,p1b",
+   "actual": "|-status|p2a: Garchomp|brn",
+   "kind": "move where the rebuild has -status"
+  },
+  "seconds": 1227.4
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmc-2701824327",
+  "view": "both@spectator",
+  "battle": "96ce6c4afb19cba1",
+  "result": "GAVE UP",
+  "sound": true,
+  "complete": false,
+  "limitHit": true,
+  "asSaved": null,
+  "stop": "searches",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "probes",
+   "searches",
+   "variants"
+  ],
+  "pokemon": [
+   {
+    "id": "p1:0",
+    "species": "Garchomp",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p1:1",
+    "species": "Sneasler",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 8,
+    "miscounted": null
+   },
+   {
+    "id": "p1:2",
+    "species": "Floette-Eternal",
+    "seen": true,
+    "kept": true,
+    "spreads": 109809525,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p1:3",
+    "species": "Incineroar",
+    "seen": true,
+    "kept": true,
+    "spreads": 61292517,
+    "witness": true,
+    "exact": [],
+    "rank": 9,
+    "likely": 20,
+    "miscounted": null
+   },
+   {
+    "id": "p1:4",
+    "species": "Rillaboom",
+    "seen": true,
+    "kept": true,
+    "spreads": 69754848,
+    "witness": true,
+    "exact": [],
+    "rank": 23,
+    "likely": 35,
+    "miscounted": null
+   },
+   {
+    "id": "p1:5",
+    "species": "Kingambit",
+    "seen": true,
+    "kept": true,
+    "spreads": 92592733,
+    "witness": true,
+    "exact": [],
+    "rank": 5,
+    "likely": 39,
+    "miscounted": null
+   },
+   {
+    "id": "p2:0",
+    "species": "Raichu",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 1,
+    "miscounted": null
+   },
+   {
+    "id": "p2:1",
+    "species": "Golisopod",
+    "seen": true,
+    "kept": true,
+    "spreads": 35689750,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 1,
+    "miscounted": null
+   },
+   {
+    "id": "p2:2",
+    "species": "Archaludon",
+    "seen": true,
+    "kept": true,
+    "spreads": 474640,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 14,
+    "miscounted": null
+   },
+   {
+    "id": "p2:3",
+    "species": "Pelipper",
+    "seen": true,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 11,
+    "likely": 12,
+    "miscounted": null
+   },
+   {
+    "id": "p2:4",
+    "species": "Basculegion-F",
+    "seen": true,
+    "kept": true,
+    "spreads": 130605767,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 13,
+    "miscounted": null
+   },
+   {
+    "id": "p2:5",
+    "species": "Sneasler",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 41,
+    "miscounted": null
+   }
+  ],
+  "work": {
+   "rounds": 41,
+   "rebuilds": 337,
+   "probes": 589444,
+   "passes": 904
+  },
+  "broken": 0,
+  "stoppedOn": {
+   "turn": 5,
+   "expected": "|move|p2b: Golisopod|Leech Life|p1a: Rillaboom",
+   "actual": "|-unboost|p1a: Rillaboom|accuracy|1",
+   "kind": "move where the rebuild has -unboost"
+  },
+  "seconds": 2422.3
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmc-2701208670",
+  "view": "both@spectator",
+  "battle": "dc4e69ee133e94a9",
+  "result": "GAVE UP",
+  "sound": true,
+  "complete": false,
+  "limitHit": true,
+  "asSaved": null,
+  "stop": "searches",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "guessTries",
+   "probes",
+   "searches"
+  ],
+  "pokemon": [
+   {
+    "id": "p1:0",
+    "species": "Sinistcha",
+    "seen": true,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 23,
+    "miscounted": null
+   },
+   {
+    "id": "p1:1",
+    "species": "Delphox",
+    "seen": true,
+    "kept": true,
+    "spreads": 43609662,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p1:2",
+    "species": "Incineroar",
+    "seen": true,
+    "kept": true,
+    "spreads": 8906861,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p1:3",
+    "species": "Kingambit",
+    "seen": true,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 45,
+    "miscounted": null
+   },
+   {
+    "id": "p1:4",
+    "species": "Sneasler",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p1:5",
+    "species": "Floette-Eternal",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 15,
+    "likely": 43,
+    "miscounted": null
+   },
+   {
+    "id": "p2:0",
+    "species": "Charizard",
+    "seen": true,
+    "kept": true,
+    "spreads": 75746950,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 8,
+    "miscounted": null
+   },
+   {
+    "id": "p2:1",
+    "species": "Indeedee-F",
+    "seen": true,
+    "kept": true,
+    "spreads": 1139662,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 11,
+    "miscounted": null
+   },
+   {
+    "id": "p2:2",
+    "species": "Kingambit",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 41,
+    "likely": 45,
+    "miscounted": null
+   },
+   {
+    "id": "p2:3",
+    "species": "Skeledirge",
+    "seen": true,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 14,
+    "miscounted": null
+   },
+   {
+    "id": "p2:4",
+    "species": "Staraptor",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 6,
+    "likely": 11,
+    "miscounted": null
+   },
+   {
+    "id": "p2:5",
+    "species": "Toxapex",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 19,
+    "miscounted": null
+   }
+  ],
+  "work": {
+   "rounds": 54,
+   "rebuilds": 278,
+   "probes": 241848,
+   "passes": 16837
+  },
+  "broken": 0,
+  "stoppedOn": {
+   "turn": 4,
+   "expected": "|-damage|p1a: Incineroar|44/100|[from] Recoil",
+   "actual": "|-damage|p1a: Incineroar|43/100|[from] Recoil",
+   "kind": "-damage from Recoil: another amount"
+  },
+  "seconds": 6726
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmc-2692815448",
+  "view": "both@spectator",
+  "battle": "9bbcc105240843bf",
+  "result": "GAVE UP",
+  "sound": true,
+  "complete": false,
+  "limitHit": true,
+  "asSaved": null,
+  "stop": "searches",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "guessTries",
+   "probes",
+   "searches"
+  ],
+  "pokemon": [
+   {
+    "id": "p1:0",
+    "species": "Salamence",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 20,
+    "miscounted": null
+   },
+   {
+    "id": "p1:1",
+    "species": "Sneasler",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 11,
+    "likely": 41,
+    "miscounted": null
+   },
+   {
+    "id": "p1:2",
+    "species": "Indeedee",
+    "seen": true,
+    "kept": true,
+    "spreads": 99837052,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 20,
+    "miscounted": null
+   },
+   {
+    "id": "p1:3",
+    "species": "Tyranitar",
+    "seen": true,
+    "kept": true,
+    "spreads": 94359354,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 17,
+    "miscounted": null
+   },
+   {
+    "id": "p1:4",
+    "species": "Corviknight",
+    "seen": true,
+    "kept": true,
+    "spreads": 2209509,
+    "witness": true,
+    "exact": [],
+    "rank": 6,
+    "likely": 10,
+    "miscounted": null
+   },
+   {
+    "id": "p1:5",
+    "species": "Excadrill",
+    "seen": true,
+    "kept": true,
+    "spreads": 62800863,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 3,
+    "miscounted": null
+   },
+   {
+    "id": "p2:0",
+    "species": "Excadrill",
+    "seen": true,
+    "kept": true,
+    "spreads": 60945344,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p2:1",
+    "species": "Indeedee",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 23,
+    "miscounted": null
+   },
+   {
+    "id": "p2:2",
+    "species": "Milotic",
+    "seen": true,
+    "kept": true,
+    "spreads": 112665465,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p2:3",
+    "species": "Salamence",
+    "seen": true,
+    "kept": true,
+    "spreads": 53217551,
+    "witness": true,
+    "exact": [],
+    "rank": 7,
+    "likely": 12,
+    "miscounted": null
+   },
+   {
+    "id": "p2:4",
+    "species": "Sneasler",
+    "seen": true,
+    "kept": true,
+    "spreads": 68632840,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 17,
+    "miscounted": null
+   },
+   {
+    "id": "p2:5",
+    "species": "Tyranitar",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 22,
+    "miscounted": null
+   }
+  ],
+  "work": {
+   "rounds": 49,
+   "rebuilds": 273,
+   "probes": 123991,
+   "passes": 29605
+  },
+  "broken": 0,
+  "stoppedOn": {
+   "turn": 6,
+   "expected": "|-damage|p1b: Corviknight|39/100",
+   "actual": "|-damage|p1b: Corviknight|35/100",
+   "kind": "-damage: another amount"
+  },
+  "seconds": 9905.9
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2707540379",
+  "view": "both@spectator",
+  "battle": "7e96588d2e35ae87",
+  "result": "GAVE UP",
+  "sound": true,
+  "complete": false,
+  "limitHit": true,
+  "asSaved": null,
+  "stop": "searches",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "guessTries",
+   "probes",
+   "searches"
+  ],
+  "pokemon": [
+   {
+    "id": "p1:0",
+    "species": "Raichu",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p1:1",
+    "species": "Archaludon",
+    "seen": true,
+    "kept": true,
+    "spreads": 955798,
+    "witness": true,
+    "exact": [],
+    "rank": 3,
+    "likely": 13,
+    "miscounted": null
+   },
+   {
+    "id": "p1:2",
+    "species": "Pelipper",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 12,
+    "miscounted": null
+   },
+   {
+    "id": "p1:3",
+    "species": "Basculegion-F",
+    "seen": true,
+    "kept": true,
+    "spreads": 78272415,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p1:4",
+    "species": "Sneasler",
+    "seen": true,
+    "kept": true,
+    "spreads": 118303836,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 39,
+    "miscounted": null
+   },
+   {
+    "id": "p1:5",
+    "species": "Golisopod",
+    "seen": true,
+    "kept": true,
+    "spreads": 17337981,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p2:0",
+    "species": "Archaludon",
+    "seen": true,
+    "kept": true,
+    "spreads": 216527,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 8,
+    "miscounted": null
+   },
+   {
+    "id": "p2:1",
+    "species": "Golisopod",
+    "seen": true,
+    "kept": true,
+    "spreads": 7934736,
+    "witness": true,
+    "exact": [],
+    "rank": 13,
+    "likely": 15,
+    "miscounted": null
+   },
+   {
+    "id": "p2:2",
+    "species": "Floette-Eternal",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "miscounted": null
+   },
+   {
+    "id": "p2:3",
+    "species": "Pelipper",
+    "seen": false,
+    "kept": true,
+    "spreads": 136663185,
+    "witness": true,
+    "exact": [],
+    "rank": 2,
+    "likely": 12,
+    "miscounted": null
+   },
+   {
+    "id": "p2:4",
+    "species": "Basculegion-F",
+    "seen": true,
+    "kept": true,
+    "spreads": 88075388,
+    "witness": true,
+    "exact": [],
+    "rank": 4,
+    "likely": 10,
+    "miscounted": null
+   },
+   {
+    "id": "p2:5",
+    "species": "Sneasler",
+    "seen": true,
+    "kept": true,
+    "spreads": 136328207,
+    "witness": true,
+    "exact": [],
+    "rank": 1,
+    "likely": 41,
+    "miscounted": null
+   }
+  ],
+  "work": {
+   "rounds": 71,
+   "rebuilds": 295,
+   "probes": 1586948,
+   "passes": 17679
+  },
+  "broken": 0,
+  "stoppedOn": {
+   "turn": 12,
+   "expected": "|-heal|p2b: Golisopod|12/100|[from] drain|[of] p1a: Golisopod",
+   "actual": "|-heal|p2b: Golisopod|11/100|[from] drain|[of] p1a: Golisopod",
+   "kind": "-heal from drain: another amount"
+  },
+  "seconds": 20523.1
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2713400543",
+  "view": "both@spectator",
+  "result": "CRASH",
+  "error": "Error: Unknown system error -127: Unknown system error -127, open '/u/21/nguyena42/unix/projects/encoreable-runs/sweep-more-rc3/2026-09-30/gen9championsvgc2026regmcbo3-2713400543.json' |     at Object.readFileSync (node:fs:483:20) |     at loadSource (file:///m/home/home2/21/nguyena42/unix/projects/encoreable-wt/2c4e65e5cd81/scripts/lib/replay-source.mjs:937:18)",
+  "seconds": 1.9
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2713490679",
+  "view": "both@spectator",
+  "result": "CRASH",
+  "error": "Error: Unknown system error -127: Unknown system error -127, open '/u/21/nguyena42/unix/projects/encoreable-runs/sweep-more-rc3/2026-09-30/gen9championsvgc2026regmcbo3-2713490679.json' |     at Object.readFileSync (node:fs:483:20) |     at loadSource (file:///m/home/home2/21/nguyena42/unix/projects/encoreable-wt/2c4e65e5cd81/scripts/lib/replay-source.mjs:937:18)",
+  "seconds": 1.9
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2713987272",
+  "view": "both@spectator",
+  "result": "CRASH",
+  "error": "Error: Unknown system error -127: Unknown system error -127, open '/u/21/nguyena42/unix/projects/encoreable-runs/sweep-more-rc3/2026-09-30/gen9championsvgc2026regmcbo3-2713987272.json' |     at Object.readFileSync (node:fs:483:20) |     at loadSource (file:///m/home/home2/21/nguyena42/unix/projects/encoreable-wt/2c4e65e5cd81/scripts/lib/replay-source.mjs:937:18)",
+  "seconds": 1.9
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2714167889",
+  "view": "both@spectator",
+  "result": "CRASH",
+  "error": "Error: Unknown system error -127: Unknown system error -127, open '/u/21/nguyena42/unix/projects/encoreable-runs/sweep-more-rc3/2026-09-30/gen9championsvgc2026regmcbo3-2714167889.json' |     at Object.readFileSync (node:fs:483:20) |     at loadSource (file:///m/home/home2/21/nguyena42/unix/projects/encoreable-wt/2c4e65e5cd81/scripts/lib/replay-source.mjs:937:18)",
+  "seconds": 1.9
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2714205392",
+  "view": "both@spectator",
+  "result": "CRASH",
+  "error": "Error: Unknown system error -127: Unknown system error -127, open '/u/21/nguyena42/unix/projects/encoreable-runs/sweep-more-rc3/2026-09-30/gen9championsvgc2026regmcbo3-2714205392.json' |     at Object.readFileSync (node:fs:483:20) |     at loadSource (file:///m/home/home2/21/nguyena42/unix/projects/encoreable-wt/2c4e65e5cd81/scripts/lib/replay-source.mjs:937:18)",
+  "seconds": 1.9
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2714213990",
+  "view": "p2@p1",
+  "result": "CRASH",
+  "error": "Error: Unknown system error -127: Unknown system error -127, open '/u/21/nguyena42/unix/projects/encoreable-runs/sweep-more-rc3/2026-09-30/gen9championsvgc2026regmcbo3-2714213990.json' |     at Object.readFileSync (node:fs:483:20) |     at loadSource (file:///m/home/home2/21/nguyena42/unix/projects/encoreable-wt/2c4e65e5cd81/scripts/lib/replay-source.mjs:937:18)",
+  "seconds": 1.9
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2714233335",
+  "view": "both@spectator",
+  "result": "CRASH",
+  "error": "Error: Unknown system error -127: Unknown system error -127, open '/u/21/nguyena42/unix/projects/encoreable-runs/sweep-more-rc3/2026-09-30/gen9championsvgc2026regmcbo3-2714233335.json' |     at Object.readFileSync (node:fs:483:20) |     at loadSource (file:///m/home/home2/21/nguyena42/unix/projects/encoreable-wt/2c4e65e5cd81/scripts/lib/replay-source.mjs:937:18)",
+  "seconds": 1.9
+ },
+ {
+  "id": "mimic:gen9championsvgc2026regmcbo3-2714236066",
+  "view": "p2@p1",
+  "result": "CRASH",
+  "error": "Error: Unknown system error -127: Unknown system error -127, open '/u/21/nguyena42/unix/projects/encoreable-runs/sweep-more-rc3/2026-09-30/gen9championsvgc2026regmcbo3-2714236066.json' |     at Object.readFileSync (node:fs:483:20) |     at loadSource (file:///m/home/home2/21/nguyena42/unix/projects/encoreable-wt/2c4e65e5cd81/scripts/lib/replay-source.mjs:937:18)",
+  "seconds": 1.9
+ }
+]
