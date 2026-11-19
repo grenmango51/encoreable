@@ -42,3 +42,12 @@ bash ~/projects/encoreable-cluster/run-branch.sh 2c4e65e npm run score -- \
 ```
 
 Rerun outputs land in `~/projects/encoreable-runs/investigate-rc3/`.
+## 5. Rerun outcome — updated
+
+- `--budget 10` on all 14 give-ups: **12 / 14 PASS** (budget-bound), **2 still GAVE UP**.
+- Still giving up even at 10x budget (the real investigation targets):
+  - `mimic:gen9championsvgc2026regmcbo3-2704557458-p2@p1-budget10` — first divergence T4 `-damage from Recoil: another amount`: `|-damage|p1a: Raichu|22/137 psn|[from] Recoil` vs `|-damage|p1a: Raichu|20/137 psn|[from] Recoil`
+  - `mimic:gen9championsvgc2026regmcbo3-2712822452-p2@p1-budget10` — first divergence T4 `move from lockedmove: another target`: `|move|p2a: Archaludon|Electro Shot|p1b: Archaludon|[from] lockedmove` vs `|move|p2a: Archaludon|Electro Shot|p1a: Basculegion|[from] lockedmove`
+- `G05` (locked-move target) overlaps the pin-investigation fix branches — check them first.
+- CRASH retries: 5 PASS so far; 3 still pending (host faults, not inference failures).
+- Raw outcomes: `data/rerun-results.json`; logs and per-case JSON in `~/projects/encoreable-runs/investigate-rc3/` on kosh.

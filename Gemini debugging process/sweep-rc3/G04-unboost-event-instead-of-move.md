@@ -14,8 +14,8 @@
 
 | case | view | limits hit | seconds | divergence | expected | actual |
 |---|---|---|---:|---|---|---|
-| `mimic:gen9championsvgc2026regmcbo3-2701447205` | `both@spectator` | `backtracks`, `fallbackRebuilds`, `probes`, `searches` | 1110 | T4 `move where the rebuild has -unboost` | `|move|p1b: Gardevoir|Expanding Force|p2b: Milotic|[spread] p2a,p2b` | `|-unboost|p1a: Tyranitar|accuracy|1` |
-| `mimic:gen9championsvgc2026regmc-2701824327` | `both@spectator` | `backtracks`, `fallbackRebuilds`, `probes`, `searches`, `variants` | 2422 | T5 `move where the rebuild has -unboost` | `|move|p2b: Golisopod|Leech Life|p1a: Rillaboom` | `|-unboost|p1a: Rillaboom|accuracy|1` |
+| `mimic:gen9championsvgc2026regmcbo3-2701447205` | `both@spectator` | `backtracks`, `fallbackRebuilds`, `probes`, `searches` | 1110 | T4 `move where the rebuild has -unboost` | `|move|p1b: Gardevoir|Expanding Force|p2b: Milotic|[spread] p2a,p2b` | `|-unboost|p1a: Tyranitar|accuracy|1` | **rerun: `PASS` (1369)**
+| `mimic:gen9championsvgc2026regmc-2701824327` | `both@spectator` | `backtracks`, `fallbackRebuilds`, `probes`, `searches`, `variants` | 2422 | T5 `move where the rebuild has -unboost` | `|move|p2b: Golisopod|Leech Life|p1a: Rillaboom` | `|-unboost|p1a: Rillaboom|accuracy|1` | **rerun: `PASS` (2609)**
 
 All rows ended with `stop: searches`: every budget tier was tried on a guess the evidence stopped moving. **GAVE UP means untried work remains** — not proof that no spread fits, and not a soundness failure.
 
@@ -33,3 +33,8 @@ The rebuild chose a different line at the same turn. The next agent should decid
 - Each case above is being rerun with `--budget 10`, one case per Aalto host, explicit `--threads $(nproc)` where newly launched (the first 10 use the default, which already reserves 9 of 10 cores).
 - Output: `~/projects/encoreable-runs/investigate-rc3/<case>-<view>-budget10.json` on kosh; stderr `<...>.log`.
 - **PASS** = budget-bound; **still GAVE UP** = investigate the mechanism above.
+## 6. Rerun outcome (`--budget 10`)
+
+- **PASS** means the case was budget-bound: no new mechanism hook is needed for it, only wider search (or a faster search path). It stays a give-up at normal budget.
+- **GAVE UP** even at 10x means the search still cannot reproduce the log — this is the case to investigate as a possible missing mechanism or un-walked reconstruction choice.
+- Full raw outcomes: `data/rerun-results.json` in this branch.

@@ -1,0 +1,201 @@
+{
+ "mimic:gen9championsvgc2026regmc-2692815448-both@spectator-budget10.json": {
+  "result": "PASS",
+  "stop": "complete",
+  "limits": [
+   "backtracks"
+  ],
+  "seconds": 665.2
+ },
+ "mimic:gen9championsvgc2026regmc-2701208670-both@spectator-budget10.json": {
+  "result": "PASS",
+  "stop": "complete",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "guessTries",
+   "probes",
+   "searches"
+  ],
+  "seconds": 2377.9
+ },
+ "mimic:gen9championsvgc2026regmc-2701824327-both@spectator-budget10.json": {
+  "result": "PASS",
+  "stop": "complete",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "probes"
+  ],
+  "seconds": 2609.2
+ },
+ "mimic:gen9championsvgc2026regmcbo3-2693949366-both@spectator-budget10.json": {
+  "result": "PASS",
+  "stop": "complete",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "guessTries",
+   "probes",
+   "searches"
+  ],
+  "seconds": 3221.8
+ },
+ "mimic:gen9championsvgc2026regmcbo3-2694048488-both@spectator-budget10.json": {
+  "result": "PASS",
+  "stop": "complete",
+  "limits": [
+   "backtracks",
+   "probes"
+  ],
+  "seconds": 304.8
+ },
+ "mimic:gen9championsvgc2026regmcbo3-2696773301-both@spectator-budget10.json": {
+  "result": "PASS",
+  "stop": "complete",
+  "limits": [
+   "backtracks",
+   "probes"
+  ],
+  "seconds": 527.3
+ },
+ "mimic:gen9championsvgc2026regmcbo3-2701447205-both@spectator-budget10.json": {
+  "result": "PASS",
+  "stop": "complete",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "probes",
+   "searches"
+  ],
+  "seconds": 1368.8
+ },
+ "mimic:gen9championsvgc2026regmcbo3-2701492838-both@spectator-budget10.json": {
+  "result": "PASS",
+  "stop": "complete",
+  "limits": [
+   "backtracks",
+   "probes"
+  ],
+  "seconds": 340.6
+ },
+ "mimic:gen9championsvgc2026regmcbo3-2704557458-both@spectator-budget10.json": {
+  "result": "PASS",
+  "stop": "complete",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "probes",
+   "searches"
+  ],
+  "seconds": 585.2
+ },
+ "mimic:gen9championsvgc2026regmcbo3-2704557458-p2@p1-budget10.json": {
+  "result": "GAVE UP",
+  "stop": "searches",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "probes",
+   "searches"
+  ],
+  "seconds": 1146.5,
+  "stoppedOn": {
+   "turn": 4,
+   "expected": "|-damage|p1a: Raichu|22/137 psn|[from] Recoil",
+   "actual": "|-damage|p1a: Raichu|20/137 psn|[from] Recoil",
+   "kind": "-damage from Recoil: another amount"
+  }
+ },
+ "mimic:gen9championsvgc2026regmcbo3-2705102747-both@spectator-budget10.json": {
+  "result": "PASS",
+  "stop": "complete",
+  "limits": [
+   "backtracks",
+   "probes"
+  ],
+  "seconds": 234.2
+ },
+ "mimic:gen9championsvgc2026regmcbo3-2707540379-both@spectator-budget10.json": {
+  "result": "PASS",
+  "stop": "complete",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "probes"
+  ],
+  "seconds": 7012.7
+ },
+ "mimic:gen9championsvgc2026regmcbo3-2712822452-p2@p1-budget10.json": {
+  "result": "GAVE UP",
+  "stop": "searches",
+  "limits": [
+   "backtracks",
+   "probes",
+   "searches"
+  ],
+  "seconds": 597.7,
+  "stoppedOn": {
+   "turn": 4,
+   "expected": "|move|p2a: Archaludon|Electro Shot|p1b: Archaludon|[from] lockedmove",
+   "actual": "|move|p2a: Archaludon|Electro Shot|p1a: Basculegion|[from] lockedmove",
+   "kind": "move from lockedmove: another target"
+  }
+ },
+ "mimic:gen9championsvgc2026regmcbo3-2713400543-both@spectator-retry.json": {
+  "result": "PASS",
+  "stop": "complete",
+  "limits": [
+   "backtracks",
+   "probes"
+  ],
+  "seconds": 1031.6
+ },
+ "mimic:gen9championsvgc2026regmcbo3-2713987272-both@spectator-retry.json": {
+  "result": "PASS",
+  "stop": "complete",
+  "limits": [
+   "backtracks",
+   "probes"
+  ],
+  "seconds": 587
+ },
+ "mimic:gen9championsvgc2026regmcbo3-2714213990-p2@p1-retry.json": {
+  "result": "PASS",
+  "stop": "complete",
+  "limits": [
+   "backtracks",
+   "probes"
+  ],
+  "seconds": 37.5
+ },
+ "mimic:gen9championsvgc2026regmcbo3-2714233335-both@spectator-retry.json": {
+  "result": "PASS",
+  "stop": "complete",
+  "limits": [
+   "backtracks",
+   "probes",
+   "variants"
+  ],
+  "seconds": 171.4
+ },
+ "mimic:gen9championsvgc2026regmcbo3-2714236066-p2@p1-retry.json": {
+  "result": "PASS",
+  "stop": "complete",
+  "limits": [
+   "backtracks",
+   "probes"
+  ],
+  "seconds": 6.9
+ },
+ "mimic:gen9championsvgc2026regmcbo3-2715363192-both@spectator-budget10.json": {
+  "result": "PASS",
+  "stop": "complete",
+  "limits": [
+   "backtracks",
+   "fallbackRebuilds",
+   "probes"
+  ],
+  "seconds": 819
+ }
+}

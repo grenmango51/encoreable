@@ -14,8 +14,8 @@
 
 | case | view | limits hit | seconds | divergence | expected | actual |
 |---|---|---|---:|---|---|---|
-| `mimic:gen9championsvgc2026regmcbo3-2696773301` | `both@spectator` | `backtracks`, `fallbackRebuilds`, `probes`, `searches` | 1362 | T1 `cant where the rebuild has move` | `|cant|p1b: Armarouge|flinch` | `|move|p1a: Annihilape|Close Combat|p2b: Incineroar` |
-| `mimic:gen9championsvgc2026regmcbo3-2701492838` | `both@spectator` | `backtracks`, `fallbackRebuilds`, `probes`, `searches` | 3274 | T3 `cant where the rebuild has move` | `|cant|p2b: Pelipper|flinch` | `|move|p2a: Basculegion|Muddy Water|p1a: Annihilape|[spread] p1a,p1b` |
+| `mimic:gen9championsvgc2026regmcbo3-2696773301` | `both@spectator` | `backtracks`, `fallbackRebuilds`, `probes`, `searches` | 1362 | T1 `cant where the rebuild has move` | `|cant|p1b: Armarouge|flinch` | `|move|p1a: Annihilape|Close Combat|p2b: Incineroar` | **rerun: `PASS` (527)**
+| `mimic:gen9championsvgc2026regmcbo3-2701492838` | `both@spectator` | `backtracks`, `fallbackRebuilds`, `probes`, `searches` | 3274 | T3 `cant where the rebuild has move` | `|cant|p2b: Pelipper|flinch` | `|move|p2a: Basculegion|Muddy Water|p1a: Annihilape|[spread] p1a,p1b` | **rerun: `PASS` (341)**
 
 All rows ended with `stop: searches`: every budget tier was tried on a guess the evidence stopped moving. **GAVE UP means untried work remains** — not proof that no spread fits, and not a soundness failure.
 
@@ -33,3 +33,8 @@ The rebuild chose a different line at the same turn. The next agent should decid
 - Each case above is being rerun with `--budget 10`, one case per Aalto host, explicit `--threads $(nproc)` where newly launched (the first 10 use the default, which already reserves 9 of 10 cores).
 - Output: `~/projects/encoreable-runs/investigate-rc3/<case>-<view>-budget10.json` on kosh; stderr `<...>.log`.
 - **PASS** = budget-bound; **still GAVE UP** = investigate the mechanism above.
+## 6. Rerun outcome (`--budget 10`)
+
+- **PASS** means the case was budget-bound: no new mechanism hook is needed for it, only wider search (or a faster search path). It stays a give-up at normal budget.
+- **GAVE UP** even at 10x means the search still cannot reproduce the log — this is the case to investigate as a possible missing mechanism or un-walked reconstruction choice.
+- Full raw outcomes: `data/rerun-results.json` in this branch.
