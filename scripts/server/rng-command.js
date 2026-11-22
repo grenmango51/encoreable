@@ -30,6 +30,9 @@
  *   3. `>rng` as an input-log verb (`teachStream`). An armed rule is a line in
  *      the recipe, so a manipulated battle truncates, imports and re-simulates
  *      like any other.
+ *   4. An input log that replays (`keepTargets`): a locked move's target put
+ *      back into the line the simulator writes, in every battle the server or
+ *      a Node process plays.
  *
  * A draw is addressed one of two ways, and both end in the same interceptor:
  *
@@ -499,6 +502,7 @@ function hook(st, p) {
 function install(battle) {
 	if (battle.__rng) return battle.__rng;
 	if (Error.stackTraceLimit < 25) Error.stackTraceLimit = 25;
+	keepTargets(battle);
 
 	const st = newState(battle);
 	battle.__rng = st;
@@ -763,11 +767,54 @@ function teachStream(BattleStream) {
 	proto.__rngTaught = true;
 	const original = proto._writeLine;
 	proto._writeLine = function (type, message) {
+		if (this.battle) keepTargets(this.battle);
 		if (type !== 'rng') return original.call(this, type, message);
 		if (!this.battle) throw new Error('">rng" before ">start"');
 		applyLine(this.battle, message);
 	};
 	return BattleStream;
+}
+
+// ------------------------------------------------------------- the input log
+
+/**
+ * A move an override forced - a lock, Struggle - is written to the input log as
+ * the choice that was pressed (upstream e5d2628, `originalChoice`), by its id.
+ * A locked Pokemon's request has one move and no target field, so the move was
+ * pressed by its index with no target; written by its id it needs one, and a
+ * fresh simulator refuses the line in doubles ("needs a target"). The target is
+ * on the action, chosen when the lock began: it is put back, which is the line
+ * the input log held before. `commitChoices` writes the line while the actions
+ * are still the side's, one comma-separated segment per action in order. A
+ * line that names its targets already is left as it is.
+ */
+function withTargets(line, battle) {
+	const m = /^>(p[1-4]) (.*)$/.exec(String(line));
+	if (!m || battle.activePerHalf <= 1) return line;
+	const side = battle.sides[Number(m[1][1]) - 1];
+	const actions = side && side.choice && side.choice.actions;
+	if (!actions || !actions.length) return line;
+	let changed = false;
+	const segments = m[2].split(', ').map((segment, i) => {
+		const action = actions[i];
+		if (!action || action.choice !== 'move' || !action.targetLoc || segment !== action.originalChoice) return segment;
+		const words = segment.split(' ');
+		if (/^[+-]?\d+$/.test(words[2] || '')) return segment;
+		words.splice(2, 0, `${action.targetLoc > 0 ? '+' : ''}${action.targetLoc}`);
+		changed = true;
+		return words.join(' ');
+	});
+	return changed ? `>${m[1]} ${segments.join(', ')}` : line;
+}
+
+/** Every line pushed to this battle's input log, through `withTargets`. Once per battle. */
+function keepTargets(battle) {
+	if (!battle || !battle.inputLog || battle.inputLog.__keepTargets) return;
+	const push = battle.inputLog.push;
+	battle.inputLog.push = function (line, ...rest) {
+		return push.call(this, withTargets(line, battle), ...rest);
+	};
+	Object.defineProperty(battle.inputLog, '__keepTargets', { value: true });
 }
 
 // -------------------------------------------------------------- the dry runs
@@ -976,6 +1023,7 @@ exports.snapshot = snapshot;
 exports.applyLine = applyLine;
 exports.forceLine = forceLine;
 exports.teachStream = teachStream;
+exports.keepTargets = keepTargets;
 exports.damageLadder = damageLadder;
 exports.findPokemon = findPokemon;
 exports.refOf = refOf;
