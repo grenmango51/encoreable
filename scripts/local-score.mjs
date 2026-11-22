@@ -806,11 +806,13 @@ const millions = n => `${(n / 1e6).toFixed(n >= 1e8 ? 0 : 1)}M`;
  */
 function movers(records, earlier) {
   const then = new Map((earlier.records || []).map(r => [keyOf(r), r]));
-  const timeOf = r => (typeof r.cpu === 'number' ? r.cpu : r.seconds);
-  const pairs = records.map(r => [r, then.get(keyOf(r))]).filter(([r, e]) => e && timeOf(r) > 0 && timeOf(e) > 0 && (typeof r.cpu === 'number') === (typeof e.cpu === 'number'));
+  // CPU seconds where both runs have them, wall seconds where one does not.
+  const cpu = (earlier.records || []).some(r => typeof r.cpu === 'number') && records.some(r => typeof r.cpu === 'number');
+  const timeOf = r => (cpu ? r.cpu : r.seconds);
+  const pairs = records.map(r => [r, then.get(keyOf(r))]).filter(([r, e]) => e && timeOf(r) > 0 && timeOf(e) > 0);
   if (!pairs.length) return;
   const sum = f => pairs.reduce((t, p) => t + f(p), 0);
-  const kind = typeof pairs[0][0].cpu === 'number' ? 'CPU' : 'wall';
+  const kind = cpu ? 'CPU' : 'wall';
   console.log(`\ntime against ${earlier.commit || 'an earlier run'} (${kind} seconds, ${pairs.length} cases both ran; never compared): ${(sum(([r]) => timeOf(r)) / 3600).toFixed(1)} h, was ${(sum(([, e]) => timeOf(e)) / 3600).toFixed(1)} h`);
   const grew = pairs.filter(([r, e]) => Math.max(timeOf(r), timeOf(e)) >= 60).sort((a, b) => timeOf(b[0]) / timeOf(b[1]) - timeOf(a[0]) / timeOf(a[1])).slice(0, 10);
   for (const [r, e] of grew.filter(([x, y]) => timeOf(x) > 1.5 * timeOf(y))) {
