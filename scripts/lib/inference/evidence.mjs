@@ -4531,7 +4531,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
   // `Residual` (Schooling, Shields Down, Zen Mode) - fires or not on the
   // Pokemon's HP (and, for the first two, the HP it entered the step on). Asked
   // of the simulator's own handler, dry, after the preceding display is
-  // settled, and bisected per candidate max HP.
+  // settled, once per candidate's max HP and HP.
   const MAXHP_CHECK = /\.maxhp\b/;
   const maxHpHandlers = new Map();
   const checksMaxHp = (fn) => {
@@ -4562,49 +4562,50 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
         target.baseMaxhp = beforeBase;
       }
     });
-    const boundsOf = (M) => {
-      const p1 = probe(M, M, 1);
-      const p0 = probe(M, M, 0);
-      if (!p1 || !p0) return null;
-      if (hasOrig) {
-        if (!p1.length) return null;
-        const pM = probe(M, M, M);
-        if (!pM) return null;
-        let hpEdge = M;
-        if (!pM.length) {
-          let [lo, hi] = [1, M];
-          while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (probe(M, M, mid)?.length) lo = mid; else hi = mid; }
-          hpEdge = lo;
-        }
-        let origMin = 1;
-        if (!probe(M, 1, 1)?.length) {
-          let [lo, hi] = [1, M];
-          while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (probe(M, mid, 1)?.length) hi = mid; else lo = mid; }
-          origMin = hi;
-        }
-        return { kind: 'downOrig', hpEdge, origMin, atZero: p0.length > 0, firstLine: p1[0] };
+    // Whether the handler fires is asked of it, dry, at each candidate's own
+    // max HP and HP, and the HP it entered the step on: these handlers are
+    // thresholds today, but a search that assumed so would remove spreads the
+    // day one is not. A max HP at which the handler does not run, or runs the
+    // same at no HP and at full HP, says nothing.
+    const asked = new Map();
+    const fires = (M, orig, h) => {
+      const key = `${M}|${orig}|${h}`;
+      if (!asked.has(key)) {
+        const lines = probe(M, orig, h);
+        asked.set(key, lines ? lines.length > 0 : null);
       }
-      const pM = probe(M, M, M);
-      if (!pM || (p1.length > 0) === (pM.length > 0)) return null;
-      if (p1.length > 0) {
-        let [lo, hi] = [1, M];
-        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (probe(M, M, mid)?.length) lo = mid; else hi = mid; }
-        return { kind: 'down', hpEdge: lo, atZero: p0.length > 0, firstLine: p1[0] };
-      }
-      let [lo, hi] = [1, M];
-      while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (probe(M, M, mid)?.length) hi = mid; else lo = mid; }
-      return { kind: 'up', hpFirst: hi, atZero: p0.length > 0, firstLine: pM[0] };
+      return asked.get(key);
     };
-    const bounds = new Map();
+    const modelled = new Map();
     let sampleLine = null;
     for (const k of rec.chain.keys()) {
       const M = maxHp(rec, KEY_HP[k]);
-      if (!bounds.has(M)) bounds.set(M, memo(`thr|${ord}|${rec.id}|${M}`, () => boundsOf(M)));
-      sampleLine ||= bounds.get(M)?.firstLine || null;
+      if (modelled.has(M)) continue;
+      const p1 = probe(M, M, 1);
+      const pM = probe(M, M, M);
+      const p0 = probe(M, M, 0);
+      modelled.set(M, !!p1 && !!pM && !!p0 && (hasOrig ? p1.length > 0 : (p1.length > 0) !== (pM.length > 0)));
+      sampleLine ||= p1?.[0] || pM?.[0] || null;
+    }
+    // The HP each candidate entered the step on, where one step's values say
+    // it; over several steps it is not known, and the gate keeps every value.
+    const origsOf = new Map();
+    if (hasOrig) {
+      for (const k of rec.chain.keys()) {
+        const values = steps.length === 1 ? [...new Set(steps[0].pre.get(k) || [])] : [];
+        origsOf.set(k, values.length ? values : null);
+      }
+    }
+    // Every candidate is asked before the handler runs for real.
+    for (const [k, hs] of rec.chain) {
+      const M = maxHp(rec, KEY_HP[k]);
+      if (!modelled.get(M)) continue;
+      const origs = hasOrig ? origsOf.get(k) : [M];
+      for (const h of origs ? hs : []) for (const orig of origs) fires(M, orig, h);
     }
     const from = battle.log.length;
     const out = runReal();
-    if ([...bounds.values()].every(b => !b)) return out;
+    if (![...modelled.values()].some(Boolean)) return out;
     const printed = view.find(e => e.at >= from && e.at < battle.log.length);
     const replayRest = [prefix.observedLine, ...prefix.observedAfter].filter(Boolean);
     let replayFired = null;
@@ -4631,28 +4632,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
       }
     }
     if (replayFired === null || (!replayFired && !sampleLine)) return out;
-    const origRange = new Map();
-    let perKey = false;
-    if (hasOrig) {
-      const byM = new Map();
-      for (const k of rec.chain.keys()) {
-        const M = maxHp(rec, KEY_HP[k]);
-        let lo = Infinity;
-        let hi = 0;
-        for (const s of steps) {
-          for (const x of s.pre.get(k) || []) {
-            if (x < lo) lo = x;
-            if (x > hi) hi = x;
-          }
-        }
-        if (lo === Infinity) [lo, hi] = [0, M];
-        else if (steps.length > 1) hi = M;
-        origRange.set(k, [lo, hi]);
-        const sig = `${lo}:${hi}`;
-        if (!byM.has(M)) byM.set(M, sig);
-        else if (byM.get(M) !== sig) perKey = true;
-      }
-    }
+    const perKey = hasOrig && [...origsOf.values()].some(Boolean);
     const gate = {
       same: true,
       gate: true,
@@ -4661,15 +4641,13 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
       turn: battle.turn,
       what: `${name} ${replayFired ? 'fired' : 'did not fire'} on ${named(rec)}`,
       allow(M, h, k) {
-        const b = bounds.get(M);
-        if (!b) return true;
-        if (b.kind === 'downOrig') {
-          const [loOrig, hiOrig] = origRange.get(k) || [0, M];
-          if (replayFired) return (h > 0 ? h <= b.hpEdge : b.atZero) && hiOrig >= b.origMin;
-          return (h > 0 ? h > b.hpEdge : !b.atZero) || loOrig < b.origMin;
-        }
-        if (b.kind === 'down') return (h > 0 ? h <= b.hpEdge : b.atZero) === replayFired;
-        return (h > 0 ? h >= b.hpFirst : b.atZero) === replayFired;
+        if (!modelled.get(M)) return true;
+        const origs = hasOrig ? origsOf.get(k) : [M];
+        if (!origs) return true;
+        return origs.some((orig) => {
+          const f = asked.get(`${M}|${orig}|${h}`);
+          return f === undefined || f === null || f === replayFired;
+        });
       },
     };
     apply(rec, gate, null);
