@@ -26,8 +26,15 @@
  *   p2@p1           player 2's Stat Points, from player 1's channel (p1 known)
  *   p1@p2           player 1's, from player 2's
  *   both@spectator  both sides', from a spectator's channel - a public replay
- * Each inferred side has its open team sheet: species, items, abilities, moves
- * and natures are known, Stat Points are not. Closed sheets are not graded yet.
+ *   p2@p1/closed    player 2's sets, from player 1's channel, with no sheet
+ *   p1@p2/closed    player 1's, from player 2's
+ * In an open view the inferred side has its open team sheet: species, items,
+ * abilities, moves and natures are known, Stat Points are not. In a closed view
+ * its sets are what its log shows (`setsFromLog`), the rest assumed, and the real
+ * nature and ability must be kept beside the real spread. A closed view costs
+ * tens of times an open one, so it runs on the battles `benchmark.js` marks
+ * `closed`: in the full tier, or in another when `--views` names it
+ * (`--views p2@p1/closed,p1@p2/closed`). With `--only`, on any battle named.
  *
  * Each case is one battle from one view, and gets one result, the first that
  * applies:
@@ -382,6 +389,11 @@ const mimicDirsOf = mimicDir => mimicDir.split(',');
 
 /** Every case of the tier, in list order, then view order. */
 function casesOf({ tier, only, views, mimicDir = null }) {
+  // A closed view tries one inference per reading of what the log's sets
+  // hide, tens of times an open view's cost. It grades the battles marked
+  // `closed`, in the full tier or when `--views` names some views, and another
+  // battle only when `--only` and `--views` both name it.
+  const picked = views.length < Object.keys(VIEWS).length;
   // Games outside the benchmark - a sample of the crawled corpus - are graded
   // from their own directory, all of them unless `only` names some. None has a
   // baseline: a sweep looks for what was removed, crashed or gave up.
@@ -393,7 +405,7 @@ function casesOf({ tier, only, views, mimicDir = null }) {
       if (once.has(id)) throw new Error(`--mimic-dir: ${id} is in two folders`);
       once.add(id);
     }
-    return ids.flatMap(id => views.map(view => ({ id, view })));
+    return ids.flatMap(id => views.filter(view => picked || !VIEWS[view].closed).map(view => ({ id, view })));
   }
   const battles = BATTLES.filter(b => (only ? only.includes(b.id) : tier !== 'quick' || b.quick));
   // Any fuzz number plays a battle, so one outside the list can be graded too:
@@ -408,7 +420,8 @@ function casesOf({ tier, only, views, mimicDir = null }) {
   // ones take hours, while a player's view takes minutes and shows most of
   // what a change breaks; the full tier still grades everything before a
   // merge.
-  const shown = (b, view) => tier !== 'fast' || only || VIEWS[view].infer.length === 1;
+  const shown = (b, view) => VIEWS[view].closed ? (b.closed && (tier === 'full' || picked)) || (!!only && picked)
+    : tier !== 'fast' || only || VIEWS[view].infer.length === 1;
   return battles.flatMap(b => views.filter(view => shown(b, view)).map(view => ({ id: b.id, view })));
 }
 
@@ -737,7 +750,6 @@ function printGrade(records, tier) {
   tally('a real spread removed at some step, whatever the result kept - case(s) by the first cause:', records.filter(r => r.lost?.length).map(r => [r.lost[0].cause, r]));
   tally('broken proofs - case(s) by the line the first one broke on:', records.filter(r => r.brokenKind).map(r => [r.brokenKind, r]));
   tally('not rebuilt - case(s) by the line the rebuild stopped on:', records.filter(r => r.stoppedOn).map(r => [r.stoppedOn.kind, r]));
-  console.log('closed team sheets: not graded yet');
   for (const r of records.filter(x => x.result === 'REMOVED' || x.result === 'CRASH')) {
     const lost = (r.pokemon || []).filter(p => !p.kept).map(p => `${p.id} ${p.species}${p.abilityRemoved ? ` (${p.abilityRemoved} ruled out)` : ''}`);
     const witness = r.complete ? (r.pokemon || []).filter(p => !p.witness).map(p => `${p.id} ${p.species}`) : [];

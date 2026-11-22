@@ -7,7 +7,8 @@
 // battle here catches, with a word on what.
 //
 // `quick` is the slice an agent runs while it works; `full` is every battle,
-// run before a merge.
+// run before a merge. `closed` battles are also graded with closed team sheets
+// in the full tier: a closed view costs tens of times an open one.
 
 const QUICK = new Set([
   'recordings/local/probes/gen9championsvgc2026regmc-1.log.json',
@@ -24,6 +25,8 @@ const QUICK = new Set([
   'mimic:gen9championsvgc2026regmcbo3-2706851242',
   'mimic:gen9championsvgc2026regmcbo3-2706949682',
 ]);
+
+const CLOSED = new Set(['fuzz:101', 'fuzz:102', 'fuzz:150', 'fuzz:204', 'fuzz:250']);
 
 const RECORDINGS = [
   'recordings/local/branched/gen9championsvgc2026regmb-144.log.json',
@@ -244,6 +247,6 @@ const SWEPT = [
   'mimic:gen9championsvgc2026regmcbo3-2702518412', // 2026-10-22: Blaze Delphox into Multiscale Dragonite collapsing equivalent source and target HP states
 ];
 
-const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id) }));
+const BATTLES = [...RECORDINGS, ...FUZZ, ...MIMIC, ...PLANTED, ...SWEPT].map(id => ({ id, quick: QUICK.has(id), closed: CLOSED.has(id) }));
 
 module.exports = { BATTLES };
