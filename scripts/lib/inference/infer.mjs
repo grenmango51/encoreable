@@ -1056,6 +1056,12 @@ async function inferClosed(options, { absorb, work, warnings, lost, limits, blan
 
   return Object.assign(best, {
     sets: best.sets || bestSets,
+    // The abilities ruled out for each Pokemon of a closed sheet, by id: a
+    // claim about the set as much as the spreads kept are, graded the same way.
+    ruledOut: Object.fromEntries([...ruled].map(([key, abilities]) => {
+      const [s, i] = key.split(':').map(Number);
+      return [`p${s + 1}:${i}`, [...abilities]];
+    })),
     work,
     warnings,
     lost,

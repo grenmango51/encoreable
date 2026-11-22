@@ -73,11 +73,12 @@ import { fileURLToPath } from 'url';
 import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 
 import { battleLines } from './lib/protocol.mjs';
-import { loadSource } from './lib/replay-source.mjs';
+import { loadSource, setsFromLog } from './lib/replay-source.mjs';
 import { certifyRanges, inferSpreads } from './lib/inference/infer.mjs';
 import { FUZZ_TURNS, fuzzRecipe, fuzzTeams, playFuzz } from './lib/fuzz.mjs';
 import { USAGE_FILE, mimicRecipe, playMimic, usageSpreads } from './lib/mimic.mjs';
 import { likelySpreads, usualSpreads } from './lib/inference/usage.mjs';
+import { candidateNatures } from './lib/inference/knowledge.mjs';
 import { spareThreads } from './lib/speculate.mjs';
 
 const require = createRequire(import.meta.url);
@@ -95,6 +96,11 @@ const VIEWS = {
   'p2@p1': { infer: ['p2'], channel: 1 },
   'p1@p2': { infer: ['p1'], channel: 2 },
   'both@spectator': { infer: ['p1', 'p2'], channel: 0 },
+  // Closed team sheets: the inferred side's sets read off the log
+  // (`setsFromLog`), as a replay with no sheet gives them - its items,
+  // abilities, natures and unseen moves assumed - from a player's screen.
+  'p2@p1/closed': { infer: ['p2'], channel: 1, closed: true },
+  'p1@p2/closed': { infer: ['p1'], channel: 2, closed: true },
 };
 // A search limit that left a candidate untried. The rounds' own endings -
 // `searches`, `stalled`, `rounds` - end every inference that does not rebuild,
@@ -192,7 +198,7 @@ const COUNT_SAMPLES = 2000;
  * allows. Null when they agree, else what disagrees. The draws are fixed by
  * `key`, so a case grades the same every time.
  */
-function miscount(p, key) {
+function miscount(p, key, natures = null) {
   let x = Number.parseInt(crypto.createHash('sha256').update(key).digest('hex').slice(0, 8), 16) >>> 0;
   const next = () => { x = (x + 0x6D2B79F5) >>> 0; let t = x; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   let hits = 0;
@@ -200,9 +206,12 @@ function miscount(p, key) {
     const v = STATS.map(() => Math.floor(next() * 33));
     if (v.reduce((a, b) => a + b, 0) > 66) continue;
     n++;
-    if (p.contains(Object.fromEntries(STATS.map((s, i) => [s, v[i]])))) hits++;
+    // Where the nature is unknown too, a spread is counted once per nature it
+    // stays possible with, so a nature is drawn with it.
+    const nature = natures ? natures[Math.floor(next() * natures.length)] : null;
+    if (p.contains(Object.fromEntries(STATS.map((s, i) => [s, v[i]])), nature)) hits++;
   }
-  const share = p.spreads / ALL_SPREADS;
+  const share = p.spreads / (ALL_SPREADS * (natures ? natures.length : 1));
   const expected = COUNT_SAMPLES * share;
   const spread = Math.sqrt(expected * (1 - share));
   if (Math.abs(hits - expected) <= 6 * spread + 3) return null;
@@ -214,7 +223,7 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
   const started = Date.now();
   const base = { id, view };
   try {
-    const { infer, channel } = VIEWS[view];
+    const { infer, channel, closed } = VIEWS[view];
     const { inputLog, replayed, same, asSaved } = await battleOf(id, mimicDir);
     if (!same) return { ...base, result: 'CRASH', error: 'the input log does not replay the battle', seconds: 0 };
     // The battle the case plays, as a hash: a change to the fuzz generator, the
@@ -231,9 +240,22 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
     const truth = players.map(p => Teams.unpack(p.team));
     const known = [0, 1].map(s => !infer.includes(`p${s + 1}`));
     const zero = Object.fromEntries(STATS.map(s => [s, 0]));
-    const sets = truth.map((team, s) => team.map(set => (known[s] ? set : { ...set, evs: { ...zero } })));
+    // With closed sheets the inferred side is what its log shows, in team
+    // preview order, which is the team's: everything else is assumed.
+    const sets = truth.map((team, s) => (known[s] ? team
+      : closed ? setsFromLog(replayed.channels[channel], `p${s + 1}`, formatid, { standIn: true }).sets
+        : team.map(set => ({ ...set, evs: { ...zero } }))));
+    if (closed) {
+      const base = species => Dex.forFormat(formatid).species.get(species).baseSpecies;
+      for (const [s, team] of sets.entries()) {
+        if (known[s]) continue;
+        const off = team.findIndex((set, i) => base(set.species) !== base(truth[s][i]?.species));
+        if (team.length !== truth[s].length || off >= 0) throw new Error(`p${s + 1}'s sets read off the log are not its team in order${off >= 0 ? ` (slot ${off + 1})` : ''}`);
+      }
+    }
     const usage = usageSpreads()?.spreads || null;
     const dex = Dex.forFormat(formatid);
+    const natures = closed ? candidateNatures(dex) : null;
     const inf = await inferSpreads({
       formatid, sets, known, playerNames: players.map(p => p.name), observed: replayed.channels[channel], channel,
       sampleSeed: 1, threads: 1, budgetScale: budget, usage, parallel,
@@ -277,14 +299,20 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
       const usual = usualSpreads(usage, dex, truth[s][i]);
       const { likely } = likelySpreads(usual, p.contains);
       const rank = usual.some(u => isReal(u.evs)) ? likely.findIndex(l => isReal(l.evs)) + 1 || null : undefined;
+      // With a closed sheet the nature is unknown as well: the real spread must
+      // survive under the real nature, and the real ability must not be one the
+      // inference ruled out.
+      const ability = closed ? dex.abilities.get(truth[s][i].ability).id : null;
+      const abilityKept = !closed || !(inf.ruledOut?.[p.id] || []).includes(ability);
       pokemon.push({
-        id: p.id, species: p.species, seen: p.seen, kept: p.contains(real), spreads: p.spreads,
+        id: p.id, species: p.species, seen: p.seen, kept: (closed ? p.contains(real, truth[s][i].nature) : p.contains(real)) && abilityKept, spreads: p.spreads,
+        ...(abilityKept ? {} : { abilityRemoved: truth[s][i].ability }),
         // The spread the rebuild used: when the rebuild reproduces the log, it is
         // a spread the log allows, so it must have survived too.
         witness: p.contains(p.used),
         exact: STATS.filter(x => p.stats[x]?.count === 1),
         ...(rank === undefined ? {} : { rank, likely: likely.length }),
-        miscounted: miscount(p, `${id} ${view} ${p.id}`),
+        miscounted: miscount(p, `${id} ${view} ${p.id}`, natures),
       });
     }
     // Every Pokemon of an inferred side is graded, once: one the inference left
@@ -711,7 +739,7 @@ function printGrade(records, tier) {
   tally('not rebuilt - case(s) by the line the rebuild stopped on:', records.filter(r => r.stoppedOn).map(r => [r.stoppedOn.kind, r]));
   console.log('closed team sheets: not graded yet');
   for (const r of records.filter(x => x.result === 'REMOVED' || x.result === 'CRASH')) {
-    const lost = (r.pokemon || []).filter(p => !p.kept).map(p => `${p.id} ${p.species}`);
+    const lost = (r.pokemon || []).filter(p => !p.kept).map(p => `${p.id} ${p.species}${p.abilityRemoved ? ` (${p.abilityRemoved} ruled out)` : ''}`);
     const witness = r.complete ? (r.pokemon || []).filter(p => !p.witness).map(p => `${p.id} ${p.species}`) : [];
     console.log(`  ${r.result} ${r.id} ${r.view}${lost.length ? `: real spread removed for ${lost.join(', ')}` : ''}` +
       `${witness.length ? `: the spread the rebuild used was removed for ${witness.join(', ')}` : ''}${r.error ? `: ${r.error}` : ''}`);
