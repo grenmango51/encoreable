@@ -4498,10 +4498,14 @@ async function reconstructOnce({
     let moved = false;
     while (back >= 0 && !moved) {
       // The later turns keep the dice they settled while a die is judged, so
-      // the failing turn gets as far as the line in question.
+      // the failing turn gets as far as the line in question: an HP backtrack
+      // settles them again afterwards, for the HP it moved, but judges a die
+      // whose face shows only later - what a Substitute kept, which a recoil
+      // off it reads - against them as they were.
+      const later = Object.fromEntries(Object.entries(subs).filter(([key]) => subTurn[key] > back));
       if (hpFigure) forget(back + 1);
       moved = hpFigure
-        ? await redrawTurn(back, common, subs, subTurn, sample, maxProbes, stuck, onAttacker, t)
+        ? await redrawTurn(back, common, subs, subTurn, sample, maxProbes, stuck, onAttacker, t, later)
         : await redrawTurn(back, common, subs, subTurn, sample, maxProbes, null, true, t, partial?.tried, outcomes);
       if (!moved) back--;
     }
