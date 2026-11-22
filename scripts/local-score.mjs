@@ -43,17 +43,23 @@
  * which stats are down to one value, and, when its real spread is one people
  * run (`usage-spreads.json`, which also gives the search its first guess),
  * where it ranks among those that survive. And what the case cost: rounds,
- * rebuilds and probes, which are the same on every machine, and seconds, which
- * are not and are never compared.
+ * rebuilds, probes, passes and the simulator's events (`work.events`, every
+ * event it dispatched for the inference), which are the same on every machine,
+ * and CPU and wall seconds, which are not and decide nothing. The events are
+ * the cost: a probe or a pass can grow a hundredfold inside and count one.
  *
  * The baseline, `scripts/fixtures/score-baseline.json`, holds each case's
- * result and spreads as of the last accepted run. A run fails when any case is
- * REMOVED, when a case's result gets worse, when a Pokemon keeps more spreads
- * than it did, or when a case breaks more proofs it was handed than it did (a
- * turn the evidence called exact that the simulator plays otherwise); a case the baseline has and the run does not is a
- * CRASH. A change that makes something worse on purpose - a soundness fix that
- * keeps more spreads - accepts a new baseline in the same commit, so the diff
- * shows what got worse.
+ * result, spreads and events as of the last accepted run. A run fails when any
+ * case is REMOVED, when a case's result gets worse, when a Pokemon keeps more
+ * spreads than it did, when a case breaks more proofs it was handed than it did
+ * (a turn the evidence called exact that the simulator plays otherwise), when a
+ * case costs more than twice its events and three million more, or when the
+ * cases together cost a tenth more; a case the baseline has and the run does
+ * not is a CRASH. A change that makes something worse on purpose - a soundness
+ * fix that keeps more spreads, a search that buys results with time - accepts a
+ * new baseline in the same commit, so the diff shows what got worse. With
+ * `--timings`, the CPU seconds are set beside that run's, the cases slowed most
+ * listed: time the events do not count shows there.
  */
 
 import crypto from 'crypto';
@@ -321,7 +327,8 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
       ...(wrongCount ? { error: `${wrongCount.id} ${wrongCount.species}: ${wrongCount.miscounted}` } : {}),
       ...(certified ? { certified } : {}),
       ...(certified?.outside.length ? { error: `a spread outside what was kept rebuilds the log: ${certified.outside.join(', ')}` } : {}),
-      work: { rounds: inf.work.rounds, rebuilds: inf.work.rebuilds, probes: inf.work.probes, passes: inf.work.passes ?? null },
+      work: { rounds: inf.work.rounds, rebuilds: inf.work.rebuilds, probes: inf.work.probes, passes: inf.work.passes ?? null, events: inf.work.events ?? null },
+      cpu: inf.cpu ?? null,
       // Each proof a rebuild was handed that broke under its own dice and
       // choices: the evidence called a turn exact that the simulator plays
       // otherwise. It removes nothing, but it is a bug in what is handed on,
@@ -634,11 +641,13 @@ function grade(records) {
     probes: records.reduce((t, x) => t + (x.work?.probes || 0), 0),
     rebuilds: records.reduce((t, x) => t + (x.work?.rebuilds || 0), 0),
     passes: records.reduce((t, x) => t + (x.work?.passes || 0), 0),
+    events: records.reduce((t, x) => t + (x.work?.events || 0), 0),
+    cpu: records.reduce((t, x) => t + (x.cpu || 0), 0),
     broken: records.reduce((t, x) => t + (x.broken || 0), 0),
     brokenCases: records.filter(x => x.broken).length,
     seconds: { median: median(seconds), p95: quantile(seconds, 0.95), p99: quantile(seconds, 0.99), max: seconds.length ? seconds.reduce((a, b) => Math.max(a, b)) : null },
     // Work per case, the same on every machine: what a change to the search moves.
-    perCase: Object.fromEntries(['probes', 'passes', 'rounds'].map((k) => {
+    perCase: Object.fromEntries(['probes', 'passes', 'rounds', 'events'].map((k) => {
       const xs = records.map(x => x.work?.[k]).filter(x => typeof x === 'number');
       return [k, { median: median(xs), p95: quantile(xs, 0.95), p99: quantile(xs, 0.99), max: xs.length ? xs.reduce((a, b) => Math.max(a, b)) : null }];
     })),
@@ -657,18 +666,19 @@ function printGrade(records, tier) {
   console.log('');
   console.log(`score: ${tier} tier, ${records.length} case(s), ${new Set(records.map(r => r.id)).size} battle(s)`);
   console.log('');
-  console.log('view              cases  removed  PASS  NO MATCH  GAVE UP  CRASH  exact stats  median spreads   probes   passes   seconds median/p95/max');
+  console.log('view              cases  removed  PASS  NO MATCH  GAVE UP  CRASH  exact stats  median spreads   probes   passes    events  CPU hours   seconds median/p95/max');
   for (const [name, g] of rows) {
     console.log(`${name.padEnd(16)} ${String(g.cases).padStart(6)} ${String(g.removed).padStart(8)} ${String(g.results.PASS).padStart(5)}` +
       ` ${String(g.results['NO MATCH']).padStart(9)} ${String(g.results['GAVE UP']).padStart(8)} ${String(g.results.CRASH).padStart(6)}` +
       ` ${pct(g.exactShare).padStart(12)} ${(g.medianLog10Spreads === null ? '-' : `10^${g.medianLog10Spreads.toFixed(2)}`).padStart(15)}` +
-      ` ${String(g.probes).padStart(8)} ${String(g.passes).padStart(8)}   ${g.seconds.median}/${g.seconds.p95}/${g.seconds.max}`);
+      ` ${String(g.probes).padStart(8)} ${String(g.passes).padStart(8)} ${millions(g.events).padStart(9)} ${(g.cpu / 3600).toFixed(1).padStart(10)}   ${g.seconds.median}/${g.seconds.p95}/${g.seconds.max}`);
   }
   const four = d => (d?.median === null || d === undefined ? '-' : `${d.median}/${d.p95}/${d.p99}/${d.max}`);
+  const fourM = d => (d?.median === null || d === undefined ? '-' : [d.median, d.p95, d.p99, d.max].map(millions).join('/'));
   console.log('');
-  console.log('per case, median/p95/p99/max      probes                     passes                 rounds           seconds');
+  console.log('per case, median/p95/p99/max      probes                     passes                 rounds                    events           seconds');
   for (const [name, g] of rows) {
-    console.log(`${name.padEnd(16)} ${four(g.perCase.probes).padStart(28)} ${four(g.perCase.passes).padStart(22)} ${four(g.perCase.rounds).padStart(18)}   ${four(g.seconds)}`);
+    console.log(`${name.padEnd(16)} ${four(g.perCase.probes).padStart(28)} ${four(g.perCase.passes).padStart(22)} ${four(g.perCase.rounds).padStart(18)} ${fourM(g.perCase.events).padStart(25)}   ${four(g.seconds)}`);
   }
   const wide = views.filter(v => { const g = grade(records.filter(r => r.view === v)); return !g.removed && !g.results.CRASH; });
   console.log('');
@@ -712,11 +722,25 @@ function printGrade(records, tier) {
 
 const keyOf = r => `${r.id} ${r.view}`;
 
-/** What the baseline holds of a case: its result and each Pokemon's spreads. */
+// The cost ratchet, in simulator events (`work.events`), which every machine
+// counts alike: a case costs more when it spends more than `CASE_COST` times
+// its baseline's events and at least `COST_FLOOR` more - about half a minute
+// of one workstation thread, below which a doubling is no one's wait - and a
+// run when the
+// cases it shares with the baseline spend more than `RUN_COST` times theirs.
+// The baseline keeps each case's events to two significant figures, so that a
+// change that costs nothing new leaves its lines alone.
+const CASE_COST = 2;
+const COST_FLOOR = 3e6;
+const RUN_COST = 1.1;
+const roughly = n => (n > 0 ? Number(n.toPrecision(2)) : n);
+
+/** What the baseline holds of a case: its result, each Pokemon's spreads and what it cost. */
 const baselineOf = records => Object.fromEntries(records.map(r => [keyOf(r), {
   result: r.result,
   ...(r.battle ? { battle: r.battle } : {}),
   ...(r.broken ? { broken: r.broken } : {}),
+  ...(typeof r.work?.events === 'number' ? { events: roughly(r.work.events) } : {}),
   spreads: Object.fromEntries((r.pokemon || []).map(p => [p.id, p.spreads])),
 }]));
 
@@ -729,6 +753,7 @@ const baselineOf = records => Object.fromEntries(records.map(r => [keyOf(r), {
 function compare(records, baseline, { whole = false } = {}) {
   const worse = [];
   const better = [];
+  const cost = { was: 0, now: 0 };
   const now = new Map(records.map(r => [keyOf(r), r]));
   for (const [key, was] of Object.entries(baseline.cases)) {
     const r = now.get(key);
@@ -751,8 +776,47 @@ function compare(records, baseline, { whole = false } = {}) {
       if (before === undefined || before === p.spreads) continue;
       (p.spreads > before ? worse : better).push(`${key}: ${p.id} ${p.species} keeps ${p.spreads.toLocaleString()} spreads, was ${before.toLocaleString()}`);
     }
+    // What it cost, once the baseline counts it. A case that crashed or did
+    // not say has no cost to compare.
+    const events = r.work?.events;
+    if (baseline.counts?.events && typeof was.events === 'number' && typeof events === 'number') {
+      cost.was += was.events;
+      cost.now += events;
+      const line = `${key}: costs ${millions(events)} events, was ${millions(was.events)} (x${(events / Math.max(1, was.events)).toFixed(1)})`;
+      if (events > CASE_COST * was.events && events - was.events >= COST_FLOOR) worse.push(line);
+      else if (was.events > CASE_COST * events && was.events - events >= COST_FLOOR) better.push(line);
+    }
   }
-  return { worse, better };
+  if (cost.was > 0) {
+    const line = `the ${records.length === Object.keys(baseline.cases).length ? 'run' : 'cases it shares with the baseline'} cost ${millions(cost.now)} events, was ${millions(cost.was)} (x${(cost.now / cost.was).toFixed(2)})`;
+    if (cost.now > RUN_COST * cost.was) worse.push(line);
+    else if (cost.was > RUN_COST * cost.now) better.push(line);
+  }
+  return { worse, better, cost };
+}
+
+const millions = n => `${(n / 1e6).toFixed(n >= 1e8 ? 0 : 1)}M`;
+
+/**
+ * Time against an earlier run (`--timings`): the CPU seconds of the cases both
+ * have, and the cases whose time grew most. Machines differ and a machine's
+ * load moves its seconds, so this is never a verdict - the events are - but
+ * time the events do not see shows here: a slowdown with the events unmoved is
+ * work they do not count.
+ */
+function movers(records, earlier) {
+  const then = new Map((earlier.records || []).map(r => [keyOf(r), r]));
+  const timeOf = r => (typeof r.cpu === 'number' ? r.cpu : r.seconds);
+  const pairs = records.map(r => [r, then.get(keyOf(r))]).filter(([r, e]) => e && timeOf(r) > 0 && timeOf(e) > 0 && (typeof r.cpu === 'number') === (typeof e.cpu === 'number'));
+  if (!pairs.length) return;
+  const sum = f => pairs.reduce((t, p) => t + f(p), 0);
+  const kind = typeof pairs[0][0].cpu === 'number' ? 'CPU' : 'wall';
+  console.log(`\ntime against ${earlier.commit || 'an earlier run'} (${kind} seconds, ${pairs.length} cases both ran; never compared): ${(sum(([r]) => timeOf(r)) / 3600).toFixed(1)} h, was ${(sum(([, e]) => timeOf(e)) / 3600).toFixed(1)} h`);
+  const grew = pairs.filter(([r, e]) => Math.max(timeOf(r), timeOf(e)) >= 60).sort((a, b) => timeOf(b[0]) / timeOf(b[1]) - timeOf(a[0]) / timeOf(a[1])).slice(0, 10);
+  for (const [r, e] of grew.filter(([x, y]) => timeOf(x) > 1.5 * timeOf(y))) {
+    const ev = r.work?.events && e.work?.events ? `, events x${(r.work.events / e.work.events).toFixed(1)}` : '';
+    console.log(`  slower ${keyOf(r)}: ${timeOf(r).toFixed(0)} s, was ${timeOf(e).toFixed(0)} s (x${(timeOf(r) / timeOf(e)).toFixed(1)}${ev})`);
+  }
 }
 
 // ------------------------------------------------------------- main
@@ -910,6 +974,7 @@ budget x${run.budget}: every search limit ${run.budget} times as wide`);
     console.log('\nno baseline yet: run with --tier full --accept to write one');
     if (!flag('--accept') && !experiment) failed = true;
   }
+  if (!merge && opt('--timings') && fs.existsSync(opt('--timings'))) movers(run.records, JSON.parse(fs.readFileSync(opt('--timings'), 'utf8')));
   if (flag('--accept')) {
     if (experiment) throw new Error('--accept: a run with a wider budget is never a baseline');
     if (run.tier !== 'full' || run.only || run.mimicDir || new Set(run.views).size !== Object.keys(VIEWS).length
@@ -922,7 +987,7 @@ budget x${run.budget}: every search limit ${run.budget} times as wide`);
     if (crashed.length) throw new Error(`--accept: ${crashed.length} case(s) crashed or were carried by no share, e.g. ${keyOf(crashed[0])}: ${crashed[0].error || ''}`);
     const cases = baselineOf(run.records);
     const sorted = Object.fromEntries(Object.keys(cases).sort().map(k => [k, cases[k]]));
-    fs.writeFileSync(baselineFile, `${JSON.stringify({ commit: run.commit, pool: run.pool, usage: run.usage, ...(run.records.every(r => r.broken !== undefined || r.result === 'CRASH') ? { counts: { broken: true } } : {}), grade: grade(run.records), cases: sorted }, null, 1)}\n`);
+    fs.writeFileSync(baselineFile, `${JSON.stringify({ commit: run.commit, pool: run.pool, usage: run.usage, counts: { ...(run.records.every(r => r.broken !== undefined || r.result === 'CRASH') ? { broken: true } : {}), ...(run.records.every(r => typeof r.work?.events === 'number') ? { events: true } : {}) }, grade: grade(run.records), cases: sorted }, null, 1)}\n`);
     console.log(`wrote the baseline to ${path.relative(ROOT, baselineFile)}`);
     return;
   }

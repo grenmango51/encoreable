@@ -21,7 +21,7 @@
 
 import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 
-import { inferSpreads } from './inference/infer.mjs';
+import { charge, inferSpreads } from './inference/infer.mjs';
 import { containsSpread } from './inference/knowledge.mjs';
 
 const ROLE = 'speculative-start';
@@ -162,7 +162,13 @@ function ahead(pool, list, growing) {
       const say = run.options.onProgress || (() => {});
       for (const m of run.progress.splice(0)) say(m);
       run.sink = say;
-      return run.result.then(res => res ?? inferSpreads(run.options));
+      // A start that ran on its thread costs what it cost there; one whose
+      // thread failed runs here, and costs what it costs here.
+      return run.result.then((res) => {
+        if (!res) return inferSpreads(run.options);
+        charge(res);
+        return res;
+      });
     },
     /** Stop every start still running ahead and give its threads back. */
     cancel() {

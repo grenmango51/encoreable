@@ -61,7 +61,11 @@ planned).
   any Pokémon left with more spreads than the baseline (`scripts/fixtures/score-baseline.json`),
   any case breaking more of the proofs it was handed than the baseline (a turn the evidence
   called exact that the simulator plays otherwise: a bug even when the case passes),
-  and in a full run any baseline case missing or playing another battle. `--accept` refuses crashes, missing shares and uncommitted checkouts.
+  any case costing more than twice its baseline's simulator events (and 3 million more), the
+  cases together costing a tenth more, and in a full run any baseline case missing or playing
+  another battle. `--accept` refuses crashes, missing shares and uncommitted checkouts. Time is
+  what costs, and events are time counted alike on every machine: a probe or a pass can grow a
+  hundredfold inside and still count one, so never trade events for fewer probes unmeasured.
   When a full run improves on it, or is worse on purpose (a soundness fix keeps more spreads),
   accept it (`npm run score -- --tier full --accept`, or `--merge` the saved run with `--accept`) in
   the same commit, so the diff shows what moved. After a batch of such changes, run the full

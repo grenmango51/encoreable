@@ -43,6 +43,41 @@ const require = createRequire(import.meta.url);
 const { BattleStream, Dex, TeamValidator, Teams, toID } = require('pokemon-showdown');
 const { extractChannelMessages } = require('pokemon-showdown/dist/sim/battle.js');
 
+// What an inference costs, the same on every machine: every event the
+// simulator dispatches, in every battle this thread plays - rebuilds, probes,
+// evidence passes, dry damage rows - and those of the starts run ahead on other
+// threads that the inference took (`charge`). Time goes where the simulator
+// runs, and a count of it cannot hide work inside a probe or a pass the way the
+// counts of probes and passes can. `npm run score` compares it with the
+// baseline. The thread's CPU seconds go with it, which differ from machine to
+// machine and are never compared.
+const METER = { events: 0, cpu: 0 };
+{
+  const proto = require('pokemon-showdown').Battle.prototype;
+  for (const name of ['runEvent', 'singleEvent', 'fieldEvent']) {
+    const event = proto[name];
+    proto[name] = function (a, b, c, d, e, f, g, h) {
+      METER.events++;
+      return event.call(this, a, b, c, d, e, f, g, h);
+    };
+  }
+}
+const threadCpu = () => {
+  const used = globalThis.process?.threadCpuUsage?.();
+  return used ? (used.user + used.system) / 1e6 : null;
+};
+const meter = () => ({ events: METER.events, cpu: threadCpu(), foreign: METER.cpu });
+const since = (from) => {
+  const cpu = threadCpu();
+  return { events: METER.events - from.events, cpu: cpu === null || from.cpu === null ? null : cpu - from.cpu + METER.cpu - from.foreign };
+};
+
+/** A start that ran on another thread and was taken: its cost is the inference's that took it. */
+export function charge(res) {
+  METER.events += res?.work?.events || 0;
+  METER.cpu += res?.cpu || 0;
+}
+
 // What the fallback may spend: rebuilds of a failing turn, per line and per
 // inference with the readings it runs again under. Each rebuild has a probe
 // budget of its own, so these bound the fallback the same on every machine -
@@ -1094,7 +1129,7 @@ function uniteKnowledgeMap(targetMap, otherMap, known, sets) {
  *                 once, and are taken in order only if needed - the same
  *                 answer, work and limits as without, sooner
  */
-export async function inferSpreads({
+async function inferOnce({
   formatid,
   sets,
   known,
@@ -4130,6 +4165,20 @@ export function combineGames(game, others) {
     combined: { of: own.of, games: sources.map(rec => rec.bestOf.game), with: out.combined },
   };
   return out;
+}
+
+/**
+ * `inferOnce` with what it cost: `work.events`, every event the simulator
+ * dispatched for it, and `cpu`, its threads' CPU seconds (null where the
+ * runtime cannot say), the starts it took from other threads included.
+ */
+export async function inferSpreads(options) {
+  const from = meter();
+  const res = await inferOnce(options);
+  const used = since(from);
+  if (res?.work) res.work.events = used.events;
+  if (res) res.cpu = used.cpu === null ? null : Number(used.cpu.toFixed(2));
+  return res;
 }
 
 /**
