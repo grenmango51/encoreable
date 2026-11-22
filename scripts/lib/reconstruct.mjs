@@ -4371,14 +4371,36 @@ async function reconstructOnce({
             variants[k] = v;
             variants[t] = partial ? partial.variant : entering;
             restoreEntering();
-            const pre = await runTo(common, subs, t);
+            let pre = await runTo(common, subs, t);
+            // The choice can change the dice of the turns it was made on and
+            // carried through, not only this one's: a target that left the
+            // field before the move began is replaced by a draw
+            // (`getRandomTarget`). Those turns' dice are settled again for it,
+            // first failing turn first, and put back if it gets nowhere.
+            const before = { subs: { ...subs }, subTurn: { ...subTurn } };
+            while (pre.badTurn !== null && pre.badTurn >= k && pre.badTurn < t && pre.diffs[0]?.index !== -1 && carrySpent < maxProbes) {
+              const bad = pre.badTurn;
+              forget(bad);
+              const settled = await resolveTurn(bad, common, subs, subTurn, sample, maxProbes - carrySpent);
+              carrySpent += settled.probes;
+              forcedDraws += settled.forced;
+              if (!settled.solved) break;
+              pre = await runTo(common, subs, t);
+              if (pre.badTurn === bad) break;
+            }
             if (pre.badTurn === null || pre.badTurn > t) {
               carried = true;
               takenCarry.add(`${t}|${k}|${v}`);
               takenCarry.add(`${t}|${k}|sig:${sig}`);
               break;
             }
-            if (pre.badTurn < t || pre.diffs[0]?.index === -1) continue;
+            if (pre.badTurn < t || pre.diffs[0]?.index === -1) {
+              for (const key of Object.keys(subs)) delete subs[key];
+              for (const key of Object.keys(subTurn)) delete subTurn[key];
+              Object.assign(subs, before.subs);
+              Object.assign(subTurn, before.subTurn);
+              continue;
+            }
             const rem = maxProbes - carrySpent;
             const left = cands.length - idx;
             const slice = Math.min(rem, Math.max(16, Math.ceil(rem / left)));
