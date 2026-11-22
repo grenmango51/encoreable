@@ -256,16 +256,12 @@ export function attachSpeed(battle, {
               ids = moves.length ? moves.filter(m => !m.disabled).map(m => m.id) : ['struggle'];
             }
           } else if (activeLock && shownLock.get(rec) === activeLock && !p.volatiles?.encore) {
-            const slot = p.moveSlots.find(m => m.id === activeLock);
-            const canStruggle = !slot || slot.pp <= 2 * unseen || p.getMoves().every(m => m.disabled);
-            ids = canStruggle ? [...new Set([activeLock, 'struggle'])] : [activeLock];
+            // A move used out of sight spent PP the rebuild cannot count -
+            // Pressure, one foe or two, takes more - so any move may have run
+            // out, and Struggle is offered beside every move.
+            ids = [...new Set([activeLock, 'struggle'])];
           } else {
-            const slots = p.moveSlots.map(m => m.id);
-            const canStruggle = slots.length <= 1
-              || p.getMoves().some(m => m.disabled)
-              || p.moveSlots.some(m => m.pp <= 2 * unseen);
-            ids = [...new Set([...slots, ...(canStruggle ? ['struggle'] : [])])];
-            if (!ids.length) ids = ['struggle'];
+            ids = [...new Set([...p.moveSlots.map(m => m.id), 'struggle'])];
           }
           const fracs = new Map(ids.map(id => [id, detFractionalPriority(p, battle.dex.getActiveMove(id))]));
           out.set(rec.id, { ids, fracs });
