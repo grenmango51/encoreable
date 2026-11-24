@@ -1092,9 +1092,10 @@ function uniteKnowledgeMap(targetMap, otherMap, known, sets) {
  * @param allSpent assume every unknown set spends all 66 points, as real sets do.
  *                 An assumption, not evidence: off unless asked for.
  * @param usage    the spreads people run, by species and nature, as in
- *                 `usage-spreads.json`: a search that gives up starts again from
- *                 the one run most (`start: 'usage'`), and each Pokemon keeps what
- *                 both searches left. Only where a search starts, never evidence.
+ *                 `usage-spreads.json`: a search starts from the one run most,
+ *                 and one that gives up starts again from bulk and the stat each
+ *                 nature boosts (`start: 'plain'`); each Pokemon keeps what both
+ *                 searches left. Only where a search starts, never evidence.
  * @param maxRounds the rounds that get no further than the furthest one yet;
  *                 a round that gets further costs none, up to four times as
  *                 many rounds in all - a long battle a line a round
@@ -1252,15 +1253,18 @@ async function inferOnce({
   }
   const sameGuess = (a, b) => sameSpread(a, b)
     && (a.nature ? canonicalNatureName(a.nature) : undefined) === (b.nature ? canonicalNatureName(b.nature) : undefined);
-  // Each unknown set's first guess, from either start: bulk and the stat its
-  // nature boosts, or (`start: 'usage'`) the spread people run most with its
-  // species and nature. A guess is only where the search begins.
+  // Each unknown set's first guess: the spread people run most with its
+  // species and nature, one its printed max HP allows, or where there is none
+  // - and from the other start (`start: 'plain'`) - bulk and the stat its
+  // nature boosts. Real sets are mostly the common ones, so the first guess is
+  // often right and a round that guesses right is one fewer. A guess is only
+  // where the search begins.
   const firstGuesses = from => sets.map((team, s) => team.map((set) => {
     if (known[s]) return fullEvs(set.evs);
     const max = exactHp.get(`p${s + 1}:${set.name || set.species}`);
     const base = dex.species.get(set.species || set.name).baseStats.hp;
     const hp = max ? max - base - 75 : undefined;
-    const usual = from === 'usage' ? usualSpreads(usage, dex, set).find(u => hp === undefined || u.evs.hp === hp) : null;
+    const usual = from !== 'plain' ? usualSpreads(usage, dex, set).find(u => hp === undefined || u.evs.hp === hp) : null;
     if (!set.nature) {
       if (usual) return { ...usual.evs, nature: canonicalNatureName(usual.nature) };
       return { ...defaultSpread(dex, set, hp), nature: 'Serious' };
@@ -3859,8 +3863,8 @@ async function inferOnce({
 
   // Where the search starts decides, more than anything, whether a hard battle
   // rebuilds: the same battle can give up from one start and rebuild from
-  // another. So a search that gave up starts once more, from the spreads people
-  // run (`usage`), with a budget of its own; and one that gave up from both
+  // another. So a search that gave up starts once more, from bulk and the stat
+  // each nature boosts (`plain`), with a budget of its own; and one that gave up from both
   // once more from the first guess, with the fallback and the joint guesses
   // `WIDE` times wider (`wide`). More of either is no better everywhere - the
   // fallback can hold a guess that gets past one line and leads nowhere - so
@@ -3869,7 +3873,7 @@ async function inferOnce({
   // removed was removed by evidence, so each Pokemon keeps only what all
   // left, and the rebuild is the one that reproduced the log, if one did:
   // never worse than the first search alone. One that gave up from all three
-  // runs `default` and `usage` once more with every limit `WIDE` times wider
+  // runs `default` and `plain` once more with every limit `WIDE` times wider
   // (`widest`), as `--budget` widens them, and no wider after that: a battle
   // any earlier start rebuilds never gets there.
   const provedImpossible = plain.stop === 'impossible' && [...plain.knowledge.values()].some(kn => !kn.known && emptied(kn));
@@ -3880,7 +3884,7 @@ async function inferOnce({
   }
   const starts = [plain];
   for (const next of restarts()) {
-    if (next.key !== 'usage' && (starts.some(r => r.complete) || Date.now() >= deadline)) break;
+    if (next.key !== 'plain' && (starts.some(r => r.complete) || Date.now() >= deadline)) break;
     onProgress(next.note);
     starts.push(absorb(await (ahead?.take(next.key) ?? inferSpreads(next.options))));
   }
@@ -3903,18 +3907,18 @@ async function inferOnce({
 
   /**
    * The starts a search that gives up runs next, in order, each run only while
-   * none before it rebuilt the log (above): from the spreads people run, where
-   * that is another start; the fallback and the joint guesses wider; every
+   * none before it rebuilt the log (above): from bulk and the stat each nature
+   * boosts, where that is another start; the fallback and the joint guesses wider; every
    * limit wider. `need` is how many starts each runs next in turn.
    */
   function restarts() {
-    const from = { plain: firstGuesses('default'), usual: usage ? firstGuesses('usage') : null };
-    const differs = from.usual && sets.some((team, s) => team.some((set, i) => !sameGuess(from.usual[s][i], from.plain[s][i])));
+    const from = { first: firstGuesses('default'), plain: firstGuesses('plain') };
+    const differs = sets.some((team, s) => team.some((set, i) => !sameGuess(from.first[s][i], from.plain[s][i])));
     const list = [];
     if (differs) {
       list.push({
-        key: 'usage', need: 0, note: 'the search gave up; searching again from the spreads people run',
-        options: { ...options, start: 'usage', spend: { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() } },
+        key: 'plain', need: 0, note: 'the search gave up; searching again from bulk and the stat each nature boosts',
+        options: { ...options, start: 'plain', spend: { rebuilds: FALLBACK_TOTAL * budgetScale, fruitless: new Set() } },
       });
     }
     // Not for the inferences run again under another reading of an Illusion
