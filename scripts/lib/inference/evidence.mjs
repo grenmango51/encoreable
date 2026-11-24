@@ -6424,8 +6424,11 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
         };
         // Keys sharing their list, later states, tie mask, max HP and the
         // dimension value the change reads keep the exact same states and
-        // tied values: worked out once for each tuple and shared.
-        const shareable = !change.byKey && !(change.same && change.perKey) && !heldExtra && !extraByKey && !seenSi && !siSeen && !sameSeen && !enterOk;
+        // tied values: worked out once for each tuple and shared. What a walk
+        // marks seen - an entry, a value, a source state - it marks on an
+        // entry's first hit, so a key that shares another's answer would have
+        // marked nothing more.
+        const shareable = !change.byKey && !(change.same && change.perKey) && !heldExtra && !extraByKey && !sameSeen && !enterOk;
         const shared = shareable ? new Map() : null;
         for (const [k, hs] of pre) {
           const later = alive.get(k);
