@@ -1,5 +1,5 @@
 {
- "commit": "d3afaa9282e3",
+ "commit": "cb7f06e2092f",
  "pool": "1e0b71cf750545f5",
  "usage": "52468dff24156b2b",
  "counts": {
@@ -7,55 +7,55 @@
   "events": true
  },
  "grade": {
-  "cases": 1170,
+  "cases": 1180,
   "removed": 0,
   "witnessesRemoved": 0,
   "results": {
-   "PASS": 1170,
+   "PASS": 1179,
    "NO MATCH": 0,
-   "GAVE UP": 0,
+   "GAVE UP": 1,
    "CRASH": 0,
    "REMOVED": 0
   },
-  "exactShare": 0.009317803660565723,
-  "medianLog10Spreads": 7.5810381624602705,
-  "probes": 4558114,
-  "rebuilds": 10299,
-  "passes": 105644,
-  "events": 57641806686,
-  "cpu": 328298.1500000004,
-  "broken": 0,
-  "brokenCases": 0,
+  "exactShare": 0.009256198347107438,
+  "medianLog10Spreads": 7.586233908495833,
+  "probes": 11126925,
+  "rebuilds": 27079,
+  "passes": 526160,
+  "events": 73138400987,
+  "cpu": 460849.41000000056,
+  "broken": 72,
+  "brokenCases": 2,
   "seconds": {
-   "median": 58.5,
-   "p95": 679.8,
-   "p99": 2166.9,
-   "max": 139138.9
+   "median": 59.8,
+   "p95": 750.4,
+   "p99": 5008.5,
+   "max": 108668
   },
   "perCase": {
    "probes": {
-    "median": 2344,
-    "p95": 12008,
-    "p99": 29579,
-    "max": 92908
+    "median": 2400,
+    "p95": 13797,
+    "p99": 61354,
+    "max": 1938250
    },
    "passes": {
     "median": 64,
-    "p95": 263,
-    "p99": 378,
-    "max": 568
+    "p95": 275,
+    "p99": 448,
+    "max": 160224
    },
    "rounds": {
     "median": 7,
-    "p95": 14,
-    "p99": 20,
-    "max": 26
+    "p95": 15,
+    "p99": 23,
+    "max": 1450
    },
    "events": {
-    "median": 2696129,
-    "p95": 77862806,
-    "p99": 515642760,
-    "max": 31277180221
+    "median": 2730595,
+    "p95": 114973542,
+    "p99": 801854944,
+    "max": 31277200945
    }
   },
   "ranked": 1860,
@@ -188,7 +188,7 @@
   "fuzz:1005 p2@p1": {
    "result": "PASS",
    "battle": "f3cd9c24e9c45d85",
-   "events": 4100000,
+   "events": 4200000,
    "spreads": {
     "p2:0": 37893599,
     "p2:1": 136663185,
@@ -265,7 +265,7 @@
   "fuzz:1008 p1@p2": {
    "result": "PASS",
    "battle": "71624ab38d31172b",
-   "events": 2400000,
+   "events": 2500000,
    "spreads": {
     "p1:0": 19764639,
     "p1:1": 136663185,
@@ -278,7 +278,7 @@
   "fuzz:1008 p2@p1": {
    "result": "PASS",
    "battle": "71624ab38d31172b",
-   "events": 2600000,
+   "events": 2700000,
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -355,7 +355,7 @@
   "fuzz:101 p1@p2": {
    "result": "PASS",
    "battle": "84ece87fe8bd7380",
-   "events": 1200000,
+   "events": 1300000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -365,10 +365,24 @@
     "p1:5": 1596277
    }
   },
+  "fuzz:101 p1@p2/closed": {
+   "result": "PASS",
+   "battle": "84ece87fe8bd7380",
+   "broken": 12,
+   "events": 1100000000,
+   "spreads": {
+    "p1:0": 2869926885,
+    "p1:1": 2869926885,
+    "p1:2": 660131078,
+    "p1:3": 2869926885,
+    "p1:4": 2869926885,
+    "p1:5": 2869926885
+   }
+  },
   "fuzz:101 p2@p1": {
    "result": "PASS",
    "battle": "84ece87fe8bd7380",
-   "events": 6100000,
+   "events": 6200000,
    "spreads": {
     "p2:0": 8541949,
     "p2:1": 118296961,
@@ -376,6 +390,19 @@
     "p2:3": 6457768,
     "p2:4": 136663185,
     "p2:5": 18603531
+   }
+  },
+  "fuzz:101 p2@p1/closed": {
+   "result": "PASS",
+   "battle": "84ece87fe8bd7380",
+   "events": 2200000000,
+   "spreads": {
+    "p2:0": 2869926885,
+    "p2:1": 2869926885,
+    "p2:2": 2869926885,
+    "p2:3": 29659606,
+    "p2:4": 2869926885,
+    "p2:5": 272660246
    }
   },
   "fuzz:1012 both@spectator": {
@@ -545,6 +572,19 @@
     "p1:5": 136663185
    }
   },
+  "fuzz:102 p1@p2/closed": {
+   "result": "PASS",
+   "battle": "61b3c37bea340f73",
+   "events": 84000000,
+   "spreads": {
+    "p1:0": 1395738433,
+    "p1:1": 689389293,
+    "p1:2": 2383237508,
+    "p1:3": 2869926885,
+    "p1:4": 2869926885,
+    "p1:5": 2869926885
+   }
+  },
   "fuzz:102 p2@p1": {
    "result": "PASS",
    "battle": "61b3c37bea340f73",
@@ -556,6 +596,19 @@
     "p2:3": 17609807,
     "p2:4": 2526706,
     "p2:5": 136663185
+   }
+  },
+  "fuzz:102 p2@p1/closed": {
+   "result": "GAVE UP",
+   "battle": "61b3c37bea340f73",
+   "events": 6300000000,
+   "spreads": {
+    "p2:0": 2869926885,
+    "p2:1": 2869926885,
+    "p2:2": 2869926885,
+    "p2:3": 2869926885,
+    "p2:4": 2013881126,
+    "p2:5": 2869926885
    }
   },
   "fuzz:1020 both@spectator": {
@@ -831,7 +884,7 @@
   "fuzz:105 both@spectator": {
    "result": "PASS",
    "battle": "87a5c203507dbf94",
-   "events": 31000000,
+   "events": 30000000,
    "spreads": {
     "p1:0": 20320507,
     "p1:1": 136663185,
@@ -863,7 +916,7 @@
   "fuzz:105 p2@p1": {
    "result": "PASS",
    "battle": "87a5c203507dbf94",
-   "events": 5500000,
+   "events": 4600000,
    "spreads": {
     "p2:0": 20959206,
     "p2:1": 86752749,
@@ -940,7 +993,7 @@
   "fuzz:106 p1@p2": {
    "result": "PASS",
    "battle": "047520b6ca1f8735",
-   "events": 2300000,
+   "events": 2400000,
    "spreads": {
     "p1:0": 10118735,
     "p1:1": 136663185,
@@ -1165,7 +1218,7 @@
   "fuzz:1086 p1@p2": {
    "result": "PASS",
    "battle": "8491fc1e6ae43db8",
-   "events": 1400000,
+   "events": 1500000,
    "spreads": {
     "p1:0": 38293157,
     "p1:1": 136663185,
@@ -1268,7 +1321,7 @@
   "fuzz:110 p2@p1": {
    "result": "PASS",
    "battle": "9438440b2671119d",
-   "events": 3800000,
+   "events": 3900000,
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 106879,
@@ -1345,7 +1398,7 @@
   "fuzz:112 p1@p2": {
    "result": "PASS",
    "battle": "d2539439fe4bbe9b",
-   "events": 3000000,
+   "events": 3100000,
    "spreads": {
     "p1:0": 73074441,
     "p1:1": 136663185,
@@ -1403,7 +1456,7 @@
   "fuzz:113 p2@p1": {
    "result": "PASS",
    "battle": "47c9b4d0ecb1e1a9",
-   "events": 1000000,
+   "events": 1100000,
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 82495428,
@@ -1570,7 +1623,7 @@
   "fuzz:117 p1@p2": {
    "result": "PASS",
    "battle": "e1380556ca908930",
-   "events": 6200000,
+   "events": 5900000,
    "spreads": {
     "p1:0": 29272,
     "p1:1": 25548212,
@@ -1583,7 +1636,7 @@
   "fuzz:117 p2@p1": {
    "result": "PASS",
    "battle": "e1380556ca908930",
-   "events": 3000000,
+   "events": 2700000,
    "spreads": {
     "p2:0": 8866670,
     "p2:1": 6456459,
@@ -1808,7 +1861,7 @@
   "fuzz:122 p2@p1": {
    "result": "PASS",
    "battle": "c82d3f07ce8f1e52",
-   "events": 2400000,
+   "events": 2300000,
    "spreads": {
     "p2:0": 11111132,
     "p2:1": 340283,
@@ -1898,7 +1951,7 @@
   "fuzz:124 p2@p1": {
    "result": "PASS",
    "battle": "af32514f708b864e",
-   "events": 370000,
+   "events": 380000,
    "spreads": {
     "p2:0": 29787291,
     "p2:1": 136663185,
@@ -2226,7 +2279,7 @@
   "fuzz:132 both@spectator": {
    "result": "PASS",
    "battle": "f5831d13a83aec2b",
-   "events": 11000000,
+   "events": 9700000,
    "spreads": {
     "p1:0": 32050258,
     "p1:1": 136663185,
@@ -2245,7 +2298,7 @@
   "fuzz:132 p1@p2": {
    "result": "PASS",
    "battle": "f5831d13a83aec2b",
-   "events": 1800000,
+   "events": 1500000,
    "spreads": {
     "p1:0": 10747478,
     "p1:1": 136663185,
@@ -2258,7 +2311,7 @@
   "fuzz:132 p2@p1": {
    "result": "PASS",
    "battle": "f5831d13a83aec2b",
-   "events": 4100000,
+   "events": 3400000,
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 36023799,
@@ -2528,7 +2581,7 @@
   "fuzz:138 p2@p1": {
    "result": "PASS",
    "battle": "806b46b8e8581121",
-   "events": 2900000,
+   "events": 3000000,
    "spreads": {
     "p2:0": 2272339,
     "p2:1": 136663185,
@@ -2650,7 +2703,7 @@
   "fuzz:141 p1@p2": {
    "result": "PASS",
    "battle": "d49182929d0fb7a1",
-   "events": 6400000,
+   "events": 6500000,
    "spreads": {
     "p1:0": 1558994,
     "p1:1": 136663185,
@@ -2830,7 +2883,7 @@
   "fuzz:145 p1@p2": {
    "result": "PASS",
    "battle": "223bef2ee253dd02",
-   "events": 2100000,
+   "events": 2200000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -3065,6 +3118,19 @@
     "p1:5": 136663185
    }
   },
+  "fuzz:150 p1@p2/closed": {
+   "result": "PASS",
+   "battle": "d7596f5883c39d9d",
+   "events": 350000000,
+   "spreads": {
+    "p1:0": 2869926885,
+    "p1:1": 2869926885,
+    "p1:2": 2869926885,
+    "p1:3": 2869926885,
+    "p1:4": 123391284,
+    "p1:5": 2869926885
+   }
+  },
   "fuzz:150 p2@p1": {
    "result": "PASS",
    "battle": "d7596f5883c39d9d",
@@ -3076,6 +3142,19 @@
     "p2:3": 10117578,
     "p2:4": 3541484,
     "p2:5": 288380
+   }
+  },
+  "fuzz:150 p2@p1/closed": {
+   "result": "PASS",
+   "battle": "d7596f5883c39d9d",
+   "events": 830000000,
+   "spreads": {
+    "p2:0": 2869926885,
+    "p2:1": 2869926885,
+    "p2:2": 2869926885,
+    "p2:3": 2869926885,
+    "p2:4": 2869926885,
+    "p2:5": 90159136
    }
   },
   "fuzz:151 both@spectator": {
@@ -3158,7 +3237,7 @@
   "fuzz:152 p2@p1": {
    "result": "PASS",
    "battle": "738460cf520c9f6f",
-   "events": 2900000,
+   "events": 2800000,
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 30025819,
@@ -3190,7 +3269,7 @@
   "fuzz:153 p1@p2": {
    "result": "PASS",
    "battle": "7de685c005cbd245",
-   "events": 1800000,
+   "events": 1900000,
    "spreads": {
     "p1:0": 2848506,
     "p1:1": 59110372,
@@ -3518,7 +3597,7 @@
   "fuzz:160 p2@p1": {
    "result": "PASS",
    "battle": "bb6b7cf7e8652c6f",
-   "events": 2600000,
+   "events": 2700000,
    "spreads": {
     "p2:0": 26190880,
     "p2:1": 136663185,
@@ -3685,7 +3764,7 @@
   "fuzz:164 p1@p2": {
    "result": "PASS",
    "battle": "a14a25ef13697b9f",
-   "events": 3300000,
+   "events": 3200000,
    "spreads": {
     "p1:0": 69134402,
     "p1:1": 736180,
@@ -4746,7 +4825,7 @@
   "fuzz:188 both@spectator": {
    "result": "PASS",
    "battle": "66646f4df1118c37",
-   "events": 41000000,
+   "events": 42000000,
    "spreads": {
     "p1:0": 2980264,
     "p1:1": 55482239,
@@ -4836,7 +4915,7 @@
   "fuzz:190 both@spectator": {
    "result": "PASS",
    "battle": "b3302ed82aaf263d",
-   "events": 40000000,
+   "events": 41000000,
    "spreads": {
     "p1:0": 40893975,
     "p1:1": 2640458,
@@ -5215,7 +5294,7 @@
   "fuzz:198 p1@p2": {
    "result": "PASS",
    "battle": "b27983b20150dcd0",
-   "events": 1800000,
+   "events": 1900000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -5241,7 +5320,7 @@
   "fuzz:199 both@spectator": {
    "result": "PASS",
    "battle": "5b6eb40b71782e76",
-   "events": 54000000,
+   "events": 55000000,
    "spreads": {
     "p1:0": 74803679,
     "p1:1": 136663185,
@@ -5376,7 +5455,7 @@
   "fuzz:202 both@spectator": {
    "result": "PASS",
    "battle": "649f28f877bbade9",
-   "events": 22000000,
+   "events": 23000000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 5258954,
@@ -5408,7 +5487,7 @@
   "fuzz:202 p2@p1": {
    "result": "PASS",
    "battle": "649f28f877bbade9",
-   "events": 2000000,
+   "events": 2100000,
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 6539172,
@@ -5440,7 +5519,7 @@
   "fuzz:203 p1@p2": {
    "result": "PASS",
    "battle": "4a04cf9cd58d2360",
-   "events": 940000,
+   "events": 950000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 1001451,
@@ -5495,6 +5574,19 @@
     "p1:5": 8180895
    }
   },
+  "fuzz:204 p1@p2/closed": {
+   "result": "PASS",
+   "battle": "109ca21d570200eb",
+   "events": 120000000,
+   "spreads": {
+    "p1:0": 1597125914,
+    "p1:1": 2869926885,
+    "p1:2": 49042748,
+    "p1:3": 2869926885,
+    "p1:4": 193200441,
+    "p1:5": 2869926885
+   }
+  },
   "fuzz:204 p2@p1": {
    "result": "PASS",
    "battle": "109ca21d570200eb",
@@ -5506,6 +5598,19 @@
     "p2:3": 3971707,
     "p2:4": 123668416,
     "p2:5": 136663185
+   }
+  },
+  "fuzz:204 p2@p1/closed": {
+   "result": "PASS",
+   "battle": "109ca21d570200eb",
+   "events": 750000000,
+   "spreads": {
+    "p2:0": 2869926885,
+    "p2:1": 2377322359,
+    "p2:2": 2869926885,
+    "p2:3": 2869926885,
+    "p2:4": 2869926885,
+    "p2:5": 2869926885
    }
   },
   "fuzz:205 both@spectator": {
@@ -5723,7 +5828,7 @@
   "fuzz:209 p2@p1": {
    "result": "PASS",
    "battle": "d3c10261bcbdb2ba",
-   "events": 2500000,
+   "events": 2600000,
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 1635568,
@@ -5948,7 +6053,7 @@
   "fuzz:214 p2@p1": {
    "result": "PASS",
    "battle": "ea4a8e5fa50860ec",
-   "events": 2200000,
+   "events": 2300000,
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 44325360,
@@ -5980,7 +6085,7 @@
   "fuzz:215 p1@p2": {
    "result": "PASS",
    "battle": "274258dd81cf6e67",
-   "events": 5000000,
+   "events": 4900000,
    "spreads": {
     "p1:0": 22978514,
     "p1:1": 547471,
@@ -6205,7 +6310,7 @@
   "fuzz:220 p1@p2": {
    "result": "PASS",
    "battle": "feee89cbf7325f6a",
-   "events": 1500000,
+   "events": 1600000,
    "spreads": {
     "p1:0": 22809055,
     "p1:1": 3651154,
@@ -6218,7 +6323,7 @@
   "fuzz:220 p2@p1": {
    "result": "PASS",
    "battle": "feee89cbf7325f6a",
-   "events": 590000,
+   "events": 650000,
    "spreads": {
     "p2:0": 53434839,
     "p2:1": 55834404,
@@ -6231,7 +6336,7 @@
   "fuzz:221 both@spectator": {
    "result": "PASS",
    "battle": "2694d505a40f3f89",
-   "events": 15000000,
+   "events": 14000000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663170,
@@ -6250,7 +6355,7 @@
   "fuzz:221 p1@p2": {
    "result": "PASS",
    "battle": "2694d505a40f3f89",
-   "events": 2400000,
+   "events": 2300000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 124224605,
@@ -6263,7 +6368,7 @@
   "fuzz:221 p2@p1": {
    "result": "PASS",
    "battle": "2694d505a40f3f89",
-   "events": 4900000,
+   "events": 4800000,
    "spreads": {
     "p2:0": 48969840,
     "p2:1": 136663185,
@@ -6411,7 +6516,7 @@
   "fuzz:225 both@spectator": {
    "result": "PASS",
    "battle": "10342cb77b712b96",
-   "events": 36000000,
+   "events": 37000000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 24616255,
@@ -6681,7 +6786,7 @@
   "fuzz:231 both@spectator": {
    "result": "PASS",
    "battle": "0b1ea8e3ef91c6cf",
-   "events": 53000000,
+   "events": 54000000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 69953462,
@@ -6700,7 +6805,7 @@
   "fuzz:231 p1@p2": {
    "result": "PASS",
    "battle": "0b1ea8e3ef91c6cf",
-   "events": 7200000,
+   "events": 6600000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 36923499,
@@ -6713,7 +6818,7 @@
   "fuzz:231 p2@p1": {
    "result": "PASS",
    "battle": "0b1ea8e3ef91c6cf",
-   "events": 4000000,
+   "events": 3800000,
    "spreads": {
     "p2:0": 6046377,
     "p2:1": 372773,
@@ -6951,7 +7056,7 @@
   "fuzz:237 both@spectator": {
    "result": "PASS",
    "battle": "abbf885f8f0a5a9a",
-   "events": 40000000,
+   "events": 41000000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 53601508,
@@ -6970,7 +7075,7 @@
   "fuzz:237 p1@p2": {
    "result": "PASS",
    "battle": "abbf885f8f0a5a9a",
-   "events": 2100000,
+   "events": 2200000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 25545273,
@@ -7150,7 +7255,7 @@
   "fuzz:241 p1@p2": {
    "result": "PASS",
    "battle": "434f169903cde376",
-   "events": 1800000,
+   "events": 1900000,
    "spreads": {
     "p1:0": 1865226,
     "p1:1": 136663185,
@@ -7195,7 +7300,7 @@
   "fuzz:242 p1@p2": {
    "result": "PASS",
    "battle": "1f3bab296113c29e",
-   "events": 920000,
+   "events": 950000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 4141138,
@@ -7465,7 +7570,7 @@
   "fuzz:248 p1@p2": {
    "result": "PASS",
    "battle": "3770e719253abfa7",
-   "events": 4500000,
+   "events": 4600000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 2370442,
@@ -7565,6 +7670,20 @@
     "p1:5": 136663185
    }
   },
+  "fuzz:250 p1@p2/closed": {
+   "result": "PASS",
+   "battle": "bba5c6b0439ae0ac",
+   "broken": 60,
+   "events": 1900000000,
+   "spreads": {
+    "p1:0": 2869926885,
+    "p1:1": 2869926885,
+    "p1:2": 2869926885,
+    "p1:3": 2869926885,
+    "p1:4": 2869926885,
+    "p1:5": 2869926885
+   }
+  },
   "fuzz:250 p2@p1": {
    "result": "PASS",
    "battle": "bba5c6b0439ae0ac",
@@ -7576,6 +7695,19 @@
     "p2:3": 136663185,
     "p2:4": 16080398,
     "p2:5": 13919227
+   }
+  },
+  "fuzz:250 p2@p1/closed": {
+   "result": "PASS",
+   "battle": "bba5c6b0439ae0ac",
+   "events": 1800000000,
+   "spreads": {
+    "p2:0": 2869926885,
+    "p2:1": 45025642,
+    "p2:2": 798010948,
+    "p2:3": 2869926885,
+    "p2:4": 2869926885,
+    "p2:5": 2869926885
    }
   },
   "fuzz:251 both@spectator": {
@@ -7658,7 +7790,7 @@
   "fuzz:252 p2@p1": {
    "result": "PASS",
    "battle": "0e7de4950718ee63",
-   "events": 3000000,
+   "events": 3100000,
    "spreads": {
     "p2:0": 23352478,
     "p2:1": 4164979,
@@ -7986,7 +8118,7 @@
   "fuzz:260 both@spectator": {
    "result": "PASS",
    "battle": "09a0adeb8934a853",
-   "events": 22000000,
+   "events": 23000000,
    "spreads": {
     "p1:0": 125895283,
     "p1:1": 136663185,
@@ -8005,7 +8137,7 @@
   "fuzz:260 p1@p2": {
    "result": "PASS",
    "battle": "09a0adeb8934a853",
-   "events": 1900000,
+   "events": 2000000,
    "spreads": {
     "p1:0": 18295037,
     "p1:1": 136663185,
@@ -8243,7 +8375,7 @@
   "fuzz:265 p2@p1": {
    "result": "PASS",
    "battle": "4db5e47f07c190b6",
-   "events": 4500000,
+   "events": 4400000,
    "spreads": {
     "p2:0": 5206093,
     "p2:1": 136663185,
@@ -8256,7 +8388,7 @@
   "fuzz:266 both@spectator": {
    "result": "PASS",
    "battle": "863409278e3bc5e2",
-   "events": 17000000,
+   "events": 18000000,
    "spreads": {
     "p1:0": 126747218,
     "p1:1": 136663185,
@@ -8526,7 +8658,7 @@
   "fuzz:272 both@spectator": {
    "result": "PASS",
    "battle": "1ba4f8dc7fa9042d",
-   "events": 17000000,
+   "events": 18000000,
    "spreads": {
     "p1:0": 5119731,
     "p1:1": 136663185,
@@ -8545,7 +8677,7 @@
   "fuzz:272 p1@p2": {
    "result": "PASS",
    "battle": "1ba4f8dc7fa9042d",
-   "events": 1300000,
+   "events": 1400000,
    "spreads": {
     "p1:0": 3585793,
     "p1:1": 136663185,
@@ -8635,7 +8767,7 @@
   "fuzz:274 p1@p2": {
    "result": "PASS",
    "battle": "b3ff5720d2499f30",
-   "events": 2700000,
+   "events": 2800000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 26770831,
@@ -8931,7 +9063,7 @@
   "fuzz:281 both@spectator": {
    "result": "PASS",
    "battle": "cfced90977ef852f",
-   "events": 27000000,
+   "events": 28000000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 61982942,
@@ -9040,7 +9172,7 @@
   "fuzz:283 p1@p2": {
    "result": "PASS",
    "battle": "01550aafe380e3d4",
-   "events": 3000000,
+   "events": 2900000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 15866811,
@@ -9085,7 +9217,7 @@
   "fuzz:284 p1@p2": {
    "result": "PASS",
    "battle": "6cd5a21351dd3a96",
-   "events": 1800000,
+   "events": 1900000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 1808767,
@@ -9220,7 +9352,7 @@
   "fuzz:287 p1@p2": {
    "result": "PASS",
    "battle": "48609ce4652b2872",
-   "events": 4100000,
+   "events": 4300000,
    "spreads": {
     "p1:0": 24862390,
     "p1:1": 48654567,
@@ -9233,7 +9365,7 @@
   "fuzz:287 p2@p1": {
    "result": "PASS",
    "battle": "48609ce4652b2872",
-   "events": 2800000,
+   "events": 3100000,
    "spreads": {
     "p2:0": 33977773,
     "p2:1": 30402743,
@@ -9323,7 +9455,7 @@
   "fuzz:289 p2@p1": {
    "result": "PASS",
    "battle": "4d58a49afd77dab7",
-   "events": 3500000,
+   "events": 3400000,
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 783473,
@@ -9593,7 +9725,7 @@
   "fuzz:295 p2@p1": {
    "result": "PASS",
    "battle": "f731715f24e737a6",
-   "events": 1800000,
+   "events": 1900000,
    "spreads": {
     "p2:0": 85091064,
     "p2:1": 2741669,
@@ -9741,7 +9873,7 @@
   "fuzz:299 both@spectator": {
    "result": "PASS",
    "battle": "feddc26eddf43ed6",
-   "events": 22000000,
+   "events": 23000000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 77076719,
@@ -9773,7 +9905,7 @@
   "fuzz:299 p2@p1": {
    "result": "PASS",
    "battle": "feddc26eddf43ed6",
-   "events": 3200000,
+   "events": 3300000,
    "spreads": {
     "p2:0": 1157218,
     "p2:1": 136663185,
@@ -9818,7 +9950,7 @@
   "fuzz:300 p2@p1": {
    "result": "PASS",
    "battle": "82d27058356a7dff",
-   "events": 3800000,
+   "events": 4000000,
    "spreads": {
     "p2:0": 57975563,
     "p2:1": 1496882,
@@ -9831,7 +9963,7 @@
   "fuzz:307 both@spectator": {
    "result": "PASS",
    "battle": "6d287f3dab41774f",
-   "events": 7000000,
+   "events": 7200000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -9895,7 +10027,7 @@
   "fuzz:344 p1@p2": {
    "result": "PASS",
    "battle": "9facb40d7d0636ef",
-   "events": 2400000,
+   "events": 2100000,
    "spreads": {
     "p1:0": 62826541,
     "p1:1": 18220733,
@@ -9908,7 +10040,7 @@
   "fuzz:344 p2@p1": {
    "result": "PASS",
    "battle": "9facb40d7d0636ef",
-   "events": 2300000,
+   "events": 2400000,
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -9985,7 +10117,7 @@
   "fuzz:407 p1@p2": {
    "result": "PASS",
    "battle": "101bd7ee367eef8b",
-   "events": 4100000,
+   "events": 4200000,
    "spreads": {
     "p1:0": 11387149,
     "p1:1": 11477464,
@@ -10480,7 +10612,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2694740900 p1@p2": {
    "result": "PASS",
    "battle": "40dfa5ca9bf6be21",
-   "events": 6600000,
+   "events": 6700000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 4423012,
@@ -10898,7 +11030,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2698960530 p2@p1": {
    "result": "PASS",
    "battle": "5c7e8b00034ea61c",
-   "events": 3800000,
+   "events": 3900000,
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 12226458,
@@ -11065,7 +11197,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2700875531 p1@p2": {
    "result": "PASS",
    "battle": "f05b7b392fef8591",
-   "events": 6400000,
+   "events": 6500000,
    "spreads": {
     "p1:0": 50378920,
     "p1:1": 136663185,
@@ -11155,7 +11287,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2701439305 p1@p2": {
    "result": "PASS",
    "battle": "8c6e385c659215c2",
-   "events": 1700000,
+   "events": 1500000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 1543681,
@@ -11168,7 +11300,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2701439305 p2@p1": {
    "result": "PASS",
    "battle": "8c6e385c659215c2",
-   "events": 3900000,
+   "events": 3300000,
    "spreads": {
     "p2:0": 5091022,
     "p2:1": 136663185,
@@ -11650,7 +11782,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2706509511 p1@p2": {
    "result": "PASS",
    "battle": "65f5ca12d759e5c2",
-   "events": 2800000,
+   "events": 2900000,
    "spreads": {
     "p1:0": 1281,
     "p1:1": 136540580,
@@ -11676,7 +11808,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2706509811 both@spectator": {
    "result": "PASS",
    "battle": "10017af75d057280",
-   "events": 51000000,
+   "events": 52000000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -11708,7 +11840,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2706509811 p2@p1": {
    "result": "PASS",
    "battle": "10017af75d057280",
-   "events": 3200000,
+   "events": 3300000,
    "spreads": {
     "p2:0": 78348706,
     "p2:1": 136663185,
@@ -12068,7 +12200,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2706542953 p2@p1": {
    "result": "PASS",
    "battle": "1e0c4b8d6a3e973a",
-   "events": 900000,
+   "events": 970000,
    "spreads": {
     "p2:0": 20318532,
     "p2:1": 54627967,
@@ -12158,7 +12290,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2706558323 p2@p1": {
    "result": "PASS",
    "battle": "c602ad408e9ebc63",
-   "events": 1400000,
+   "events": 1300000,
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 10962765,
@@ -12608,7 +12740,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2706670240 p2@p1": {
    "result": "PASS",
    "battle": "b1c5d7952b77b815",
-   "events": 1300000,
+   "events": 1400000,
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -12955,7 +13087,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2706716798 p1@p2": {
    "result": "PASS",
    "battle": "3720df08628fa33b",
-   "events": 5100000,
+   "events": 5000000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 5553291,
@@ -13238,7 +13370,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2706750121 p2@p1": {
    "result": "PASS",
    "battle": "58633c67752c8445",
-   "events": 1800000,
+   "events": 1900000,
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 16778588,
@@ -13521,7 +13653,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2706776573 both@spectator": {
    "result": "PASS",
    "battle": "b890ce4be3bfd0f9",
-   "events": 6300000,
+   "events": 6400000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -13553,7 +13685,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2706776573 p2@p1": {
    "result": "PASS",
    "battle": "b890ce4be3bfd0f9",
-   "events": 970000,
+   "events": 1000000,
    "spreads": {
     "p2:0": 9805392,
     "p2:1": 136663185,
@@ -13656,7 +13788,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2706792032 both@spectator": {
    "result": "PASS",
    "battle": "e0ff90d7111a26de",
-   "events": 8100000,
+   "events": 8200000,
    "spreads": {
     "p1:0": 87768362,
     "p1:1": 104310531,
@@ -13823,7 +13955,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2706796211 p2@p1": {
    "result": "PASS",
    "battle": "535b6ad142198c5a",
-   "events": 4400000,
+   "events": 4500000,
    "spreads": {
     "p2:0": 22761608,
     "p2:1": 136663185,
@@ -13945,7 +14077,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2706817003 p1@p2": {
    "result": "PASS",
    "battle": "8698ace591236bf7",
-   "events": 2500000,
+   "events": 2600000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -14800,7 +14932,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2706955285 p1@p2": {
    "result": "PASS",
    "battle": "3b7940d5ca1a4caa",
-   "events": 6800000,
+   "events": 7100000,
    "spreads": {
     "p1:0": 49064,
     "p1:1": 3533260,
@@ -14858,7 +14990,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2706956206 p2@p1": {
    "result": "PASS",
    "battle": "eba81d3b0ee96226",
-   "events": 2800000,
+   "events": 2900000,
    "spreads": {
     "p2:0": 12587668,
     "p2:1": 136663185,
@@ -15115,7 +15247,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2706966975 p1@p2": {
    "result": "PASS",
    "battle": "c9b7b8f16c452e24",
-   "events": 970000,
+   "events": 980000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 116943,
@@ -15263,7 +15395,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2706985744 p2@p1": {
    "result": "PASS",
    "battle": "3fe412cb080d765e",
-   "events": 990000,
+   "events": 1000000,
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 136663185,
@@ -15906,7 +16038,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2707018556 both@spectator": {
    "result": "PASS",
    "battle": "83bebfeb21c8513f",
-   "events": 32000000,
+   "events": 34000000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 74949157,
@@ -15938,7 +16070,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2707018556 p2@p1": {
    "result": "PASS",
    "battle": "83bebfeb21c8513f",
-   "events": 1500000,
+   "events": 1700000,
    "spreads": {
     "p2:0": 1677665,
     "p2:1": 136663185,
@@ -16060,7 +16192,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2707023527 p1@p2": {
    "result": "PASS",
    "battle": "5e7976424f0ef5c2",
-   "events": 1800000,
+   "events": 1900000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 2193396,
@@ -16073,7 +16205,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2707023527 p2@p1": {
    "result": "PASS",
    "battle": "5e7976424f0ef5c2",
-   "events": 2900000,
+   "events": 3100000,
    "spreads": {
     "p2:0": 136663185,
     "p2:1": 425742,
@@ -16086,7 +16218,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2707163383 both@spectator": {
    "result": "PASS",
    "battle": "bffadb9905b82128",
-   "events": 56000000,
+   "events": 59000000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -16105,7 +16237,7 @@
   "mimic:gen9championsvgc2026regmcbo3-2707163383 p1@p2": {
    "result": "PASS",
    "battle": "bffadb9905b82128",
-   "events": 3700000,
+   "events": 4000000,
    "spreads": {
     "p1:0": 136663185,
     "p1:1": 136663185,
@@ -16626,7 +16758,7 @@
   "recordings/local/probes/gen9championsvgc2026regmc-12.log.json both@spectator": {
    "result": "PASS",
    "battle": "2d4a2c7bb2468357",
-   "events": 5500000,
+   "events": 5600000,
    "spreads": {
     "p1:0": 14157408,
     "p1:1": 108215352,
@@ -16883,7 +17015,7 @@
   "recordings/local/probes/gen9championsvgc2026regmc-302.log.json p2@p1": {
    "result": "PASS",
    "battle": "adae2d4586e980ee",
-   "events": 2100000,
+   "events": 2200000,
    "spreads": {
     "p2:0": 2812352,
     "p2:1": 709535,
@@ -16973,7 +17105,7 @@
   "recordings/local/scripted/gen9championsvgc2026regmb-100.log.json p2@p1": {
    "result": "PASS",
    "battle": "e4c6a2d62f47a9f9",
-   "events": 1200000,
+   "events": 1300000,
    "spreads": {
     "p2:0": 1656026,
     "p2:1": 75,
