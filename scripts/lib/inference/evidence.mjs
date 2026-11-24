@@ -9,7 +9,11 @@
  *     cloned move, no dice consumed, no messages, state restored. The in-flight
  *     move is cloned, so weather, Helping Hand, screens and boosts are exactly
  *     the real ones. `modifyDamage` is memoised on the value it receives, since
- *     everything after that point is the same whatever the stats were.
+ *     everything after that point is the same whatever the stats were: across
+ *     the rows of one target and source state wherever no stat a row is handed
+ *     is read outside the attacking and defending stat's own steps.
+ *     `ENCOREABLE_VERIFY_ROWS` set runs every row that took a memoised value
+ *     again in full, and throws where the two differ: a check of the memo.
  *   - every HP change. Each candidate carries the set of exact HP values it
  *     could be sitting on, because the replay shows the opponent only as a
  *     percentage. A change maps each value through every damage roll, and the
@@ -43,6 +47,8 @@ const require = createRequire(import.meta.url);
 const { BattleStream, toID } = require('pokemon-showdown');
 
 const HP_BITS = 4096;
+// A check of the memoised damage rows, never a verdict (`dryRow`'s callers).
+const VERIFY_ROWS = !!globalThis.process?.env?.ENCOREABLE_VERIFY_ROWS;
 // Which (HP, value) pairs a row being decoded has had, marked with that
 // decoding's number (the backward walk's `rowOf`).
 const pairStamp = new Uint32Array(HP_BITS * SPAN);
@@ -1532,6 +1538,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
         moved: [...unmapped], targetHp, sourceHp, back: backBlocked,
         backSlot, backSets, backKnown, backClosed, backProps, backGroupMasks, backShifted, bpOnly,
         usesModify, sHasAtk, sPurePre, modReadsSourceOrStat, tOnlyMod, tPureBp,
+        // No stat a row is handed is read but where the attacking and defending
+        // stats are worked out: the rows of one target and source state differ in
+        // nothing else, so what follows the base damage is theirs to share.
+        pairShares: usesModify && !statIn(['pre', 'mod', 'other']),
       };
     });
     Object.assign(hit, shape);
@@ -1919,12 +1929,15 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
       const classRows = new Array(nTC * nSC * nAC * nDC);
       const canSharePost = hit.sPurePre && !hit.modReadsSourceOrStat;
       const pureSourcePost = canSharePost && !xReaders.length && uSs.every(u => !u.sig.startsWith('raw:'));
+      // The rows of one target and source state differ only in the stats they
+      // are handed, which past the base damage nothing reads (`pairShares`).
+      const pairPost = canSharePost || hit.pairShares;
       for (let ti = 0; ti < nTC; ti++) {
         const uT = uTs[ti];
         const sharedPost = pureSourcePost ? cacheSim(`post|${uT.sig}`, () => new Map()) : null;
         for (let si = 0; si < nSC; si++) {
           const uS = uSs[si];
-          const post = sharedPost || (canSharePost ? cacheSim(`post|${uT.sig}|${uS.sig}`, () => new Map()) : null);
+          const post = sharedPost || (pairPost ? cacheSim(`post|${uT.sig}|${uS.sig}`, () => new Map()) : null);
           for (let ai = 0; ai < nAC; ai++) {
             const uA = uAs[ai];
             for (let di = 0; di < nDC; di++) {
@@ -1937,7 +1950,14 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
                 for (let i = 0; i < xReaders.length; i++) (xReaders[i].who === 'source' ? sp : tp).stats[xReaders[i].key] = uS.xVec[i];
                 if (uT.t) { tp.maxhp = uT.M; tp.hp = uT.h; }
                 if (uS.s && uS.s[0] !== null) { sp.maxhp = uS.s[0]; sp.hp = uS.s[1]; }
-                return dryRow(hit, [sp, tp], post || new Map());
+                const out = dryRow(hit, [sp, tp], post || new Map());
+                if (VERIFY_ROWS && post) {
+                  const full = dryRow(hit, [sp, tp], new Map());
+                  if (full.length !== out.length || full.some((v, i) => v !== out[i])) {
+                    throw new Error(`a memoised damage row differs from the full one: ${what}, ${out.join(',')} against ${full.join(',')}`);
+                  }
+                }
+                return out;
               });
               classRows[((ti * nSC + si) * nAC + ai) * nDC + di] = row;
             }
