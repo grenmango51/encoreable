@@ -32,9 +32,10 @@
  * abilities, moves and natures are known, Stat Points are not. In a closed view
  * its sets are what its log shows (`setsFromLog`), the rest assumed, and the real
  * nature and ability must be kept beside the real spread. A closed view costs
- * tens of times an open one, so it runs on the battles `benchmark.js` marks
- * `closed`: in the full tier, or in another when `--views` names it
- * (`--views p2@p1/closed,p1@p2/closed`). With `--only`, on any battle named.
+ * tens of times an open one, and closed team sheets wait until the open ones
+ * are fast, so it runs only when `--views` names it
+ * (`--views p2@p1/closed,p1@p2/closed`), in any tier, on the battles
+ * `benchmark.js` marks `closed`. With `--only`, on any battle named.
  *
  * Each case is one battle from one view, and gets one result, the first that
  * applies:
@@ -390,9 +391,9 @@ const mimicDirsOf = mimicDir => mimicDir.split(',');
 /** Every case of the tier, in list order, then view order. */
 function casesOf({ tier, only, views, mimicDir = null }) {
   // A closed view tries one inference per reading of what the log's sets
-  // hide, tens of times an open view's cost. It grades the battles marked
-  // `closed`, in the full tier or when `--views` names some views, and another
-  // battle only when `--only` and `--views` both name it.
+  // hide, tens of times an open view's cost. It grades nothing unless `--views`
+  // names some views: then the battles marked `closed`, and another battle
+  // only when `--only` names it too.
   const picked = views.length < Object.keys(VIEWS).length;
   // Games outside the benchmark - a sample of the crawled corpus - are graded
   // from their own directory, all of them unless `only` names some. None has a
@@ -420,7 +421,7 @@ function casesOf({ tier, only, views, mimicDir = null }) {
   // ones take hours, while a player's view takes minutes and shows most of
   // what a change breaks; the full tier still grades everything before a
   // merge.
-  const shown = (b, view) => VIEWS[view].closed ? (b.closed && (tier === 'full' || picked)) || (!!only && picked)
+  const shown = (b, view) => VIEWS[view].closed ? picked && (b.closed || !!only)
     : tier !== 'fast' || only || VIEWS[view].infer.length === 1;
   return battles.flatMap(b => views.filter(view => shown(b, view)).map(view => ({ id: b.id, view })));
 }
@@ -786,9 +787,10 @@ const baselineOf = records => Object.fromEntries(records.map(r => [keyOf(r), {
 
 /**
  * Every case that got worse than the baseline, and every one that got better.
- * A full run of the benchmark must carry every case the baseline holds: one
- * dropped from the list is dropped only by accepting a new baseline. A case
- * that plays another battle than its baseline's is worse until accepted.
+ * A full run of the benchmark must carry every open case the baseline holds:
+ * one dropped from the list is dropped only by accepting a new baseline. A
+ * closed case runs only when named (`casesOf`). A case that plays another
+ * battle than its baseline's is worse until accepted.
  */
 function compare(records, baseline, { whole = false } = {}) {
   const worse = [];
@@ -798,7 +800,7 @@ function compare(records, baseline, { whole = false } = {}) {
   for (const [key, was] of Object.entries(baseline.cases)) {
     const r = now.get(key);
     if (!r) {
-      if (whole) worse.push(`${key}: in the baseline but not in this run`);
+      if (whole && !VIEWS[key.slice(key.lastIndexOf(' ') + 1)]?.closed) worse.push(`${key}: in the baseline but not in this run`);
       continue;
     }
     if (was.battle && r.battle && was.battle !== r.battle) worse.push(`${key}: plays another battle than its baseline (${was.battle} -> ${r.battle})`);

@@ -8,7 +8,8 @@
 //
 // `quick` is the slice an agent runs while it works; `full` is every battle,
 // run before a merge. `closed` battles are also graded with closed team sheets
-// in the full tier: a closed view costs tens of times an open one.
+// when the closed views are named (`--views`): a closed view costs tens of
+// times an open one, and closed sheets wait until open ones are fast.
 
 const QUICK = new Set([
   'recordings/local/probes/gen9championsvgc2026regmc-1.log.json',
