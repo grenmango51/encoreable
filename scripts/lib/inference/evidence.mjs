@@ -541,6 +541,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
       const kn = knowledge.get(id);
       if (!kn) continue;
       const byForme = new Map();
+      const bySet = new WeakMap();
       // Max HP is set once, from the species the Pokemon entered the battle as:
       // a Mega Evolution or a Transform changes every other stat, never HP.
       const hpSpecies = pokemon.species;
@@ -563,9 +564,18 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
         shown: [],
         statFor(natureName, stat, sp, forme = pokemon.species) {
           const species = stat === 'hp' ? hpSpecies : forme;
-          const ivKey = STAT_IDS.map(s => pokemon.set?.ivs?.[s] ?? 31).join(',');
-          const key = `${species.id}|${pokemon.level}|${ivKey}|${natureName || ''}`;
-          let table = byForme.get(key);
+          const set = pokemon.set;
+          let bySpecies = bySet.get(set);
+          if (!bySpecies) bySet.set(set, bySpecies = new Map());
+          let byNature = bySpecies.get(species);
+          if (!byNature) bySpecies.set(species, byNature = new Map());
+          let table = byNature.get(natureName || '');
+          let key;
+          if (!table) {
+            const ivKey = STAT_IDS.map(s => pokemon.set?.ivs?.[s] ?? 31).join(',');
+            key = `${species.id}|${pokemon.level}|${ivKey}|${natureName || ''}`;
+            table = byForme.get(key);
+          }
           if (!table) {
             table = memo(`stbl|${key}`, () => {
               const t = {};
@@ -578,6 +588,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
             });
             byForme.set(key, table);
           }
+          byNature.set(natureName || '', table);
           return table[stat][sp];
         },
         ownStat(stat, forme = pokemon.species) {
