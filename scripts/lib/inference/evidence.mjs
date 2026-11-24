@@ -44,7 +44,22 @@ import {
 import { attachSpeed } from './speed.mjs';
 
 const require = createRequire(import.meta.url);
-const { BattleStream, toID } = require('pokemon-showdown');
+const { BattleStream, Side, toID } = require('pokemon-showdown');
+
+// The simulator asks of every Pokemon on the field whether it has HP left -
+// `Side.allies` keeps those that do - at nearly every event it runs. That says
+// nothing about how much: a read of HP made inside it is not counted as a damage
+// calculation reading HP, for every HP state a row is handed is at least 1
+// (one that is not is never merged with another).
+let livenessDepth = 0;
+{
+  const allies = Side.prototype.allies;
+  Side.prototype.allies = function (all, ...rest) {
+    if (all) return allies.call(this, all, ...rest);
+    livenessDepth++;
+    try { return allies.call(this, all, ...rest); } finally { livenessDepth--; }
+  };
+}
 
 const HP_BITS = 4096;
 // A check of the memoised damage rows, never a verdict (`dryRow`'s callers).
@@ -1365,7 +1380,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
           let cur = desc.value;
           Object.defineProperty(p, prop, {
             configurable: true, enumerable: desc.enumerable,
-            get() { if (calculating) (p === source ? sStages : tStages).add(stage); return cur; },
+            get() { if (calculating && !livenessDepth) (p === source ? sStages : tStages).add(stage); return cur; },
             set(v) { cur = v; },
           });
           undo.push(() => Object.defineProperty(p, prop, { ...desc, value: cur }));
@@ -1659,7 +1674,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
           let cur = desc.value;
           Object.defineProperty(p, prop, {
             configurable: true, enumerable: desc.enumerable,
-            get() { if (calculating) onRead(); return cur; },
+            get() { if (calculating && !livenessDepth) onRead(); return cur; },
             set(v) { cur = v; },
           });
           undoHp.push(() => Object.defineProperty(p, prop, { ...desc, value: cur }));
@@ -1897,7 +1912,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
         const xSig = xVec.join(',');
         const sig = hit.sKeys ? hit.sKeys[si]
           : !hit.sourceHp || !s || s[0] === null ? xSig
-            : hit.sPurePre ? cacheSim(`ssig|${s[0]}:${s[1]}|${xSig}`, () => probeSourceSig(s[0], s[1], xVec, xSig))
+            : hit.sPurePre && s[1] >= 1 ? cacheSim(`ssig|${s[0]}:${s[1]}|${xSig}`, () => probeSourceSig(s[0], s[1], xVec, xSig))
               : `raw:${s[0]}:${s[1]}:${xSig}`;
         let idx = sMap.get(sig);
         if (idx === undefined) { idx = uSs.length; sMap.set(sig, idx); uSs.push({ sig, s, xVec }); }
@@ -1913,8 +1928,8 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
         for (const t of targetStates) {
           const M = maxHp(T, t[0]);
           const h = t[1];
-          const sig = hit.tOnlyMod ? cacheSim(`tmod|${M}:${h}`, () => probeTargetModSig(M, h))
-            : hit.tPureBp ? cacheSim(`tbp|${M}:${h}`, () => probeTargetBpSig(M, h))
+          const sig = hit.tOnlyMod && h >= 1 ? cacheSim(`tmod|${M}:${h}`, () => probeTargetModSig(M, h))
+            : hit.tPureBp && h >= 1 ? cacheSim(`tbp|${M}:${h}`, () => probeTargetBpSig(M, h))
               : `raw:${M}:${h}`;
           let idx = tMap.get(sig);
           if (idx === undefined) { idx = uTs.length; tMap.set(sig, idx); uTs.push({ sig, t, M, h }); }
@@ -1926,6 +1941,17 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
       const nSC = uSs.length;
       const nAC = uAs.length;
       const nDC = uDs.length;
+      // What a row is handed: the class's stats and the HP state standing for it.
+      const rowPatches = (uT, uS, uA, uD) => {
+        const sp = { pokemon: source, stats: {} };
+        const tp = { pokemon: target, stats: {} };
+        for (let i = 0; i < aReaders.length; i++) (aReaders[i].who === 'source' ? sp : tp).stats[aReaders[i].key] = uA.vec[i];
+        for (let i = 0; i < dReaders.length; i++) (dReaders[i].who === 'source' ? sp : tp).stats[dReaders[i].key] = uD.vec[i];
+        for (let i = 0; i < xReaders.length; i++) (xReaders[i].who === 'source' ? sp : tp).stats[xReaders[i].key] = uS.xVec[i];
+        if (uT.t) { tp.maxhp = uT.M; tp.hp = uT.h; }
+        if (uS.s && uS.s[0] !== null) { sp.maxhp = uS.s[0]; sp.hp = uS.s[1]; }
+        return [sp, tp];
+      };
       const classRows = new Array(nTC * nSC * nAC * nDC);
       const canSharePost = hit.sPurePre && !hit.modReadsSourceOrStat;
       const pureSourcePost = canSharePost && !xReaders.length && uSs.every(u => !u.sig.startsWith('raw:'));
@@ -1943,13 +1969,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
             for (let di = 0; di < nDC; di++) {
               const uD = uDs[di];
               const row = cacheSim(`r|${uT.sig}|${uS.sig}|${uA.sig}|${uD.sig}`, () => {
-                const sp = { pokemon: source, stats: {} };
-                const tp = { pokemon: target, stats: {} };
-                for (let i = 0; i < aReaders.length; i++) (aReaders[i].who === 'source' ? sp : tp).stats[aReaders[i].key] = uA.vec[i];
-                for (let i = 0; i < dReaders.length; i++) (dReaders[i].who === 'source' ? sp : tp).stats[dReaders[i].key] = uD.vec[i];
-                for (let i = 0; i < xReaders.length; i++) (xReaders[i].who === 'source' ? sp : tp).stats[xReaders[i].key] = uS.xVec[i];
-                if (uT.t) { tp.maxhp = uT.M; tp.hp = uT.h; }
-                if (uS.s && uS.s[0] !== null) { sp.maxhp = uS.s[0]; sp.hp = uS.s[1]; }
+                const [sp, tp] = rowPatches(uT, uS, uA, uD);
                 const out = dryRow(hit, [sp, tp], post || new Map());
                 if (VERIFY_ROWS && post) {
                   const full = dryRow(hit, [sp, tp], new Map());
@@ -1965,6 +1985,27 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
         }
       }
       const tIdxOf = hit.targetHp ? (hp, h) => (tIdxMap.get(hp * HP_BITS + h) ?? -1) : () => 0;
+      // The check of the merged HP states: each state a class stands for, run
+      // in full at its first and last stats, against the class's row.
+      if (VERIFY_ROWS && (nTC < targetStates.length || nSC < hit.sStates.length)) {
+        const tList = hit.targetHp ? targetStates.map(t => ({ t, M: maxHp(T, t[0]), h: t[1] })) : [{ t: null }];
+        for (const tState of tList) {
+          const ti = hit.targetHp ? tIdxOf(tState.t[0], tState.h) : 0;
+          for (let sx = 0; sx < hit.sStates.length; sx++) {
+            const si = sIdxOf[sx];
+            if (uTs[ti].t === tState.t && uSs[si].s === hit.sStates[sx]) continue;
+            const s = hit.sStates[sx];
+            const uS = { s, xVec: xReaders.map(r => r.dep.at(s ? s[r.col] : ownValue(r.dep))) };
+            for (const [ai, di] of [[0, 0], [nAC - 1, nDC - 1]]) {
+              const full = dryRow(hit, rowPatches(tState, uS, uAs[ai], uDs[di]), new Map());
+              const merged = classRows[((ti * nSC + si) * nAC + ai) * nDC + di];
+              if (full.length !== merged.length || full.some((v, i) => v !== merged[i])) {
+                throw new Error(`a merged HP state's damage row differs from its own: ${what}, ${merged.join(',')} against ${full.join(',')}`);
+              }
+            }
+          }
+        }
+      }
       hit.classInfo = { nTC, nSC, nAC, nDC, tIdxOf, sIdxOf, aIdxOf, dIdxOf, classRows };
       hit.rowAt = (a, d, hp, h, si) => {
         const ti = tIdxOf(hp, h);
