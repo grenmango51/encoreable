@@ -2423,7 +2423,7 @@ function restoreSnapshot(snap, subs) {
  */
 async function playThrough(options) {
   const kind = options.from ? 'plays from a turn'
-    : `plays from the start, ${options.stopAt === undefined ? 'through every turn' : options.stopAt === 0 ? 'through the first turn' : 'to a later turn'}`;
+    : `plays from the start, ${options.stopAt === undefined ? `through every turn, ${options.why || 'other'}` : options.stopAt === 0 ? 'through the first turn' : 'to a later turn'}`;
   const before = eventsNow();
   try { return await playThroughOnce(options); } finally {
     count(kind);
@@ -4042,7 +4042,7 @@ async function reconstructOnce({
     return out;
   };
 
-  let run = await playThrough({ ...common, subs });
+  let run = await playThrough({ ...common, why: 'the first', subs });
   // Before judging or dropping handed-in pins on a turn with unseen choices,
   // try its other variants: a choice the replay never showed - a fainted or
   // flinched Pokemon's move - can need another slot once a Speed moves, while
@@ -4070,7 +4070,7 @@ async function reconstructOnce({
         variants[t] = keep;
         break;
       }
-      run = await playThrough({ ...common, subs });
+      run = await playThrough({ ...common, why: 'after a choice advanced', subs });
     }
   }
   const broken = brokenProof(common, run, pins?.proof);
@@ -4084,7 +4084,7 @@ async function reconstructOnce({
     const clearFrom = held ? t + 1 : t;
     forget(clearFrom);
     for (let k = clearFrom; k < variants.length; k++) variants[k] = 0;
-    run = await playThrough({ ...common, subs });
+    run = await playThrough({ ...common, why: 'after clearing a turn', subs });
   }
 
   // Backtracking throws away turns that were already right, on the chance that a
@@ -4449,7 +4449,7 @@ async function reconstructOnce({
         Object.assign(subs, partial.subs);
         Object.assign(subTurn, partial.subTurn);
       }
-      run = await playThrough({ ...common, subs });
+      run = await playThrough({ ...common, why: 'after a carried choice partial', subs });
       remember();
     }
 
@@ -4578,14 +4578,14 @@ async function reconstructOnce({
       }
       if (carried) {
         onProgress(`turn ${t}: a choice made on an earlier turn and carried out here gets it further`);
-        run = await playThrough({ ...common, subs });
+        run = await playThrough({ ...common, why: 'after a carried choice', subs });
         remember();
         continue;
       }
     }
 
     if (solved) {
-      run = await playThrough({ ...common, subs });
+      run = await playThrough({ ...common, why: 'after a turn was solved', subs });
       remember();
       continue;
     }
@@ -4600,7 +4600,7 @@ async function reconstructOnce({
       variants[t] = entering;
       spent[t] = 0;
       forget(t);
-      run = await playThrough({ ...common, subs });
+      run = await playThrough({ ...common, why: 'after a partial exact prefix', subs });
       remember();
       continue;
     }
@@ -4662,7 +4662,7 @@ async function reconstructOnce({
     count(hpFigure ? 'rebuild backtracks over an HP figure' : 'rebuild backtracks over a die');
     for (let i = back + 1; i < variants.length; i++) { variants[i] = 0; spent[i] = 0; }
     const backFrom = eventsNow();
-    run = await playThrough({ ...common, subs });
+    run = await playThrough({ ...common, why: 'after a backtrack', subs });
     count('rebuild backtracks events', eventsNow() - backFrom);
     remember();
   }
@@ -4674,7 +4674,7 @@ async function reconstructOnce({
     Object.keys(subs).forEach(key => delete subs[key]);
     Object.assign(subs, best.subs);
     best.variants.forEach((v, i) => { variants[i] = v; });
-    run = await playThrough({ ...common, subs, tolerant: true });
+    run = await playThrough({ ...common, why: 'the best effort at the end', subs, tolerant: true });
   }
 
   const verifiedThroughTurn = complete ? segments.length - 1 : Math.max(0, (run.diffs[0]?.turn ?? 1) - 1);
