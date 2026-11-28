@@ -4126,6 +4126,13 @@ async function reconstructOnce({
         consider(first.score, first.v, null);
       }
     }
+    // A rebuild given no backtracks is a round's first, cheapest try. When its
+    // best choice for the turn stops on an HP figure no die of it prints, the
+    // likeliest cause is the guessed spreads, which the evidence pass settles
+    // next; the turn's other choices are walked only when a round gets no
+    // further (a search that stops early proves nothing either way).
+    const quick = !solved && maxBacktracks === 0 && /^\|-(damage|heal|sethp)\|/.test(String(firstStopDiff?.expected || ''));
+    if (quick) count('turns handed on after their best choice stopped on an HP figure');
 
     // The dice the search settled under one hidden choice can be the ones
     // another needs: the damage roll found under a substituted move is the roll
@@ -4287,9 +4294,9 @@ async function reconstructOnce({
       return rem;
     };
 
-    while (await rewalk(() => shareOf())) { /* keep advancing while rewalk finds a better variant */ }
+    while (!quick && await rewalk(() => shareOf())) { /* keep advancing while rewalk finds a better variant */ }
 
-    for (const { v, score, rejected } of orderedRanked) {
+    for (const { v, score, rejected } of quick ? [] : orderedRanked) {
       if (solved) break;
       if (searchedVariants.has(v)) continue;
       if (rejected) {
@@ -4311,9 +4318,9 @@ async function reconstructOnce({
     }
     if (!solved && allVariants > maxVariants) common.limits.add('variants');
 
-    while (await rewalk(() => shareOf())) { /* re-check if a later variant settled dice another needs */ }
+    while (!quick && await rewalk(() => shareOf())) { /* re-check if a later variant settled dice another needs */ }
 
-    if (!solved && partial && cappedVariants.has(partial.variant) && spent[t] < maxProbes) {
+    if (!quick && !solved && partial && cappedVariants.has(partial.variant) && spent[t] < maxProbes) {
       variants[t] = partial.variant;
       holdFrom(partial.subs, partial.subTurn);
       const got = await searchVariant(partial.variant, maxProbes - spent[t]);
@@ -4342,7 +4349,7 @@ async function reconstructOnce({
     // since nothing on that turn could tell. So each turn whose stored choice
     // lands here walks its hidden choices again, every die kept, and one that
     // gets this turn further is taken before any die is redrawn.
-    if (!solved && run.diffs[0]?.index !== -1) {
+    if (!quick && !solved && run.diffs[0]?.index !== -1) {
       const from = scoreOf(run, t);
       let carried = false;
       let carryHitProbes = false;
