@@ -1987,7 +1987,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
         count(`source HP states, merging ${how}`, hit.sStates.length);
         count(`source HP classes, merging ${how}`, nSC);
       }
-      bigHit(what, slots, [nTC, nSC, nAC, nDC]);
+      bigHit(unmark(what).what, slots, [nTC, nSC, nAC, nDC]);
       for (let ti = 0; ti < nTC; ti++) {
         const uT = uTs[ti];
         const sharedPost = pureSourcePost ? cacheSim(`post|${uT.sig}`, () => new Map()) : null;

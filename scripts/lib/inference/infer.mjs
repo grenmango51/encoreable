@@ -1369,7 +1369,7 @@ async function inferOnce({
           first = pass;
           if (record) afterFirst = counts();
         }
-        if (!moved) count(`settle ${who} passes that moved nothing`);
+        if (!moved && passes === 1) count(`settle ${who} that changed nothing`);
         if (!moved) break;
         if (passes === 8 * S) limits.add('evidencePasses');
       }

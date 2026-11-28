@@ -4,8 +4,8 @@
  * and `--census` prints it. Each count names a unit of work and, where a
  * shortcut declined, why: damage rows run, the row slots a hit's classes have
  * and how many were computed, the HP states a hit merged into classes or could
- * not, the passes each caller of a settle asked for and how many moved
- * nothing, the probes each turn's dice search spent and whether it solved the
+ * not, the passes each caller of a settle asked for and how many settles
+ * changed nothing at all, the probes each turn's dice search spent and whether it solved the
  * turn, the lines the evidence set aside and why; and the simulator events
  * each kind of work cost. Work that produced nothing, or shortcuts that
  * declined for one reason, show here, where a profile only shows where time
