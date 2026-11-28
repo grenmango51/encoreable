@@ -35,6 +35,7 @@ import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 
 import { battleLines, firstDivergence, illusionStays, unmaskIllusion } from './protocol.mjs';
 import { install, traceOn, markDraws, atLine } from './rng-control.mjs';
+import { count, eventsNow } from './inference/census.mjs';
 
 const require = createRequire(import.meta.url);
 const { Battle, BattleStream, Dex, Teams, toID } = require('pokemon-showdown');
@@ -3551,6 +3552,8 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget, { deferProb
     score = scoreOf(run, t);
   }
 
+  count('turns searched');
+  count(score[0] === Infinity ? 'probes on turns the search solved' : 'probes on turns it left unsolved', probes);
   return {
     solved: score[0] === Infinity,
     rejected: score[0] === -1 || score[1] === -1,
@@ -4588,6 +4591,16 @@ async function reconstructOnce({
  * is the first reading's, the only one handed the proof.
  */
 export async function reconstruct(options) {
+  const from = eventsNow();
+  try {
+    count('rebuilds');
+    return await reconstructAll(options);
+  } finally {
+    count('rebuilds events', eventsNow() - from);
+  }
+}
+
+async function reconstructAll(options) {
   const forced = new Set(options.forced || []);
   const cost = { trials: 0, probes: 0, backtracks: 0, dieBacktracks: 0, limits: [] };
   const once = async (opts) => {

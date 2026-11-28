@@ -38,6 +38,7 @@ import {
 } from './knowledge.mjs';
 import { orderedNatures, usualSpreads } from './usage.mjs';
 import { SURVIVAL, evidencePass } from './evidence.mjs';
+import { clearCensus, count, eventsNow, takeCensus, useEvents } from './census.mjs';
 
 const require = createRequire(import.meta.url);
 const { BattleStream, Dex, TeamValidator, Teams, toID } = require('pokemon-showdown');
@@ -62,6 +63,7 @@ const METER = { events: 0, cpu: 0 };
     };
   }
 }
+useEvents(() => METER.events);
 const threadCpu = () => {
   const used = globalThis.process?.threadCpuUsage?.();
   return used ? (used.user + used.system) / 1e6 : null;
@@ -1283,7 +1285,20 @@ async function inferOnce({
   // on one Speed moves the other.
   const orders = new Map();
   let watched = null;
-  const settle = async (inputLog, knowledge, cache, record = false, learn = false, kept = [], beforeTurn = Infinity) => {
+  // `who` names the caller for the census: a round's evidence, the guess
+  // picker's key or pick, the final reading.
+  const settle = async (inputLog, knowledge, cache, record = false, learn = false, kept = [], beforeTurn = Infinity, who = 'other') => {
+    const settleFrom = eventsNow();
+    try {
+      const out = await settleOnce(inputLog, knowledge, cache, record, learn, kept, beforeTurn, who);
+      count(`settle ${who}`);
+      count(`settle ${who} passes`, out.passes || 0);
+      return out;
+    } finally {
+      count(`settle ${who} events`, eventsNow() - settleFrom);
+    }
+  };
+  const settleOnce = async (inputLog, knowledge, cache, record, learn, kept, beforeTurn, who) => {
     const counts = () => new Map([...knowledge].map(([id, kn]) => [id, spreadsLeft(kn)]));
     const initial = record ? counts() : null;
     let first = null;
@@ -1354,6 +1369,7 @@ async function inferOnce({
           first = pass;
           if (record) afterFirst = counts();
         }
+        if (!moved) count(`settle ${who} passes that moved nothing`);
         if (!moved) break;
         if (passes === 8 * S) limits.add('evidencePasses');
       }
@@ -3280,7 +3296,7 @@ async function inferOnce({
     const evidenceStart = Date.now();
     const passesBefore = work.passes;
     evidenceTurn = Math.max(evidenceTurn, diff?.turn ?? 0);
-    const { seen, lent: lentNow, passes: read, scaffoldOrders, cutoffSpeeds } = await settle(built.inputLog, knowledge, cache, false, true);
+    const { seen, lent: lentNow, passes: read, scaffoldOrders, cutoffSpeeds } = await settle(built.inputLog, knowledge, cache, false, true, [], Infinity, 'round');
     lent = lentNow;
     if (sets.some((team, s) => !known?.[s] && team.some(x => x?.boxes))
       && [...knowledge.values()].some(kn => !kn.known && emptied(kn))) {
@@ -3408,7 +3424,7 @@ async function inferOnce({
                   continue;
                 }
                 tries--;
-                const settled = await settle(built.inputLog, keyed, cache, false, false, keep, beforeTurn);
+                const settled = await settle(built.inputLog, keyed, cache, false, false, keep, beforeTurn, 'picker key');
                 if (!settled.passes) tries++;
                 const flatFixed = FLAT.every(x => aliveOf(pinned.dom[x]).length === 1);
                 entry = { keyed, pinned, flatFixed, blocked: blocks(keyed, n) || isDead(keyed) };
@@ -3428,7 +3444,7 @@ async function inferOnce({
                 }
                 if (blocks(narrowed, n) || isDead(narrowed)) continue;
                 tries--;
-                const settled = await settle(built.inputLog, narrowed, cache, false, false, keep, beforeTurn);
+                const settled = await settle(built.inputLog, narrowed, cache, false, false, keep, beforeTurn, 'picker pick');
                 if (!settled.passes) tries++;
                 if (blocks(narrowed, n) || isDead(narrowed)) continue;
               }
@@ -3486,7 +3502,7 @@ async function inferOnce({
                 continue;
               }
               tries--;
-              const settled = await settle(built.inputLog, keyed, cache, false, false, keep, beforeTurn);
+              const settled = await settle(built.inputLog, keyed, cache, false, false, keep, beforeTurn, 'picker key');
               if (!settled.passes) tries++;
               const flatFixed = FLAT.every(x => aliveOf(pinned.dom[x]).length === 1);
               entry = { keyed, pinned, flatFixed, blocked: blocks(keyed, n) || isDead(keyed) };
@@ -3505,7 +3521,7 @@ async function inferOnce({
             }
             if (blocks(narrowed, n) || isDead(narrowed)) continue;
             tries--;
-            const settled = await settle(built.inputLog, narrowed, cache, false, false, keep, beforeTurn);
+            const settled = await settle(built.inputLog, narrowed, cache, false, false, keep, beforeTurn, 'picker pick');
             if (!settled.passes) tries++;
             if (blocks(narrowed, n) || isDead(narrowed)) continue;
           }
@@ -3789,7 +3805,7 @@ async function inferOnce({
 
   const final = cloneKnowledge(blank);
   watched = final;
-  const result = await settle(built.inputLog, final, new Map(), true);
+  const result = await settle(built.inputLog, final, new Map(), true, false, [], Infinity, 'final');
   const finalOrders = [...new Map(
     [...orders.values(), ...(result.orders || [])]
       .map(o => [`${o.fast}|${o.slow}|${o.strict ? '>' : '>='}|${o.turn}|${o.tf}|${o.ts}`, o]),
@@ -3802,7 +3818,7 @@ async function inferOnce({
   orderSpeeds(final, finalOrders);
   for (const kn of final.values()) tighten(kn);
   if (narrowedFinal && ![...final.values()].some(kn => !kn.known && emptied(kn))) {
-    await settle(built.inputLog, final, new Map(), false);
+    await settle(built.inputLog, final, new Map(), false, false, [], Infinity, 'final');
     orderSpeeds(final, finalOrders);
     for (const kn of final.values()) tighten(kn);
   }
@@ -4182,12 +4198,18 @@ export function combineGames(game, others) {
  * dispatched for it, and `cpu`, its threads' CPU seconds (null where the
  * runtime cannot say), the starts it took from other threads included.
  */
+let inferring = 0;
 export async function inferSpreads(options) {
   const from = meter();
-  const res = await inferOnce(options);
+  // The census counts the outermost inference on this thread, the ones it
+  // runs inside included.
+  if (!inferring++) clearCensus();
+  let res;
+  try { res = await inferOnce(options); } finally { inferring--; }
   const used = since(from);
   if (res?.work) res.work.events = used.events;
   if (res) res.cpu = used.cpu === null ? null : Number(used.cpu.toFixed(2));
+  if (res && !inferring) res.census = takeCensus();
   return res;
 }
 

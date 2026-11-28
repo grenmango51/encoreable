@@ -15,12 +15,13 @@
  *   npm run score -- --mimic-dir <dir>      every game in <dir> as a mimic battle, not the benchmark (a corpus sweep)
  *   npm run score -- --tier problem --mimic-dir <dir> [--why REMOVED,CRASH]   the sweep's problem games (`fixtures/problems.js`)
  *   npm run score -- --tier fast --certify 20   one case in 20 also rebuilt one Stat Point outside every range it kept
+ *   npm run score -- --merge <run.json> --census   a run's census: its work counted by kind, and the biggest hits
  *   npm run score -- --mimic-dir a,b,c --log <file>   one queue over several folders, in that order, each record
  *                                           added to <file> as it ends: run again to go on from where it stopped
  *
  * Flags: --tier quick|fast|full|problem --why <reason>[,<reason>...] --timings <run.json> --only <id>[,<id>...] --views <v>[,<v>...] --threads <n> --budget <n> --certify <n>
  *        --trace --mimic-dir <dir>[,<dir>...] --log <file> --hosts <a,b,...> --remote <command> --out <file> --merge <file>...
- *        --baseline <file> --accept
+ *        --baseline <file> --accept --census
  *
  * A view is who is inferred and from whose screen:
  *   p2@p1           player 2's Stat Points, from player 1's channel (p1 known)
@@ -365,6 +366,8 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
       ...(certified?.outside.length ? { error: `a spread outside what was kept rebuilds the log: ${certified.outside.join(', ')}` } : {}),
       work: { rounds: inf.work.rounds, rebuilds: inf.work.rebuilds, probes: inf.work.probes, passes: inf.work.passes ?? null, events: inf.work.events ?? null },
       cpu: inf.cpu ?? null,
+      // What the inference did, counted by kind (`census.mjs`): never graded.
+      census: inf.census ?? null,
       // Each proof a rebuild was handed that broke under its own dice and
       // choices: the evidence called a turn exact that the simulator plays
       // otherwise. It removes nothing, but it is a bug in what is handed on,
@@ -387,6 +390,36 @@ async function runCase(id, view, { budget = 1, trace = false, mimicDir = null, p
 
 /** The folders of `--mimic-dir`, which may name several, comma-separated. */
 const mimicDirsOf = mimicDir => mimicDir.split(',');
+
+/**
+ * The census of a run (`census.mjs`): every count summed over its cases, the
+ * simulator events of each kind of work as a share of all its events, and the
+ * hits whose row classes span the most slots. Counted work, not time: what to
+ * look at is work that produced nothing, a shortcut declined for one reason
+ * over and over, and a hit far bigger than the rest.
+ */
+function printCensus(records) {
+  const sum = new Map();
+  const hits = [];
+  let events = 0;
+  let counted = 0;
+  for (const r of records) {
+    if (!r.census) continue;
+    counted++;
+    events += r.work?.events || 0;
+    for (const [k, n] of Object.entries(r.census.counts)) sum.set(k, (sum.get(k) || 0) + n);
+    for (const h of r.census.hits) hits.push({ ...h, at: keyOf(r) });
+  }
+  console.log(`\ncensus of ${counted} case(s), ${millions(events)} events in all`);
+  for (const [k, n] of [...sum].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const share = k.endsWith(' events') && events ? `  ${(100 * n / events).toFixed(1).padStart(5)}% of all events` : '';
+    console.log(`  ${k.padEnd(72)} ${n.toLocaleString('en').padStart(16)}${share}`);
+  }
+  console.log('\nthe biggest hits by row slots (target HP x source HP x attack x defence classes)');
+  for (const h of hits.sort((a, b) => b.slots - a.slots).slice(0, 10)) {
+    console.log(`  ${h.slots.toLocaleString('en').padStart(12)}  ${h.dims.join(' x ').padEnd(18)} ${h.at}: ${h.what}`);
+  }
+}
 
 /** Every case of the tier, in list order, then view order. */
 function casesOf({ tier, only, views, mimicDir = null }) {
@@ -982,6 +1015,7 @@ async function main() {
   console.error(`wrote ${out}`);
 
   printGrade(run.records, run.tier);
+  if (flag('--census')) printCensus(run.records);
 
   // A crash proves nothing either way, and a missing share is one: never a pass.
   let failed = run.records.some(r => r.result === 'REMOVED' || r.result === 'CRASH');

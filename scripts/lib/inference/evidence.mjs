@@ -42,6 +42,7 @@ import {
   tieHas, tieWords, valuesOf,
 } from './knowledge.mjs';
 import { attachSpeed } from './speed.mjs';
+import { bigHit, count, costing, eventsNow } from './census.mjs';
 
 const require = createRequire(import.meta.url);
 const { BattleStream, Side, toID } = require('pokemon-showdown');
@@ -266,7 +267,17 @@ async function replayRaw(lines) {
  * Replay one input log and remove every spread the verified part of it rules
  * out. `knowledge` is read, never written; the caller intersects the result.
  */
-export async function evidencePass({ inputLog, observed, channel, knowledge, cache, simCache = cache, record, exact = false, truth = null, beforeTurn = Infinity }) {
+export async function evidencePass(options) {
+  const from = eventsNow();
+  try {
+    return await evidencePassOnce(options);
+  } finally {
+    count('evidence passes');
+    count('evidence passes events', eventsNow() - from);
+  }
+}
+
+async function evidencePassOnce({ inputLog, observed, channel, knowledge, cache, simCache = cache, record, exact = false, truth = null, beforeTurn = Infinity }) {
   const lines = (Array.isArray(inputLog) ? inputLog : String(inputLog).split('\n'))
     .map(l => String(l).trimEnd())
     .filter(l => l.startsWith('>'));
@@ -542,6 +553,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
     const key = `${battle.turn}|${what}|${reason}`;
     if (noted.has(key)) return;
     noted.add(key);
+    count(`set aside: ${String(reason).replace(/\d+/g, 'n')}`);
     checks.push({ turn: battle.turn, what, reason });
   };
 
@@ -915,6 +927,10 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
    * roll re-runs only `modifyDamage`, memoised on the value it is handed.
    */
   function dryRow(hit, patches, post) {
+    count('damage rows run');
+    return costing('damage rows run', () => dryRowOnce(hit, patches, post));
+  }
+  function dryRowOnce(hit, patches, post) {
     return guarded(() => {
       const undoPatch = patchAll(patches);
       let row = null;
@@ -1958,6 +1974,20 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
       // The rows of one target and source state differ only in the stats they
       // are handed, which past the base damage nothing reads (`pairShares`).
       const pairPost = canSharePost || hit.pairShares;
+      const slots = nTC * nSC * nAC * nDC;
+      count('class row slots', slots);
+      count(`modifiers memoised ${pureSourcePost ? 'across source states' : pairPost ? 'per HP class pair' : 'per row'} (slots)`, slots);
+      if (hit.targetHp) {
+        const how = hit.tOnlyMod ? 'by modifier' : hit.tPureBp ? 'by base power' : 'declined: HP read elsewhere';
+        count(`target HP states, merging ${how}`, targetStates.length);
+        count(`target HP classes, merging ${how}`, nTC);
+      }
+      if (hit.sourceHp && !hit.sKeys) {
+        const how = hit.sPurePre ? 'by base power and attack' : 'declined: HP read elsewhere';
+        count(`source HP states, merging ${how}`, hit.sStates.length);
+        count(`source HP classes, merging ${how}`, nSC);
+      }
+      bigHit(what, slots, [nTC, nSC, nAC, nDC]);
       for (let ti = 0; ti < nTC; ti++) {
         const uT = uTs[ti];
         const sharedPost = pureSourcePost ? cacheSim(`post|${uT.sig}`, () => new Map()) : null;
@@ -1969,6 +1999,7 @@ function attachInference(battle, { view, prefix, channel, knowledge, cache, simC
             for (let di = 0; di < nDC; di++) {
               const uD = uDs[di];
               const row = cacheSim(`r|${uT.sig}|${uS.sig}|${uA.sig}|${uD.sig}`, () => {
+                count('class rows computed');
                 const [sp, tp] = rowPatches(uT, uS, uA, uD);
                 const out = dryRow(hit, [sp, tp], post || new Map());
                 if (VERIFY_ROWS && post) {
