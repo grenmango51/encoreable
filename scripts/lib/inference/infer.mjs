@@ -3282,7 +3282,7 @@ async function inferOnce({
       activeSample = roundSample;
       seed = roundSeed;
     }
-    if (level > floor && !budgets[level].resample && reached && past(at, reached)) floor = level;
+    // Experiment: no floor - a level that got further is not kept for later turns.
     reached = at;
     const advanced = !deepest || past(at, deepest);
     if (advanced) deepest = at;
