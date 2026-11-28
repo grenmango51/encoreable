@@ -2281,14 +2281,38 @@ function takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes,
  * after it, the same whether the run starts at turn 0 or here.
  */
 function snapshotFor(common, subs, t) {
-  const snap = t >= 1 ? common.snaps?.get(t) : null;
-  if (!snap) { if (t >= 1) count('snapshots missing for the turn'); return null; }
-  for (let k = 0; k < t; k++) {
-    if ((common.variants[k] || 0) !== snap.variants[k]) { count('snapshots of another choice on an earlier turn'); return null; }
+  const list = t >= 1 ? common.snaps?.get(t) : null;
+  if (!list?.length) {
+    if (t >= 1) count('snapshots missing for the turn');
+    return null;
   }
-  if (pinsBefore(subs, snap.draws) !== snap.pins) { count('snapshots under other dice pinned before the turn'); return null; }
-  count('snapshots used');
-  return snap;
+  let pinsDiffer = false;
+  for (const snap of list) {
+    let same = true;
+    for (let k = 0; k < t; k++) if ((common.variants[k] || 0) !== snap.variants[k]) { same = false; break; }
+    if (!same) continue;
+    if (pinsBefore(subs, snap.draws) !== snap.pins) { pinsDiffer = true; continue; }
+    count('snapshots used');
+    return snap;
+  }
+  count(pinsDiffer ? 'snapshots under other dice pinned before the turn' : 'snapshots of another choice on an earlier turn');
+  return null;
+}
+
+/**
+ * The search goes back and forth between the dice it holds and others - a
+ * variant's and the clean ones it falls back to - so each turn keeps the last
+ * few snapshots, each for the choices and pins before it, newest first: one
+ * kept would be replaced at every switch, and each switch would play the
+ * battle again from its start.
+ */
+const SNAPS_PER_TURN = 4;
+function keepSnapshot(snaps, k, snap) {
+  const key = s => `${s.pins}|${s.variants.join(',')}`;
+  const list = (snaps.get(k) || []).filter(s => key(s) !== key(snap));
+  list.unshift(snap);
+  if (list.length > SNAPS_PER_TURN) list.length = SNAPS_PER_TURN;
+  snaps.set(k, list);
 }
 
 /** A battle rebuilt from a snapshot, with the interceptor where it left off. */
@@ -2411,7 +2435,7 @@ async function playThroughOnce({ header, segments, plans, reseeds, variants, rad
   for (let k = from ? from.turn : 0; k < segments.length; k++) {
     if (snaps && !from && k === stopAt && k >= 1) {
       const snap = takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes, hidden, party, partySides });
-      if (snap) snaps.set(k, snap);
+      if (snap) keepSnapshot(snaps, k, snap);
     }
     markDraws(battle, k);
     at.k = k;
@@ -4381,7 +4405,7 @@ async function reconstructOnce({
       const carrySigOf = (r, k, v) => (k === 0
         ? readSides.map(s => (r.choices || []).find(c => c.turn === 0 && c.side === s)?.choice || '').join('|')
         : String(v));
-      const savedSnap = carriers.length ? common.snaps.get(t) : null;
+      const savedSnap = carriers.length ? (common.snaps.get(t) || []).slice() : null;
       let carrySpent = 0;
       for (const k of carriers) {
         if (carried) break;
