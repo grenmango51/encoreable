@@ -2322,7 +2322,8 @@ function restoreSnapshot(snap, subs) {
  * `tally.plays` counts the run, on the thread the search runs on.
  */
 async function playThrough(options) {
-  const kind = options.from ? 'plays from a turn' : 'plays from the start';
+  const kind = options.from ? 'plays from a turn'
+    : `plays from the start, ${options.stopAt === undefined ? 'through every turn' : options.stopAt === 0 ? 'through the first turn' : 'to a later turn'}`;
   const before = eventsNow();
   try { return await playThroughOnce(options); } finally {
     count(kind);
