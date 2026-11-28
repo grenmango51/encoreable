@@ -2282,9 +2282,13 @@ function takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes,
  */
 function snapshotFor(common, subs, t) {
   const snap = t >= 1 ? common.snaps?.get(t) : null;
-  if (!snap) return null;
-  for (let k = 0; k < t; k++) if ((common.variants[k] || 0) !== snap.variants[k]) return null;
-  return pinsBefore(subs, snap.draws) === snap.pins ? snap : null;
+  if (!snap) { if (t >= 1) count('snapshots missing for the turn'); return null; }
+  for (let k = 0; k < t; k++) {
+    if ((common.variants[k] || 0) !== snap.variants[k]) { count('snapshots of another choice on an earlier turn'); return null; }
+  }
+  if (pinsBefore(subs, snap.draws) !== snap.pins) { count('snapshots under other dice pinned before the turn'); return null; }
+  count('snapshots used');
+  return snap;
 }
 
 /** A battle rebuilt from a snapshot, with the interceptor where it left off. */
