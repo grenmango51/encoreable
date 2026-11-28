@@ -2947,8 +2947,15 @@ function turnFailLogAt(common, t, start, lines, idx, extendMove = true, refused 
  * in the battle, and it is what the emitted `>rng at` line carries.
  */
 async function resolveTurn(...args) {
+  const why = args[6]?.why || 'other';
   const from = eventsNow();
-  try { return await resolveTurnOnce(...args); } finally { count('turn searches events', eventsNow() - from); }
+  try {
+    return await resolveTurnOnce(...args);
+  } finally {
+    count('turn searches events', eventsNow() - from);
+    count(`turn searches, ${why}`);
+    count(`turn searches, ${why} events`, eventsNow() - from);
+  }
 }
 
 async function resolveTurnOnce(t, common, subs, subTurn, sample, budget, { deferProbeLimit = false } = {}) {
@@ -4088,7 +4095,7 @@ async function reconstructOnce({
     const searchVariant = async (v, cap) => {
       const rem = maxProbes - spent[t];
       const slice = cap === undefined ? rem : Math.min(rem, cap);
-      const got = await resolveTurn(t, common, subs, subTurn, sample, slice, { deferProbeLimit: slice < rem });
+      const got = await resolveTurn(t, common, subs, subTurn, sample, slice, { deferProbeLimit: slice < rem, why: 'a variant of the failing turn' });
       spent[t] += got.probes;
       forcedDraws += got.forced;
       if (got.ended === 'probes') { hitProbes = true; cappedVariants.add(v); }
@@ -4387,7 +4394,10 @@ async function reconstructOnce({
             variants[k] = v;
             variants[t] = partial ? partial.variant : entering;
             restoreEntering();
+            const carryFrom = eventsNow();
             let pre = await runTo(common, subs, t);
+            count('carried choices tried');
+            count('carried choices tried events', eventsNow() - carryFrom);
             // The choice can change the dice of the turns it was made on and
             // carried through, not only this one's: a target that left the
             // field before the move began is replaced by a draw
@@ -4397,7 +4407,7 @@ async function reconstructOnce({
             while (pre.badTurn !== null && pre.badTurn >= k && pre.badTurn < t && pre.diffs[0]?.index !== -1 && carrySpent < maxProbes) {
               const bad = pre.badTurn;
               forget(bad);
-              const settled = await resolveTurn(bad, common, subs, subTurn, sample, maxProbes - carrySpent);
+              const settled = await resolveTurn(bad, common, subs, subTurn, sample, maxProbes - carrySpent, { why: 'an earlier turn a carried choice moved' });
               carrySpent += settled.probes;
               forcedDraws += settled.forced;
               if (!settled.solved) break;
@@ -4420,7 +4430,7 @@ async function reconstructOnce({
             const rem = maxProbes - carrySpent;
             const left = cands.length - idx;
             const slice = Math.min(rem, Math.max(16, Math.ceil(rem / left)));
-            const got = await resolveTurn(t, common, subs, subTurn, sample, slice, { deferProbeLimit: slice < rem });
+            const got = await resolveTurn(t, common, subs, subTurn, sample, slice, { deferProbeLimit: slice < rem, why: 'the failing turn under a carried choice' });
             carrySpent += got.probes;
             forcedDraws += got.forced;
             if (got.ended === 'probes') carryHitProbes = true;
