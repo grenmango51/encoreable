@@ -2296,6 +2296,19 @@ function snapshotFor(common, subs, t) {
     return snap;
   }
   count(pinsDiffer ? 'snapshots under other dice pinned before the turn' : 'snapshots of another choice on an earlier turn');
+  if (pinsDiffer) {
+    // Which dice differ, by how far before the turn they were thrown, and
+    // whether the run pins one the snapshot did not, or the other way round.
+    const snap = list[0];
+    const was = new Map(snap.pins ? snap.pins.split(' ').map(x => x.split('=').map(Number)) : []);
+    const now = new Map(Object.keys(subs || {}).map(Number).filter(i => i < snap.draws).map(i => [i, Number(subs[i])]));
+    for (const i of new Set([...was.keys(), ...now.keys()])) {
+      if (was.get(i) === now.get(i)) continue;
+      const far = snap.draws - i;
+      const how = !was.has(i) ? 'pinned now, not then' : !now.has(i) ? 'pinned then, not now' : 'pinned to another face';
+      count(`snapshot pin differences, ${how}, ${far <= 5 ? 'within 5' : far <= 20 ? 'within 20' : far <= 100 ? 'within 100' : 'over 100'} dice before the turn`);
+    }
+  }
   return null;
 }
 
