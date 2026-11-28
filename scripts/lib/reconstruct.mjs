@@ -2321,7 +2321,16 @@ function restoreSnapshot(snap, subs) {
  *
  * `tally.plays` counts the run, on the thread the search runs on.
  */
-async function playThrough({ header, segments, plans, reseeds, variants, radices = null, maxVariants = Infinity, subs, channel, exact, state0, dex, cutEarly = false, stopAt, tolerant, steer = null, snaps = null, from = null, tally = null }) {
+async function playThrough(options) {
+  const kind = options.from ? 'plays from a turn' : 'plays from the start';
+  const before = eventsNow();
+  try { return await playThroughOnce(options); } finally {
+    count(kind);
+    count(`${kind} events`, eventsNow() - before);
+  }
+}
+
+async function playThroughOnce({ header, segments, plans, reseeds, variants, radices = null, maxVariants = Infinity, subs, channel, exact, state0, dex, cutEarly = false, stopAt, tolerant, steer = null, snaps = null, from = null, tally = null }) {
   if (tally) tally.plays++;
   const stream = new BattleStream({ keepAlive: true });
   const sink = [];
@@ -4637,6 +4646,7 @@ async function reconstructAll(options) {
   const forced = new Set(options.forced || []);
   const cost = { trials: 0, probes: 0, backtracks: 0, dieBacktracks: 0, limits: [] };
   const once = async (opts) => {
+    count('rebuild trials');
     const b = await reconstructOnce(opts);
     cost.trials++;
     cost.probes += b.report.attempts;
