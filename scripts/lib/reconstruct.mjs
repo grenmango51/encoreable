@@ -4177,10 +4177,11 @@ async function reconstructOnce({
       prios: run.invisiblePrios?.[t] || [],
     }];
     // A round's first rebuild, given no backtracks, whose turn stops on an HP
-    // figure as first played: the guessed spreads are the likeliest cause, and
+    // figure as first played, with no choice the replay never showed: the
+    // guessed spreads are the likeliest cause, and
     // the evidence pass settles them next. The turn is searched as it was
     // played and the other choices walked only when a round gets no further.
-    const firstTry = maxBacktracks === 0 && /^\|-(damage|heal|sethp)\|/.test(String(run.diffs[0]?.expected || ''));
+    const firstTry = maxBacktracks === 0 && !hasHidden && /^\|-(damage|heal|sethp)\|/.test(String(run.diffs[0]?.expected || ''));
     if (firstTry && turnVariants.length > 1) count('turns searched as first played, their other choices left');
     for (const v of firstTry ? [] : turnVariants) {
       if (solved) break;
