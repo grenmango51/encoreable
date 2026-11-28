@@ -445,6 +445,9 @@ function hook(st, p) {
 					from: from === undefined ? -1 : from,
 					to: to === undefined ? -1 : to,
 					value: out,
+					// What the generator rolled, pinned or not: a pin replaces
+					// the roll but never skips it.
+					real,
 					mark: st.mark,
 					// A chance - `random(d) < n` - has two outcomes whatever d is.
 					chance: st.n !== undefined && st.n !== null,

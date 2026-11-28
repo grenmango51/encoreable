@@ -2225,6 +2225,50 @@ function steerDice(battle, { at, turn, compare, channel, out }) {
 // ------------------------------------------------------------- turn snapshots
 
 /** The pins a snapshot's position depends on: every one addressed before it. */
+/**
+ * Every die thrown before a snapshot: the face it showed, the generator's own
+ * roll and the range a pin must fall in, and the pins it was thrown under. A
+ * pin replaces a roll but never skips it, so the position at a turn's start is
+ * fixed by the faces its earlier dice showed, whatever pinned them: a play
+ * whose pins differ only by dice pinned to the face they would show anyway
+ * starts from the same position. Null where the trace does not hold every die.
+ */
+function diceBefore(st, subs) {
+  const n = st.draws;
+  const trace = st.trace || [];
+  if (trace.length < n) return null;
+  const value = new Int32Array(n);
+  const real = new Int32Array(n);
+  const lo = new Int32Array(n);
+  const hi = new Int32Array(n);
+  for (const row of trace) {
+    if (row.i >= n) continue;
+    if (row.real === undefined) return null;
+    value[row.i] = row.value;
+    real[row.i] = row.real;
+    lo[row.i] = row.to === -1 ? 0 : row.from;
+    hi[row.i] = row.to === -1 ? row.from : row.to;
+  }
+  const pinned = Object.keys(subs || {}).map(Number).filter(i => i < n);
+  return { value, real, lo, hi, pinned };
+}
+
+/** Whether a play under `subs` shows every die before the snapshot as it did. */
+function sameDice(snap, subs) {
+  const dice = snap.dice;
+  if (!dice) return pinsBefore(subs, snap.draws) === snap.pins;
+  const { value, real, lo, hi, pinned } = dice;
+  for (const key of Object.keys(subs || {})) {
+    const i = Number(key);
+    if (i >= snap.draws) continue;
+    const v = Number(subs[key]);
+    // A pin outside its die's range is refused and noted, never applied.
+    if (hi[i] <= lo[i] || v < lo[i] || v >= hi[i] || v !== value[i]) return false;
+  }
+  for (const i of pinned) if (subs?.[i] === undefined && real[i] !== value[i]) return false;
+  return true;
+}
+
 const pinsBefore = (subs, draws) => Object.keys(subs || {})
   .map(Number)
   .filter(i => i < draws)
@@ -2263,6 +2307,7 @@ function takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes,
     reseeds: st.reseeds,
     sinceReseed: st.sinceReseed,
     pins: pinsBefore(subs, st.draws),
+    dice: diceBefore(st, subs),
     variants: variants.slice(0, k).map(v => v || 0),
     logAt,
     starts: starts.slice(0, k),
@@ -2291,7 +2336,7 @@ function snapshotFor(common, subs, t) {
     let same = true;
     for (let k = 0; k < t; k++) if ((common.variants[k] || 0) !== snap.variants[k]) { same = false; break; }
     if (!same) continue;
-    if (pinsBefore(subs, snap.draws) !== snap.pins) { pinsDiffer = true; continue; }
+    if (!sameDice(snap, subs)) { pinsDiffer = true; continue; }
     count('snapshots used');
     return snap;
   }
