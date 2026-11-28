@@ -2249,7 +2249,7 @@ function diceBefore(st, subs) {
     lo[row.i] = row.to === -1 ? 0 : row.from;
     hi[row.i] = row.to === -1 ? row.from : row.to;
   }
-  const pinned = Object.keys(subs || {}).map(Number).filter(i => i < n);
+  const pinned = new Map(Object.keys(subs || {}).map(Number).filter(i => i < n).map(i => [i, Number(subs[i])]));
   return { value, real, lo, hi, pinned };
 }
 
@@ -2262,10 +2262,12 @@ function sameDice(snap, subs) {
     const i = Number(key);
     if (i >= snap.draws) continue;
     const v = Number(subs[key]);
+    // The same pin as then: the same face, however it was applied.
+    if (pinned.get(i) === v) continue;
     // A pin outside its die's range is refused and noted, never applied.
     if (hi[i] <= lo[i] || v < lo[i] || v >= hi[i] || v !== value[i]) return false;
   }
-  for (const i of pinned) if (subs?.[i] === undefined && real[i] !== value[i]) return false;
+  for (const i of pinned.keys()) if (subs?.[i] === undefined && real[i] !== value[i]) return false;
   return true;
 }
 
@@ -2326,19 +2328,31 @@ function takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes,
  * after it, the same whether the run starts at turn 0 or here.
  */
 function snapshotFor(common, subs, t) {
-  const list = t >= 1 ? common.snaps?.get(t) : null;
-  if (!list?.length) {
-    if (t >= 1) count('snapshots missing for the turn');
-    return null;
-  }
+  if (!(t >= 1)) return null;
+  const usable = (snap, at) => {
+    for (let k = 0; k < at; k++) if ((common.variants[k] || 0) !== snap.variants[k]) return 'choice';
+    return sameDice(snap, subs) ? 'yes' : 'dice';
+  };
+  const list = common.snaps?.get(t) || [];
   let pinsDiffer = false;
   for (const snap of list) {
-    let same = true;
-    for (let k = 0; k < t; k++) if ((common.variants[k] || 0) !== snap.variants[k]) { same = false; break; }
-    if (!same) continue;
-    if (!sameDice(snap, subs)) { pinsDiffer = true; continue; }
-    count('snapshots used');
-    return snap;
+    const why = usable(snap, t);
+    if (why === 'yes') { count('snapshots used'); return snap; }
+    if (why === 'dice') pinsDiffer = true;
+  }
+  // None at the turn: the latest earlier turn's that fits, so the play goes
+  // over the few turns between instead of the whole battle.
+  for (let at = t - 1; at >= 1; at--) {
+    for (const snap of common.snaps?.get(at) || []) {
+      if (usable(snap, at) !== 'yes') continue;
+      count('snapshots from an earlier turn used');
+      count('turns played again from an earlier turn\'s snapshot', t - at);
+      return snap;
+    }
+  }
+  if (!list.length) {
+    count('snapshots missing for the turn');
+    return null;
   }
   count(pinsDiffer ? 'snapshots under other dice pinned before the turn' : 'snapshots of another choice on an earlier turn');
   if (pinsDiffer) {
@@ -2491,7 +2505,7 @@ async function playThroughOnce({ header, segments, plans, reseeds, variants, rad
   let logAt = from ? from.logAt : 0;
 
   for (let k = from ? from.turn : 0; k < segments.length; k++) {
-    if (snaps && !from && k === stopAt && k >= 1) {
+    if (snaps && (!from || k > from.turn) && k === stopAt && k >= 1) {
       const snap = takeSnapshot(battle, { k, subs, variants, logAt, starts, widths, notes, hidden, party, partySides });
       if (snap) keepSnapshot(snaps, k, snap);
     }
