@@ -3554,6 +3554,10 @@ async function resolveTurn(t, common, subs, subTurn, sample, budget, { deferProb
 
   count('turns searched');
   count(score[0] === Infinity ? 'probes on turns the search solved' : 'probes on turns it left unsolved', probes);
+  if (score[0] === Infinity && probes) {
+    const within = [1, 4, 16, 40, 75, 150, 600].find(n => probes <= n);
+    count(`turns solved after probing, within ${within ?? 'more than 600'} probes`);
+  }
   return {
     solved: score[0] === Infinity,
     rejected: score[0] === -1 || score[1] === -1,
