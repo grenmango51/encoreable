@@ -2946,7 +2946,12 @@ function turnFailLogAt(common, t, start, lines, idx, extendMove = true, refused 
  * `subs` is mutated: it is the accumulated answer, keyed by the draw's position
  * in the battle, and it is what the emitted `>rng at` line carries.
  */
-async function resolveTurn(t, common, subs, subTurn, sample, budget, { deferProbeLimit = false } = {}) {
+async function resolveTurn(...args) {
+  const from = eventsNow();
+  try { return await resolveTurnOnce(...args); } finally { count('turn searches events', eventsNow() - from); }
+}
+
+async function resolveTurnOnce(t, common, subs, subTurn, sample, budget, { deferProbeLimit = false } = {}) {
   let run = await runTo(common, subs, t, t);
   let score = scoreOf(run, t);
   let forced = 0;
@@ -4059,7 +4064,10 @@ async function reconstructOnce({
       if (v === entering) continue;
       variants[t] = v;
       forget(t);
+      const variantFrom = eventsNow();
       const probe = await runTo(common, subs, t);
+      count('turn variants played');
+      count('turn variants played events', eventsNow() - variantFrom);
       const score = scoreOf(probe, t);
       walked.push({ variant: v, choices: choicesOn(probe, t), score, searched: null });
       if (probe.badTurn === null || probe.badTurn > t) { solved = true; break; }
@@ -4524,8 +4532,11 @@ async function reconstructOnce({
       break;
     }
     onProgress(`turn ${t}: unreachable, redrawing turn ${back}`);
+    count(hpFigure ? 'rebuild backtracks over an HP figure' : 'rebuild backtracks over a die');
     for (let i = back + 1; i < variants.length; i++) { variants[i] = 0; spent[i] = 0; }
+    const backFrom = eventsNow();
     run = await playThrough({ ...common, subs });
+    count('rebuild backtracks events', eventsNow() - backFrom);
     remember();
   }
 
